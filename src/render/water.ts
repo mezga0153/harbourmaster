@@ -126,9 +126,9 @@ const fragmentShader = /* glsl */ `
     float foam = edge * smoothstep(0.3, 0.65, breakup + edge * 0.45);
 
     // Surf: the swell turns white in the last stretch before the beach…
-    float near = 1.0 - smoothstep(0.4, 2.0, d);
+    float near = 1.0 - smoothstep(0.15, 0.9, d);
     float breaking = smoothstep(0.75, 1.0, swellIn(d)) * near;
-    breaking *= smoothstep(0.25, 0.65, noise(vXZ * 1.6 + uTime * 0.2));
+    breaking *= smoothstep(0.35, 0.7, noise(vXZ * 4.0 + uTime * 0.3));
     // …and the backwash leaves a fainter line as it bounces back out.
     float backwash = smoothstep(0.85, 1.0, swellBack(d)) * (1.0 - smoothstep(0.15, 0.9, d)) * 0.45;
     foam = max(foam, max(breaking * 0.9, backwash));

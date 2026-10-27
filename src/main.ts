@@ -1,6 +1,7 @@
 import { h, render } from 'preact';
 import { Input } from './input';
 import type { Command, WorkerMessage } from './protocol';
+import { loadAssets } from './render/assets';
 import { Renderer } from './render/renderer';
 import { GameMap } from './sim/map';
 import { App, type Actions } from './ui/App';
@@ -30,8 +31,15 @@ const actions: Actions = {
 render(h(App, { actions }), hud);
 selection.subscribe((s) => renderer.select(s?.type === 'entity' ? s.id : null));
 
+// Models load in parallel with the worker starting up; messages wait for them.
+const assetsReady = loadAssets();
+let inbox = Promise.resolve();
+
 worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
-  const msg = e.data;
+  inbox = inbox.then(() => assetsReady).then(() => handle(e.data));
+};
+
+function handle(msg: WorkerMessage): void {
   if (msg.type === 'init') {
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;
@@ -56,7 +64,7 @@ worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
     else renderer.showMoney(ev.amount, ev.x, ev.y);
   }
-};
+}
 
 if (import.meta.env.DEV) {
   // Handle for poking at the game from the console or a test driver.

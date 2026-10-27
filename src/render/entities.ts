@@ -31,7 +31,7 @@ export class Entities {
       if (!e) {
         const model =
           v.kind === 'dockhand'
-            ? person()
+            ? person(v.id)
             : v.kind === 'forklift'
               ? forklift()
               : v.kind === 'boat'
@@ -59,7 +59,25 @@ export class Entities {
     }
   }
 
+  private dt = 0;
+  private lastTime = 0;
+
+  /** Cross-fade between walking and standing. */
+  private animate(model: Model, moving: boolean): void {
+    const want = moving ? 'walk' : 'idle';
+    const current = model.root.userData.anim as string | undefined;
+    if (current === want) return;
+    const next = model.actions?.get(want);
+    if (!next) return;
+    const prev = current ? model.actions?.get(current) : undefined;
+    next.reset().play();
+    if (prev) next.crossFadeFrom(prev, 0.2, false);
+    model.root.userData.anim = want;
+  }
+
   update(now: number, time: number): void {
+    this.dt = this.lastTime ? Math.min(0.1, time - this.lastTime) : 0;
+    this.lastTime = time;
     const t = Math.min(1, (now - this.snapTime) / SNAPSHOT_MS);
     for (const [id, e] of this.entries) {
       const cur = e.view;
@@ -84,6 +102,10 @@ export class Entities {
       }
       if (e.model.body && cur.kind === 'dockhand') {
         e.model.body.position.y = cur.moving ? Math.abs(Math.sin(time * 14 + id)) * 0.03 : 0;
+      }
+      if (e.model.mixer) {
+        this.animate(e.model, cur.moving);
+        e.model.mixer.update(this.dt);
       }
       if (e.alert) {
         e.alert.visible = cur.alert;

@@ -13,11 +13,13 @@ import {
   MeshLambertMaterial,
   Quaternion,
   Vector3,
+  type Object3D,
 } from 'three';
 import type { GameMap } from '../sim/map';
 import { hash01 } from '../sim/noise';
 import { Build, Deco, Terrain } from '../sim/types';
 import { C } from './palette';
+import { hasAsset, instanced, ROCKS, TREES, type AssetName } from './assets';
 
 /** How far the scenery continues past the playable map edge, in tiles. */
 export const MARGIN = 40;
@@ -383,6 +385,19 @@ export function buildTrees(map: GameMap): Group {
     }
   }
 
+  const kenney = kenneyScatter(
+    TREES,
+    spots.map((t) => ({
+      x: t.x + 0.5 + (t.v - 0.5) * 0.3,
+      y: TOP[Terrain.Grass],
+      z: t.y + 0.5,
+      yaw: t.v * Math.PI * 2,
+      scale: 0.75 + (t.s - 0.8) * 0.9,
+      pick: hash01(19, t.x, t.y),
+    })),
+  );
+  if (kenney) return kenney;
+
   const trunkGeo = new CylinderGeometry(0.05, 0.07, 0.25, 5);
   trunkGeo.translate(0, 0.125, 0);
   const leafGeo = new ConeGeometry(0.3, 0.7, 6);
@@ -421,8 +436,39 @@ export function buildTrees(map: GameMap): Group {
   return group;
 }
 
+interface Scatter {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  scale: number;
+  /** 0..1, chooses which model variant goes here. */
+  pick: number;
+}
+
+/** Place a mix of Kenney models, or null if they did not load. */
+function kenneyScatter(variants: AssetName[], spots: Scatter[]): Group | null {
+  const available = variants.filter(hasAsset);
+  if (available.length === 0) return null;
+  const byVariant = available.map(() => [] as Matrix4[]);
+  const q = new Quaternion();
+  const p = new Vector3();
+  const s = new Vector3();
+  for (const t of spots) {
+    const k = Math.min(available.length - 1, Math.floor(t.pick * available.length));
+    q.setFromAxisAngle(up, t.yaw);
+    byVariant[k].push(new Matrix4().compose(p.set(t.x, t.y, t.z), q, s.setScalar(t.scale)));
+  }
+  const group = new Group();
+  available.forEach((name, k) => {
+    const part = byVariant[k].length > 0 ? instanced(name, byVariant[k]) : null;
+    if (part) group.add(part);
+  });
+  return group;
+}
+
 /** Low-poly boulders on rock tiles. Rock is static, so this is built once. */
-export function buildRocks(map: GameMap): InstancedMesh {
+export function buildRocks(map: GameMap): Object3D {
   const spots: { x: number; y: number; k: number }[] = [];
   for (let i = 0; i < map.terrain.length; i++) {
     if (map.terrain[i] !== Terrain.Rock) continue;
@@ -431,6 +477,21 @@ export function buildRocks(map: GameMap): InstancedMesh {
     const n = 1 + Math.floor(hash01(21, x, y) * 3);
     for (let k = 0; k < n; k++) spots.push({ x, y, k });
   }
+  const kenney = kenneyScatter(
+    ROCKS,
+    spots.map(({ x, y, k }) => {
+      const r = (o: number) => hash01(31 + k * 7 + o, x, y);
+      return {
+        x: x + 0.2 + r(2) * 0.6,
+        y: TOP[Terrain.Rock],
+        z: y + 0.2 + r(3) * 0.6,
+        yaw: r(5) * 6,
+        scale: k === 0 ? 1.1 + r(1) * 0.5 : 0.6 + r(1) * 0.4,
+        pick: r(9),
+      };
+    }),
+  );
+  if (kenney) return kenney;
   const mesh = new InstancedMesh(
     new DodecahedronGeometry(0.3, 0),
     new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),

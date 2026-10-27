@@ -1,4 +1,13 @@
-import { ExtrudeGeometry, Group, Mesh, Shape, type Object3D } from 'three';
+import {
+  ExtrudeGeometry,
+  Group,
+  Mesh,
+  Shape,
+  type AnimationAction,
+  type AnimationMixer,
+  type Object3D,
+} from 'three';
+import { assetSize, instance, PEOPLE } from './assets';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 
@@ -10,6 +19,38 @@ export interface Model {
   crates: Object3D[];
   /** Parts that bob while walking. */
   body?: Object3D;
+  /** Skinned characters: plays walk/idle animations. */
+  mixer?: AnimationMixer | null;
+  actions?: Map<string, AnimationAction>;
+}
+
+/** Crate slots in a grid over a deck: `cols` along X, `rows` across, `layers` high. */
+function deckCrates(
+  root: Group,
+  size: number,
+  xs: number[],
+  zs: number[],
+  y: number,
+  layers: number,
+): Object3D[] {
+  const out: Object3D[] = [];
+  for (let layer = 0; layer < layers; layer++) {
+    for (const x of xs) {
+      for (const z of zs) {
+        const c = crate(size, x, y + layer * size, z);
+        c.visible = false;
+        root.add(c);
+        out.push(c);
+      }
+    }
+  }
+  return out;
+}
+
+function spread(from: number, to: number, n: number): number[] {
+  return Array.from({ length: n }, (_, k) =>
+    n === 1 ? (from + to) / 2 : from + ((to - from) * k) / (n - 1),
+  );
 }
 
 export function crate(size: number, x = 0, y = 0, z = 0): Group {
@@ -21,7 +62,21 @@ export function crate(size: number, x = 0, y = 0, z = 0): Group {
   return g;
 }
 
-export function person(): Model {
+/** A dockhand: one of the Kenney mini characters, with a crate to carry. */
+export function person(id = 0): Model {
+  const kenney = instance(PEOPLE[id % PEOPLE.length]);
+  if (kenney) {
+    const root = new Group();
+    root.add(kenney.root);
+    const load = crate(0.2, 0.02, 0.44);
+    load.visible = false;
+    root.add(load);
+    return { root, crates: [load], mixer: kenney.mixer, actions: kenney.actions };
+  }
+  return builtinPerson();
+}
+
+function builtinPerson(): Model {
   const root = new Group();
   const body = new Group();
   body.add(box(0.07, 0.15, 0.06, C.trousers, 0, 0, -0.04));
@@ -113,6 +168,22 @@ function coaster(variant: number): Model {
 
 /** Small fishing boat, about two tiles long, or a coaster for shipping lines. */
 export function boat(variant: number, vessel = 'smack'): Model {
+  const name = vessel === 'coaster' ? 'coaster' : 'smack';
+  const kenney = instance(name);
+  const size = assetSize(name);
+  if (kenney && size) {
+    const root = new Group();
+    // Sit a little low so the hull is in the water.
+    kenney.root.position.y = -size.y * 0.18;
+    root.add(kenney.root);
+    const crates =
+      vessel === 'coaster'
+        ? // 24 crates over the open cargo deck, two layers.
+          deckCrates(root, 0.2, spread(-0.75, 0.55, 6), [-0.21, 0, 0.21], size.y * 0.18, 2)
+        : // 16 on the fishing boat's foredeck, two layers.
+          deckCrates(root, 0.17, spread(0.05, 0.62, 4), [-0.11, 0.11], size.y * 0.12, 2);
+    return { root, crates };
+  }
   if (vessel === 'coaster') return coaster(variant);
   const root = new Group();
   const hull = new Mesh(hullGeo, mat(C.hulls[variant % C.hulls.length]));
@@ -145,6 +216,30 @@ export function boat(variant: number, vessel = 'smack'): Model {
 
 /** Flatbed truck: 6 crates in about 0.9 tiles, or a longer 8-crate rig. */
 export function truck(variant: number, capacity: number): Model {
+  const kenney = instance('truck');
+  const size = assetSize('truck');
+  if (kenney && size) {
+    const root = new Group();
+    // Longer chassis for the 8-crate rigs.
+    const stretch = capacity > 6 ? 1.3 : 1;
+    kenney.root.scale.x = stretch;
+    root.add(kenney.root);
+    const len = size.x * stretch;
+    const cols = Math.ceil(capacity / 2);
+    const crates = deckCrates(
+      root,
+      0.17,
+      spread(-len / 2 + 0.12, -len / 2 + 0.12 + (cols - 1) * 0.18, cols),
+      [-0.09, 0.09],
+      size.y * 0.42,
+      1,
+    );
+    return { root, crates };
+  }
+  return builtinTruck(variant, capacity);
+}
+
+function builtinTruck(variant: number, capacity: number): Model {
   const root = new Group();
   const paint = C.trucks[variant % C.trucks.length];
   const columns = Math.ceil(capacity / 2);
