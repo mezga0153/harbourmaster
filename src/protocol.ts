@@ -10,6 +10,7 @@ export type Command =
   | { type: 'bulldoze'; tiles: number[] }
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
+  | { type: 'loan'; amount: number }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }
   | { type: 'setSpeed'; speed: number }
@@ -36,6 +37,19 @@ export interface EntityView {
   /** Most crates it can hold. */
   capacity: number;
 }
+
+export type LedgerCategory =
+  | 'cargo'
+  | 'construction'
+  | 'hiring'
+  | 'wages'
+  | 'hauliers'
+  | 'contracts'
+  | 'penalties'
+  | 'interest';
+
+/** Money in (positive) and out (negative) for one day, by category. */
+export type Ledger = Record<LedgerCategory, number>;
 
 export interface StaffView {
   id: number;
@@ -99,6 +113,11 @@ export interface Snapshot {
   candidates: Candidate[];
   /** Daily haulier fees. */
   contractFees: number;
+  loan: number;
+  /** Interest charged on the loan at the end of today. */
+  interest: number;
+  today: Ledger;
+  yesterday: Ledger | null;
   /** Consecutive days ended in the red; bankrupt at BANKRUPT_DAYS. */
   daysInRed: number;
   bankrupt: boolean;

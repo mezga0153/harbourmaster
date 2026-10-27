@@ -4,6 +4,8 @@ import type {
   Command,
   ContractView,
   EntityView,
+  Ledger,
+  LedgerCategory,
   SimEvent,
   Snapshot,
   StaffView,
@@ -31,7 +33,7 @@ import { Rng } from './rng';
 import { BUILDABLES, bulldozeError, bulldozeValue, placementCost, placementError } from './rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY, type BuildKind } from './types';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -124,6 +126,9 @@ export interface SaveData {
   contracts: Contract[];
   offers: Offer[];
   candidates: Candidate[];
+  loan: number;
+  today: Ledger;
+  yesterday: Ledger | null;
   daysInRed: number;
   bankrupt: boolean;
   map: MapData;
@@ -131,6 +136,19 @@ export interface SaveData {
   boats: Boat[];
   trucks: Truck[];
   bays: Bay[];
+}
+
+function emptyLedger(): Ledger {
+  return {
+    cargo: 0,
+    construction: 0,
+    hiring: 0,
+    wages: 0,
+    hauliers: 0,
+    contracts: 0,
+    penalties: 0,
+    interest: 0,
+  };
 }
 
 function cancelFee(c: Contract): number {
@@ -157,6 +175,9 @@ export class World {
   contracts: Contract[] = [];
   offers: Offer[] = [];
   candidates: Candidate[] = [];
+  loan = 0;
+  today: Ledger = emptyLedger();
+  yesterday: Ledger | null = null;
   /** Consecutive days that ended with negative cash. */
   daysInRed = 0;
   bankrupt = false;
@@ -217,6 +238,8 @@ export class World {
       d.boats.every((b) => Number.isFinite(b.grace) && Number.isFinite(b.fee)) &&
       d.trucks.every((t) => Number.isFinite(t.value) && Number.isFinite(t.capacity)) &&
       Array.isArray(d.candidates) &&
+      Number.isFinite(d.loan) &&
+      !!d.today &&
       d.people.every(
         (p) => Number.isFinite(p.crateFee) && Number.isFinite(p.energy) && Number.isFinite(p.wage),
       ) &&
@@ -235,6 +258,9 @@ export class World {
     world.contracts = s.contracts.map((c) => ({ ...c, terms: { ...c.terms } }));
     world.offers = s.offers.map((o) => ({ ...o, terms: { ...o.terms } }));
     world.candidates = s.candidates.map((c) => ({ ...c }));
+    world.loan = s.loan;
+    world.today = { ...s.today };
+    world.yesterday = s.yesterday ? { ...s.yesterday } : null;
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
     world.people = s.people.map((p) => ({ ...p, path: [...p.path] }));
@@ -257,6 +283,9 @@ export class World {
       contracts: this.contracts,
       offers: this.offers,
       candidates: this.candidates,
+      loan: this.loan,
+      today: this.today,
+      yesterday: this.yesterday,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       map: this.map.toData(),
@@ -281,6 +310,8 @@ export class World {
         return this.hire(cmd.candidateId);
       case 'fire':
         return this.fire(cmd.id);
+      case 'loan':
+        return this.takeLoan(cmd.amount);
       case 'signContract':
         return this.signContract(cmd.id);
       case 'cancelContract':
@@ -310,7 +341,7 @@ export class World {
         firstError ??= 'Not enough money';
         break;
       }
-      this.cash -= cost;
+      this.book('construction', -cost);
       spent += cost;
       this.map.build[i] = def.code;
       this.map.deco[i] = Deco.None;
@@ -345,7 +376,7 @@ export class World {
         lastError = 'Not enough money';
         break;
       }
-      this.cash += value;
+      this.book('construction', value);
       net += value;
       if (this.map.build[i] !== Build.None) {
         if (this.map.build[i] === Build.TruckBay) this.removeBay(i);
@@ -361,11 +392,40 @@ export class World {
     else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
   }
 
+  /** Every change to cash goes through here, so the ledger adds up. */
+  private book(category: LedgerCategory, amount: number): void {
+    this.cash += amount;
+    this.today[category] += amount;
+  }
+
+  private interestDue(): number {
+    return Math.round(this.loan * B.LOAN_DAILY_RATE);
+  }
+
+  /** Positive amounts borrow, negative amounts repay. */
+  private takeLoan(amount: number): void {
+    if (amount > 0) {
+      const room = B.LOAN_MAX - this.loan;
+      const borrow = Math.min(amount, room);
+      if (borrow <= 0) return this.message('The bank will not lend you any more.', 'bad');
+      this.loan += borrow;
+      this.cash += borrow;
+      this.message(`Borrowed $${borrow.toLocaleString('en-US')} from the bank.`, 'info');
+    } else {
+      const repay = Math.min(-amount, this.loan);
+      if (repay <= 0) return;
+      if (this.cash < repay) return this.message('Not enough cash to repay that much.', 'bad');
+      this.loan -= repay;
+      this.cash -= repay;
+      this.message(`Repaid $${repay.toLocaleString('en-US')} of the loan.`, 'good');
+    }
+  }
+
   private hire(candidateId: number): void {
     const c = this.candidates.find((x) => x.id === candidateId);
     if (!c) return this.message('That candidate has taken another job.', 'bad');
     if (this.cash < B.HIRE_FEE) return this.message('Not enough money to hire', 'bad');
-    this.cash -= B.HIRE_FEE;
+    this.book('hiring', -B.HIRE_FEE);
     this.candidates = this.candidates.filter((x) => x !== c);
     const p = this.spawnDockhand(this.map.entry, c);
     this.message(`${p.name} has been hired and is on their way.`, 'good');
@@ -437,7 +497,7 @@ export class World {
     const offer = this.offers.find((o) => o.id === offerId);
     if (!offer) return this.message('That offer is no longer available.', 'bad');
     if (this.cash < offer.signingFee) return this.message('Not enough money to sign', 'bad');
-    this.cash -= offer.signingFee;
+    this.book('contracts', -offer.signingFee);
     this.offers = this.offers.filter((o) => o !== offer);
     // A new fishery sends its first boat soon after signing.
     this.addContract(offer.terms, this.tick + this.rng.int(60, 240), offer.signingFee);
@@ -448,7 +508,7 @@ export class World {
     const c = this.contracts.find((x) => x.id === id);
     if (!c) return;
     const fee = cancelFee(c);
-    this.cash -= fee;
+    this.book('contracts', -fee);
     this.stats.penalties += fee;
     this.contracts = this.contracts.filter((x) => x !== c);
     this.message(
@@ -484,7 +544,7 @@ export class World {
       ((b.anchorTicks + slowTicks) / TICKS_PER_DAY) * B.DEMURRAGE_PER_DAY,
     );
     if (demurrage > 0) {
-      this.cash -= demurrage;
+      this.book('penalties', -demurrage);
       this.stats.penalties += demurrage;
       this.moneyAt(-demurrage, this.tileOf(b));
       if (demurrage >= 20) {
@@ -500,7 +560,7 @@ export class World {
     c.satisfaction = Math.max(0, Math.min(100, c.satisfaction + delta));
     if (c.satisfaction === 0) {
       this.contracts = this.contracts.filter((x) => x !== c);
-      this.cash -= c.signingFee;
+      this.book('penalties', -c.signingFee);
       this.stats.penalties += c.signingFee;
       this.message(
         `${c.terms.name} is fed up with waiting and has walked out, claiming $${c.signingFee} for breach of contract.`,
@@ -630,8 +690,11 @@ export class World {
   private newDay(): void {
     this.checkMorale();
     this.refreshCandidates();
-    const costs = this.wageBill() + this.dailyFees();
-    this.cash -= costs;
+    this.book('wages', -this.wageBill());
+    this.book('hauliers', -this.dailyFees());
+    this.book('interest', -this.interestDue());
+    this.yesterday = this.today;
+    this.today = emptyLedger();
     this.refreshOffers();
     this.adviseOnBays();
     this.capacityCache = null;
@@ -1321,7 +1384,7 @@ export class World {
     }
     if (t.cargo > 0) {
       const income = t.value;
-      this.cash += income;
+      this.book('cargo', income);
       this.stats.earned += income;
       this.stats.trucks++;
       this.moneyAt(income, this.tileOf(t));
@@ -1529,6 +1592,10 @@ export class World {
       people: staff,
       candidates: this.candidates.map((c) => ({ ...c })),
       contractFees: this.dailyFees(),
+      loan: this.loan,
+      interest: this.interestDue(),
+      today: { ...this.today },
+      yesterday: this.yesterday ? { ...this.yesterday } : null,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       stats: { ...this.stats },

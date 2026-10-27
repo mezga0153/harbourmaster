@@ -256,3 +256,32 @@ describe('Staff', () => {
     expect(world.people).not.toContain(p);
   });
 });
+
+describe('Finance', () => {
+  it('borrows, charges interest daily and repays', () => {
+    const world = World.create(7);
+    const before = world.cash;
+    world.command({ type: 'loan', amount: B.LOAN_STEP });
+    expect(world.loan).toBe(B.LOAN_STEP);
+    expect(world.cash).toBe(before + B.LOAN_STEP);
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.yesterday!.interest).toBe(-Math.round(B.LOAN_STEP * B.LOAN_DAILY_RATE));
+    world.command({ type: 'loan', amount: -B.LOAN_STEP });
+    expect(world.loan).toBe(0);
+  });
+
+  it('caps the loan at the bank limit', () => {
+    const world = World.create(7);
+    world.command({ type: 'loan', amount: B.LOAN_MAX * 2 });
+    expect(world.loan).toBe(B.LOAN_MAX);
+  });
+
+  it('records every cash change in the ledger', () => {
+    const world = World.create(7);
+    for (let t = 0; t < TICKS_PER_DAY - 1; t++) world.step();
+    const start = world.cash - Object.values(world.today).reduce((a, b) => a + b, 0);
+    world.step(); // midnight: the day's ledger moves to yesterday
+    const net = Object.values(world.yesterday!).reduce((a, b) => a + b, 0);
+    expect(world.cash).toBe(start + net);
+  });
+});

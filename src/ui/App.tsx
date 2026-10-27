@@ -6,6 +6,7 @@ import { BUILDABLES } from '../sim/rules';
 import { Terrain, type BuildKind } from '../sim/types';
 import { dayProgress, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
+import { FinancePanel } from './Finance';
 import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
 import { TOOL_GROUPS, type ToolDef } from './tools';
@@ -53,6 +54,8 @@ export function App({ actions }: { actions: Actions }) {
         <ContractsPanel actions={actions} />
       ) : panel.value === 'staff' ? (
         <StaffPanel actions={actions} />
+      ) : panel.value === 'finance' ? (
+        <FinancePanel actions={actions} />
       ) : (
         <InfoPanel actions={actions} />
       )}
@@ -95,7 +98,7 @@ function Stat({
 function TopBar({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
-  const costs = s.wages + s.contractFees;
+  const costs = s.wages + s.contractFees + s.interest;
   return (
     <header class="topbar panel">
       <div class="topbar-left">
@@ -106,10 +109,22 @@ function TopBar({ actions }: { actions: Actions }) {
           <span class="brand-name">Harbourmaster</span>
         </div>
         <span class="vr" />
-        <Stat icon="coins" label="Cash" title="Cash in the bank" tone={s.cash < 0 ? 'neg' : 'pos'}>
-          {money(s.cash)}
-        </Stat>
-        <Stat icon="coins" label="Costs / day" title="Daily wages and haulier fees" priority={2}>
+        <button
+          class={`stat-button ${panel.value === 'finance' ? 'on' : ''}`}
+          onClick={() => togglePanel('finance')}
+          title="Finance: loans and daily statement (M)"
+        >
+          <Stat icon="coins" label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
+            {money(s.cash)}
+            {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
+          </Stat>
+        </button>
+        <Stat
+          icon="coins"
+          label="Costs / day"
+          title="Daily wages, haulier fees and loan interest"
+          priority={2}
+        >
           {money(-costs)}
         </Stat>
         <Stat icon="users" label="Staff" title="Dockhands employed" priority={3}>

@@ -52,6 +52,9 @@ export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded har
 export const DEMURRAGE_PER_DAY = 120; // charged for each day a boat is kept waiting
 export const STARTER_BREACH_PENALTY = 300; // when the starter fishery walks out
 export const CANCEL_FEE_SHARE = 0.5; // of the signing fee, when you end a contract
+export const LOAN_STEP = 2500;
+export const LOAN_MAX = 20000;
+export const LOAN_DAILY_RATE = 0.004; // charged on the outstanding loan each day
 export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the port
 
 export const WALK_SPEED = 0.24; // tiles per tick on a footpath

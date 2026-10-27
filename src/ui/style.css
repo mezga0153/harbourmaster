@@ -500,7 +500,7 @@ button:focus-visible {
 
 .side.wide {
   width: min(380px, calc(100vw - 24px));
-  bottom: 104px;
+  max-height: calc(100vh - 180px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
@@ -855,6 +855,62 @@ button:focus-visible {
 .card.person {
   gap: 8px;
   padding: 10px 12px;
+}
+
+.stat-button {
+  border-radius: var(--radius-sm);
+  padding: 3px 8px 3px 4px;
+  margin: -3px -8px -3px -4px;
+  border: 1px solid transparent;
+}
+
+.stat-button:hover,
+.stat-button.on {
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.loan-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger th {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-align: right;
+  padding: 0 0 6px;
+}
+
+.ledger td {
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  text-align: right;
+}
+
+.ledger td:first-child {
+  text-align: left;
+  color: var(--text-2);
+}
+
+.ledger tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--line-strong);
+}
+
+.ledger tfoot td:first-child {
+  color: var(--text);
 }
 
 /* Build dock */
