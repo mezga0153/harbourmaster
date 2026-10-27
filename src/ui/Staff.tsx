@@ -64,7 +64,13 @@ export function StaffDetails({
   if (p.kind === 'forklift') {
     return (
       <>
+        <div class="needs fuel" title="Fuel">
+          <Icon name="fuel" />
+          <Meter value={p.fuel / 100} tone={p.fuel < B.LOW_FUEL ? 'bad' : 'good'} />
+        </div>
         <dl class="props">
+          <dt>Fuel</dt>
+          <dd>{p.fuel}%</dd>
           <dt>Carries</dt>
           <dd>{B.FORKLIFT_CAPACITY} crates a trip</dd>
           <dt>Drives on</dt>
@@ -72,7 +78,7 @@ export function StaffDetails({
           <dt>Operator</dt>
           <dd>{money(p.wage)} / day</dd>
           <dt>Repairs</dt>
-          <dd>{money(B.REPAIR_COST)} per breakdown</dd>
+          <dd>{money(B.REPAIR_COST)} at the depot</dd>
         </dl>
         <div class="actions">
           <button
@@ -160,7 +166,14 @@ function MachineCard({ p, actions }: { p: StaffView; actions: Actions }) {
       <div class="card-head">
         <Icon name="forklift" />
         <strong>{p.name}</strong>
-        {p.broken && <span class="badge bad">Broken down</span>}
+        {p.broken && <span class="badge bad">In for repair</span>}
+      </div>
+      <div class="needs fuel" title="Fuel">
+        <Icon name="fuel" />
+        <Meter
+          value={p.fuel / 100}
+          tone={p.fuel < B.LOW_FUEL ? 'bad' : p.fuel < 50 ? 'ok' : 'good'}
+        />
       </div>
       <div class="card-foot">
         <span class="muted">
@@ -295,8 +308,9 @@ export function StaffPanel({ actions }: { actions: Actions }) {
           {locked && <span class="badge">{TIERS[MACHINE_TIER.forklift].name}</span>}
         </div>
         <p class="muted">
-          Carries {B.FORKLIFT_CAPACITY} crates a trip, never tires, but only drives on quays, paths
-          and roads, not wooden jetties. Breaks down now and then ({money(B.REPAIR_COST)} repair).
+          Carries {B.FORKLIFT_CAPACITY} crates a trip and never tires, but only drives on quays,
+          paths and roads, not wooden jetties. Lives at a forklift depot ({B.DEPOT_SLOTS} per
+          depot), where it refuels and gets repaired.
         </p>
         <div class="card-foot">
           <span class="muted">Operator {money(B.FORKLIFT_WAGE)}/day</span>

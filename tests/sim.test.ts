@@ -334,17 +334,54 @@ describe('Coastal Wharf tier', () => {
     expect(world.cash).toBe(100);
   });
 
-  it('places a bought forklift where you click, on hard ground only', () => {
+  /** Build a forklift depot beside the starting footpath. */
+  function buildDepot(world: World): number {
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'depot', i));
+    world.command({ type: 'build', kind: 'depot', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.Depot);
+    return spot;
+  }
+
+  it('buys forklifts at a depot, three to a depot', () => {
     const world = World.create(7);
     world.tier = 1;
-    const m = world.map;
-    const path = m.build.findIndex((b) => b === Build.Footpath);
-    const grass = m.terrain.findIndex((t, i) => t === Terrain.Grass && m.build[i] === Build.None);
-    world.command({ type: 'buyMachine', kind: 'forklift', tile: grass });
+    world.cash = 50_000;
+    world.command({ type: 'buyMachine', kind: 'forklift' });
     expect(world.people.some((p) => p.kind === 'forklift')).toBe(false);
-    world.command({ type: 'buyMachine', kind: 'forklift', tile: path });
+    const depot = buildDepot(world);
+    for (let k = 0; k < B.DEPOT_SLOTS + 1; k++) {
+      world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    }
+    const forklifts = world.people.filter((p) => p.kind === 'forklift');
+    expect(forklifts).toHaveLength(B.DEPOT_SLOTS);
+    expect(forklifts.every((f) => f.home === depot)).toBe(true);
+  });
+
+  it('sends forklifts home to refuel and to be repaired', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const depot = buildDepot(world);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
     const f = world.people.find((p) => p.kind === 'forklift')!;
-    expect(m.idx(Math.floor(f.x), Math.floor(f.y))).toBe(path);
+    f.fuel = B.LOW_FUEL - 1;
+    let refuelled = false;
+    for (let t = 0; t < 200 && !refuelled; t++) {
+      world.step();
+      refuelled = f.fuel >= 100;
+    }
+    expect(refuelled).toBe(true);
+    f.needsRepair = true;
+    const before = world.cash;
+    let repaired = false;
+    for (let t = 0; t < 400 && !repaired; t++) {
+      world.step();
+      repaired = f.state === 'broken';
+    }
+    expect(repaired).toBe(true);
+    expect(world.map.idx(Math.floor(f.x), Math.floor(f.y))).toBe(depot);
+    expect(world.cash).toBeLessThanOrEqual(before - B.REPAIR_COST);
   });
 
   it('builds quays in deeper water than jetties allow', () => {
@@ -369,6 +406,7 @@ describe('Coastal Wharf tier', () => {
     expect(world.map.build[side]).toBe(Build.Quay);
     world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.JibCrane);
+    buildDepot(world);
     world.command({ type: 'buyMachine', kind: 'forklift' });
     expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(1);
     let craneWorked = false;

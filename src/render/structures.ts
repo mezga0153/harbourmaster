@@ -186,6 +186,31 @@ export class Structures {
         this.cranes.set(i, { slew, hook, stack, angle: 0, target: 0, busy: false });
         return g;
       }
+      case Build.Depot: {
+        // Concrete apron, a garage with its door towards the road, a pump.
+        g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
+        const y = top + 0.05;
+        const door = this.drivableSide(i);
+        const alongX = door.dx === 0;
+        const back = 0.5 - (alongX ? door.dy : door.dx) * 0.18;
+        const [gx, gz] = alongX ? [0.5, back] : [back, 0.5];
+        const [w, d] = alongX ? [0.84, 0.56] : [0.56, 0.84];
+        g.add(box(w, 0.36, d, C.depotWall, gx, y, gz));
+        g.add(box(w + 0.04, 0.04, d + 0.04, C.depotRoof, gx, y + 0.36, gz));
+        const front = alongX ? gz + door.dy * (d / 2) : gx + door.dx * (w / 2);
+        const [dx, dz] = alongX ? [0.5, front] : [front, 0.5];
+        const [dw, dd] = alongX ? [0.46, 0.02] : [0.02, 0.46];
+        g.add(box(dw, 0.28, dd, C.chassis, dx, y, dz));
+        for (let k = 0; k < 4; k++)
+          g.add(box(dw, 0.012, dd + 0.004, C.quayWall, dx, y + 0.04 + k * 0.065, dz));
+        // Hazard stripe across the apron and a red fuel pump.
+        const [sx, sz] = alongX ? [0.5, 0.5 + door.dy * 0.4] : [0.5 + door.dx * 0.4, 0.5];
+        g.add(box(alongX ? 0.9 : 0.05, 0.008, alongX ? 0.05 : 0.9, C.stripe, sx, y, sz));
+        const [px, pz] = alongX ? [0.88, 0.5 + door.dy * 0.3] : [0.5 + door.dx * 0.3, 0.88];
+        g.add(box(0.1, 0.22, 0.08, C.funnel, px, y, pz));
+        g.add(box(0.11, 0.05, 0.09, C.cabin, px, y + 0.16, pz));
+        return g;
+      }
       case Build.BreakHut: {
         // A little timber hut with a red roof and a bench out front.
         g.add(box(1, 0.04, 1, C.path, 0.5, top, 0.5));
@@ -273,6 +298,25 @@ export class Structures {
         ),
       );
     }
+  }
+
+  /** Direction from a tile to a neighbouring drivable surface, for doors. */
+  private drivableSide(i: number): { dx: number; dy: number } {
+    for (const [dx, dy] of [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ]) {
+      const x = this.map.xOf(i) + dx;
+      const y = this.map.yOf(i) + dy;
+      if (!this.map.inBounds(x, y)) continue;
+      const b = this.map.build[this.map.idx(x, y)];
+      if (b === Build.Road || b === Build.Footpath || b === Build.Quay || b === Build.TruckBay) {
+        return { dx, dy };
+      }
+    }
+    return { dx: 0, dy: 1 };
   }
 
   /** Which half of a crane tile faces land, for its landing stack. */

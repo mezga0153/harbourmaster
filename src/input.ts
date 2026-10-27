@@ -150,6 +150,8 @@ export class Input {
     if (ent) selection.value = { type: 'entity', id: ent.id };
     else if (i !== null && snapshot.value?.bays.some((b) => b.idx === i)) {
       selection.value = { type: 'bay', idx: i };
+    } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
+      selection.value = { type: 'depot', idx: i };
     } else selection.value = null;
   }
 

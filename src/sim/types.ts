@@ -14,13 +14,14 @@ export const Build = {
   BreakHut: 5,
   Quay: 6,
   JibCrane: 7,
+  Depot: 8,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
 export const Deco = { None: 0, Tree: 1 } as const;
 
 export type BuildKind =
-  'road' | 'footpath' | 'jetty' | 'truckBay' | 'breakHut' | 'quay' | 'jibCrane';
+  'road' | 'footpath' | 'jetty' | 'truckBay' | 'breakHut' | 'quay' | 'jibCrane' | 'depot';
 
 export type MachineKind = 'forklift';
 

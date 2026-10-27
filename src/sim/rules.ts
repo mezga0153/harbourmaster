@@ -41,6 +41,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Goes on a quay. Lifts crates off moored boats onto the quay. $${B.CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
+  depot: {
+    code: Build.Depot,
+    label: 'Forklift depot',
+    cost: 1200,
+    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. Must touch a road, path or quay`,
+    drag: false,
+  },
   breakHut: {
     code: Build.BreakHut,
     label: 'Break hut',
@@ -119,19 +126,27 @@ export function placementError(
   if (kind === 'truckBay' && !map.neighbors4(i).some((n) => map.build[n] === Build.Road)) {
     return 'A truck bay must touch a road';
   }
+  if (kind === 'depot' && !map.neighbors4(i).some((n) => drivable(map.build[n]))) {
+    return 'A forklift depot must touch a road, path or quay';
+  }
   return null;
 }
 
-/** Forklifts are put down on the hard surfaces they can drive on. */
+/** Hard surfaces a forklift can drive on. */
+export function drivable(code: number): boolean {
+  return (
+    code === Build.Footpath ||
+    code === Build.Quay ||
+    code === Build.JibCrane ||
+    code === Build.Road ||
+    code === Build.TruckBay ||
+    code === Build.Depot
+  );
+}
+
+/** Forklifts are bought at, and live in, a forklift depot. */
 export function machinePlacementError(map: GameMap, i: number): string | null {
-  const b = map.build[i];
-  const paved =
-    b === Build.Footpath ||
-    b === Build.Quay ||
-    b === Build.JibCrane ||
-    b === Build.Road ||
-    b === Build.TruckBay;
-  return paved ? null : 'Put a forklift on a quay, path, road or truck bay';
+  return map.build[i] === Build.Depot ? null : 'Click a forklift depot to buy a forklift there';
 }
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {

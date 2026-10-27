@@ -33,7 +33,7 @@ export const TIERS: Tier[] = [
     contracts: 2,
     unlocks: [
       'Concrete quay, up to 8 m deep',
-      'Forklifts (4 crates a trip)',
+      'Forklifts (4 crates a trip) and forklift depots',
       'Jib cranes',
       'Shipping lines with coasters',
     ],
@@ -66,6 +66,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   breakHut: 0,
   quay: 1,
   jibCrane: 1,
+  depot: 1,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {

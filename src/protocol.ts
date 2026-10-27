@@ -79,6 +79,10 @@ export interface StaffView {
   id: number;
   kind: 'dockhand' | 'forklift';
   broken: boolean;
+  /** Forklifts: 0 to 100. */
+  fuel: number;
+  /** Forklifts: depot tile, or -1. */
+  home: number;
   name: string;
   skill: number;
   trait: Trait | null;
@@ -170,6 +174,7 @@ export interface Snapshot {
   capacity: Capacity;
   progress: TierProgress;
   cranes: CraneView[];
+  depots: { idx: number; forklifts: number }[];
 }
 
 export type SimEvent =

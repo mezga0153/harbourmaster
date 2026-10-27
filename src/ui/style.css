@@ -847,6 +847,10 @@ button:focus-visible {
   display: block;
 }
 
+.needs.fuel {
+  grid-template-columns: auto 1fr;
+}
+
 .thought {
   font-style: italic;
   color: var(--text-2);

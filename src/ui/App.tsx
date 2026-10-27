@@ -259,6 +259,45 @@ function InfoPanel({ actions }: { actions: Actions }) {
   if (!sel || !s) return null;
   const close = () => (selection.value = null);
 
+  if (sel.type === 'depot') {
+    const depot = s.depots.find((d) => d.idx === sel.idx);
+    if (!depot) return null;
+    const fleet = s.people.filter((p) => p.kind === 'forklift' && p.home === sel.idx);
+    return (
+      <aside class="side panel">
+        <InfoHeader kicker="Building" title="Forklift depot" onClose={close} />
+        <p class="muted">
+          Forklifts refuel here, are repaired here and park here when there is nothing to do.
+        </p>
+        <dl class="props">
+          <dt>Forklifts</dt>
+          <dd>
+            {depot.forklifts} / {B.DEPOT_SLOTS}
+          </dd>
+          <dt>Fuel</dt>
+          <dd>{money(B.FUEL_COST)} a full tank</dd>
+          <dt>Repairs</dt>
+          <dd>{money(B.REPAIR_COST)} here, double if stranded</dd>
+        </dl>
+        {fleet.map((f) => (
+          <div class="needs fuel" key={f.id} title={`${f.name}: ${f.activity}`}>
+            <Icon name="fuel" />
+            <Meter value={f.fuel / 100} tone={f.fuel < B.LOW_FUEL ? 'bad' : 'good'} />
+          </div>
+        ))}
+        <div class="actions">
+          <button
+            class="btn primary"
+            disabled={depot.forklifts >= B.DEPOT_SLOTS || s.cash < B.FORKLIFT_PRICE}
+            onClick={() => actions.send({ type: 'buyMachine', kind: 'forklift', tile: sel.idx })}
+          >
+            Buy forklift · {money(B.FORKLIFT_PRICE)}
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   if (sel.type === 'bay') {
     const bay = s.bays.find((b) => b.idx === sel.idx);
     if (!bay) return null;
@@ -286,7 +325,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <span class={`dot ${e.moving ? 'live' : ''}`} />
         {e.activity}
       </p>
-      {e.kind === 'dockhand' && <StaffDetails id={e.id} actions={actions} onDismiss={close} />}
+      {(e.kind === 'dockhand' || e.kind === 'forklift') && (
+        <StaffDetails id={e.id} actions={actions} onDismiss={close} />
+      )}
       {e.kind === 'boat' && (
         <dl class="props">
           <dt>Cargo</dt>
@@ -350,7 +391,7 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   const hint = def
     ? `${def.label}: ${def.hint}`
     : machine
-      ? `Forklift: carries ${B.FORKLIFT_CAPACITY} crates a trip. Put it on a quay, path, road or truck bay. Operator ${money(B.FORKLIFT_WAGE)}/day`
+      ? `Forklift: carries ${B.FORKLIFT_CAPACITY} crates a trip. Click a forklift depot to buy one there. Operator ${money(B.FORKLIFT_WAGE)}/day`
       : t.label;
   const title = locked
     ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`

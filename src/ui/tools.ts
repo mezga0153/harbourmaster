@@ -22,6 +22,7 @@ export const TOOL_GROUPS: ToolDef[][] = [
   [
     { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
     { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
+    { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
     { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },
   ],
   [{ tool: 'bulldoze', icon: 'bulldoze', label: 'Bulldoze', key: 'B', note: 'Clear' }],

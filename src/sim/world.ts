@@ -34,6 +34,7 @@ import {
   BUILDABLES,
   bulldozeError,
   bulldozeValue,
+  drivable,
   machinePlacementError,
   placementCost,
   placementError,
@@ -49,7 +50,7 @@ import {
   type MachineKind,
 } from './types';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -71,7 +72,9 @@ type DockhandState =
   | 'dropping'
   | 'toBreak'
   | 'resting'
-  | 'broken';
+  | 'broken'
+  | 'toDepot'
+  | 'refuelling';
 
 const WORKING: ReadonlySet<DockhandState> = new Set(['toPickup', 'picking', 'toDrop', 'dropping']);
 
@@ -83,6 +86,12 @@ interface Dockhand extends Agent {
   capacity: number;
   /** Forklifts: breaks down at the next idle moment. */
   needsRepair: boolean;
+  /** Forklifts: the depot it lives at, or -1. */
+  home: number;
+  /** Forklifts: 0 to 100. */
+  fuel: number;
+  /** Forklifts: why it is driving to the depot. */
+  depotTask: 'refuel' | 'repair' | 'park' | null;
   /** Ticks spent stuck behind another worker. */
   blocked: number;
   /** Allowed to push into a full tile once, to break a deadlock. */
@@ -231,7 +240,9 @@ const ACTIVITY: Record<DockhandState, string> = {
   dropping: 'Stacking a crate',
   toBreak: 'Off for a break',
   resting: 'On a break',
-  broken: 'Broken down, waiting for the mechanic',
+  broken: 'Being repaired',
+  toDepot: 'Driving to the depot',
+  refuelling: 'Refuelling',
 };
 
 /** Authoritative game state. Runs inside the sim worker and in tests. */
@@ -323,6 +334,7 @@ export class World {
       Number.isFinite(d.tier) &&
       Number.isFinite(d.congestion) &&
       Array.isArray(d.cranes) &&
+      d.people.every((p) => Number.isFinite(p.fuel) && Number.isFinite(p.home)) &&
       d.boats.every((b) => Number.isFinite(b.draft)) &&
       !!d.today &&
       d.people.every(
@@ -1287,6 +1299,9 @@ export class World {
       raiseAsk: 0,
       capacity: 1,
       needsRepair: false,
+      home: -1,
+      fuel: 100,
+      depotTask: null,
       blocked: 0,
       squeeze: false,
       x: this.map.xOf(at) + 0.5,
@@ -1307,22 +1322,35 @@ export class World {
     return p;
   }
 
-  /** Buy a forklift and put it down at `tile`, or at the first truck bay. */
+  private depotRoom(depot: number): number {
+    return B.DEPOT_SLOTS - this.people.filter((q) => q.home === depot).length;
+  }
+
+  /** Buy a forklift at a depot: the one at `tile`, or any with room. */
   private buyMachine(kind: MachineKind, tile?: number): void {
     if (this.tier < MACHINE_TIER[kind]) {
       return this.message(`Forklifts unlock at the ${TIERS[MACHINE_TIER[kind]].name}.`, 'bad');
     }
-    if (tile !== undefined) {
+    let depot = tile ?? -1;
+    if (tile === undefined) {
+      for (let i = 0; i < this.map.build.length && depot < 0; i++) {
+        if (this.map.build[i] === Build.Depot && this.depotRoom(i) > 0) depot = i;
+      }
+      if (depot < 0)
+        return this.message('Build a forklift depot first. Forklifts live there.', 'bad');
+    } else {
       const err =
         tile >= 0 && tile < this.map.build.length
           ? machinePlacementError(this.map, tile)
           : 'Off the map';
       if (err) return this.message(err, 'bad');
     }
+    if (this.depotRoom(depot) <= 0) {
+      return this.message(`That depot is full. Each houses ${B.DEPOT_SLOTS} forklifts.`, 'bad');
+    }
     if (this.cash < B.FORKLIFT_PRICE) return this.message('Not enough money', 'bad');
     this.book('construction', -B.FORKLIFT_PRICE);
-    const at = tile ?? [...this.bays.keys()][0] ?? this.map.entry;
-    const p = this.spawnDockhand(at, {
+    const p = this.spawnDockhand(depot, {
       id: 0,
       name: `Forklift ${this.people.filter((q) => q.kind === 'forklift').length + 1}`,
       skill: 3,
@@ -1331,8 +1359,51 @@ export class World {
     });
     p.kind = 'forklift';
     p.capacity = B.FORKLIFT_CAPACITY;
-    this.moneyAt(-B.FORKLIFT_PRICE, at);
-    this.message('A forklift has arrived. It drives on quays, paths and roads only.', 'good');
+    p.home = depot;
+    this.moneyAt(-B.FORKLIFT_PRICE, depot);
+    this.message('A new forklift is ready at the depot.', 'good');
+  }
+
+  /** Send a forklift home for fuel, repairs or to park. False if it cannot get there. */
+  private goToDepot(p: Dockhand, task: 'refuel' | 'repair' | 'park'): boolean {
+    if (p.home < 0 || this.map.build[p.home] !== Build.Depot) p.home = this.findDepot(p);
+    if (p.home < 0 || !this.headTo(p, p.home)) return false;
+    p.depotTask = task;
+    p.state = 'toDepot';
+    return true;
+  }
+
+  /** A depot with room this forklift can reach, for one whose home is gone. */
+  private findDepot(p: Dockhand): number {
+    for (let i = 0; i < this.map.build.length; i++) {
+      if (this.map.build[i] !== Build.Depot || this.depotRoom(i) <= 0) continue;
+      if (this.pathFor(p, this.tileOf(p), i)) return i;
+    }
+    return -1;
+  }
+
+  private updateForkliftAtRest(p: Dockhand): boolean {
+    if (p.needsRepair) {
+      p.needsRepair = false;
+      p.path = [];
+      if (this.goToDepot(p, 'repair')) {
+        this.message(`${p.name} is limping back to the depot for repairs.`, 'info');
+        return true;
+      }
+      // No depot to reach: a mechanic comes out, at double the price.
+      this.startRepair(p, B.REPAIR_COST * 2);
+      this.message(`${p.name} has broken down with no depot to reach. Mechanic called out.`, 'bad');
+      return true;
+    }
+    if (p.fuel < B.LOW_FUEL && this.goToDepot(p, 'refuel')) return true;
+    return false;
+  }
+
+  private startRepair(p: Dockhand, cost: number): void {
+    p.state = 'broken';
+    p.timer = B.REPAIR_TICKS;
+    this.book('maintenance', -cost);
+    this.moneyAt(-cost, this.tileOf(p));
   }
 
   private walkCost: CostFn = (i) => {
@@ -1343,7 +1414,8 @@ export class World {
       b === Build.TruckBay ||
       b === Build.BreakHut ||
       b === Build.Quay ||
-      b === Build.JibCrane
+      b === Build.JibCrane ||
+      b === Build.Depot
     ) {
       return 1;
     }
@@ -1356,16 +1428,7 @@ export class World {
   };
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
-  private driveCost: CostFn = (i) => {
-    const b = this.map.build[i];
-    return b === Build.Footpath ||
-      b === Build.Quay ||
-      b === Build.JibCrane ||
-      b === Build.Road ||
-      b === Build.TruckBay
-      ? 1
-      : Infinity;
-  };
+  private driveCost: CostFn = (i) => (drivable(this.map.build[i]) ? 1 : Infinity);
 
   private costFor(p: Dockhand): CostFn {
     return p.kind === 'forklift' ? this.driveCost : this.walkCost;
@@ -1382,13 +1445,18 @@ export class World {
     const enter = (i: number) => p.squeeze || this.laneFree(i, laneOf(this.headingTo(p, i)));
     let r: ReturnType<World['move']>;
     if (p.kind === 'forklift') {
-      r = this.move(p, this.driveCost, true, () => B.FORKLIFT_SPEED, enter);
+      // An empty tank still crawls home on the reserve.
+      const speed = p.fuel > 0 ? B.FORKLIFT_SPEED : B.FORKLIFT_SPEED * 0.3;
+      r = this.move(p, this.driveCost, true, () => speed, enter);
     } else {
       const pace = paceFactor(p.skill, p.morale, p.energy);
       r = this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace, enter);
     }
     const after = this.tileOf(p);
     const laneAfter = laneOf(p.dir);
+    if (p.kind === 'forklift' && (r === 'moving' || r === 'arrived')) {
+      p.fuel = Math.max(0, p.fuel - B.FUEL_PER_TICK);
+    }
     if (after !== before || laneAfter !== laneBefore) {
       const old = before * 4 + laneBefore;
       this.occupancy[old] = Math.max(0, this.occupancy[old] - 1);
@@ -1422,7 +1490,7 @@ export class World {
   /** How many workers fit in one lane of a tile. */
   private laneCap(i: number): number {
     const b = this.map.build[i];
-    return b === Build.TruckBay || b === Build.BreakHut ? B.GATHER_CAP : 1;
+    return b === Build.TruckBay || b === Build.BreakHut || b === Build.Depot ? B.GATHER_CAP : 1;
   }
 
   private laneFree(i: number, lane: number): boolean {
@@ -1616,19 +1684,40 @@ export class World {
         }
         return;
       }
-      case 'idle':
-      case 'wander': {
-        if (p.needsRepair) {
-          p.needsRepair = false;
-          p.path = [];
-          p.state = 'broken';
-          p.timer = B.REPAIR_TICKS;
-          this.book('maintenance', -B.REPAIR_COST);
-          this.moneyAt(-B.REPAIR_COST, this.tileOf(p));
-          this.message(`${p.name} has broken down. A mechanic is on the way.`, 'bad');
+      case 'toDepot': {
+        const r = this.walk(p);
+        if (r === 'blocked' || this.map.build[p.home] !== Build.Depot) {
+          p.state = 'idle';
           return;
         }
+        if (r !== 'arrived') return;
+        const task = p.depotTask;
+        p.depotTask = null;
+        if (task === 'repair') this.startRepair(p, B.REPAIR_COST);
+        else if (task === 'refuel') p.state = 'refuelling';
+        else p.state = 'idle';
+        return;
+      }
+      case 'refuelling': {
+        const add = Math.min(B.REFUEL_PER_TICK, 100 - p.fuel);
+        p.fuel += add;
+        this.book('maintenance', -(add / 100) * B.FUEL_COST);
+        if (p.fuel >= 100) p.state = 'idle';
+        return;
+      }
+      case 'idle':
+      case 'wander': {
+        if (p.kind === 'forklift' && this.updateForkliftAtRest(p)) return;
         if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) return;
+        // Idle forklifts go home to park instead of blocking the quay.
+        if (p.kind === 'forklift' && p.state === 'idle') {
+          p.timer++;
+          if (p.timer > B.PARK_AFTER && this.tileOf(p) !== p.home) {
+            p.timer = 0;
+            this.goToDepot(p, 'park');
+          }
+          return;
+        }
         if (p.state === 'wander') {
           const r = this.walk(p);
           if (r === 'arrived' || r === 'blocked') p.state = 'idle';
@@ -2088,6 +2177,16 @@ export class World {
     this.events.push({ kind: 'money', amount, x: this.map.xOf(i) + 0.5, y: this.map.yOf(i) + 0.5 });
   }
 
+  private depotViews(): { idx: number; forklifts: number }[] {
+    const out: { idx: number; forklifts: number }[] = [];
+    for (let i = 0; i < this.map.build.length; i++) {
+      if (this.map.build[i] === Build.Depot) {
+        out.push({ idx: i, forklifts: B.DEPOT_SLOTS - this.depotRoom(i) });
+      }
+    }
+    return out;
+  }
+
   drainEvents(): SimEvent[] {
     const out = this.events;
     this.events = [];
@@ -2127,6 +2226,8 @@ export class World {
         id: p.id,
         kind: p.kind,
         broken: p.state === 'broken',
+        fuel: Math.round(p.fuel),
+        home: p.home,
         name: p.name,
         skill: p.skill,
         trait: p.trait,
@@ -2233,6 +2334,7 @@ export class World {
       bays,
       contracts,
       capacity: this.capacity(),
+      depots: this.depotViews(),
       progress: { tier: this.tier, ...this.tierProgress(), canUpgrade: this.canUpgrade() },
       cranes: [...this.cranes.values()].map((c) => ({
         idx: c.idx,
