@@ -135,6 +135,8 @@ export interface Capacity {
 export interface BayView {
   idx: number;
   stock: number;
+  capacity: number;
+  large: boolean;
   noAccess: boolean;
 }
 

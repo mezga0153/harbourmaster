@@ -1,6 +1,6 @@
 import * as B from './balance';
 import type { GameMap } from './map';
-import { Build, Deco, isDock, Terrain, type BuildCode, type BuildKind } from './types';
+import { Build, Deco, isBay, isDock, Terrain, type BuildCode, type BuildKind } from './types';
 
 export interface Buildable {
   code: BuildCode;
@@ -75,6 +75,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Tired dockhands rest here, ${B.HUT_SLOTS} at a time`,
     drag: false,
   },
+  largeBay: {
+    code: Build.LargeBay,
+    label: 'Large truck bay',
+    cost: 900,
+    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Must touch a public road`,
+    drag: false,
+  },
   truckBay: {
     code: Build.TruckBay,
     label: 'Truck bay',
@@ -143,8 +150,11 @@ export function placementError(
 
   if (t === Terrain.Water) return 'Must be built on land';
   if (t === Terrain.Rock) return 'Rock is in the way';
-  if (kind === 'truckBay' && !map.neighbors4(i).some((n) => map.build[n] === Build.Road)) {
-    return 'A truck bay must touch a road';
+  if (
+    (kind === 'truckBay' || kind === 'largeBay') &&
+    !map.neighbors4(i).some((n) => map.build[n] === Build.Road)
+  ) {
+    return 'A truck bay must touch a public road';
   }
   if (kind === 'depot' && !map.neighbors4(i).some((n) => drivable(map.build[n]))) {
     return 'A forklift depot must touch a port path, forklift lane or quay';
@@ -172,7 +182,7 @@ export function drivable(code: number): boolean {
     code === Build.ForkliftLane ||
     code === Build.Quay ||
     code === Build.JibCrane ||
-    code === Build.TruckBay ||
+    isBay(code) ||
     code === Build.Depot
   );
 }
@@ -184,7 +194,7 @@ export function walkable(code: number): boolean {
     code === Build.Jetty ||
     code === Build.Quay ||
     code === Build.JibCrane ||
-    code === Build.TruckBay ||
+    isBay(code) ||
     code === Build.BreakHut ||
     code === Build.Depot
   );

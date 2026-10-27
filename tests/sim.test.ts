@@ -342,6 +342,48 @@ describe('Coastal Wharf tier', () => {
     return spot;
   }
 
+  it('lets coasters moor only against a quay two tiles wide', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    buildOffice(world);
+    const r = m.yOf(m.entry);
+    let x = 0;
+    while (m.build[m.idx(x + 1, r)] !== Build.None) x++;
+    // One row of quay alongside the jetty: one tile wide.
+    const row1 = [0, 1, 2, 3].map((k) => m.idx(x - k, r - 1));
+    world.command({ type: 'build', kind: 'quay', tiles: row1 });
+    const wideBefore = world.capacity().deepBerths;
+    // A second row behind it makes the quay two wide.
+    const row2 = [0, 1, 2, 3].map((k) => m.idx(x - k, r - 2));
+    world.command({ type: 'build', kind: 'quay', tiles: row2 });
+    world.command({
+      type: 'build',
+      kind: 'quay',
+      tiles: [m.idx(x + 1, r - 1), m.idx(x + 1, r - 2)],
+    });
+    expect(world.capacity().deepBerths).toBeGreaterThan(wideBefore);
+  });
+
+  it('sends big trucks only to large truck bays', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    // Swap the starter haulier for a big-truck one.
+    const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
+    if (h.terms.kind === 'haulier') h.terms.capacity = B.BIG_TRUCK_CAPACITY;
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.stats.trucks).toBe(0);
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'largeBay', i));
+    world.command({ type: 'build', kind: 'largeBay', tiles: [spot] });
+    // Give the large bay something to collect.
+    world.bays.get(spot)!.crates.push(...Array(B.BIG_TRUCK_CAPACITY).fill(20));
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.stats.trucks).toBeGreaterThan(0);
+  });
+
   it('needs a harbour office before boats use a quay', () => {
     const world = World.create(7);
     world.tier = 1;

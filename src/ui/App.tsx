@@ -303,14 +303,18 @@ function InfoPanel({ actions }: { actions: Actions }) {
     if (!bay) return null;
     return (
       <aside class="side panel">
-        <InfoHeader kicker="Building" title="Truck bay" onClose={close} />
+        <InfoHeader
+          kicker="Building"
+          title={bay.large ? 'Large truck bay' : 'Truck bay'}
+          onClose={close}
+        />
         <dl class="props">
           <dt>Crates waiting</dt>
           <dd>
-            {bay.stock} / {B.BAY_CAPACITY}
+            {bay.stock} / {bay.capacity}
           </dd>
         </dl>
-        <Meter value={bay.stock / B.BAY_CAPACITY} />
+        <Meter value={bay.stock / bay.capacity} />
         {bay.noAccess && <p class="note bad">No road connection. Trucks cannot reach this bay.</p>}
       </aside>
     );

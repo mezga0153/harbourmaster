@@ -36,6 +36,7 @@ export const STARTER_HAULIER_FEE = 20; // per day
 export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more crates
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
 export const BAY_CAPACITY = 16;
+export const LARGE_BAY_CAPACITY = 28;
 
 export const BOAT_INTERVAL_DAYS = 1; // starter fishery
 export const BOAT_CRATES_MIN = 8;

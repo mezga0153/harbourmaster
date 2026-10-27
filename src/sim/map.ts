@@ -71,7 +71,13 @@ export class GameMap {
 
   isWalkSurface(i: number): boolean {
     const b = this.build[i];
-    return b === Build.Footpath || b === Build.Jetty || b === Build.TruckBay || b === Build.Road;
+    return (
+      b === Build.Footpath ||
+      b === Build.Jetty ||
+      b === Build.TruckBay ||
+      b === Build.LargeBay ||
+      b === Build.Road
+    );
   }
 
   toData(): MapData {

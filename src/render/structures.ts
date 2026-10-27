@@ -1,7 +1,7 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { Build, isDock } from '../sim/types';
+import { Build, isBay, isDock } from '../sim/types';
 import { crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
@@ -254,8 +254,10 @@ export class Structures {
         g.add(box(0.7, 0.04, 0.12, C.wood, 0.5, top + 0.12, 0.9));
         return g;
       }
-      case Build.TruckBay: {
-        g.add(box(1, 0.06, 1, C.concrete, 0.5, top, 0.5));
+      case Build.TruckBay:
+      case Build.LargeBay: {
+        const large = code === Build.LargeBay;
+        g.add(box(1, 0.06, 1, large ? C.quayTop : C.concrete, 0.5, top, 0.5));
         // Which side the road is on decides where trucks enter and crates sit.
         const roadX = this.is(i, 1, 0, Build.Road) || this.is(i, -1, 0, Build.Road);
         const y = top + 0.06;
@@ -264,14 +266,27 @@ export class Structures {
           g.add(box(w, 0.01, d, C.stripe, x, y, z));
         }
         const crates: Object3D[] = [];
-        for (let layer = 0; layer < 4; layer++) {
-          for (const a of [0.2, 0.4, 0.6, 0.8]) {
-            const [cx, cz] = roadX ? [a, 0.84] : [0.84, a];
-            const c = crate(0.19, cx, y + layer * 0.19, cz);
-            c.visible = false;
-            g.add(c);
-            crates.push(c);
+        // Large bays stack two rows deep, under a canopy.
+        const rows = large ? [0.84, 0.66] : [0.84];
+        for (let layer = 0; layer < (large ? 4 : 4); layer++) {
+          for (const row of rows) {
+            for (const a of [0.2, 0.4, 0.6, 0.8]) {
+              if (crates.length >= (large ? 28 : 16)) break;
+              const [cx, cz] = roadX ? [a, row] : [row, a];
+              const c = crate(0.17, cx, y + layer * 0.17, cz);
+              c.visible = false;
+              g.add(c);
+              crates.push(c);
+            }
           }
+        }
+        if (large) {
+          for (const a of [0.08, 0.92]) {
+            const [cx, cz] = roadX ? [a, 0.92] : [0.92, a];
+            g.add(cyl(0.03, 0.78, C.chassis, cx, y, cz));
+          }
+          const [rx, rz, rw, rd] = roadX ? [0.5, 0.74, 1, 0.48] : [0.74, 0.5, 0.48, 1];
+          g.add(box(rw, 0.04, rd, C.depotRoof, rx, y + 0.78, rz));
         }
         const [px, pz] = roadX ? [0.92, 0.92] : [0.92, 0.08];
         g.add(cyl(0.02, 0.5, C.chassis, px, y, pz));
@@ -341,7 +356,7 @@ export class Structures {
       const y = this.map.yOf(i) + dy;
       if (!this.map.inBounds(x, y)) continue;
       const b = this.map.build[this.map.idx(x, y)];
-      if (b === Build.Road || b === Build.Footpath || b === Build.Quay || b === Build.TruckBay) {
+      if (b === Build.Road || b === Build.Footpath || b === Build.Quay || isBay(b)) {
         return { dx, dy };
       }
     }

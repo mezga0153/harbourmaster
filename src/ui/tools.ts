@@ -23,6 +23,7 @@ export const TOOL_GROUPS: ToolDef[][] = [
   [
     { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
     { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
+    { tool: 'largeBay', icon: 'bigTruck', label: 'Large bay', key: 'X' },
     { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
     { tool: 'forkliftLane', icon: 'lane', label: 'Lane', key: 'Y' },
     { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },

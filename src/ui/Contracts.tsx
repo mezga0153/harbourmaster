@@ -93,13 +93,14 @@ function termRows(t: Terms): [string, ComponentChildren][] {
     return [
       ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
       ['Per truck', `${t.capacity} crates`],
+      ['Needs', t.capacity > B.TRUCK_CAPACITY ? 'Large truck bays' : 'Any truck bay'],
     ];
   }
   return [
     [t.vessel === 'coaster' ? 'A coaster' : 'A boat', `every ${span(t.boatEvery)}`],
     ['Load', `${t.cratesMin}–${t.cratesMax} crates`],
     ['Pays', `${money(t.fee)} a crate`],
-    ['Needs', t.vessel === 'coaster' ? `${B.COASTER_DRAFT} m deep berth` : 'Any berth'],
+    ['Needs', t.vessel === 'coaster' ? `2-wide quay, ${B.COASTER_DRAFT} m` : 'Any berth'],
   ];
 }
 
@@ -305,8 +306,8 @@ function OfferCard({
       checks.push(
         <Check ok={ok}>
           {ok
-            ? `${cap.deepBerths} berth${cap.deepBerths === 1 ? '' : 's'} deep enough (${B.COASTER_DRAFT} m)`
-            : `No berth is ${B.COASTER_DRAFT} m deep. Build a quay into deeper water first`}
+            ? `${cap.deepBerths} coaster berth${cap.deepBerths === 1 ? '' : 's'} (${B.COASTER_DRAFT} m deep, 2-wide quay)`
+            : `No coaster berth yet: needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water`}
         </Check>,
       );
     }

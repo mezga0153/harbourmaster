@@ -161,7 +161,8 @@ export function makeOffer(
   }
 
   const fleet = rng.int(1, 3);
-  const capacity = rng.next() < 0.35 ? B.BIG_TRUCK_CAPACITY : B.TRUCK_CAPACITY;
+  // Big trucks come with the Coastal Wharf, which unlocks large truck bays.
+  const capacity = tier >= 1 && rng.next() < 0.4 ? B.BIG_TRUCK_CAPACITY : B.TRUCK_CAPACITY;
   const perTruck = capacity === B.BIG_TRUCK_CAPACITY ? 30 : 20;
   const terms: HaulierTerms = {
     kind,

@@ -44,6 +44,7 @@ import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
 import {
   Build,
   Deco,
+  isBay,
   isDock,
   Terrain,
   TICKS_PER_DAY,
@@ -168,6 +169,8 @@ interface Truck extends Agent {
 
 interface Bay {
   idx: number;
+  /** Large bays hold more and take the big trucks. */
+  large: boolean;
   /** Fee of each crate waiting here. */
   crates: number[];
   /** Crates being carried here right now. */
@@ -228,6 +231,10 @@ function laneOf(dir: number): number {
   return ((Math.round(dir / (Math.PI / 2)) % 4) + 4) % 4;
 }
 
+function bayCap(b: Bay): number {
+  return b.large ? B.LARGE_BAY_CAPACITY : B.BAY_CAPACITY;
+}
+
 function cancelFee(c: Contract): number {
   return Math.round(c.signingFee * B.CANCEL_FEE_SHARE);
 }
@@ -283,6 +290,7 @@ export class World {
   private dockCache: ReturnType<World['docks']> | null = null;
   private coordinated = new Set<number>();
   private warnedOffice = false;
+  private warnedBigTrucks = false;
   /** Shortest road from the highway to a truck bay; set by capacity(). */
   private roadLen = Infinity;
   private events: SimEvent[] = [];
@@ -302,7 +310,7 @@ export class World {
     const { map, spawn } = generateMap(seed);
     const world = new World(seed, map, new Rng(seed));
     for (let i = 0; i < map.build.length; i++) {
-      if (map.build[i] === Build.TruckBay) world.addBay(i);
+      if (isBay(map.build[i])) world.addBay(i);
     }
     for (let k = 0; k < B.START_DOCKHANDS; k++) {
       world.spawnDockhand(spawn, {
@@ -471,7 +479,7 @@ export class World {
       this.map.build[i] = def.code;
       this.map.deco[i] = Deco.None;
       this.dirty.add(i);
-      if (kind === 'truckBay') this.addBay(i);
+      if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
       if (kind === 'jibCrane') this.addCrane(i);
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
@@ -524,7 +532,7 @@ export class World {
         this.cranes.delete(i);
         this.map.build[i] = Build.Quay;
       } else if (this.map.build[i] !== Build.None) {
-        if (this.map.build[i] === Build.TruckBay) this.removeBay(i);
+        if (isBay(this.map.build[i])) this.removeBay(i);
         this.map.build[i] = Build.None;
       } else if (this.map.deco[i] !== Deco.None) {
         this.map.deco[i] = Deco.None;
@@ -853,7 +861,7 @@ export class World {
       demand: Math.round(demand),
       unloading: Math.round(unloading),
       trucking: this.truckingWith(null),
-      deepBerths: this.berthCount(B.COASTER_DRAFT),
+      deepBerths: this.berthCount(B.COASTER_DRAFT, true),
     };
     return this.capacityCache;
   }
@@ -866,11 +874,13 @@ export class World {
     if (!Number.isFinite(this.roadLen)) return 0;
     const terms = this.hauliers().map((c) => c.terms);
     if (extra) terms.push(extra);
-    // A bay loads one truck at a time, so trucks beyond the bays add nothing.
-    const fleets = terms
-      .flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity))
-      .sort((a, b) => b - a)
-      .slice(0, this.bays.size);
+    // A bay loads one truck at a time, so trucks beyond the bays add nothing,
+    // and big trucks only fit large bays.
+    const trucks = terms.flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity));
+    const large = [...this.bays.values()].filter((b) => b.large).length;
+    const big = trucks.filter((c) => c > B.TRUCK_CAPACITY).slice(0, large);
+    const small = trucks.filter((c) => c <= B.TRUCK_CAPACITY).slice(0, this.bays.size - big.length);
+    const fleets = [...big, ...small];
     let total = 0;
     for (const cap of fleets) {
       const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + cap * 5 + 30;
@@ -1222,7 +1232,22 @@ export class World {
     return this.coordinated.has(i);
   }
 
-  private berthCount(draft: number): number {
+  /**
+   * Big ships moor only against a quay at least two tiles wide: the dock tile
+   * beside the berth and the one behind it, away from the water.
+   */
+  private wideQuay(j: number, berth: number): boolean {
+    const m = this.map;
+    const behind = m.idx(2 * m.xOf(j) - m.xOf(berth), 2 * m.yOf(j) - m.yOf(berth));
+    const quay = (i: number) => isDock(m.build[i]) && m.build[i] !== Build.Jetty;
+    return (
+      quay(j) &&
+      m.inBounds(2 * m.xOf(j) - m.xOf(berth), 2 * m.yOf(j) - m.yOf(berth)) &&
+      quay(behind)
+    );
+  }
+
+  private berthCount(draft: number, wide = false): number {
     const m = this.map;
     const water = this.boatCostFor(draft);
     const chosen: number[][] = [];
@@ -1230,6 +1255,7 @@ export class World {
       if (!this.dockInUse(j)) continue;
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
+        if (wide && !this.wideQuay(j, n)) continue;
         const fp = this.footprint(n, j);
         if (fp && !chosen.some((c) => this.berthsClash(fp, c))) chosen.push(fp);
       }
@@ -1238,7 +1264,11 @@ export class World {
   }
 
   /** Water tiles beside a jetty where a boat can moor, nearest first. */
-  private freeBerths(from: number, draft: number): { berth: number; jetty: number }[] {
+  private freeBerths(
+    from: number,
+    draft: number,
+    wide: boolean,
+  ): { berth: number; jetty: number }[] {
     const water = this.boatCostFor(draft);
     const m = this.map;
     const taken = this.boats
@@ -1249,6 +1279,7 @@ export class World {
       if (!this.dockInUse(j)) continue;
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
+        if (wide && !this.wideQuay(j, n)) continue;
         const fp = this.footprint(n, j);
         if (!fp || taken.some((t) => this.berthsClash(fp, t))) continue;
         // The harbour master sends boats to the best-equipped free berth:
@@ -1268,7 +1299,7 @@ export class World {
 
   private tryBerth(boat: Boat): boolean {
     const from = this.tileOf(boat);
-    for (const c of this.freeBerths(from, boat.draft).slice(0, 6)) {
+    for (const c of this.freeBerths(from, boat.draft, boat.vessel !== 'smack').slice(0, 6)) {
       const path = findPath(
         this.map.w,
         this.map.h,
@@ -1493,7 +1524,7 @@ export class World {
 
   /** Where new staff report for work and lost staff are taken back to. */
   private muster(): number {
-    const bay = [...this.bays.keys()].find((b) => this.map.build[b] === Build.TruckBay);
+    const bay = [...this.bays.keys()].find((b) => isBay(this.map.build[b]));
     if (bay !== undefined) return bay;
     for (let i = 0; i < this.map.build.length; i++) if (walkable(this.map.build[i])) return i;
     return this.map.entry;
@@ -1564,7 +1595,7 @@ export class World {
   /** How many workers fit in one lane of a tile. */
   private laneCap(i: number): number {
     const b = this.map.build[i];
-    return b === Build.TruckBay || b === Build.BreakHut || b === Build.Depot ? B.GATHER_CAP : 1;
+    return isBay(b) || b === Build.BreakHut || b === Build.Depot ? B.GATHER_CAP : 1;
   }
 
   private laneFree(i: number, lane: number): boolean {
@@ -1875,7 +1906,7 @@ export class World {
       const bay = this.bayWithRoom(p, src.tile);
       if (!bay) continue;
       if (!this.headTo(p, src.tile)) continue;
-      const room = B.BAY_CAPACITY - bay.crates.length - bay.incoming;
+      const room = bayCap(bay) - bay.crates.length - bay.incoming;
       const planned = Math.min(p.capacity, src.avail, room);
       if (src.crane) src.crane.reserved += planned;
       if (src.boat) src.boat.reserved += planned;
@@ -1935,7 +1966,7 @@ export class World {
   /** Nearest truck bay with room that this worker can reach from `from`. */
   private bayWithRoom(p: Dockhand, from: number): Bay | null {
     const bays = [...this.bays.values()]
-      .filter((b) => b.crates.length + b.incoming < B.BAY_CAPACITY)
+      .filter((b) => b.crates.length + b.incoming < bayCap(b))
       .sort((a, b) => this.dist(from, a.idx) - this.dist(from, b.idx));
     for (const bay of bays) {
       if (this.pathFor(p, from, bay.idx)) return bay;
@@ -2017,6 +2048,7 @@ export class World {
   private addBay(i: number): void {
     this.bays.set(i, {
       idx: i,
+      large: this.map.build[i] === Build.LargeBay,
       crates: [],
       incoming: 0,
       truckId: -1,
@@ -2049,11 +2081,25 @@ export class World {
       .sort((a, b) => b.crates.length - a.crates.length || a.idx - b.idx);
 
     for (const bay of this.bays.values()) {
-      if (bay.crates.length >= B.BAY_CAPACITY) this.bayFullTicks += 10;
+      if (bay.crates.length >= bayCap(bay)) this.bayFullTicks += 10;
     }
     for (const bay of bays) {
-      const haulier = hauliers.find((h) => (out.get(h.id) ?? 0) < h.terms.fleet);
-      if (!haulier) return;
+      // Big trucks only fit a large bay; small ones use either.
+      const haulier = hauliers.find(
+        (h) =>
+          (out.get(h.id) ?? 0) < h.terms.fleet &&
+          (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY),
+      );
+      if (!haulier) {
+        const stuck = hauliers.some(
+          (h) => h.terms.capacity > B.TRUCK_CAPACITY && (out.get(h.id) ?? 0) < h.terms.fleet,
+        );
+        if (stuck && !this.warnedBigTrucks && ![...this.bays.values()].some((b) => b.large)) {
+          this.warnedBigTrucks = true;
+          this.message('Big trucks need a large truck bay. Build one so they can collect.', 'bad');
+        }
+        continue;
+      }
       const path = findPath(m.w, m.h, m.entry, bay.idx, this.truckCost(bay.idx), false);
       if (!path) {
         if (!bay.noAccess) {
@@ -2341,6 +2387,8 @@ export class World {
     const bays: BayView[] = [...this.bays.values()].map((b) => ({
       idx: b.idx,
       stock: b.crates.length,
+      capacity: bayCap(b),
+      large: b.large,
       noAccess: b.noAccess,
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({

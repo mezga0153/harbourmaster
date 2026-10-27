@@ -17,6 +17,7 @@ export const Build = {
   Depot: 8,
   ForkliftLane: 9,
   Office: 10,
+  LargeBay: 11,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -32,9 +33,15 @@ export type BuildKind =
   | 'jibCrane'
   | 'depot'
   | 'forkliftLane'
-  | 'office';
+  | 'office'
+  | 'largeBay';
 
 export type MachineKind = 'forklift';
+
+/** A truck bay of either size. */
+export function isBay(code: number): boolean {
+  return code === Build.TruckBay || code === Build.LargeBay;
+}
 
 /** Tiles boats can moor alongside. */
 export function isDock(code: number): boolean {

@@ -71,6 +71,14 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M9 9V5h6v4M12 5V2" />
     </>
   ),
+  bigTruck: (
+    <>
+      <path d="M1 6h14v10H1zM15 9h4l3 3v4h-7" />
+      <circle cx="5" cy="17.5" r="1.8" />
+      <circle cx="10" cy="17.5" r="1.8" />
+      <circle cx="18" cy="17.5" r="1.8" />
+    </>
+  ),
   lane: (
     <>
       <path d="M5 3v18M19 3v18" />
