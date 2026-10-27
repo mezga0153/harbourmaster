@@ -36,6 +36,8 @@ export const messages = signal<Message[]>([]);
 export const hover = signal<HoverInfo | null>(null);
 export const preview = signal<Preview | null>(null);
 export const newGameOpen = signal(false);
+/** The build category whose tools are showing above the bar. */
+export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */
 export type PanelName = 'contracts' | 'staff' | 'finance' | 'port';
 export const panel = signal<PanelName | null>(null);

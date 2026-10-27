@@ -12,8 +12,9 @@ import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
-import { TOOL_GROUPS, type ToolDef } from './tools';
+import { BULLDOZE_TOOL, CATEGORIES, SELECT_TOOL, type Category, type ToolDef } from './tools';
 import {
+  openCategory,
   panel,
   togglePanel,
   hover,
@@ -365,7 +366,7 @@ function PreviewTip() {
   if (!p) return null;
   if (p.error) {
     return (
-      <div class="tip preview bad">
+      <div class={`tip preview bad ${openCategory.value ? 'raised' : ''}`}>
         <Icon name="alert" />
         {p.error}
       </div>
@@ -373,7 +374,7 @@ function PreviewTip() {
   }
   if (p.count === 0) return null;
   return (
-    <div class="tip preview">
+    <div class={`tip preview ${openCategory.value ? 'raised' : ''}`}>
       <span class="muted">{p.count === 1 ? '1 tile' : `${p.count} tiles`}</span>
       <strong class={p.value < 0 ? 'neg' : 'pos'}>{money(p.value)}</strong>
     </div>
@@ -434,30 +435,70 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   );
 }
 
-function BuildBar() {
+/** The flyout above the bar with the tools of the open category. */
+function CategoryTray({ cat }: { cat: Category }) {
   const current = tool.value;
   return (
-    <footer class="dock panel">
-      {TOOL_GROUPS.map((group, g) => (
-        <div class="dock-group" key={g}>
-          {group.map((t) => (
-            <ToolButton key={t.tool} t={t} active={current === t.tool} />
-          ))}
-        </div>
-      ))}
-      <div class="dock-group">
-        <button
-          class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
-          onClick={() => togglePanel('staff')}
-          title="Hire and manage dockhands (H)"
-        >
-          <kbd>H</kbd>
-          <Icon name="hire" />
-          <span class="tool-label">Staff</span>
-          <span class="tool-cost">Hire</span>
-        </button>
+    <div class="tray panel" role="toolbar" aria-label={cat.label}>
+      <div class="tray-head">
+        <Icon name={cat.icon} />
+        <span>{cat.label}</span>
       </div>
-    </footer>
+      <div class="tray-tools">
+        {cat.tools.map((t) => (
+          <ToolButton key={t.tool} t={t} active={current === t.tool} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BuildBar() {
+  const current = tool.value;
+  const open = CATEGORIES.find((c) => c.id === openCategory.value);
+  return (
+    <>
+      {open && <CategoryTray cat={open} />}
+      <footer class="dock panel">
+        <div class="dock-group">
+          <ToolButton t={SELECT_TOOL} active={current === 'select'} />
+        </div>
+        <div class="dock-group">
+          {CATEGORIES.map((c) => {
+            const using = c.tools.find((t) => t.tool === current);
+            const isOpen = openCategory.value === c.id;
+            return (
+              <button
+                key={c.id}
+                class={`tool category ${isOpen ? 'open' : ''} ${using ? 'on' : ''}`}
+                onClick={() => (openCategory.value = isOpen ? null : c.id)}
+                aria-expanded={isOpen}
+                title={c.tools.map((t) => t.label).join(', ')}
+              >
+                <Icon name={using?.icon ?? c.icon} />
+                <span class="tool-label">{c.label}</span>
+                <span class="tool-cost">
+                  {using ? using.label : `${c.tools.length} item${c.tools.length === 1 ? '' : 's'}`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div class="dock-group">
+          <ToolButton t={BULLDOZE_TOOL} active={current === 'bulldoze'} />
+          <button
+            class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
+            onClick={() => togglePanel('staff')}
+            title="Hire and manage dockhands (H)"
+          >
+            <kbd>H</kbd>
+            <Icon name="hire" />
+            <span class="tool-label">Staff</span>
+            <span class="tool-cost">Hire</span>
+          </button>
+        </div>
+      </footer>
+    </>
   );
 }
 

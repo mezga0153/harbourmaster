@@ -11,8 +11,17 @@ import {
 } from './sim/rules';
 import { isMachineKind, MACHINES } from './sim/machines';
 import type { BuildKind } from './sim/types';
-import { hover, panel, preview, selection, snapshot, togglePanel, tool } from './ui/store';
-import { TOOL_KEYS } from './ui/tools';
+import {
+  hover,
+  openCategory,
+  panel,
+  preview,
+  selection,
+  snapshot,
+  togglePanel,
+  tool,
+} from './ui/store';
+import { categoryOf, TOOL_KEYS } from './ui/tools';
 
 type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
 
@@ -135,13 +144,19 @@ export class Input {
       tool.value = 'select';
       selection.value = null;
       panel.value = null;
+      openCategory.value = null;
     } else if (k === 'delete' || k === 'backspace') tool.value = 'bulldoze';
     else if (k === 'h') togglePanel('staff');
     else if (k === 'c') togglePanel('contracts');
     else if (k === 'm') togglePanel('finance');
     else if (k === 'p') togglePanel('port');
-    else if (k in TOOL_KEYS) tool.value = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
-    else if (k === '+' || k === '=') this.renderer.cam.zoom(1 / 1.2);
+    else if (k in TOOL_KEYS) {
+      const next = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
+      tool.value = next;
+      // Show the category the shortcut belongs to, as if it had been clicked.
+      const cat = categoryOf(next);
+      if (cat) openCategory.value = cat.id;
+    } else if (k === '+' || k === '=') this.renderer.cam.zoom(1 / 1.2);
     else if (k === '-') this.renderer.cam.zoom(1.2);
   }
 
