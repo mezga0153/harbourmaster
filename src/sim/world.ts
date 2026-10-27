@@ -196,6 +196,10 @@ function emptyLedger(): Ledger {
   };
 }
 
+export function breachPenalty(c: { signingFee: number }): number {
+  return Math.max(B.BREACH_MIN, c.signingFee * B.BREACH_MULTIPLIER);
+}
+
 function cancelFee(c: Contract): number {
   return Math.round(c.signingFee * B.CANCEL_FEE_SHARE);
 }
@@ -266,7 +270,7 @@ export class World {
       });
     }
     world.refreshCandidates();
-    world.addContract(STARTER_FISHERY, 50, B.STARTER_BREACH_PENALTY);
+    world.addContract(STARTER_FISHERY, 50, B.STARTER_SIGNING_FEE);
     world.addContract(STARTER_HAULIER, 0, 0);
     world.addOffer('fishery');
     world.addOffer('fishery');
@@ -663,18 +667,31 @@ export class World {
    * Settle a fishery boat's visit as it leaves. Waiting costs demurrage and
    * goodwill; a fishery with no goodwill left walks out and claims a penalty.
    */
+  private penalty(amount: number, at: number): void {
+    if (amount <= 0) return;
+    this.book('penalties', -amount);
+    this.stats.penalties += amount;
+    this.moneyAt(-amount, at);
+  }
+
   private judgeVisit(b: Boat, gaveUp: boolean): void {
     const slowTicks = Math.max(0, b.mooredTicks - b.grace);
     const demurrage = Math.round(
       ((b.anchorTicks + slowTicks) / TICKS_PER_DAY) * B.DEMURRAGE_PER_DAY,
     );
     if (demurrage > 0) {
-      this.book('penalties', -demurrage);
-      this.stats.penalties += demurrage;
-      this.moneyAt(-demurrage, this.tileOf(b));
-      if (demurrage >= 20) {
-        this.message(`${b.company} charged $${demurrage} for the time their boat waited.`, 'bad');
+      this.penalty(demurrage, this.tileOf(b));
+      if (demurrage >= 30) {
+        this.message(`${b.company} charged $${demurrage} demurrage for waiting.`, 'bad');
       }
+    }
+    if (gaveUp && b.crates > 0) {
+      const claim = Math.round(b.crates * b.fee * B.LOST_CARGO_SHARE);
+      this.penalty(claim, this.tileOf(b));
+      this.message(
+        `A ${b.company} boat gave up and left with ${b.crates} crates. They claim $${claim}.`,
+        'bad',
+      );
     }
 
     const c = this.contracts.find((x) => x.id === b.contractId);
@@ -685,10 +702,10 @@ export class World {
     c.satisfaction = Math.max(0, Math.min(100, c.satisfaction + delta));
     if (c.satisfaction === 0) {
       this.contracts = this.contracts.filter((x) => x !== c);
-      this.book('penalties', -c.signingFee);
-      this.stats.penalties += c.signingFee;
+      const breach = breachPenalty(c);
+      this.penalty(breach, this.tileOf(b));
       this.message(
-        `${c.terms.name} is fed up with waiting and has walked out, claiming $${c.signingFee} for breach of contract.`,
+        `${c.terms.name} has walked out and claims $${breach} for breach of contract.`,
         'bad',
       );
     } else if (c.satisfaction < 25 && !c.warned) {
@@ -1139,10 +1156,7 @@ export class World {
   private updateBoat(b: Boat): void {
     if (b.state === 'anchored' || b.state === 'moored') {
       if (b.anchorTicks + b.mooredTicks > B.BOAT_GIVE_UP_TICKS && b.crates > 0) {
-        this.message(
-          `A ${b.company} boat gave up waiting and left with ${b.crates} crates.`,
-          'bad',
-        );
+        // The claim message in judgeVisit explains what happened.
         return this.depart(b, true);
       }
     }

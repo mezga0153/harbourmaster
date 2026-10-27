@@ -52,11 +52,16 @@ export const MOORED_GRACE_TICKS = 40; // plus MOORED_TICKS_PER_CRATE for each cr
 export const MOORED_TICKS_PER_CRATE = 90; // about one dockhand's pace
 export const MOORED_PENALTY_TICKS = 60;
 export const BOAT_GIVE_UP_TICKS = 900; // a boat kept this long leaves with its cargo
-export const GAVE_UP_PENALTY = 10;
-export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded harbour // extra satisfaction lost when that happens
-export const DEMURRAGE_PER_DAY = 120; // charged for each day a boat is kept waiting
-export const STARTER_BREACH_PENALTY = 300; // when the starter fishery walks out
-export const CANCEL_FEE_SHARE = 0.5; // of the signing fee, when you end a contract
+export const GAVE_UP_PENALTY = 10; // extra satisfaction lost when a boat leaves full
+export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded harbour
+
+// Money penalties. See the Contracts panel for how they are explained.
+export const DEMURRAGE_PER_DAY = 300; // per boat, for each day it is kept waiting
+export const LOST_CARGO_SHARE = 1; // of the cargo value, when a boat leaves still loaded
+export const BREACH_MULTIPLIER = 2; // a walk-out costs this many times the signing fee…
+export const BREACH_MIN = 1000; // …and never less than this
+export const STARTER_SIGNING_FEE = 400; // nominal fee for the contract you start with
+export const CANCEL_FEE_SHARE = 1; // of the signing fee, when you end a contract yourself
 export const LOAN_STEP = 2500;
 export const LOAN_MAX = 20000;
 export const LOAN_DAILY_RATE = 0.004; // charged on the outstanding loan each day
