@@ -31,9 +31,18 @@ import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trai
 import { findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import { BUILDABLES, bulldozeError, bulldozeValue, placementCost, placementError } from './rules';
-import { Build, Deco, Terrain, TICKS_PER_DAY, type BuildKind } from './types';
+import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
+import {
+  Build,
+  Deco,
+  isDock,
+  Terrain,
+  TICKS_PER_DAY,
+  type BuildKind,
+  type MachineKind,
+} from './types';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -47,12 +56,26 @@ interface Agent {
 }
 
 type DockhandState =
-  'idle' | 'wander' | 'toPickup' | 'picking' | 'toDrop' | 'dropping' | 'toBreak' | 'resting';
+  | 'idle'
+  | 'wander'
+  | 'toPickup'
+  | 'picking'
+  | 'toDrop'
+  | 'dropping'
+  | 'toBreak'
+  | 'resting'
+  | 'broken';
 
 const WORKING: ReadonlySet<DockhandState> = new Set(['toPickup', 'picking', 'toDrop', 'dropping']);
 
+/** A worker that moves crates: a dockhand on foot or a forklift. */
 interface Dockhand extends Agent {
+  kind: 'dockhand' | 'forklift';
   name: string;
+  /** Crates per trip. */
+  capacity: number;
+  /** Forklifts: breaks down at the next idle moment. */
+  needsRepair: boolean;
   skill: number;
   trait: Trait | null;
   wage: number;
@@ -66,15 +89,32 @@ interface Dockhand extends Agent {
   state: DockhandState;
   timer: number;
   carrying: number;
-  /** What the carried crate pays when it leaves on a truck. */
-  crateFee: number;
+  /** What each carried crate pays when it leaves on a truck. */
+  cargoFees: number[];
+  /** Crates reserved at the source and the bay for the current trip. */
+  planned: number;
   boatId: number;
+  /** Crane landing stack being collected from, or -1. */
+  craneIdx: number;
   bayIdx: number;
+}
+
+interface Crane {
+  idx: number;
+  /** Fees of the crates on the landing stack. */
+  stack: number[];
+  reserved: number;
+  timer: number;
+  angle: number;
+  busy: boolean;
 }
 
 interface Boat extends Agent {
   /** Sails in to the anchorage, waits there if needed, then moors at a jetty. */
   state: 'approaching' | 'anchored' | 'arriving' | 'moored' | 'leaving';
+  vessel: 'smack' | 'coaster';
+  /** Water depth needed, in metres. */
+  draft: number;
   contractId: number;
   company: string;
   fee: number;
@@ -128,6 +168,8 @@ export interface SaveData {
   contracts: Contract[];
   offers: Offer[];
   candidates: Candidate[];
+  cranes: Crane[];
+  tier: number;
   loan: number;
   today: Ledger;
   yesterday: Ledger | null;
@@ -149,6 +191,7 @@ function emptyLedger(): Ledger {
     hauliers: 0,
     contracts: 0,
     penalties: 0,
+    maintenance: 0,
     interest: 0,
   };
 }
@@ -166,6 +209,7 @@ const ACTIVITY: Record<DockhandState, string> = {
   dropping: 'Stacking a crate',
   toBreak: 'Off for a break',
   resting: 'On a break',
+  broken: 'Broken down, waiting for the mechanic',
 };
 
 /** Authoritative game state. Runs inside the sim worker and in tests. */
@@ -177,6 +221,9 @@ export class World {
   contracts: Contract[] = [];
   offers: Offer[] = [];
   candidates: Candidate[] = [];
+  cranes = new Map<number, Crane>();
+  /** Index into TIERS. */
+  tier = 0;
   loan = 0;
   today: Ledger = emptyLedger();
   yesterday: Ledger | null = null;
@@ -241,10 +288,13 @@ export class World {
       d.trucks.every((t) => Number.isFinite(t.value) && Number.isFinite(t.capacity)) &&
       Array.isArray(d.candidates) &&
       Number.isFinite(d.loan) &&
+      Number.isFinite(d.tier) &&
+      Array.isArray(d.cranes) &&
+      d.boats.every((b) => Number.isFinite(b.draft)) &&
       !!d.today &&
       d.people.every(
         (p) =>
-          Number.isFinite(p.crateFee) &&
+          Array.isArray(p.cargoFees) &&
           Number.isFinite(p.energy) &&
           Number.isFinite(p.wage) &&
           Number.isFinite(p.raiseAsk),
@@ -265,11 +315,13 @@ export class World {
     world.offers = s.offers.map((o) => ({ ...o, terms: { ...o.terms } }));
     world.candidates = s.candidates.map((c) => ({ ...c }));
     world.loan = s.loan;
+    world.tier = s.tier;
+    for (const c of s.cranes) world.cranes.set(c.idx, { ...c, stack: [...c.stack] });
     world.today = { ...s.today };
     world.yesterday = s.yesterday ? { ...s.yesterday } : null;
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
-    world.people = s.people.map((p) => ({ ...p, path: [...p.path] }));
+    world.people = s.people.map((p) => ({ ...p, path: [...p.path], cargoFees: [...p.cargoFees] }));
     world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
     world.trucks = s.trucks.map((t) => ({ ...t, path: [...t.path] }));
     for (const bay of s.bays) world.bays.set(bay.idx, { ...bay, crates: [...bay.crates] });
@@ -289,6 +341,8 @@ export class World {
       contracts: this.contracts,
       offers: this.offers,
       candidates: this.candidates,
+      cranes: [...this.cranes.values()],
+      tier: this.tier,
       loan: this.loan,
       today: this.today,
       yesterday: this.yesterday,
@@ -318,6 +372,10 @@ export class World {
         return this.fire(cmd.id);
       case 'loan':
         return this.takeLoan(cmd.amount);
+      case 'upgrade':
+        return this.upgrade();
+      case 'buyMachine':
+        return this.buyMachine(cmd.kind);
       case 'raise':
         return this.answerRaise(cmd.id, cmd.accept);
       case 'signContract':
@@ -335,6 +393,9 @@ export class World {
 
   private build(kind: BuildKind, tiles: number[]): void {
     const def = BUILDABLES[kind];
+    if (BUILD_TIER[kind] > this.tier) {
+      return this.message(`${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
+    }
     let spent = 0;
     let firstError: string | null = null;
     for (const i of tiles) {
@@ -355,6 +416,7 @@ export class World {
       this.map.deco[i] = Deco.None;
       this.dirty.add(i);
       if (kind === 'truckBay') this.addBay(i);
+      if (kind === 'jibCrane') this.addCrane(i);
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     else if (firstError) this.message(firstError, 'bad');
@@ -372,8 +434,8 @@ export class World {
     for (const i of tiles) {
       if (i < 0 || i >= this.map.build.length) continue;
       let err = bulldozeError(this.map, i);
-      if (!err && this.map.build[i] === Build.Jetty && this.boats.some((b) => b.jetty === i)) {
-        err = 'A boat is using this jetty';
+      if (!err && isDock(this.map.build[i]) && this.boats.some((b) => b.jetty === i)) {
+        err = 'A boat is moored here';
       }
       if (err) {
         lastError = err;
@@ -386,7 +448,11 @@ export class World {
       }
       this.book('construction', value);
       net += value;
-      if (this.map.build[i] !== Build.None) {
+      if (this.map.build[i] === Build.JibCrane) {
+        // Taking down a crane leaves the quay it stood on.
+        this.cranes.delete(i);
+        this.map.build[i] = Build.Quay;
+      } else if (this.map.build[i] !== Build.None) {
         if (this.map.build[i] === Build.TruckBay) this.removeBay(i);
         this.map.build[i] = Build.None;
       } else if (this.map.deco[i] !== Deco.None) {
@@ -429,6 +495,32 @@ export class World {
     }
   }
 
+  private tierProgress(): { crates: number; contracts: number } {
+    return { crates: this.stats.cratesHandled, contracts: this.fisheries().length };
+  }
+
+  canUpgrade(): boolean {
+    const next = TIERS[this.tier + 1];
+    if (!next || next.comingSoon) return false;
+    const p = this.tierProgress();
+    return p.crates >= next.crates && p.contracts >= next.contracts && this.cash >= next.cost;
+  }
+
+  private upgrade(): void {
+    const next = TIERS[this.tier + 1];
+    if (!next || next.comingSoon) return this.message('No further upgrades yet.', 'info');
+    if (!this.canUpgrade())
+      return this.message('The port does not meet the requirements yet.', 'bad');
+    this.book('construction', -next.cost);
+    this.tier++;
+    this.capacityCache = null;
+    this.message(
+      `The port is now a ${next.name}! New buildings and machines are unlocked.`,
+      'good',
+    );
+    this.addOffer('fishery');
+  }
+
   private hire(candidateId: number): void {
     const c = this.candidates.find((x) => x.id === candidateId);
     if (!c) return this.message('That candidate has taken another job.', 'bad');
@@ -450,6 +542,14 @@ export class World {
   private fire(id: number): void {
     const p = this.people.find((q) => q.id === id);
     if (!p) return;
+    if (p.kind === 'forklift') {
+      const refund = Math.round(B.FORKLIFT_PRICE * B.SELL_SHARE);
+      this.cancelJob(p);
+      this.people = this.people.filter((q) => q !== p);
+      this.book('construction', refund);
+      this.message(`Sold ${p.name} for $${refund}.`, 'info');
+      return;
+    }
     if (p.carrying) this.message(`${p.name} dropped their crate on the way out.`, 'bad');
     this.cancelJob(p);
     this.people = this.people.filter((q) => q !== p);
@@ -473,7 +573,7 @@ export class World {
 
   private addOffer(kind: Terms['kind']): void {
     const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
-    const offer = makeOffer(this.rng, this.nextId++, this.tick, kind, taken);
+    const offer = makeOffer(this.rng, this.nextId++, this.tick, kind, taken, this.tier);
     if (offer) this.offers.push(offer);
   }
 
@@ -604,9 +704,9 @@ export class World {
     const m = this.map;
     const demand = this.fisheries().reduce((n, c) => n + fisheryDailyCrates(c.terms), 0);
 
-    // One dockhand trip: jetty to the nearest bay and back, plus handling.
+    // One trip: dock to the nearest bay and back, plus handling.
     const jetties: number[] = [];
-    for (let i = 0; i < m.build.length; i++) if (m.build[i] === Build.Jetty) jetties.push(i);
+    for (let i = 0; i < m.build.length; i++) if (isDock(m.build[i])) jetties.push(i);
     const bays = [...this.bays.keys()];
     let walk = 0;
     for (const j of jetties) {
@@ -621,6 +721,15 @@ export class World {
     let unloading = 0;
     if (bays.length && jetties.length) {
       for (const p of this.people) {
+        if (p.kind === 'forklift') {
+          // Forklifts carry several crates, need no breaks but do break down.
+          // They cannot drive onto wooden jetties, so they need a quay.
+          if (!jetties.some((j) => m.build[j] !== Build.Jetty)) continue;
+          const ticks =
+            (2 * avgWalk * 1.2) / B.FORKLIFT_SPEED + (B.PICK_TICKS + B.DROP_TICKS) * 1.5;
+          unloading += ((TICKS_PER_DAY * 0.9) / ticks) * p.capacity;
+          continue;
+        }
         const handling = (B.PICK_TICKS + B.DROP_TICKS) * traitDef(p.trait).handling;
         const pace = paceFactor(p.skill, p.morale, 100);
         const tripTicks = (2 * avgWalk * 1.2) / (B.WALK_SPEED * pace) + handling;
@@ -672,6 +781,7 @@ export class World {
     if (this.tick % TICKS_PER_DAY === 0) this.newDay();
     this.spawnBoats();
     for (const b of [...this.boats]) this.updateBoat(b);
+    for (const c of this.cranes.values()) this.updateCrane(c);
     for (const p of this.people) this.updateDockhand(p);
     if (this.tick % 10 === 0) this.spawnTrucks();
     for (const t of [...this.trucks]) this.updateTruck(t);
@@ -729,6 +839,10 @@ export class World {
     this.refreshCandidates();
     this.book('wages', -this.wageBill());
     this.book('hauliers', -this.dailyFees());
+    this.book('maintenance', -this.cranes.size * B.CRANE_RUNNING_COST);
+    for (const p of this.people) {
+      if (p.kind === 'forklift' && this.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
+    }
     this.book('interest', -this.interestDue());
     this.yesterday = this.today;
     this.today = emptyLedger();
@@ -781,6 +895,8 @@ export class World {
       id: this.nextId++,
       contractId,
       company: terms.name,
+      vessel: terms.vessel,
+      draft: terms.vessel === 'coaster' ? B.COASTER_DRAFT : B.BOAT_DRAFT,
       fee: terms.fee,
       anchorTicks: 0,
       mooredTicks: 0,
@@ -803,7 +919,7 @@ export class World {
     this.stats.boats++;
     // Head for a spot at the anchorage; the berth is decided on arrival.
     const spot = this.anchorSpot(boat);
-    const path = findPath(this.map.w, this.map.h, start, spot, this.boatCost, true);
+    const path = findPath(this.map.w, this.map.h, start, spot, this.boatCostFor(boat.draft), true);
     if (path) {
       boat.path = path;
       boat.goal = spot;
@@ -879,10 +995,22 @@ export class World {
     return out;
   }
 
-  private boatCost: CostFn = (i) =>
-    this.map.ocean[i] && this.map.build[i] === Build.None && this.map.depth[i] >= B.BOAT_DRAFT
-      ? 1
-      : Infinity;
+  private boatCosts = new Map<number, CostFn>();
+
+  /** Open sea at least `draft` metres deep. */
+  private boatCostFor(draft: number): CostFn {
+    let fn = this.boatCosts.get(draft);
+    if (!fn) {
+      fn = (i) =>
+        this.map.ocean[i] && this.map.build[i] === Build.None && this.map.depth[i] >= draft
+          ? 1
+          : Infinity;
+      this.boatCosts.set(draft, fn);
+    }
+    return fn;
+  }
+
+  private boatCost: CostFn = (i) => this.boatCostFor(B.BOAT_DRAFT)(i);
 
   /**
    * Tiles a moored boat covers: its berth plus one tile either way along the
@@ -923,16 +1051,17 @@ export class World {
   }
 
   /** Water tiles beside a jetty where a boat can moor, nearest first. */
-  private freeBerths(from: number): { berth: number; jetty: number }[] {
+  private freeBerths(from: number, draft: number): { berth: number; jetty: number }[] {
+    const water = this.boatCostFor(draft);
     const m = this.map;
     const taken = this.boats
       .filter((b) => b.berth >= 0)
       .map((b) => this.footprint(b.berth, b.jetty) ?? [b.berth]);
     const out: { berth: number; jetty: number; d: number }[] = [];
     for (let j = 0; j < m.build.length; j++) {
-      if (m.build[j] !== Build.Jetty) continue;
+      if (!isDock(m.build[j])) continue;
       for (const n of m.neighbors4(j)) {
-        if (this.boatCost(n) !== 1) continue;
+        if (water(n) !== 1) continue;
         const fp = this.footprint(n, j);
         if (!fp || taken.some((t) => this.berthsClash(fp, t))) continue;
         const d = Math.abs(m.xOf(n) - m.xOf(from)) + Math.abs(m.yOf(n) - m.yOf(from));
@@ -944,8 +1073,15 @@ export class World {
 
   private tryBerth(boat: Boat): boolean {
     const from = this.tileOf(boat);
-    for (const c of this.freeBerths(from).slice(0, 6)) {
-      const path = findPath(this.map.w, this.map.h, from, c.berth, this.boatCost, true);
+    for (const c of this.freeBerths(from, boat.draft).slice(0, 6)) {
+      const path = findPath(
+        this.map.w,
+        this.map.h,
+        from,
+        c.berth,
+        this.boatCostFor(boat.draft),
+        true,
+      );
       if (!path) continue;
       boat.berth = c.berth;
       boat.jetty = c.jetty;
@@ -970,7 +1106,7 @@ export class World {
     }
     switch (b.state) {
       case 'approaching':
-        if (this.move(b, this.boatCost, true, () => B.BOAT_SPEED) !== 'moving') {
+        if (this.move(b, this.boatCostFor(b.draft), true, () => B.BOAT_SPEED) !== 'moving') {
           b.state = 'anchored';
           b.dir = Math.PI; // swing to face the shore like the others
           const queue = this.boats.filter((q) => q.state === 'anchored').length;
@@ -984,7 +1120,7 @@ export class World {
         if (this.tick % 10 === 0 && this.nextInQueue() === b) this.tryBerth(b);
         return;
       case 'arriving': {
-        const r = this.move(b, this.boatCost, true, () => B.BOAT_SPEED);
+        const r = this.move(b, this.boatCostFor(b.draft), true, () => B.BOAT_SPEED);
         if (r === 'blocked') {
           b.berth = b.jetty = -1;
           b.state = 'anchored';
@@ -1002,7 +1138,7 @@ export class World {
         if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) this.depart(b, false);
         return;
       case 'leaving':
-        if (this.move(b, this.boatCost, true, () => B.BOAT_SPEED) !== 'moving') {
+        if (this.move(b, this.boatCostFor(b.draft), true, () => B.BOAT_SPEED) !== 'moving') {
           this.boats = this.boats.filter((q) => q !== b);
         }
         return;
@@ -1024,14 +1160,15 @@ export class World {
       edge[0],
     );
     b.goal = exit;
-    b.path = findPath(this.map.w, this.map.h, from, exit, this.boatCost, true) ?? [];
+    b.path = findPath(this.map.w, this.map.h, from, exit, this.boatCostFor(b.draft), true) ?? [];
   }
 
-  // ── Dockhands ─────────────────────────────────────────────
+  // ── Dockhands and forklifts ───────────────────────────────
 
   private spawnDockhand(at: number, c: Candidate): Dockhand {
     const p: Dockhand = {
       id: this.nextId++,
+      kind: 'dockhand',
       name: c.name,
       skill: c.skill,
       trait: c.trait,
@@ -1041,6 +1178,8 @@ export class World {
       hutIdx: -1,
       lowMoraleDays: 0,
       raiseAsk: 0,
+      capacity: 1,
+      needsRepair: false,
       x: this.map.xOf(at) + 0.5,
       y: this.map.yOf(at) + 0.5,
       dir: 0,
@@ -1049,17 +1188,46 @@ export class World {
       state: 'idle',
       timer: 0,
       carrying: 0,
-      crateFee: 0,
+      cargoFees: [],
+      planned: 0,
       boatId: -1,
+      craneIdx: -1,
       bayIdx: -1,
     };
     this.people.push(p);
     return p;
   }
 
+  private buyMachine(kind: MachineKind): void {
+    if (this.tier < MACHINE_TIER[kind]) {
+      return this.message(`Forklifts unlock at the ${TIERS[MACHINE_TIER[kind]].name}.`, 'bad');
+    }
+    if (this.cash < B.FORKLIFT_PRICE) return this.message('Not enough money', 'bad');
+    this.book('construction', -B.FORKLIFT_PRICE);
+    const at = [...this.bays.keys()][0] ?? this.map.entry;
+    const p = this.spawnDockhand(at, {
+      id: 0,
+      name: `Forklift ${this.people.filter((q) => q.kind === 'forklift').length + 1}`,
+      skill: 3,
+      trait: null,
+      wage: B.FORKLIFT_WAGE,
+    });
+    p.kind = 'forklift';
+    p.capacity = B.FORKLIFT_CAPACITY;
+    this.moneyAt(-B.FORKLIFT_PRICE, at);
+    this.message('A forklift has arrived. It drives on quays, paths and roads only.', 'good');
+  }
+
   private walkCost: CostFn = (i) => {
     const b = this.map.build[i];
-    if (b === Build.Footpath || b === Build.Jetty || b === Build.TruckBay || b === Build.BreakHut) {
+    if (
+      b === Build.Footpath ||
+      b === Build.Jetty ||
+      b === Build.TruckBay ||
+      b === Build.BreakHut ||
+      b === Build.Quay ||
+      b === Build.JibCrane
+    ) {
       return 1;
     }
     if (b === Build.Road) return 1.25;
@@ -1070,27 +1238,47 @@ export class World {
     return Infinity;
   };
 
+  /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
+  private driveCost: CostFn = (i) => {
+    const b = this.map.build[i];
+    return b === Build.Footpath ||
+      b === Build.Quay ||
+      b === Build.JibCrane ||
+      b === Build.Road ||
+      b === Build.TruckBay
+      ? 1
+      : Infinity;
+  };
+
+  private costFor(p: Dockhand): CostFn {
+    return p.kind === 'forklift' ? this.driveCost : this.walkCost;
+  }
+
   private walkSpeed = (i: number) => {
     const c = this.walkCost(i);
     return Number.isFinite(c) ? B.WALK_SPEED / c : B.WALK_SPEED;
   };
 
   private walk(p: Dockhand) {
+    if (p.kind === 'forklift') return this.move(p, this.driveCost, true, () => B.FORKLIFT_SPEED);
     const pace = paceFactor(p.skill, p.morale, p.energy);
     return this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace);
   }
 
   private handlingTicks(p: Dockhand, base: number): number {
+    if (p.kind === 'forklift') return Math.round(base * 1.5);
     return Math.max(1, Math.round(base * traitDef(p.trait).handling));
   }
 
   private changeMorale(p: Dockhand, delta: number): void {
+    if (p.kind === 'forklift') return;
     const scaled = delta < 0 ? delta * traitDef(p.trait).moraleLoss : delta;
     p.morale = Math.max(0, Math.min(100, p.morale + scaled));
   }
 
   /** Energy use; returns true if the dockhand should head off for a break now. */
   private tire(p: Dockhand): boolean {
+    if (p.kind === 'forklift') return false;
     if (p.state === 'resting' || p.state === 'toBreak') return false;
     const drain = WORKING.has(p.state) ? B.WORK_DRAIN * traitDef(p.trait).drain : B.IDLE_DRAIN;
     const before = p.energy;
@@ -1133,13 +1321,19 @@ export class World {
     p.dir = Math.PI / 2;
   }
 
-  private pathFrom(a: Agent, goal: number): number[] | null {
-    return findPath(this.map.w, this.map.h, this.tileOf(a), goal, this.walkCost, true);
+  private pathFor(p: Dockhand, from: number, goal: number): number[] | null {
+    return findPath(this.map.w, this.map.h, from, goal, this.costFor(p), true);
   }
 
   private updateDockhand(p: Dockhand): void {
     if (this.tire(p)) return this.goOnBreak(p);
     switch (p.state) {
+      case 'broken':
+        if (--p.timer <= 0) {
+          p.state = 'idle';
+          this.message(`${p.name} is repaired and back at work.`, 'info');
+        }
+        return;
       case 'toBreak': {
         if (this.map.build[p.hutIdx] !== Build.BreakHut) return this.goOnBreak(p);
         const r = this.walk(p);
@@ -1162,17 +1356,26 @@ export class World {
       }
       case 'idle':
       case 'wander': {
+        if (p.needsRepair) {
+          p.needsRepair = false;
+          p.path = [];
+          p.state = 'broken';
+          p.timer = B.REPAIR_TICKS;
+          this.book('maintenance', -B.REPAIR_COST);
+          this.moneyAt(-B.REPAIR_COST, this.tileOf(p));
+          this.message(`${p.name} has broken down. A mechanic is on the way.`, 'bad');
+          return;
+        }
         if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) return;
         if (p.state === 'wander') {
           if (this.walk(p) !== 'moving') p.state = 'idle';
-        } else if (this.rng.next() < 0.008) {
+        } else if (p.kind === 'dockhand' && this.rng.next() < 0.008) {
           this.wander(p);
         }
         return;
       }
       case 'toPickup': {
-        const boat = this.boats.find((b) => b.id === p.boatId);
-        if (!boat || boat.state !== 'moored') return this.cancelJob(p);
+        if (!this.sourceValid(p)) return this.cancelJob(p);
         const r = this.walk(p);
         if (r === 'blocked') return this.cancelJob(p);
         if (r === 'arrived') {
@@ -1183,14 +1386,15 @@ export class World {
       }
       case 'picking': {
         if (--p.timer > 0) return;
-        const boat = this.boats.find((b) => b.id === p.boatId);
-        if (!boat || boat.crates === 0) return this.cancelJob(p);
-        boat.crates--;
-        boat.reserved--;
-        p.boatId = -1;
-        p.carrying = 1;
-        p.crateFee = boat.fee;
-        if (!this.bays.has(p.bayIdx) || !this.headTo(p, p.bayIdx)) this.retargetCrate(p);
+        const fees = this.takeFromSource(p);
+        if (fees.length === 0) return this.cancelJob(p);
+        // Fewer crates than planned: hand back the spare room in the bay.
+        const bay = this.bays.get(p.bayIdx);
+        if (bay) bay.incoming -= p.planned - fees.length;
+        p.planned = fees.length;
+        p.carrying = fees.length;
+        p.cargoFees = fees;
+        if (!bay || !this.headTo(p, p.bayIdx)) this.retargetCrate(p);
         else p.state = 'toDrop';
         return;
       }
@@ -1208,19 +1412,21 @@ export class World {
         if (--p.timer > 0) return;
         const bay = this.bays.get(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
-        bay.crates.push(p.crateFee);
-        bay.incoming--;
+        bay.crates.push(...p.cargoFees);
+        bay.incoming -= p.planned;
+        this.stats.cratesHandled += p.carrying;
         p.carrying = 0;
+        p.cargoFees = [];
+        p.planned = 0;
         p.bayIdx = -1;
         p.state = 'idle';
-        this.stats.cratesHandled++;
         return;
       }
     }
   }
 
   private headTo(p: Dockhand, goal: number): boolean {
-    const path = this.pathFrom(p, goal);
+    const path = this.pathFor(p, this.tileOf(p), goal);
     if (!path) return false;
     p.path = path;
     p.goal = goal;
@@ -1233,7 +1439,7 @@ export class World {
     if (!this.map.inBounds(x, y)) return;
     const i = this.map.idx(x, y);
     if (!Number.isFinite(this.walkCost(i))) return;
-    const path = this.pathFrom(p, i);
+    const path = this.pathFor(p, this.tileOf(p), i);
     if (path && path.length <= 8) {
       p.path = path;
       p.goal = i;
@@ -1241,18 +1447,40 @@ export class World {
     }
   }
 
+  /** Crane landing stacks first (they free the crane), then moored boats. */
   private assignJob(p: Dockhand): boolean {
     const here = this.tileOf(p);
-    const boats = this.boats
-      .filter((b) => b.state === 'moored' && b.crates - b.reserved > 0)
-      .sort((a, b) => this.dist(here, a.jetty) - this.dist(here, b.jetty));
-    for (const boat of boats) {
-      const bay = this.bayWithRoom(boat.jetty);
-      if (!bay) return false;
-      if (!this.headTo(p, boat.jetty)) continue;
-      boat.reserved++;
-      bay.incoming++;
-      p.boatId = boat.id;
+    const cost = this.costFor(p);
+    const sources: { tile: number; avail: number; boat?: Boat; crane?: Crane }[] = [];
+    for (const crane of this.cranes.values()) {
+      const avail = crane.stack.length - crane.reserved;
+      if (avail > 0) sources.push({ tile: crane.idx, avail, crane });
+    }
+    const craneCount = sources.length;
+    for (const boat of this.boats) {
+      const avail = boat.crates - boat.reserved;
+      if (boat.state === 'moored' && avail > 0) sources.push({ tile: boat.jetty, avail, boat });
+    }
+    const byDist = (a: { tile: number }, b: { tile: number }) =>
+      this.dist(here, a.tile) - this.dist(here, b.tile);
+    const ordered = [
+      ...sources.slice(0, craneCount).sort(byDist),
+      ...sources.slice(craneCount).sort(byDist),
+    ];
+
+    for (const src of ordered) {
+      if (!Number.isFinite(cost(src.tile))) continue;
+      const bay = this.bayWithRoom(p, src.tile);
+      if (!bay) continue;
+      if (!this.headTo(p, src.tile)) continue;
+      const room = B.BAY_CAPACITY - bay.crates.length - bay.incoming;
+      const planned = Math.min(p.capacity, src.avail, room);
+      if (src.crane) src.crane.reserved += planned;
+      if (src.boat) src.boat.reserved += planned;
+      bay.incoming += planned;
+      p.planned = planned;
+      p.boatId = src.boat ? src.boat.id : -1;
+      p.craneIdx = src.crane ? src.crane.idx : -1;
       p.bayIdx = bay.idx;
       p.state = 'toPickup';
       return true;
@@ -1260,46 +1488,108 @@ export class World {
     return false;
   }
 
-  /** Nearest truck bay with room that can be walked to from `from`. */
-  private bayWithRoom(from: number): Bay | null {
+  private sourceValid(p: Dockhand): boolean {
+    if (p.craneIdx >= 0) return this.cranes.has(p.craneIdx);
+    const boat = this.boats.find((b) => b.id === p.boatId);
+    return !!boat && boat.state === 'moored';
+  }
+
+  /** Lift up to the planned number of crates; returns their fees. */
+  private takeFromSource(p: Dockhand): number[] {
+    if (p.craneIdx >= 0) {
+      const crane = this.cranes.get(p.craneIdx);
+      p.craneIdx = -1;
+      if (!crane) return [];
+      crane.reserved = Math.max(0, crane.reserved - p.planned);
+      return crane.stack.splice(0, Math.min(p.planned, crane.stack.length));
+    }
+    const boat = this.boats.find((b) => b.id === p.boatId);
+    p.boatId = -1;
+    if (!boat) return [];
+    boat.reserved = Math.max(0, boat.reserved - p.planned);
+    const n = Math.min(p.planned, boat.crates);
+    boat.crates -= n;
+    return Array.from({ length: n }, () => boat.fee);
+  }
+
+  /** Nearest truck bay with room that this worker can reach from `from`. */
+  private bayWithRoom(p: Dockhand, from: number): Bay | null {
     const bays = [...this.bays.values()]
       .filter((b) => b.crates.length + b.incoming < B.BAY_CAPACITY)
       .sort((a, b) => this.dist(from, a.idx) - this.dist(from, b.idx));
     for (const bay of bays) {
-      if (findPath(this.map.w, this.map.h, from, bay.idx, this.walkCost, true)) return bay;
+      if (this.pathFor(p, from, bay.idx)) return bay;
     }
     return null;
   }
 
-  /** The dockhand holds a crate but their bay is gone or unreachable. */
+  /** The worker holds crates but their bay is gone or unreachable. */
   private retargetCrate(p: Dockhand): void {
     const old = this.bays.get(p.bayIdx);
-    if (old) old.incoming--;
-    const bay = this.bayWithRoom(this.tileOf(p));
+    if (old) old.incoming = Math.max(0, old.incoming - p.planned);
+    const bay = this.bayWithRoom(p, this.tileOf(p));
     if (bay && this.headTo(p, bay.idx)) {
-      bay.incoming++;
+      bay.incoming += p.planned;
       p.bayIdx = bay.idx;
       p.state = 'toDrop';
       return;
     }
-    this.message(`${p.name} had nowhere to take a crate and put it down.`, 'bad');
+    this.message(`${p.name} had nowhere to take their load and put it down.`, 'bad');
     p.carrying = 0;
+    p.cargoFees = [];
+    p.planned = 0;
     p.bayIdx = -1;
     p.path = [];
     p.state = 'idle';
   }
 
   private cancelJob(p: Dockhand): void {
-    const boat = this.boats.find((b) => b.id === p.boatId);
-    if (boat && !p.carrying) boat.reserved = Math.max(0, boat.reserved - 1);
+    if (!p.carrying) {
+      const boat = this.boats.find((b) => b.id === p.boatId);
+      if (boat) boat.reserved = Math.max(0, boat.reserved - p.planned);
+      const crane = this.cranes.get(p.craneIdx);
+      if (crane) crane.reserved = Math.max(0, crane.reserved - p.planned);
+    }
     const bay = this.bays.get(p.bayIdx);
-    if (bay) bay.incoming = Math.max(0, bay.incoming - 1);
+    if (bay) bay.incoming = Math.max(0, bay.incoming - p.planned);
     p.boatId = -1;
+    p.craneIdx = -1;
     p.bayIdx = -1;
     p.hutIdx = -1;
     p.carrying = 0;
+    p.cargoFees = [];
+    p.planned = 0;
     p.path = [];
     p.state = 'idle';
+  }
+
+  // ── Jib cranes ────────────────────────────────────────────
+
+  private addCrane(i: number): void {
+    this.cranes.set(i, { idx: i, stack: [], reserved: 0, timer: 0, angle: 0, busy: false });
+  }
+
+  /** Swing crates from a boat moored beside the crane onto its landing stack. */
+  private updateCrane(c: Crane): void {
+    c.busy = false;
+    if (c.stack.length >= B.CRANE_STACK) return;
+    const m = this.map;
+    const boat = this.boats.find(
+      (b) =>
+        b.state === 'moored' &&
+        b.crates - b.reserved > 0 &&
+        Math.max(
+          Math.abs(m.xOf(b.berth) - m.xOf(c.idx)),
+          Math.abs(m.yOf(b.berth) - m.yOf(c.idx)),
+        ) <= 1,
+    );
+    if (!boat) return;
+    c.busy = true;
+    c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
+    if (++c.timer < B.CRANE_TICKS) return;
+    c.timer = 0;
+    boat.crates--;
+    c.stack.push(boat.fee);
   }
 
   // ── Trucks and bays ───────────────────────────────────────
@@ -1531,7 +1821,7 @@ export class World {
     for (const p of this.people) {
       entities.push({
         id: p.id,
-        kind: 'dockhand',
+        kind: p.kind,
         x: p.x,
         y: p.y,
         dir: p.dir,
@@ -1540,10 +1830,13 @@ export class World {
         name: p.name,
         activity: ACTIVITY[p.state],
         variant: 0,
-        capacity: 1,
+        capacity: p.capacity,
+        alert: p.state === 'broken',
       });
       staff.push({
         id: p.id,
+        kind: p.kind,
+        broken: p.state === 'broken',
         name: p.name,
         skill: p.skill,
         trait: p.trait,
@@ -1583,7 +1876,9 @@ export class World {
                   ? `Unloading, ${b.crates} crates left`
                   : 'Heading back out to sea',
         variant: b.variant,
-        capacity: B.BOAT_MAX_LOAD,
+        capacity: b.vessel === 'coaster' ? B.COASTER_MAX_LOAD : B.BOAT_MAX_LOAD,
+        alert: b.state === 'anchored',
+        vessel: b.vessel,
       });
     }
     for (const t of this.trucks) {
@@ -1604,6 +1899,7 @@ export class World {
               : 'Delivering to town',
         variant: t.variant,
         capacity: t.capacity,
+        alert: false,
       });
     }
     const bays: BayView[] = [...this.bays.values()].map((b) => ({
@@ -1642,6 +1938,13 @@ export class World {
       bays,
       contracts,
       capacity: this.capacity(),
+      progress: { tier: this.tier, ...this.tierProgress(), canUpgrade: this.canUpgrade() },
+      cranes: [...this.cranes.values()].map((c) => ({
+        idx: c.idx,
+        stack: c.stack.length,
+        angle: c.angle,
+        busy: c.busy,
+      })),
       offers: this.offers.map((o) => ({
         id: o.id,
         terms: o.terms,

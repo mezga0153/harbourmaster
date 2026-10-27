@@ -3,8 +3,10 @@ import type { Rng } from './rng';
 
 // Fisheries send boats; hauliers supply the trucks that carry crates away.
 
+/** A supplier of boats: a local fishery or, later, a shipping line with coasters. */
 export interface FisheryTerms {
   kind: 'fishery';
+  vessel: 'smack' | 'coaster';
   name: string;
   /** Paint colour index for this fishery's boats. */
   color: number;
@@ -60,6 +62,15 @@ const FISHERIES = [
   'Deepwater Catch Co.',
 ];
 
+const SHIPPING_LINES = [
+  'Baltic Coasters',
+  'North Sea Shipping',
+  'Blue Anchor Line',
+  'Atlantic Short Sea',
+  'Gannet Shipping',
+  'Harbour Line',
+];
+
 const HAULIERS = [
   'Bramble Transport',
   'Quick Lorry Ltd',
@@ -73,6 +84,7 @@ const HAULIERS = [
 
 export const STARTER_FISHERY: FisheryTerms = {
   kind: 'fishery',
+  vessel: 'smack',
   name: "Harbour Fishermen's Co-op",
   color: 0,
   boatEvery: B.BOAT_INTERVAL_DAYS,
@@ -106,16 +118,37 @@ export function makeOffer(
   tick: number,
   kind: Terms['kind'],
   takenNames: Set<string>,
+  tier = 0,
 ): Offer | null {
-  const names = (kind === 'fishery' ? FISHERIES : HAULIERS).filter((n) => !takenNames.has(n));
+  const coaster = kind === 'fishery' && tier >= 1 && rng.next() < 0.45;
+  const pool = coaster ? SHIPPING_LINES : kind === 'fishery' ? FISHERIES : HAULIERS;
+  const names = pool.filter((n) => !takenNames.has(n));
   if (names.length === 0) return null;
   const name = rng.pick(names);
   const expires = tick + Math.round(rng.range(4, 8) * 600);
+
+  if (coaster) {
+    // Coasters bring big loads at good rates but need deep water to moor.
+    const cratesMin = rng.int(14, 18);
+    const terms: FisheryTerms = {
+      kind: 'fishery',
+      vessel: 'coaster',
+      name,
+      color: rng.int(0, 3),
+      boatEvery: Math.round(rng.range(1, 1.8) * 20) / 20,
+      cratesMin,
+      cratesMax: Math.min(B.COASTER_MAX_LOAD, cratesMin + rng.int(3, 6)),
+      fee: rng.int(22, 30),
+    };
+    const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 50) * 50;
+    return { id, terms, signingFee, expires };
+  }
 
   if (kind === 'fishery') {
     const cratesMin = rng.int(6, 12);
     const terms: FisheryTerms = {
       kind,
+      vessel: 'smack',
       name,
       color: rng.int(0, 3),
       boatEvery: Math.round(rng.range(0.35, 1) * 20) / 20,

@@ -230,7 +230,12 @@ function Messages() {
   );
 }
 
-const KIND_LABEL = { dockhand: 'Dockhand', boat: 'Fishing boat', truck: 'Truck' } as const;
+const KIND_LABEL = {
+  dockhand: 'Dockhand',
+  forklift: 'Machine',
+  boat: 'Boat',
+  truck: 'Truck',
+} as const;
 
 function InfoPanel({ actions }: { actions: Actions }) {
   const sel = selection.value;

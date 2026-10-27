@@ -4,6 +4,7 @@ import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
 import { placementError } from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
+import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
 
 describe('findPath', () => {
@@ -296,5 +297,76 @@ describe('Finance', () => {
     world.step(); // midnight: the day's ledger moves to yesterday
     const net = Object.values(world.yesterday!).reduce((a, b) => a + b, 0);
     expect(world.cash).toBe(start + net);
+  });
+});
+
+describe('Coastal Wharf tier', () => {
+  /** A water tile next to the starting jetty tip, for quay tests. */
+  function besideTip(world: World): { tip: number; side: number } {
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    let x = 0;
+    while (m.build[m.idx(x + 1, r)] !== Build.None) x++;
+    return { tip: m.idx(x, r), side: m.idx(x, r - 1) };
+  }
+
+  it('locks quays, cranes and forklifts until the upgrade', () => {
+    const world = World.create(7);
+    const { side } = besideTip(world);
+    world.command({ type: 'build', kind: 'quay', tiles: [side] });
+    expect(world.map.build[side]).toBe(Build.None);
+    world.command({ type: 'buyMachine', kind: 'forklift' });
+    expect(world.people.some((p) => p.kind === 'forklift')).toBe(false);
+  });
+
+  it('upgrades only once the requirements are met', () => {
+    const world = World.create(7);
+    world.command({ type: 'upgrade' });
+    expect(world.tier).toBe(0);
+    world.stats.cratesHandled = TIERS[1].crates;
+    world.command({
+      type: 'signContract',
+      id: world.offers.find((o) => o.terms.kind === 'fishery')!.id,
+    });
+    world.cash = TIERS[1].cost + 100;
+    world.command({ type: 'upgrade' });
+    expect(world.tier).toBe(1);
+    expect(world.cash).toBe(100);
+  });
+
+  it('builds quays in deeper water than jetties allow', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    const m = world.map;
+    const deep = m.depth.findIndex(
+      (d, i) =>
+        m.ocean[i] === 1 &&
+        d > B.MAX_JETTY_DEPTH &&
+        d <= B.MAX_QUAY_DEPTH &&
+        m.neighbors4(i).some((n) => m.isLand(n)),
+    );
+    expect(deep).toBeGreaterThan(-1);
+    expect(placementError(m, 'jetty', deep)).toBe('Too deep for a wooden jetty');
+    expect(placementError(m, 'quay', deep)).toBeNull();
+  });
+
+  it('runs a jib crane and forklifts off a quay', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const { side } = besideTip(world);
+    world.command({ type: 'build', kind: 'quay', tiles: [side] });
+    expect(world.map.build[side]).toBe(Build.Quay);
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
+    expect(world.map.build[side]).toBe(Build.JibCrane);
+    world.command({ type: 'buyMachine', kind: 'forklift' });
+    expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(1);
+    let craneWorked = false;
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
+      world.step();
+      if (world.cranes.get(side)?.busy) craneWorked = true;
+    }
+    expect(craneWorked).toBe(true);
+    expect(world.stats.cratesHandled).toBeGreaterThan(10);
   });
 });

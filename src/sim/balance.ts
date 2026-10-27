@@ -70,6 +70,24 @@ export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;
 
 export const MAX_JETTY_DEPTH = 3.5; // wooden piles only reach so far
+export const MAX_QUAY_DEPTH = 8;
+export const QUAY_COST_LAND = 120;
+export const QUAY_COST_WATER = 300;
+
+// Coastal Wharf machines.
+export const COASTER_DRAFT = 2.5;
+export const COASTER_MAX_LOAD = 24;
+export const FORKLIFT_PRICE = 1500;
+export const FORKLIFT_WAGE = 55; // operator, per day
+export const FORKLIFT_CAPACITY = 4;
+export const FORKLIFT_SPEED = 0.42; // tiles per tick
+export const FORKLIFT_BREAKDOWN = 0.06; // chance per day
+export const REPAIR_TICKS = 240;
+export const REPAIR_COST = 150;
+export const SELL_SHARE = 0.5;
+export const CRANE_RUNNING_COST = 40; // per day
+export const CRANE_TICKS = 10; // per crate lifted
+export const CRANE_STACK = 10;
 export const TREE_CLEAR_COST = 10;
 export const ROCK_CLEAR_COST = 50;
 export const BULLDOZE_REFUND = 0.5;

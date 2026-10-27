@@ -1,6 +1,6 @@
 import * as B from './balance';
 import type { GameMap } from './map';
-import { Build, Deco, Terrain, type BuildCode, type BuildKind } from './types';
+import { Build, Deco, isDock, Terrain, type BuildCode, type BuildKind } from './types';
 
 export interface Buildable {
   code: BuildCode;
@@ -26,6 +26,20 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     cost: 100,
     hint: 'Wooden pier. Boats moor alongside',
     drag: true,
+  },
+  quay: {
+    code: Build.Quay,
+    label: 'Quay',
+    cost: B.QUAY_COST_LAND,
+    hint: `Concrete wharf on the shore or in water up to ${B.MAX_QUAY_DEPTH} m. Forklifts can drive on it`,
+    drag: true,
+  },
+  jibCrane: {
+    code: Build.JibCrane,
+    label: 'Jib crane',
+    cost: 2500,
+    hint: `Goes on a quay. Lifts crates off moored boats onto the quay. $${B.CRANE_RUNNING_COST}/day to run`,
+    drag: false,
   },
   breakHut: {
     code: Build.BreakHut,
@@ -60,8 +74,30 @@ export function placementError(
   i: number,
   pending?: ReadonlySet<number>,
 ): string | null {
-  if (map.build[i] !== Build.None) return 'Something is already built here';
   const t = map.terrain[i];
+  if (kind === 'jibCrane') {
+    if (map.build[i] !== Build.Quay) return 'A jib crane goes on a quay';
+    const atWater = map
+      .neighbors4(i)
+      .some((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
+    return atWater ? null : 'Put the crane at the quay edge, next to open water';
+  }
+  if (map.build[i] !== Build.None) return 'Something is already built here';
+
+  if (kind === 'quay') {
+    const nearWater = map.neighbors4(i).some((n) => map.ocean[n] === 1);
+    if (t === Terrain.Sand || t === Terrain.Grass) {
+      return nearWater ? null : 'On land, a quay goes along the water’s edge';
+    }
+    if (t !== Terrain.Water) return 'Rock is in the way';
+    if (!map.ocean[i]) return 'This water is not connected to the sea';
+    if (map.depth[i] > B.MAX_QUAY_DEPTH)
+      return `Too deep, even for a quay (max ${B.MAX_QUAY_DEPTH} m)`;
+    const connected = map
+      .neighbors4(i)
+      .some((n) => map.isLand(n) || isDock(map.build[n]) || pending?.has(n));
+    return connected ? null : 'A quay must connect to the shore or another quay';
+  }
 
   if (kind === 'jetty') {
     // On the beach, right at the water's edge, boats can moor alongside.
@@ -74,7 +110,7 @@ export function placementError(
     if (map.depth[i] > B.MAX_JETTY_DEPTH) return 'Too deep for a wooden jetty';
     const connected = map
       .neighbors4(i)
-      .some((n) => map.isLand(n) || map.build[n] === Build.Jetty || pending?.has(n));
+      .some((n) => map.isLand(n) || isDock(map.build[n]) || pending?.has(n));
     return connected ? null : 'A jetty must connect to the shore or another jetty';
   }
 
@@ -87,7 +123,8 @@ export function placementError(
 }
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {
-  return BUILDABLES[kind].cost + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
+  const base = kind === 'quay' && !map.isLand(i) ? B.QUAY_COST_WATER : BUILDABLES[kind].cost;
+  return base + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
 }
 
 export function bulldozeError(map: GameMap, i: number): string | null {
@@ -100,6 +137,7 @@ export function bulldozeError(map: GameMap, i: number): string | null {
 /** Money gained (positive) or spent (negative) by bulldozing a tile. */
 export function bulldozeValue(map: GameMap, i: number): number {
   const kind = kindOfCode(map.build[i]);
+  if (kind === 'quay') return Math.floor(placementCost(map, 'quay', i) * B.BULLDOZE_REFUND);
   if (kind) return Math.floor(BUILDABLES[kind].cost * B.BULLDOZE_REFUND);
   if (map.deco[i] === Deco.Tree) return -B.TREE_CLEAR_COST;
   return map.terrain[i] === Terrain.Rock ? -B.ROCK_CLEAR_COST : 0;

@@ -3,7 +3,7 @@
 import type { Terms } from './sim/contracts';
 import type { MapData } from './sim/map';
 import type { Candidate, Trait } from './sim/staff';
-import type { BuildKind } from './sim/types';
+import type { BuildKind, MachineKind } from './sim/types';
 
 export type Command =
   | { type: 'build'; kind: BuildKind; tiles: number[] }
@@ -11,6 +11,8 @@ export type Command =
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }
+  | { type: 'upgrade' }
+  | { type: 'buyMachine'; kind: MachineKind }
   | { type: 'raise'; id: number; accept: boolean }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }
@@ -18,7 +20,7 @@ export type Command =
   | { type: 'newGame'; seed?: number }
   | { type: 'save' };
 
-export type EntityKind = 'dockhand' | 'boat' | 'truck';
+export type EntityKind = 'dockhand' | 'forklift' | 'boat' | 'truck';
 
 export interface EntityView {
   id: number;
@@ -37,6 +39,24 @@ export interface EntityView {
   variant: number;
   /** Most crates it can hold. */
   capacity: number;
+  /** Needs attention, e.g. a broken-down machine. */
+  alert: boolean;
+  /** Boats: 'smack' or 'coaster'. */
+  vessel?: string;
+}
+
+export interface CraneView {
+  idx: number;
+  stack: number;
+  angle: number;
+  busy: boolean;
+}
+
+export interface TierProgress {
+  tier: number;
+  crates: number;
+  contracts: number;
+  canUpgrade: boolean;
 }
 
 export type LedgerCategory =
@@ -47,6 +67,7 @@ export type LedgerCategory =
   | 'hauliers'
   | 'contracts'
   | 'penalties'
+  | 'maintenance'
   | 'interest';
 
 /** Money in (positive) and out (negative) for one day, by category. */
@@ -54,6 +75,8 @@ export type Ledger = Record<LedgerCategory, number>;
 
 export interface StaffView {
   id: number;
+  kind: 'dockhand' | 'forklift';
+  broken: boolean;
   name: string;
   skill: number;
   trait: Trait | null;
@@ -130,6 +153,8 @@ export interface Snapshot {
   contracts: ContractView[];
   offers: OfferView[];
   capacity: Capacity;
+  progress: TierProgress;
+  cranes: CraneView[];
 }
 
 export type SimEvent =
