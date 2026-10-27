@@ -79,6 +79,20 @@ const PATHS: Record<string, JSX.Element> = {
       <circle cx="18" cy="17.5" r="1.8" />
     </>
   ),
+  bigCrane: (
+    <>
+      <path d="M6 21V6M10 21V6M4 21h8M6 10h4M6 14h4" />
+      <path d="M4 6h18M16 6v5M14.5 11h3v3h-3z" />
+    </>
+  ),
+  stacker: (
+    <>
+      <path d="M2 17V11h8l2 3v3M12 14l9-8" />
+      <rect x="16" y="2" width="7" height="5" />
+      <circle cx="5" cy="18" r="2" />
+      <circle cx="10" cy="18" r="2" />
+    </>
+  ),
   lane: (
     <>
       <path d="M5 3v18M19 3v18" />

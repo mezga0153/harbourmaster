@@ -22,7 +22,7 @@ export type Command =
   /** Dev server only: jump ahead for testing. */
   | { type: 'debug'; cash?: number; tier?: number; coaster?: boolean };
 
-export type EntityKind = 'dockhand' | 'forklift' | 'boat' | 'truck';
+export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'boat' | 'truck';
 
 export interface EntityView {
   id: number;
@@ -43,12 +43,15 @@ export interface EntityView {
   capacity: number;
   /** Needs attention, e.g. a broken-down machine. */
   alert: boolean;
-  /** Boats: 'smack' or 'coaster'. */
+  /** Boats: 'smack', 'coaster' or 'feeder'. */
   vessel?: string;
+  /** Carries containers rather than crates. */
+  boxes?: boolean;
 }
 
 export interface CraneView {
   idx: number;
+  kind: 'jib' | 'harbour';
   stack: number;
   angle: number;
   busy: boolean;
@@ -77,7 +80,7 @@ export type Ledger = Record<LedgerCategory, number>;
 
 export interface StaffView {
   id: number;
-  kind: 'dockhand' | 'forklift';
+  kind: 'dockhand' | MachineKind;
   broken: boolean;
   /** Forklifts: 0 to 100. */
   fuel: number;
@@ -130,11 +133,15 @@ export interface Capacity {
   deepBerths: number;
   /** Share of worker travel time lost waiting for each other yesterday. */
   congestion: number;
+  /** Containers per day, once the port handles them. */
+  boxes: { demand: number; lifting: number; moving: number; trucking: number; berths: number };
 }
 
 export interface BayView {
   idx: number;
   stock: number;
+  /** Containers waiting. */
+  boxes: number;
   capacity: number;
   large: boolean;
   noAccess: boolean;
@@ -142,6 +149,7 @@ export interface BayView {
 
 export interface Stats {
   cratesHandled: number;
+  containers: number;
   boats: number;
   trucks: number;
   earned: number;

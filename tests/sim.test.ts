@@ -569,3 +569,100 @@ describe('Crowding', () => {
     expect(waited).toBeGreaterThan(3);
   });
 });
+
+describe('Container Port tier', () => {
+  /**
+   * Lay out a container terminal north of the starting jetty: a two-wide
+   * pier (rows r-1 and r-2) out to deep water with a harbour crane at the
+   * end, a large truck bay on the road, a depot and a harbour office.
+   */
+  function terminal(world: World): { crane: number } | null {
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    let shore = 0;
+    while (m.build[m.idx(shore + 1, r)] !== Build.Jetty) shore++;
+    const start = shore - 4;
+    const tiles = (row: number, x0: number, x1: number) =>
+      Array.from({ length: x1 - x0 + 1 }, (_, k) => m.idx(x0 + k, row));
+    for (const row of [r - 1, r - 2]) {
+      world.command({ type: 'bulldoze', tiles: tiles(row, start, shore + 12) });
+    }
+    // Run the pier out until the water beyond it is deep enough for feeders.
+    let end = -1;
+    for (let x = shore + 1; x < m.w - 3; x++) {
+      const out = m.idx(x, r - 3);
+      if (m.isLand(m.idx(x, r - 2))) continue;
+      if (m.depth[m.idx(x, r - 2)] > B.MAX_QUAY_DEPTH) break;
+      if (!m.isLand(out) && m.depth[out] >= B.FEEDER_DRAFT + 0.5) {
+        end = x;
+        break;
+      }
+    }
+    if (end < 0) return null;
+    for (const row of [r - 1, r - 2]) {
+      for (const i of tiles(row, start, end)) {
+        const kind = m.isLand(i) ? 'footpath' : 'quay';
+        world.command({ type: 'build', kind, tiles: [i] });
+      }
+    }
+    const crane = m.idx(end, r - 2);
+    world.command({ type: 'build', kind: 'harbourCrane', tiles: [crane] });
+    const bay = m.idx(start - 1, r - 1);
+    world.command({ type: 'bulldoze', tiles: [bay] });
+    world.command({ type: 'build', kind: 'largeBay', tiles: [bay] });
+    const depot = m.idx(start - 1, r - 2);
+    world.command({ type: 'bulldoze', tiles: [depot] });
+    world.command({ type: 'build', kind: 'depot', tiles: [depot] });
+    const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+    world.command({ type: 'build', kind: 'office', tiles: [office] });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    if (m.build[crane] !== Build.HarbourCrane || m.build[bay] !== Build.LargeBay) return null;
+    if (!world.people.some((p) => p.kind === 'stacker')) return null;
+    return { crane };
+  }
+
+  it('lifts containers off a feeder, stacks them to a large bay and trucks them out', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world);
+    expect(t).not.toBeNull();
+    expect(world.capacity().boxes.berths).toBeGreaterThan(0);
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 6,
+        cratesMax: 6,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    add(
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const earned = world.stats.earned;
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) world.step();
+    expect(world.stats.containers).toBeGreaterThan(0);
+    // Dockhands never touch containers.
+    expect(world.people.filter((p) => p.kind === 'dockhand').every((p) => p.carrying <= 1)).toBe(
+      true,
+    );
+    expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
+  });
+});

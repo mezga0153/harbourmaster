@@ -1,7 +1,6 @@
 import type { Command } from './protocol';
 import type { Renderer } from './render/renderer';
 import type { GameMap } from './sim/map';
-import * as B from './sim/balance';
 import {
   BUILDABLES,
   bulldozeError,
@@ -10,6 +9,7 @@ import {
   placementCost,
   placementError,
 } from './sim/rules';
+import { isMachineKind, MACHINES } from './sim/machines';
 import type { BuildKind } from './sim/types';
 import { hover, panel, preview, selection, snapshot, togglePanel, tool } from './ui/store';
 import { TOOL_KEYS } from './ui/tools';
@@ -113,7 +113,7 @@ export class Input {
       const tiles = this.tilesFor(i);
       const t = tool.value;
       if (tiles.length > 0) {
-        if (t === 'forklift') this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
+        if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
         else if (t !== 'select') this.send({ type: 'build', kind: t, tiles });
       }
@@ -199,7 +199,7 @@ export class Input {
       const err =
         t === 'bulldoze'
           ? bulldozeError(map, tile)
-          : t === 'forklift'
+          : isMachineKind(t)
             ? machinePlacementError(map, tile)
             : placementError(map, t, tile, pending);
       ok.push(!err);
@@ -211,8 +211,8 @@ export class Input {
       value +=
         t === 'bulldoze'
           ? bulldozeValue(map, tile)
-          : t === 'forklift'
-            ? -B.FORKLIFT_PRICE
+          : isMachineKind(t)
+            ? -MACHINES[t].price
             : -placementCost(map, t, tile);
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);

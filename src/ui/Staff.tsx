@@ -5,7 +5,9 @@ import { traitDef, type Candidate, type Trait } from '../sim/staff';
 import type { Actions } from './App';
 import { money } from './format';
 import { Icon } from './icons';
+import { MACHINES } from '../sim/machines';
 import { MACHINE_TIER, TIERS } from '../sim/tiers';
+import type { MachineKind } from '../sim/types';
 import { panel, snapshot, tool } from './store';
 import { InfoHeader, Meter } from './widgets';
 
@@ -61,7 +63,7 @@ export function StaffDetails({
 }) {
   const p = snapshot.value?.people.find((x) => x.id === id);
   if (!p) return null;
-  if (p.kind === 'forklift') {
+  if (p.kind !== 'dockhand') {
     return (
       <>
         <div class="needs fuel" title="Fuel">
@@ -71,8 +73,8 @@ export function StaffDetails({
         <dl class="props">
           <dt>Fuel</dt>
           <dd>{p.fuel}%</dd>
-          <dt>Carries</dt>
-          <dd>{B.FORKLIFT_CAPACITY} crates a trip</dd>
+          <dt>Job</dt>
+          <dd>{MACHINES[p.kind].hint}</dd>
           <dt>Drives on</dt>
           <dd>Quays, paths, roads</dd>
           <dt>Operator</dt>
@@ -88,7 +90,7 @@ export function StaffDetails({
               onDismiss();
             }}
           >
-            Sell · {money(B.FORKLIFT_PRICE * B.SELL_SHARE)}
+            Sell · {money(MACHINES[p.kind].price * B.SELL_SHARE)}
           </button>
         </div>
       </>
@@ -164,7 +166,7 @@ function MachineCard({ p, actions }: { p: StaffView; actions: Actions }) {
   return (
     <div class="card person">
       <div class="card-head">
-        <Icon name="forklift" />
+        <Icon name={p.kind === 'stacker' ? 'stacker' : 'forklift'} />
         <strong>{p.name}</strong>
         {p.broken && <span class="badge bad">In for repair</span>}
       </div>
@@ -180,7 +182,7 @@ function MachineCard({ p, actions }: { p: StaffView; actions: Actions }) {
           {p.activity} · {money(p.wage)}/day
         </span>
         <button class="btn ghost sm" onClick={() => actions.send({ type: 'fire', id: p.id })}>
-          Sell · {money(B.FORKLIFT_PRICE * B.SELL_SHARE)}
+          Sell · {money(MACHINES[p.kind as MachineKind].price * B.SELL_SHARE)}
         </button>
       </div>
     </div>
@@ -227,7 +229,7 @@ export function StaffPanel({ actions }: { actions: Actions }) {
   const unhappy = s.people.filter((p) => p.morale < 30).length;
   const asks = s.people.filter((p) => p.raiseAsk > 0);
   const crew = s.people.filter((p) => p.kind === 'dockhand');
-  const machines = s.people.filter((p) => p.kind === 'forklift');
+  const machines = s.people.filter((p) => p.kind !== 'dockhand');
   const locked = s.progress.tier < MACHINE_TIER.forklift;
   return (
     <aside class="side panel wide" aria-label="Staff">

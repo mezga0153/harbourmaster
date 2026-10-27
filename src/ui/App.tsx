@@ -3,11 +3,12 @@ import { useState } from 'preact/hooks';
 import type { Command } from '../protocol';
 import * as B from '../sim/balance';
 import { BUILDABLES } from '../sim/rules';
-import { Terrain, type BuildKind } from '../sim/types';
+import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
 import { dayProgress, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
 import { PortPanel } from './Port';
+import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
@@ -249,6 +250,7 @@ function Messages() {
 const KIND_LABEL = {
   dockhand: 'Dockhand',
   forklift: 'Machine',
+  stacker: 'Machine',
   boat: 'Boat',
   truck: 'Truck',
 } as const;
@@ -262,7 +264,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
   if (sel.type === 'depot') {
     const depot = s.depots.find((d) => d.idx === sel.idx);
     if (!depot) return null;
-    const fleet = s.people.filter((p) => p.kind === 'forklift' && p.home === sel.idx);
+    const fleet = s.people.filter((p) => p.kind !== 'dockhand' && p.home === sel.idx);
     return (
       <aside class="side panel">
         <InfoHeader kicker="Building" title="Forklift depot" onClose={close} />
@@ -286,13 +288,18 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </div>
         ))}
         <div class="actions">
-          <button
-            class="btn primary"
-            disabled={depot.forklifts >= B.DEPOT_SLOTS || s.cash < B.FORKLIFT_PRICE}
-            onClick={() => actions.send({ type: 'buyMachine', kind: 'forklift', tile: sel.idx })}
-          >
-            Buy forklift · {money(B.FORKLIFT_PRICE)}
-          </button>
+          {(Object.keys(MACHINES) as MachineKind[])
+            .filter((k) => MACHINE_TIER[k] <= s.progress.tier)
+            .map((k) => (
+              <button
+                key={k}
+                class="btn primary"
+                disabled={depot.forklifts >= B.DEPOT_SLOTS || s.cash < MACHINES[k].price}
+                onClick={() => actions.send({ type: 'buyMachine', kind: k, tile: sel.idx })}
+              >
+                {MACHINES[k].label} · {money(MACHINES[k].price)}
+              </button>
+            ))}
         </div>
       </aside>
     );
@@ -329,7 +336,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <span class={`dot ${e.moving ? 'live' : ''}`} />
         {e.activity}
       </p>
-      {(e.kind === 'dockhand' || e.kind === 'forklift') && (
+      {(e.kind === 'dockhand' || e.kind === 'forklift' || e.kind === 'stacker') && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
       {e.kind === 'boat' && (
@@ -389,13 +396,17 @@ function HoverTip() {
 
 function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   const def = t.tool in BUILDABLES ? BUILDABLES[t.tool as BuildKind] : null;
-  const machine = t.tool === 'forklift';
-  const needTier = def ? BUILD_TIER[t.tool as BuildKind] : machine ? MACHINE_TIER.forklift : 0;
+  const machine = isMachineKind(t.tool) ? MACHINES[t.tool] : null;
+  const needTier = def
+    ? BUILD_TIER[t.tool as BuildKind]
+    : isMachineKind(t.tool)
+      ? MACHINE_TIER[t.tool]
+      : 0;
   const locked = needTier > (snapshot.value?.progress.tier ?? 0);
   const hint = def
     ? `${def.label}: ${def.hint}`
     : machine
-      ? `Forklift: carries ${B.FORKLIFT_CAPACITY} crates a trip. Click a forklift depot to buy one there. Operator ${money(B.FORKLIFT_WAGE)}/day`
+      ? `${machine.label}: ${machine.hint}. Click a depot to buy one there. Operator ${money(machine.wage)}/day`
       : t.label;
   const title = locked
     ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
@@ -417,7 +428,7 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
       <Icon name={t.icon} />
       <span class="tool-label">{t.label}</span>
       <span class="tool-cost">
-        {def ? money(def.cost) : machine ? money(B.FORKLIFT_PRICE) : t.note}
+        {def ? money(def.cost) : machine ? money(machine.price) : t.note}
       </span>
     </button>
   );

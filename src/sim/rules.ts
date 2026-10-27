@@ -68,6 +68,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Coordinates berths. Needed for more than ${B.FREE_DOCKS} jetties or any quay; each office handles ${B.DOCKS_PER_OFFICE} docks. Must touch a port path or road`,
     drag: false,
   },
+  harbourCrane: {
+    code: Build.HarbourCrane,
+    label: 'Harbour crane',
+    cost: 9000,
+    hint: `Lifts containers off feeder ships. Goes on a quay edge with quay behind it (2 wide). $${B.HARBOUR_CRANE_RUNNING_COST}/day to run`,
+    drag: false,
+  },
   breakHut: {
     code: Build.BreakHut,
     label: 'Break hut',
@@ -109,6 +116,16 @@ export function placementError(
   pending?: ReadonlySet<number>,
 ): string | null {
   const t = map.terrain[i];
+  if (kind === 'harbourCrane') {
+    if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
+    const water = map.neighbors4(i).find((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
+    if (water === undefined) return 'Put the crane at the quay edge, next to open water';
+    const bx = 2 * map.xOf(i) - map.xOf(water);
+    const by = 2 * map.yOf(i) - map.yOf(water);
+    const behind = map.inBounds(bx, by) ? map.build[map.idx(bx, by)] : Build.None;
+    const quay = isDock(behind) && behind !== Build.Jetty;
+    return quay ? null : 'A harbour crane needs quay behind it too (2 wide)';
+  }
   if (kind === 'jibCrane') {
     if (map.build[i] !== Build.Quay) return 'A jib crane goes on a quay';
     const atWater = map
@@ -182,6 +199,7 @@ export function drivable(code: number): boolean {
     code === Build.ForkliftLane ||
     code === Build.Quay ||
     code === Build.JibCrane ||
+    code === Build.HarbourCrane ||
     isBay(code) ||
     code === Build.Depot
   );
@@ -194,6 +212,7 @@ export function walkable(code: number): boolean {
     code === Build.Jetty ||
     code === Build.Quay ||
     code === Build.JibCrane ||
+    code === Build.HarbourCrane ||
     isBay(code) ||
     code === Build.BreakHut ||
     code === Build.Depot

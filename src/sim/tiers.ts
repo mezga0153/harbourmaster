@@ -41,12 +41,16 @@ export const TIERS: Tier[] = [
   },
   {
     name: 'Container Port',
-    blurb: 'Containers, reach stackers, mobile harbour cranes and feeder ships.',
+    blurb: 'Feeder ships bring containers: harbour cranes lift them, reach stackers move them.',
     cost: 25000,
-    crates: 3000,
-    contracts: 5,
-    unlocks: ['Containers', 'Reach stackers', 'Mobile harbour cranes', 'Feeder ships'],
-    comingSoon: true,
+    crates: 2000,
+    contracts: 4,
+    unlocks: [
+      'Mobile harbour cranes (on a 2-wide quay)',
+      'Reach stackers',
+      'Feeder ships with containers (4 m draft)',
+      'Container hauliers (need large truck bays)',
+    ],
   },
   {
     name: 'Bulk Terminal',
@@ -71,8 +75,10 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   forkliftLane: 1,
   office: 0,
   largeBay: 1,
+  harbourCrane: 2,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {
   forklift: 1,
+  stacker: 2,
 };

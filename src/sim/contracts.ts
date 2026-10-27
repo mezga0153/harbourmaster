@@ -6,7 +6,7 @@ import type { Rng } from './rng';
 /** A supplier of boats: a local fishery or, later, a shipping line with coasters. */
 export interface FisheryTerms {
   kind: 'fishery';
-  vessel: 'smack' | 'coaster';
+  vessel: 'smack' | 'coaster' | 'feeder';
   name: string;
   /** Paint colour index for this fishery's boats. */
   color: number;
@@ -26,6 +26,8 @@ export interface HaulierTerms {
   fleet: number;
   capacity: number;
   dailyFee: number;
+  /** Container hauliers carry containers instead of crates. */
+  cargo?: 'container';
 }
 
 export type Terms = FisheryTerms | HaulierTerms;
@@ -70,6 +72,16 @@ const SHIPPING_LINES = [
   'Gannet Shipping',
   'Harbour Line',
 ];
+
+const CONTAINER_LINES = [
+  'Maersk-ish Feeders',
+  'Blue Box Line',
+  'Seven Seas Container Co.',
+  'Harbour Feeder Services',
+  'Coastal Box Lines',
+];
+
+const CONTAINER_HAULIERS = ['Box Haul Ltd', 'Twenty Foot Transport', 'Steel Box Logistics'];
 
 const HAULIERS = [
   'Bramble Transport',
@@ -120,12 +132,54 @@ export function makeOffer(
   takenNames: Set<string>,
   tier = 0,
 ): Offer | null {
-  const coaster = kind === 'fishery' && tier >= 1 && rng.next() < 0.45;
-  const pool = coaster ? SHIPPING_LINES : kind === 'fishery' ? FISHERIES : HAULIERS;
+  const roll = rng.next();
+  const feeder = kind === 'fishery' && tier >= 2 && roll < 0.4;
+  const coaster = kind === 'fishery' && !feeder && tier >= 1 && roll < 0.7;
+  const boxTrucks = kind === 'haulier' && tier >= 2 && roll < 0.35;
+  const pool = feeder
+    ? CONTAINER_LINES
+    : coaster
+      ? SHIPPING_LINES
+      : boxTrucks
+        ? CONTAINER_HAULIERS
+        : kind === 'fishery'
+          ? FISHERIES
+          : HAULIERS;
   const names = pool.filter((n) => !takenNames.has(n));
   if (names.length === 0) return null;
   const name = rng.pick(names);
   const expires = tick + Math.round(rng.range(4, 8) * 600);
+
+  if (feeder) {
+    // Feeders bring few, valuable containers and need a harbour crane.
+    const cratesMin = rng.int(6, 8);
+    const terms: FisheryTerms = {
+      kind: 'fishery',
+      vessel: 'feeder',
+      name,
+      color: rng.int(0, 3),
+      boatEvery: Math.round(rng.range(1.2, 2.2) * 20) / 20,
+      cratesMin,
+      cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + rng.int(1, 3)),
+      fee: rng.int(120, 170),
+    };
+    const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 100) * 100;
+    return { id, terms, signingFee, expires };
+  }
+
+  if (boxTrucks) {
+    const fleet = rng.int(1, 2);
+    const terms: HaulierTerms = {
+      kind,
+      name,
+      color: rng.int(0, 4),
+      fleet,
+      capacity: B.CONTAINER_TRUCK_CAPACITY,
+      dailyFee: fleet * 55,
+      cargo: 'container',
+    };
+    return { id, terms, signingFee: fleet * 400, expires };
+  }
 
   if (coaster) {
     // Coasters bring big loads at good rates but need deep water to moor.
