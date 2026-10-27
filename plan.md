@@ -44,6 +44,7 @@ Ship arrives ──► berths at quay ──► cargo unloaded (people / machine
 Exports run the same loop in reverse: trucks or rail deliver cargo, you store it, and ships take it away.
 
 **Pressure sources:**
+
 - Ships pay **demurrage penalties** if they wait too long at anchor or berth.
 - Truck drivers get impatient, honk, and hurt reputation.
 - Contracts have deadlines and minimum volumes.
@@ -55,15 +56,15 @@ Exports run the same loop in reverse: trucks or rail deliver cargo, you store it
 
 Each tier unlocks through **milestones** (cash, reputation, volume handled) plus **research** at the Harbour Office.
 
-| Tier | Name | New cargo | Ships | Key unlocks |
-|---|---|---|---|---|
-| 0 | Fishing Jetty | Crates, sacks (break-bulk, carried by hand) | Rowboat / small coaster | Wooden pier, dockhand, truck bay, hand cart |
-| 1 | Coastal Wharf | Pallets | Small general cargo | Concrete quay, forklift, warehouse, jib crane, break room, harbour office |
-| 2 | Container Start | 20ft / 40ft containers | Feeder ship (~300 TEU) | Mobile harbour crane, reach stacker, container yard, truck gate, customs shed |
-| 3 | Bulk Terminal | Coal, grain, ore (tonnes) | Handysize bulk carrier | Grab crane, hopper, **conveyor belts**, stockpiles, silos, stacker-reclaimer, rail siding |
-| 4 | Liquid Terminal | Oil, chemicals, later LNG (m³) | Product tanker | **Pipes**, pumps, loading arms, tank farm, fire station, spill response |
-| 5 | Container Hub | High-volume containers, reefers | Panamax / Post-Panamax | STS gantry crane, straddle carrier, RTG crane, reefer stacks, rail terminal |
-| 6 | Mega Port | Everything at scale | ULCS (20k+ TEU), VLCC | Automated stacking cranes, AGVs, remote-operated STS, dredger, port control tower |
+| Tier | Name            | New cargo                                   | Ships                   | Key unlocks                                                                               |
+| ---- | --------------- | ------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
+| 0    | Fishing Jetty   | Crates, sacks (break-bulk, carried by hand) | Rowboat / small coaster | Wooden pier, dockhand, truck bay, hand cart                                               |
+| 1    | Coastal Wharf   | Pallets                                     | Small general cargo     | Concrete quay, forklift, warehouse, jib crane, break room, harbour office                 |
+| 2    | Container Start | 20ft / 40ft containers                      | Feeder ship (~300 TEU)  | Mobile harbour crane, reach stacker, container yard, truck gate, customs shed             |
+| 3    | Bulk Terminal   | Coal, grain, ore (tonnes)                   | Handysize bulk carrier  | Grab crane, hopper, **conveyor belts**, stockpiles, silos, stacker-reclaimer, rail siding |
+| 4    | Liquid Terminal | Oil, chemicals, later LNG (m³)              | Product tanker          | **Pipes**, pumps, loading arms, tank farm, fire station, spill response                   |
+| 5    | Container Hub   | High-volume containers, reefers             | Panamax / Post-Panamax  | STS gantry crane, straddle carrier, RTG crane, reefer stacks, rail terminal               |
+| 6    | Mega Port       | Everything at scale                         | ULCS (20k+ TEU), VLCC   | Automated stacking cranes, AGVs, remote-operated STS, dredger, port control tower         |
 
 Possible later tiers: RoRo (cars), cruise terminal (passengers, Theme Hospital-style queues), shipyard.
 
@@ -76,12 +77,14 @@ Every berth has a **draft**. Bigger ships need deeper water, so **dredging** is 
 ## 4. Building system (the Factorio side)
 
 The map is a **tile grid** with layers:
+
 - **Terrain:** water (with depth), sand, land, rock.
 - **Ground:** concrete, asphalt road, rail, footpath.
 - **Network:** conveyor belts (directional), pipes, power lines (later tiers).
 - **Structures:** multi-tile buildings and machines, each with a footprint, rotation, and input/output ports.
 
 **Build tools:**
+
 - Drag to place roads, belts, pipes and rails.
 - Place buildings with a ghost preview: rotate with `R`, red when invalid.
 - Bulldoze returns part of the cost.
@@ -90,34 +93,36 @@ The map is a **tile grid** with layers:
 
 **Logistics primitives:**
 
-| Primitive | Carries | Moved by |
-|---|---|---|
-| Footpath / quay | Crates, sacks, pallets | Dockhands, hand carts, forklifts |
-| Road | Containers, pallets | Trucks, terminal tractors, straddle carriers |
-| Conveyor | Bulk (tonnes/s) | Belts, with throughput limits |
-| Pipe | Liquids (m³/s) | Pumps, with throughput limits |
-| Rail | Containers, bulk, liquid | Trains (tier 3+) |
+| Primitive       | Carries                  | Moved by                                     |
+| --------------- | ------------------------ | -------------------------------------------- |
+| Footpath / quay | Crates, sacks, pallets   | Dockhands, hand carts, forklifts             |
+| Road            | Containers, pallets      | Trucks, terminal tractors, straddle carriers |
+| Conveyor        | Bulk (tonnes/s)          | Belts, with throughput limits                |
+| Pipe            | Liquids (m³/s)           | Pumps, with throughput limits                |
+| Rail            | Containers, bulk, liquid | Trains (tier 3+)                             |
 
 ---
 
 ## 5. Staff (the Theme Hospital side)
 
 You hire from a rotating **candidate list**. Each candidate has:
-- **Name, portrait** (procedurally generated), **wage** and **traits**, such as *Fast*, *Lazy*, *Careful*, *Union rep*, *Ex-navy* or *Coffee addict*.
+
+- **Name, portrait** (procedurally generated), **wage** and **traits**, such as _Fast_, _Lazy_, _Careful_, _Union rep_, _Ex-navy_ or _Coffee addict_.
 - **Skills (1–5)** per role. Higher skill means faster work and fewer accidents.
 - **Needs:** energy, morale, bladder and hunger. These are satisfied by break rooms, toilets and canteens.
 
-| Role | Does |
-|---|---|
-| Dockhand | Carries cargo by hand, lashes and unlashes containers |
-| Machine operator | Required to run forklifts, cranes and straddle carriers (licence per machine class, learned at the training centre) |
-| Mechanic | Repairs and maintains machines, similar to the Handyman |
-| Clerk / Customs officer | Processes paperwork; bottleneck for truck gates and inspections |
-| Pilot / Tug crew | Brings big ships in (tier 2+) |
-| Security | Prevents theft and smuggling events |
-| Firefighter | Liquid terminal safety (tier 4+) |
+| Role                    | Does                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Dockhand                | Carries cargo by hand, lashes and unlashes containers                                                               |
+| Machine operator        | Required to run forklifts, cranes and straddle carriers (licence per machine class, learned at the training centre) |
+| Mechanic                | Repairs and maintains machines, similar to the Handyman                                                             |
+| Clerk / Customs officer | Processes paperwork; bottleneck for truck gates and inspections                                                     |
+| Pilot / Tug crew        | Brings big ships in (tier 2+)                                                                                       |
+| Security                | Prevents theft and smuggling events                                                                                 |
+| Firefighter             | Liquid terminal safety (tier 4+)                                                                                    |
 
 **Theme Hospital-style touches:**
+
 - Staff ask for raises. If you refuse, morale drops and they may quit or strike.
 - Clicking a person shows their thoughts, for example "I need a coffee" or "This crane is making a weird noise."
 - Advisor messages appear as a small ticker or popup with a character, the Harbourmaster's assistant.
@@ -152,17 +157,17 @@ Machines are animated agents: cranes swing, spreaders lower, straddle carriers d
 
 ## 8. Events
 
-| Event | Effect |
-|---|---|
-| Storm | Ships wait at anchor; cranes must stop above a wind threshold |
-| Fog | Pilots are required; arrivals slow down |
-| Strike | Staff with low morale walk out until demands are met |
-| Customs inspection | Random containers are held; clerks are needed |
-| Smuggling | Security catches it for a bonus, or you get fined |
-| Rats in grain silo | Bulk cargo spoils unless pest control is called |
-| Oil spill | Big fine plus a cleanup minigame; firefighters and booms reduce it |
-| VIP visit / inspector | Graded on cleanliness, queues and staff happiness |
-| Breakdown | Machine stops until a mechanic arrives |
+| Event                 | Effect                                                             |
+| --------------------- | ------------------------------------------------------------------ |
+| Storm                 | Ships wait at anchor; cranes must stop above a wind threshold      |
+| Fog                   | Pilots are required; arrivals slow down                            |
+| Strike                | Staff with low morale walk out until demands are met               |
+| Customs inspection    | Random containers are held; clerks are needed                      |
+| Smuggling             | Security catches it for a bonus, or you get fined                  |
+| Rats in grain silo    | Bulk cargo spoils unless pest control is called                    |
+| Oil spill             | Big fine plus a cleanup minigame; firefighters and booms reduce it |
+| VIP visit / inspector | Graded on cleanliness, queues and staff happiness                  |
+| Breakdown             | Machine stops until a mechanic arrives                             |
 
 ---
 
@@ -185,18 +190,18 @@ Machines are animated agents: cranes swing, spreaders lower, straddle carriers d
 
 ## 10. Tech stack
 
-| Concern | Choice | Why |
-|---|---|---|
-| Language | **TypeScript** | Large simulation codebase; types pay off |
-| Build | **Vite** | Fast dev server, simple static build, deploys anywhere |
-| Rendering | **Three.js** (WebGL2) | Orthographic iso camera, instancing for thousands of containers, shadows |
-| UI | **Preact** + signals, DOM overlay on the canvas | Panels, lists and dialogs are easier in DOM than in canvas |
-| Pathfinding | Own A* on the tile grid plus flow fields for many trucks | Small, tailored, no dependency needed |
-| Threading | Sim in a **Web Worker** (Vite's native worker support) | Keeps rendering and UI smooth as the port grows |
-| Persistence | **IndexedDB** (autosave plus slots), JSON save format with a version field | localStorage is too small for large ports |
-| Audio | Web Audio API | Ambient waves, gulls, horns, crane hum |
-| Tests | **Vitest** for the simulation (deterministic, headless) | Economy and logistics bugs are subtle |
-| Formatting | Prettier | — |
+| Concern     | Choice                                                                     | Why                                                                      |
+| ----------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Language    | **TypeScript**                                                             | Large simulation codebase; types pay off                                 |
+| Build       | **Vite**                                                                   | Fast dev server, simple static build, deploys anywhere                   |
+| Rendering   | **Three.js** (WebGL2)                                                      | Orthographic iso camera, instancing for thousands of containers, shadows |
+| UI          | **Preact** + signals, DOM overlay on the canvas                            | Panels, lists and dialogs are easier in DOM than in canvas               |
+| Pathfinding | Own A* on the tile grid plus flow fields for many trucks                   | Small, tailored, no dependency needed                                    |
+| Threading   | Sim in a **Web Worker** (Vite's native worker support)                     | Keeps rendering and UI smooth as the port grows                          |
+| Persistence | **IndexedDB** (autosave plus slots), JSON save format with a version field | localStorage is too small for large ports                                |
+| Audio       | Web Audio API                                                              | Ambient waves, gulls, horns, crane hum                                   |
+| Tests       | **Vitest** for the simulation (deterministic, headless)                    | Economy and logistics bugs are subtle                                    |
+| Formatting  | Prettier                                                                   | —                                                                        |
 
 Dependencies are kept minimal: three, preact, @preact/signals, plus dev tools. npm v11.10+ with a project `.npmrc` containing `save-exact=true` and `min-release-age=7`.
 
@@ -281,20 +286,20 @@ tests/                    vitest, sim-only
 
 ## 12. Controls
 
-| Input | Action |
-|---|---|
-| Left-drag / WASD / screen edges | Pan |
-| Wheel | Zoom |
-| Q / E | Rotate view 90° |
-| Left-click | Select / place |
-| Right-click / Esc | Cancel |
-| R | Rotate building |
-| Space | Pause |
-| 1 2 3 4 | Game speed |
-| B | Build menu |
-| H | Hire menu |
-| Delete | Bulldoze |
-| F1 | Overlay toggles (water depth, congestion, staff needs, belt flow) |
+| Input                           | Action                                                            |
+| ------------------------------- | ----------------------------------------------------------------- |
+| Left-drag / WASD / screen edges | Pan                                                               |
+| Wheel                           | Zoom                                                              |
+| Q / E                           | Rotate view 90°                                                   |
+| Left-click                      | Select / place                                                    |
+| Right-click / Esc               | Cancel                                                            |
+| R                               | Rotate building                                                   |
+| Space                           | Pause                                                             |
+| 1 2 3 4                         | Game speed                                                        |
+| B                               | Build menu                                                        |
+| H                               | Hire menu                                                         |
+| Delete                          | Bulldoze                                                          |
+| F1                              | Overlay toggles (water depth, congestion, staff needs, belt flow) |
 
 ---
 
@@ -303,6 +308,7 @@ tests/                    vitest, sim-only
 Each milestone ends with something playable.
 
 ### M0 — Skeleton
+
 - Vite + TS + Three.js + Preact set up, Prettier and Vitest configured.
 - Sim worker, the command/snapshot protocol, and snapshot interpolation in the renderer.
 - Seeded random coastline with water depth.
@@ -311,6 +317,7 @@ Each milestone ends with something playable.
 - Fixed-step sim loop with a speed control, and a HUD showing date and cash.
 
 ### M1 — The first boat (MVP loop)
+
 - A wooden jetty, one truck bay and one dockhand, placed at the start site picked by map generation.
 - A small boat arrives on a timer carrying 10 crates.
 - The dockhand walks, picks up a crate, carries it to the truck bay and drops it.
@@ -320,6 +327,7 @@ Each milestone ends with something playable.
 - ✅ **Goal:** it is already a tiny satisfying game.
 
 ### M2 — Theme Hospital layer
+
 - Staff needs (energy, morale), break room, toilet, wages, raise requests, quitting.
 - Candidate list, traits and skills.
 - Calendar, daily costs, bank loans.
@@ -327,30 +335,36 @@ Each milestone ends with something playable.
 - Contracts board v1.
 
 ### M3 — Tier 1: Coastal Wharf
+
 - Concrete quay, pallets, forklift (machine plus operator), warehouse storage.
 - Jib crane, mechanic and breakdowns.
 - Research at the harbour office; the milestone and unlock framework.
 
 ### M4 — Tier 2: Containers
+
 - Containers as instanced entities, container yard zone with stacking rules.
 - Mobile harbour crane, reach stacker, truck gate with clerk, customs shed.
 - Feeder ships with bay plans (simplified), demurrage.
 - Water depth per berth; ships need a pilot.
 
 ### M5 — Tier 3: Bulk
+
 - Conveyor belts, hoppers, stockpiles, silos, grab crane, stacker-reclaimer.
 - Rail siding and trains.
 - Flow overlay and bottleneck visualisation.
 
 ### M6 — Tier 4: Liquids
+
 - Pipes, pumps, tank farm, loading arms, tankers.
 - Fire station, spill event, safety inspections.
 
 ### M7 — Tier 5–6: Hub and Mega Port
+
 - STS gantry, straddle carriers, RTG, reefers, AGVs, automation, control room.
 - Dredger, ULCS ships, port expansion (buy adjacent land and water).
 
 ### M8 — Polish
+
 - Day/night cycle, weather, audio, particles.
 - Tutorial driven by the advisor.
 - New-game screen with seed entry and map preview.
@@ -362,16 +376,16 @@ Each milestone ends with something playable.
 
 These are starting values to tune during play.
 
-| Thing | Value |
-|---|---|
-| Starting cash | $5,000 |
-| Dockhand wage | $40 / day |
-| Crate handling fee | $15 |
-| Boat interval | every ~0.5 days, 8–12 crates |
-| Truck capacity | 6 crates |
+| Thing               | Value                                   |
+| ------------------- | --------------------------------------- |
+| Starting cash       | $5,000                                  |
+| Dockhand wage       | $40 / day                               |
+| Crate handling fee  | $15                                     |
+| Boat interval       | every ~0.5 days, 8–12 crates            |
+| Truck capacity      | 6 crates                                |
 | Dockhand carry time | ~4 s per crate over 10 tiles (1x speed) |
-| Extra jetty segment | $500 |
-| Tier 1 unlock | $15,000 cash + 500 crates handled |
+| Extra jetty segment | $500                                    |
+| Tier 1 unlock       | $15,000 cash + 500 crates handled       |
 
 ---
 

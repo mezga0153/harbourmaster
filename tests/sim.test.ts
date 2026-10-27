@@ -1,0 +1,197 @@
+import { describe, expect, it } from 'vitest';
+import * as B from '../src/sim/balance';
+import { generateMap } from '../src/sim/mapgen';
+import { findPath } from '../src/sim/path';
+import { placementError } from '../src/sim/rules';
+import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
+import { World } from '../src/sim/world';
+
+describe('findPath', () => {
+  it('routes around walls', () => {
+    // 5x5 with a wall at x=2 except y=4
+    const w = 5;
+    const wall = new Set([2, 7, 12, 17]);
+    const path = findPath(w, 5, 0, 4, (i) => (wall.has(i) ? Infinity : 1), false);
+    expect(path).not.toBeNull();
+    expect(path!.some((i) => wall.has(i))).toBe(false);
+    expect(path![path!.length - 1]).toBe(4);
+  });
+
+  it('returns null when unreachable', () => {
+    const path = findPath(3, 1, 0, 2, (i) => (i === 1 ? Infinity : 1), true);
+    expect(path).toBeNull();
+  });
+});
+
+describe('generateMap', () => {
+  it('is deterministic per seed', () => {
+    const a = generateMap(42).map.toData();
+    const b = generateMap(42).map.toData();
+    const c = generateMap(43).map.toData();
+    expect(a).toEqual(b);
+    expect(a.terrain).not.toEqual(c.terrain);
+  });
+
+  it.each([1, 2, 3, 99, 1234, 777777])('lays out a working start site (seed %i)', (seed) => {
+    const { map, spawn } = generateMap(seed);
+    expect(map.build[map.entry]).toBe(Build.Road);
+    expect(map.xOf(map.entry)).toBe(0);
+    expect(map.build[spawn]).toBe(Build.Footpath);
+    const jetties = map.build.filter((b) => b === Build.Jetty).length;
+    expect(jetties).toBe(3);
+    for (let i = 0; i < map.build.length; i++) {
+      if (map.build[i] === Build.Jetty) expect(map.ocean[i]).toBe(1);
+    }
+  });
+});
+
+describe('World', () => {
+  it('runs the first-boat loop and earns money', () => {
+    const world = World.create(7);
+    const start = world.cash;
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) world.step();
+    expect(world.stats.boats).toBeGreaterThan(0);
+    expect(world.stats.cratesHandled).toBeGreaterThan(5);
+    expect(world.stats.earned).toBeGreaterThan(0);
+    // Earnings minus penalties and three days of wages and haulier fees.
+    const daily = B.WAGE_DOCKHAND + B.STARTER_HAULIER_FEE;
+    expect(world.cash).toBe(start + world.stats.earned - world.stats.penalties - 3 * daily);
+  });
+
+  it.each([1, 2, 3, 99, 1234, 777777])('gets boats unloaded on any map (seed %i)', (seed) => {
+    const world = World.create(seed);
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) world.step();
+    expect(world.stats.cratesHandled).toBeGreaterThan(0);
+  });
+
+  it('rejects saves from older versions or with missing fields', () => {
+    const save = World.create(1).toSave();
+    expect(World.isValidSave(save)).toBe(true);
+    expect(World.isValidSave({ ...save, version: 2 })).toBe(false);
+    const broken = structuredClone(save);
+    delete (broken.contracts[0] as { signingFee?: number }).signingFee;
+    expect(World.isValidSave(broken)).toBe(false);
+  });
+
+  it.each([7, 99])('keeps cash a finite number over a long, busy game (seed %i)', (seed) => {
+    const world = World.create(seed);
+    for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
+    for (let t = 0; t < TICKS_PER_DAY * 20; t++) world.step();
+    expect(Number.isFinite(world.cash)).toBe(true);
+  });
+
+  it('continues identically after a save round-trip', () => {
+    const a = World.create(11);
+    for (let t = 0; t < 1500; t++) a.step();
+    const b = World.fromSave(JSON.parse(JSON.stringify(a.toSave())));
+    for (let t = 0; t < 1500; t++) {
+      a.step();
+      b.step();
+    }
+    expect(b.snapshot()).toEqual(a.snapshot());
+  });
+
+  it('builds, charges and refunds', () => {
+    const world = World.create(5);
+    const m = world.map;
+    let road = -1;
+    for (let i = 0; i < m.build.length && road < 0; i++) {
+      if (!placementError(m, 'road', i) && m.deco[i] === Deco.None) road = i;
+    }
+    const before = world.cash;
+    world.command({ type: 'build', kind: 'road', tiles: [road] });
+    expect(m.build[road]).toBe(Build.Road);
+    expect(world.cash).toBe(before - 20);
+    world.command({ type: 'bulldoze', tiles: [road] });
+    expect(m.build[road]).toBe(Build.None);
+    expect(world.cash).toBe(before - 10);
+  });
+});
+
+describe('Bulldozing', () => {
+  it('clears rock to grass for a fee', () => {
+    const world = World.create(5);
+    const m = world.map;
+    const rock = m.terrain.findIndex((t) => t === Terrain.Rock);
+    expect(rock).toBeGreaterThanOrEqual(0);
+    expect(placementError(m, 'road', rock)).toBe('Rock is in the way');
+    const before = world.cash;
+    world.command({ type: 'bulldoze', tiles: [rock] });
+    expect(m.terrain[rock]).toBe(Terrain.Grass);
+    expect(world.cash).toBe(before - B.ROCK_CLEAR_COST);
+    expect(world.drainTileChanges()).toContainEqual(
+      expect.objectContaining({ i: rock, terrain: Terrain.Grass }),
+    );
+    expect(placementError(m, 'road', rock)).toBeNull();
+  });
+});
+
+describe('Contracts', () => {
+  it('signs an offer for its fee and starts sending boats', () => {
+    const world = World.create(7);
+    const offer = world.offers.find((o) => o.terms.kind === 'fishery')!;
+    const before = world.cash;
+    world.command({ type: 'signContract', id: offer.id });
+    expect(world.cash).toBe(before - offer.signingFee);
+    const signed = world.contracts.find((c) => c.terms.name === offer.terms.name)!;
+    expect(signed).toBeDefined();
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.boats.some((b) => b.contractId === signed.id) || world.stats.boats > 1).toBe(true);
+  });
+
+  it('never sends more trucks than the hauliers have', () => {
+    const world = World.create(3);
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      const fleet = world.contracts.reduce(
+        (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
+        0,
+      );
+      expect(world.trucks.length).toBeLessThanOrEqual(fleet);
+    }
+  });
+
+  it('charges a buyout when you end a signed contract', () => {
+    const world = World.create(7);
+    const offer = world.offers[0];
+    world.command({ type: 'signContract', id: offer.id });
+    const c = world.contracts.find((x) => x.terms.name === offer.terms.name)!;
+    const before = world.cash;
+    world.command({ type: 'cancelContract', id: c.id });
+    expect(world.cash).toBe(before - Math.round(offer.signingFee * B.CANCEL_FEE_SHARE));
+    expect(world.contracts).not.toContain(c);
+  });
+
+  it('makes an overloaded fishery unhappy, charges demurrage and lets it walk out', () => {
+    const world = World.create(7);
+    // Sack the only dockhand so nothing is ever unloaded.
+    world.command({ type: 'fire', id: world.people[0].id });
+    const starter = world.contracts.find((c) => c.terms.kind === 'fishery')!;
+    const before = world.cash;
+    for (let t = 0; t < TICKS_PER_DAY * 30 && world.contracts.includes(starter); t++) {
+      world.step();
+    }
+    expect(world.contracts).not.toContain(starter);
+    expect(world.cash).toBeLessThan(before);
+  });
+
+  it('goes bankrupt after too many days in the red', () => {
+    const world = World.create(7);
+    world.cash = -10_000;
+    for (let t = 0; t < TICKS_PER_DAY * (B.BANKRUPT_DAYS + 1); t++) world.step();
+    expect(world.bankrupt).toBe(true);
+    const tick = world.tick;
+    world.step();
+    expect(world.tick).toBe(tick);
+  });
+
+  it('recovers from the red before the deadline', () => {
+    const world = World.create(7);
+    world.cash = -1;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) world.step();
+    world.cash = 10_000;
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.daysInRed).toBe(0);
+    expect(world.bankrupt).toBe(false);
+  });
+});
