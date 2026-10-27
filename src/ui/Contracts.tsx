@@ -175,9 +175,10 @@ function OfferCard({
       <CardHead terms={o.terms} />
       <TermsLines terms={o.terms} />
       {o.terms.kind === 'fishery' && o.terms.vessel === 'coaster' && (
-        <p class="hint">
-          Coasters need a berth at least {B.COASTER_DRAFT} m deep: build a quay out into deeper
-          water.
+        <p class={`hint ${cap.deepBerths === 0 ? 'warn' : ''}`}>
+          {cap.deepBerths === 0
+            ? `No berth is deep enough yet. Coasters need ${B.COASTER_DRAFT} m: build a quay out into deeper water first.`
+            : `Coasters need ${B.COASTER_DRAFT} m of water. You have ${cap.deepBerths} deep berth${cap.deepBerths === 1 ? '' : 's'}.`}
         </p>
       )}
       {overload && (

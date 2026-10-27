@@ -113,6 +113,8 @@ export interface Capacity {
   demand: number;
   unloading: number;
   trucking: number;
+  /** Berths deep enough for a coaster. */
+  deepBerths: number;
 }
 
 export interface BayView {

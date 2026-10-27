@@ -3,6 +3,7 @@ import * as B from '../src/sim/balance';
 import { fisheryDailyCrates, type FisheryTerms } from '../src/sim/contracts';
 import { placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
+import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
 
 declare const process: { env: Record<string, string | undefined> };
@@ -14,6 +15,11 @@ declare const process: { env: Record<string, string | undefined> };
  */
 function playDay(w: World): string[] {
   const did: string[] = [];
+  // Upgrade the port when it is affordable with a cushion to spare.
+  if (w.canUpgrade() && w.cash > TIERS[w.tier + 1].cost + 3000) {
+    w.command({ type: 'upgrade' });
+    did.push(`upgrade to ${TIERS[w.tier].name}`);
+  }
   // Good staff are worth keeping: grant raises while the books are healthy.
   for (const p of w.people) {
     if (p.raiseAsk > 0) w.command({ type: 'raise', id: p.id, accept: w.cash > 1500 });
@@ -41,7 +47,12 @@ function playDay(w: World): string[] {
   // The fishery we would like to sign next, if we can afford it after
   // hiring for it.
   const nextOffer = w.offers
-    .filter((o) => o.terms.kind === 'fishery' && o.signingFee < w.cash - 1500 - B.HIRE_FEE * 2)
+    .filter(
+      (o) =>
+        o.terms.kind === 'fishery' &&
+        o.signingFee < w.cash - 1500 - B.HIRE_FEE * 2 &&
+        (o.terms.vessel !== 'coaster' || cap.deepBerths > 0),
+    )
     .sort((a, b) => b.signingFee - a.signingFee)[0];
 
   // Far more hands than work and nothing to grow into: let the priciest go.

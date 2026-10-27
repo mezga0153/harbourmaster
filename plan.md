@@ -308,9 +308,13 @@ tests/                    vitest, sim-only
 Each milestone ends with something playable.
 
 **Status (27 Oct 2026):** M0 and M1 are done. M2 is mostly done: contracts with failure modes,
-capacity planning, staff skills/traits/energy/morale, break huts, candidates and thoughts.
-Still open in M2: toilets, raise requests and bank loans. A playthrough bot in
-`tests/playthrough.test.ts` checks the balance on every test run.
+capacity planning, staff skills/traits/energy/morale, break huts, candidates, thoughts, raise
+requests, bank loans and a finance statement (toilets are still open). M3 has started: port tiers
+with an upgrade panel, and the Coastal Wharf tier with concrete quays (shore or up to 8 m deep),
+jib cranes, forklifts with breakdowns and shipping lines whose coasters need deep berths. Wooden
+jetties are limited to 3.5 m and can sit on the beach. Still open in M3: pallets, warehouses and a
+mechanic role. A playthrough bot in `tests/playthrough.test.ts` checks the balance on every test
+run.
 
 ### M0 — Skeleton ✅
 
@@ -339,7 +343,7 @@ Still open in M2: toilets, raise requests and bank loans. A playthrough bot in
 - Advisor messages; click a person to see their thoughts.
 - Contracts board v1.
 
-### M3 — Tier 1: Coastal Wharf
+### M3 — Tier 1: Coastal Wharf (in progress)
 
 - Concrete quay, pallets, forklift (machine plus operator), warehouse storage.
 - Jib crane, mechanic and breakdowns.

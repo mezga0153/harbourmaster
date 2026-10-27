@@ -778,6 +778,7 @@ export class World {
       demand: Math.round(demand),
       unloading: Math.round(unloading),
       trucking: Math.round(trucking),
+      deepBerths: this.berthCount(B.COASTER_DRAFT),
     };
     return this.capacityCache;
   }
@@ -1065,6 +1066,22 @@ export class World {
       (m.xOf(a[1]) === m.xOf(a[2]) && m.xOf(b[1]) === m.xOf(b[2]) && m.xOf(a[0]) === m.xOf(b[0]));
     if (sameLane) return b.includes(a[0]) || a.includes(b[0]);
     return a.some((t) => b.includes(t));
+  }
+
+  /** How many boats of this draft could moor at once, ignoring current traffic. */
+  private berthCount(draft: number): number {
+    const m = this.map;
+    const water = this.boatCostFor(draft);
+    const chosen: number[][] = [];
+    for (let j = 0; j < m.build.length; j++) {
+      if (!isDock(m.build[j])) continue;
+      for (const n of m.neighbors4(j)) {
+        if (water(n) !== 1) continue;
+        const fp = this.footprint(n, j);
+        if (fp && !chosen.some((c) => this.berthsClash(fp, c))) chosen.push(fp);
+      }
+    }
+    return chosen.length;
   }
 
   /** Water tiles beside a jetty where a boat can moor, nearest first. */
