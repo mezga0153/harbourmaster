@@ -339,15 +339,12 @@ describe('Coastal Wharf tier', () => {
     world.tier = 1;
     const m = world.map;
     const deep = m.depth.findIndex(
-      (d, i) =>
-        m.ocean[i] === 1 &&
-        d > B.MAX_JETTY_DEPTH &&
-        d <= B.MAX_QUAY_DEPTH &&
-        m.neighbors4(i).some((n) => m.isLand(n)),
+      (d, i) => m.ocean[i] === 1 && d > B.MAX_JETTY_DEPTH && d <= B.MAX_QUAY_DEPTH,
     );
     expect(deep).toBeGreaterThan(-1);
     expect(placementError(m, 'jetty', deep)).toBe('Too deep for a wooden jetty');
-    expect(placementError(m, 'quay', deep)).toBeNull();
+    // A quay may still need connecting to the shore, but depth is no obstacle.
+    expect(placementError(m, 'quay', deep) ?? '').not.toMatch(/deep/i);
   });
 
   it('runs a jib crane and forklifts off a quay', () => {

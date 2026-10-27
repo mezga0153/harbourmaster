@@ -51,7 +51,8 @@ export function generateMap(seed: number, size = MAP_SIZE): GeneratedMap {
     const y = map.yOf(i);
     if (!map.isLand(i)) {
       const d = 0.8 + distToLand[i] * 0.55 + (fbm(seed + 23, x * 0.1, y * 0.1) - 0.5) * 6;
-      map.depth[i] = Math.min(24, Math.max(0.5, d));
+      // Rounded once here so saving (which keeps one decimal) never changes the map.
+      map.depth[i] = Math.round(Math.min(24, Math.max(0.5, d)) * 10) / 10;
       continue;
     }
     const near = distToSea[i];
