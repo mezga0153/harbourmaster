@@ -21,7 +21,7 @@ import { Entities } from './entities';
 import { Overlay } from './overlay';
 import { C } from './palette';
 import { Structures } from './structures';
-import { buildLand, buildRocks, buildSeabed, buildTrees } from './terrain';
+import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
 
 const SUN_DIR = new Vector3(-0.55, 1, 0.35).normalize();
@@ -43,6 +43,7 @@ interface MapLayers {
   structures: Structures;
   entities: Entities;
   scenery: Group;
+  seabed: Mesh;
   land: Mesh;
   rocks: Object3D;
   trees: Group;
@@ -110,11 +111,12 @@ export class Renderer {
     const trees = buildTrees(map);
     const land = buildLand(map);
     const rocks = buildRocks(map);
-    scenery.add(buildSeabed(map), land, rocks, trees);
+    const seabed = buildSeabed(map);
+    scenery.add(seabed, buildSeabedDetail(map), land, rocks, trees);
     const root = new Group();
     root.add(water.mesh, scenery, structures.group, entities.group);
     this.scene.add(root);
-    this.layers = { map, root, water, structures, entities, scenery, land, rocks, trees };
+    this.layers = { map, root, water, structures, entities, scenery, seabed, land, rocks, trees };
 
     this.cam.setBounds(map.w, map.h);
     const entry = map.yOf(map.entry);
@@ -244,6 +246,7 @@ export class Renderer {
       );
       this.layers.entities.update(now, time);
       this.layers.structures.update(dt, time);
+      (this.layers.seabed.userData.time as { value: number }).value = time;
       const pos =
         this.selectedId !== null
           ? this.layers.entities.positionOf(this.selectedId, this.tmp)

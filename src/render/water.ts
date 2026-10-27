@@ -56,13 +56,15 @@ const fragmentShader = /* glsl */ `
     );
   }
 
-  // Small wind waves, only used for lighting.
+  // Wind waves and finer ripples, only used for lighting.
   float waves(vec2 p) {
     float t = uTime;
     float h = sin(dot(p, vec2(0.9, 0.4)) * 1.6 + t * 1.1) * 0.5;
     h += sin(dot(p, vec2(-0.3, 1.0)) * 2.3 + t * 1.4) * 0.35;
     h += sin(dot(p, vec2(0.7, -0.8)) * 3.7 - t * 1.8) * 0.2;
+    h += sin(dot(p, vec2(-0.8, -0.5)) * 6.1 + t * 2.6) * 0.12;
     h += (noise(p * 1.3 + vec2(t * 0.25, -t * 0.18)) - 0.5) * 0.8;
+    h += (noise(p * 4.1 - vec2(t * 0.6, t * 0.45)) - 0.5) * 0.35;
     return h;
   }
 
@@ -74,16 +76,23 @@ const fragmentShader = /* glsl */ `
     vec3 col = mix(uShallow, uMid, smoothstep(0.0, 0.2, depth));
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
-    float e = 0.08;
+    float e = 0.06;
     float h0 = waves(vXZ);
     vec3 n = normalize(vec3(
-      -(waves(vXZ + vec2(e, 0.0)) - h0) / e * 0.08,
+      -(waves(vXZ + vec2(e, 0.0)) - h0) / e * 0.13,
       1.0,
-      -(waves(vXZ + vec2(0.0, e)) - h0) / e * 0.08
+      -(waves(vXZ + vec2(0.0, e)) - h0) / e * 0.13
     ));
-    col *= 0.93 + 0.1 * dot(n, uSun);
-    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 140.0);
-    col += spec * 0.5;
+    col *= 0.9 + 0.16 * dot(n, uSun);
+    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 110.0);
+    col += spec * 0.55;
+
+    // Soft ripple lines drifting across the surface, stronger out at sea.
+    float rn = noise(vXZ * 0.55 + vec2(uTime * 0.05, uTime * 0.03));
+    float ripple = smoothstep(0.86, 1.0, abs(sin((rn + vXZ.x * 0.02) * 22.0 - uTime * 0.6)));
+    // Broken into short dashes so they read as wind ripples, not contours.
+    ripple *= smoothstep(0.55, 0.8, noise(vXZ * 1.7 - uTime * 0.12));
+    col = mix(col, uFoam, ripple * (0.04 + 0.06 * smoothstep(0.05, 0.4, depth)));
 
     // Broken foam line hugging the coast.
     float edge = 1.0 - smoothstep(0.02, 0.07, shore);

@@ -133,9 +133,154 @@ export function buildSeabed(map: GameMap): Mesh {
   geo.setAttribute('color', new Float32BufferAttribute(col, 3));
   geo.setIndex(index);
   geo.computeVertexNormals();
-  const mesh = new Mesh(geo, new MeshLambertMaterial({ vertexColors: true }));
+  const material = new MeshLambertMaterial({ vertexColors: true });
+  // Sand ripples in the shallows and caustics: sunlight focused by the waves.
+  const time = { value: 0 };
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = time;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSeaWorld;')
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nvSeaWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${SEABED_GLSL}`)
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float shallow = smoothstep(-0.6, -0.12, vSeaWorld.y);
+        float sandRipple = sin(dot(vSeaWorld.xz, vec2(3.1, 1.4)) + seaNoise(vSeaWorld.xz * 0.8) * 3.0);
+        diffuseColor.rgb *= 1.0 + 0.08 * sandRipple * shallow;
+        diffuseColor.rgb *= 0.92 + 0.16 * seaNoise(vSeaWorld.xz * 0.35);`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `#include <opaque_fragment>
+        float caustics = causticLight(vSeaWorld.xz, uTime);
+        gl_FragColor.rgb += vec3(0.85, 1.0, 0.95) * caustics * shallow * 0.35;`,
+      );
+  };
+  const mesh = new Mesh(geo, material);
+  mesh.userData.time = time;
   mesh.receiveShadow = true;
   return mesh;
+}
+
+const SEABED_GLSL = /* glsl */ `
+  uniform float uTime;
+  varying vec3 vSeaWorld;
+
+  float seaHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float seaNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(seaHash(i), seaHash(i + vec2(1.0, 0.0)), u.x),
+      mix(seaHash(i + vec2(0.0, 1.0)), seaHash(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
+
+  // A web of bright lines where two drifting noise ridges meet.
+  float causticLight(vec2 p, float t) {
+    float a = abs(seaNoise(p * 1.6 + vec2(t * 0.35, t * 0.2)) - 0.5);
+    float b = abs(seaNoise(p * 2.4 - vec2(t * 0.25, -t * 0.3) + 7.3) - 0.5);
+    return pow(1.0 - min(a, b) * 2.0, 12.0);
+  }
+`;
+
+/** Pebbles, rocks and clumps of seaweed scattered across the seabed. */
+export function buildSeabedDetail(map: GameMap): Group {
+  const rocks: { x: number; y: number; z: number; s: number; v: number }[] = [];
+  const weed: { x: number; y: number; z: number; s: number; v: number; tilt: number }[] = [];
+  for (let i = 0; i < map.terrain.length; i++) {
+    if (map.isLand(i) || map.build[i] === Build.Quay || map.build[i] === Build.JibCrane) continue;
+    const d = map.depth[i];
+    const x = map.xOf(i);
+    const y = map.yOf(i);
+    const floor = seabedY(d);
+    if (d > 0.6 && d < 8 && hash01(41, x, y) < 0.16) {
+      const n = 1 + Math.floor(hash01(43, x, y) * 3);
+      for (let k = 0; k < n; k++) {
+        rocks.push({
+          x: x + 0.15 + hash01(47 + k, x, y) * 0.7,
+          y: floor,
+          z: y + 0.15 + hash01(53 + k, x, y) * 0.7,
+          s: 0.5 + hash01(59 + k, x, y) * 1.1,
+          v: hash01(61 + k, x, y),
+        });
+      }
+    }
+    if (d > 1.2 && d < 6.5 && hash01(67, x, y) < 0.2) {
+      const n = 3 + Math.floor(hash01(71, x, y) * 4);
+      const cx = x + 0.25 + hash01(73, x, y) * 0.5;
+      const cz = y + 0.25 + hash01(79, x, y) * 0.5;
+      for (let k = 0; k < n; k++) {
+        weed.push({
+          x: cx + (hash01(83 + k, x, y) - 0.5) * 0.3,
+          y: floor,
+          z: cz + (hash01(89 + k, x, y) - 0.5) * 0.3,
+          s: 0.6 + hash01(97 + k, x, y) * 0.9,
+          v: hash01(101 + k, x, y),
+          tilt: (hash01(103 + k, x, y) - 0.5) * 0.5,
+        });
+      }
+    }
+  }
+
+  const group = new Group();
+  const m = new Matrix4();
+  const q = new Quaternion();
+  const p = new Vector3();
+  const sc = new Vector3();
+  const e = new Euler();
+  const color = new Color();
+
+  const rockMesh = new InstancedMesh(
+    new DodecahedronGeometry(0.09, 0),
+    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
+    Math.max(1, rocks.length),
+  );
+  rocks.forEach((r, k) => {
+    p.set(r.x, r.y + 0.02, r.z);
+    q.setFromEuler(e.set(r.v * 3, r.v * 7, r.v * 5));
+    sc.set(r.s, r.s * 0.6, r.s);
+    m.compose(p, q, sc);
+    rockMesh.setMatrixAt(k, m);
+    rockMesh.setColorAt(
+      k,
+      color.setHex(r.v < 0.5 ? C.rock : C.seabedRock).multiplyScalar(0.8 + r.v * 0.3),
+    );
+  });
+  rockMesh.count = rocks.length;
+
+  const strand = new ConeGeometry(0.035, 0.32, 4);
+  strand.translate(0, 0.16, 0);
+  const weedMesh = new InstancedMesh(
+    strand,
+    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
+    Math.max(1, weed.length),
+  );
+  weed.forEach((w, k) => {
+    p.set(w.x, w.y, w.z);
+    q.setFromEuler(e.set(w.tilt, w.v * 6, w.tilt * 0.6));
+    sc.set(1, w.s, 1);
+    m.compose(p, q, sc);
+    weedMesh.setMatrixAt(k, m);
+    weedMesh.setColorAt(k, color.setHex(C.seaweed[Math.floor(w.v * C.seaweed.length)]));
+  });
+  weedMesh.count = weed.length;
+
+  for (const mesh of [rockMesh, weedMesh]) {
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return group;
 }
 
 /** One merged, flat-shaded mesh of blocky land tiles with cliff sides. */

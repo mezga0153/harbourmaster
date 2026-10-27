@@ -15,6 +15,8 @@ export const C = {
   seabedSand: 0xc2aa74,
   seabedWeed: 0x4c8470,
   seabedDeep: 0x1d4565,
+  seabedRock: 0x8a7d66,
+  seaweed: [0x3f7d4a, 0x5b8f3c, 0x2f6b4f],
 
   asphalt: 0x737a82,
   marking: 0xf5f5f0,
