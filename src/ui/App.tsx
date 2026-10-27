@@ -6,10 +6,12 @@ import { BUILDABLES } from '../sim/rules';
 import { Terrain, type BuildKind } from '../sim/types';
 import { dayProgress, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
+import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
 import { TOOL_GROUPS, type ToolDef } from './tools';
 import {
-  contractsOpen,
+  panel,
+  togglePanel,
   hover,
   messages,
   newGameOpen,
@@ -47,10 +49,16 @@ export function App({ actions }: { actions: Actions }) {
       <TopBar actions={actions} />
       <BankBanner />
       <Messages />
-      {contractsOpen.value ? <ContractsPanel actions={actions} /> : <InfoPanel actions={actions} />}
+      {panel.value === 'contracts' ? (
+        <ContractsPanel actions={actions} />
+      ) : panel.value === 'staff' ? (
+        <StaffPanel actions={actions} />
+      ) : (
+        <InfoPanel actions={actions} />
+      )}
       <PreviewTip />
       <HoverTip />
-      <BuildBar actions={actions} />
+      <BuildBar />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
     </>
@@ -143,8 +151,16 @@ function TopBar({ actions }: { actions: Actions }) {
 
       <div class="topbar-right">
         <button
-          class={`btn ${contractsOpen.value ? 'on' : ''}`}
-          onClick={() => (contractsOpen.value = !contractsOpen.value)}
+          class={`btn ${panel.value === 'staff' ? 'on' : ''}`}
+          onClick={() => togglePanel('staff')}
+          title="Staff and hiring (H)"
+        >
+          <Icon name="users" />
+          <span>Staff</span>
+        </button>
+        <button
+          class={`btn ${panel.value === 'contracts' ? 'on' : ''}`}
+          onClick={() => togglePanel('contracts')}
           title="Contracts (C)"
         >
           <Icon name="contract" />
@@ -231,27 +247,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <span class={`dot ${e.moving ? 'live' : ''}`} />
         {e.activity}
       </p>
-      {e.kind === 'dockhand' && (
-        <>
-          <dl class="props">
-            <dt>Role</dt>
-            <dd>Dockhand</dd>
-            <dt>Wage</dt>
-            <dd>{money(B.WAGE_DOCKHAND)} / day</dd>
-          </dl>
-          <div class="actions">
-            <button
-              class="btn danger"
-              onClick={() => {
-                actions.send({ type: 'fire', id: e.id });
-                close();
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        </>
-      )}
+      {e.kind === 'dockhand' && <StaffDetails id={e.id} actions={actions} onDismiss={close} />}
       {e.kind === 'boat' && (
         <dl class="props">
           <dt>Cargo</dt>
@@ -327,9 +323,8 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   );
 }
 
-function BuildBar({ actions }: { actions: Actions }) {
+function BuildBar() {
   const current = tool.value;
-  const cash = snapshot.value?.cash ?? 0;
   return (
     <footer class="dock panel">
       {TOOL_GROUPS.map((group, g) => (
@@ -341,15 +336,14 @@ function BuildBar({ actions }: { actions: Actions }) {
       ))}
       <div class="dock-group">
         <button
-          class="tool"
-          onClick={() => actions.send({ type: 'hire' })}
-          disabled={cash < B.HIRE_FEE}
-          title={`Hire a dockhand (H). ${money(B.HIRE_FEE)} fee, ${money(B.WAGE_DOCKHAND)}/day`}
+          class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
+          onClick={() => togglePanel('staff')}
+          title="Hire and manage dockhands (H)"
         >
           <kbd>H</kbd>
           <Icon name="hire" />
-          <span class="tool-label">Hire</span>
-          <span class="tool-cost">{money(B.HIRE_FEE)}</span>
+          <span class="tool-label">Staff</span>
+          <span class="tool-cost">Hire</span>
         </button>
       </div>
     </footer>

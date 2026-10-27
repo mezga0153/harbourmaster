@@ -27,6 +27,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: 'Wooden pier. Boats moor alongside',
     drag: true,
   },
+  breakHut: {
+    code: Build.BreakHut,
+    label: 'Break hut',
+    cost: 250,
+    hint: `Tired dockhands rest here, ${B.HUT_SLOTS} at a time`,
+    drag: false,
+  },
   truckBay: {
     code: Build.TruckBay,
     label: 'Truck bay',

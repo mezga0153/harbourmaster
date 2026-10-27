@@ -5,7 +5,7 @@ import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contra
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { money } from './format';
-import { contractsOpen, snapshot } from './store';
+import { panel, snapshot } from './store';
 import { InfoHeader, Meter } from './widgets';
 
 function css(hex: number): string {
@@ -196,11 +196,7 @@ export function ContractsPanel({ actions }: { actions: Actions }) {
   const fleet = hauliers.reduce((n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0), 0);
   return (
     <aside class="side panel wide" aria-label="Contracts">
-      <InfoHeader
-        kicker="Business"
-        title="Contracts"
-        onClose={() => (contractsOpen.value = false)}
-      />
+      <InfoHeader kicker="Business" title="Contracts" onClose={() => (panel.value = null)} />
       <p class="muted intro">
         Fisheries send boats and pay for every crate that leaves on a truck. Hauliers supply the
         trucks. Boats kept waiting cost demurrage, and a fishery that runs out of patience walks out

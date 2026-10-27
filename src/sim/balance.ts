@@ -5,7 +5,24 @@ export const START_YEAR = 1962;
 
 export const START_DOCKHANDS = 2;
 export const HIRE_FEE = 100;
-export const WAGE_DOCKHAND = 40; // per day
+export const WAGE_DOCKHAND = 40; // per day, for the starting crew
+export const WAGE_BASE = 30;
+export const WAGE_PER_SKILL = 6;
+export const CANDIDATES = 3;
+
+// Needs. Energy and morale run from 0 to 100.
+export const START_MORALE = 75;
+export const TIRED_ENERGY = 30; // goes on a break below this
+export const WORK_DRAIN = 0.18; // energy per tick while working
+export const IDLE_DRAIN = 0.02;
+export const HUT_REST = 1.2; // energy per tick resting in a break hut
+export const FLOOR_REST = 0.4; // resting with nowhere to sit
+export const HUT_SLOTS = 3;
+export const MORALE_HUT_BREAK = 2;
+export const MORALE_FLOOR_BREAK = -4;
+export const MORALE_EXHAUSTED = -3; // ran completely out of energy
+export const QUIT_MORALE = 15;
+export const QUIT_DAYS = 2; // days in a row below QUIT_MORALE before quitting
 
 export const CRATE_FEE = 20; // paid when a truck leaves with the crate
 export const TRUCK_CAPACITY = 6;

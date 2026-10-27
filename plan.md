@@ -307,7 +307,12 @@ tests/                    vitest, sim-only
 
 Each milestone ends with something playable.
 
-### M0 — Skeleton
+**Status (27 Oct 2026):** M0 and M1 are done. M2 is mostly done: contracts with failure modes,
+capacity planning, staff skills/traits/energy/morale, break huts, candidates and thoughts.
+Still open in M2: toilets, raise requests and bank loans. A playthrough bot in
+`tests/playthrough.test.ts` checks the balance on every test run.
+
+### M0 — Skeleton ✅
 
 - Vite + TS + Three.js + Preact set up, Prettier and Vitest configured.
 - Sim worker, the command/snapshot protocol, and snapshot interpolation in the renderer.
@@ -316,7 +321,7 @@ Each milestone ends with something playable.
 - Tile grid with water and land, a simple water shader, hover highlight on tiles.
 - Fixed-step sim loop with a speed control, and a HUD showing date and cash.
 
-### M1 — The first boat (MVP loop)
+### M1 — The first boat (MVP loop) ✅
 
 - A wooden jetty, one truck bay and one dockhand, placed at the start site picked by map generation.
 - A small boat arrives on a timer carrying 10 crates.
@@ -326,7 +331,7 @@ Each milestone ends with something playable.
 - Save/load to IndexedDB.
 - ✅ **Goal:** it is already a tiny satisfying game.
 
-### M2 — Theme Hospital layer
+### M2 — Theme Hospital layer (mostly done)
 
 - Staff needs (energy, morale), break room, toilet, wages, raise requests, quitting.
 - Candidate list, traits and skills.

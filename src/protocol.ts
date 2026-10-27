@@ -2,12 +2,13 @@
 
 import type { Terms } from './sim/contracts';
 import type { MapData } from './sim/map';
+import type { Candidate, Trait } from './sim/staff';
 import type { BuildKind } from './sim/types';
 
 export type Command =
   | { type: 'build'; kind: BuildKind; tiles: number[] }
   | { type: 'bulldoze'; tiles: number[] }
-  | { type: 'hire' }
+  | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }
@@ -34,6 +35,18 @@ export interface EntityView {
   variant: number;
   /** Most crates it can hold. */
   capacity: number;
+}
+
+export interface StaffView {
+  id: number;
+  name: string;
+  skill: number;
+  trait: Trait | null;
+  wage: number;
+  energy: number;
+  morale: number;
+  activity: string;
+  thought: string;
 }
 
 export interface ContractView {
@@ -82,6 +95,8 @@ export interface Snapshot {
   seed: number;
   staff: number;
   wages: number;
+  people: StaffView[];
+  candidates: Candidate[];
   /** Daily haulier fees. */
   contractFees: number;
   /** Consecutive days ended in the red; bankrupt at BANKRUPT_DAYS. */

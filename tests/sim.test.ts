@@ -195,3 +195,64 @@ describe('Contracts', () => {
     expect(world.bankrupt).toBe(false);
   });
 });
+
+describe('Staff', () => {
+  it('hires from the candidate list and replaces candidates daily', () => {
+    const world = World.create(7);
+    expect(world.candidates).toHaveLength(B.CANDIDATES);
+    const c = world.candidates[0];
+    world.command({ type: 'hire', candidateId: c.id });
+    expect(world.people.some((p) => p.name === c.name && p.wage === c.wage)).toBe(true);
+    expect(world.candidates).not.toContainEqual(c);
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.candidates).toHaveLength(B.CANDIDATES);
+  });
+
+  it('rests on the spot without a hut, losing morale', () => {
+    const world = World.create(7);
+    const p = world.people[0];
+    p.energy = B.TIRED_ENERGY - 1;
+    const morale = p.morale;
+    for (let t = 0; t < 5; t++) world.step();
+    expect(p.state).toBe('resting');
+    expect(p.hutIdx).toBe(-1);
+    expect(p.morale).toBeLessThan(morale);
+  });
+
+  it('walks to a break hut when there is one, and enjoys it', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const bay = [...world.bays.keys()][0];
+    let hut = -1;
+    for (let r = 1; r < 6 && hut < 0; r++) {
+      for (const n of [bay - r, bay + r, bay - r * m.w, bay + r * m.w]) {
+        if (hut < 0 && !placementError(m, 'breakHut', n)) hut = n;
+      }
+    }
+    world.command({ type: 'build', kind: 'breakHut', tiles: [hut] });
+    const p = world.people[0];
+    p.energy = B.TIRED_ENERGY - 1;
+    const morale = p.morale;
+    let rested = false;
+    for (let t = 0; t < 500; t++) {
+      world.step();
+      if (p.state === 'resting') {
+        rested = true;
+        expect(p.hutIdx).toBe(hut);
+      } else if (rested) break;
+    }
+    expect(rested).toBe(true);
+    expect(p.energy).toBeGreaterThan(95);
+    expect(p.morale).toBeGreaterThan(morale);
+  });
+
+  it('quits after staying miserable', () => {
+    const world = World.create(7);
+    const p = world.people[0];
+    for (let d = 0; d < B.QUIT_DAYS + 1; d++) {
+      p.morale = 0;
+      for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    }
+    expect(world.people).not.toContain(p);
+  });
+});

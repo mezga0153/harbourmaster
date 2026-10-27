@@ -35,7 +35,12 @@ export const messages = signal<Message[]>([]);
 export const hover = signal<HoverInfo | null>(null);
 export const preview = signal<Preview | null>(null);
 export const newGameOpen = signal(false);
-export const contractsOpen = signal(false);
+/** Which management panel is open on the right. */
+export const panel = signal<'contracts' | 'staff' | null>(null);
+
+export function togglePanel(name: 'contracts' | 'staff'): void {
+  panel.value = panel.value === name ? null : name;
+}
 
 let nextMessageId = 1;
 

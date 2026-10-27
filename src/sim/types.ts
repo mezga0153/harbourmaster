@@ -5,9 +5,9 @@ export const MAP_SIZE = 96;
 export const Terrain = { Water: 0, Sand: 1, Grass: 2, Rock: 3 } as const;
 export type TerrainCode = (typeof Terrain)[keyof typeof Terrain];
 
-export const Build = { None: 0, Road: 1, Footpath: 2, Jetty: 3, TruckBay: 4 } as const;
+export const Build = { None: 0, Road: 1, Footpath: 2, Jetty: 3, TruckBay: 4, BreakHut: 5 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
 export const Deco = { None: 0, Tree: 1 } as const;
 
-export type BuildKind = 'road' | 'footpath' | 'jetty' | 'truckBay';
+export type BuildKind = 'road' | 'footpath' | 'jetty' | 'truckBay' | 'breakHut';

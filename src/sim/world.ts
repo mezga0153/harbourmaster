@@ -6,6 +6,7 @@ import type {
   EntityView,
   SimEvent,
   Snapshot,
+  StaffView,
   Stats,
   TileChange,
 } from '../protocol';
@@ -24,12 +25,13 @@ import {
 import { GameMap, type MapData } from './map';
 import { generateMap } from './mapgen';
 import { randomName } from './names';
+import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trait } from './staff';
 import { findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import { BUILDABLES, bulldozeError, bulldozeValue, placementCost, placementError } from './rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY, type BuildKind } from './types';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -42,10 +44,21 @@ interface Agent {
   goal: number;
 }
 
-type DockhandState = 'idle' | 'wander' | 'toPickup' | 'picking' | 'toDrop' | 'dropping';
+type DockhandState =
+  'idle' | 'wander' | 'toPickup' | 'picking' | 'toDrop' | 'dropping' | 'toBreak' | 'resting';
+
+const WORKING: ReadonlySet<DockhandState> = new Set(['toPickup', 'picking', 'toDrop', 'dropping']);
 
 interface Dockhand extends Agent {
   name: string;
+  skill: number;
+  trait: Trait | null;
+  wage: number;
+  energy: number;
+  morale: number;
+  /** Break hut tile while heading to or resting in one, else -1. */
+  hutIdx: number;
+  lowMoraleDays: number;
   state: DockhandState;
   timer: number;
   carrying: number;
@@ -110,6 +123,7 @@ export interface SaveData {
   stats: Stats;
   contracts: Contract[];
   offers: Offer[];
+  candidates: Candidate[];
   daysInRed: number;
   bankrupt: boolean;
   map: MapData;
@@ -130,6 +144,8 @@ const ACTIVITY: Record<DockhandState, string> = {
   picking: 'Lifting a crate',
   toDrop: 'Carrying a crate to the truck bay',
   dropping: 'Stacking a crate',
+  toBreak: 'Off for a break',
+  resting: 'On a break',
 };
 
 /** Authoritative game state. Runs inside the sim worker and in tests. */
@@ -140,6 +156,7 @@ export class World {
   nextId = 1;
   contracts: Contract[] = [];
   offers: Offer[] = [];
+  candidates: Candidate[] = [];
   /** Consecutive days that ended with negative cash. */
   daysInRed = 0;
   bankrupt = false;
@@ -169,7 +186,16 @@ export class World {
     for (let i = 0; i < map.build.length; i++) {
       if (map.build[i] === Build.TruckBay) world.addBay(i);
     }
-    for (let k = 0; k < B.START_DOCKHANDS; k++) world.spawnDockhand(spawn);
+    for (let k = 0; k < B.START_DOCKHANDS; k++) {
+      world.spawnDockhand(spawn, {
+        id: 0,
+        name: randomName(world.rng),
+        skill: 2,
+        trait: null,
+        wage: B.WAGE_DOCKHAND,
+      });
+    }
+    world.refreshCandidates();
     world.addContract(STARTER_FISHERY, 50, B.STARTER_BREACH_PENALTY);
     world.addContract(STARTER_HAULIER, 0, 0);
     world.addOffer('fishery');
@@ -190,7 +216,10 @@ export class World {
       Array.isArray(d.contracts) &&
       d.boats.every((b) => Number.isFinite(b.grace) && Number.isFinite(b.fee)) &&
       d.trucks.every((t) => Number.isFinite(t.value) && Number.isFinite(t.capacity)) &&
-      d.people.every((p) => Number.isFinite(p.crateFee)) &&
+      Array.isArray(d.candidates) &&
+      d.people.every(
+        (p) => Number.isFinite(p.crateFee) && Number.isFinite(p.energy) && Number.isFinite(p.wage),
+      ) &&
       d.bays.every((b) => Array.isArray(b.crates)) &&
       d.contracts.every((c) => Number.isFinite(c.signingFee))
     );
@@ -205,6 +234,7 @@ export class World {
     world.stats = { ...s.stats };
     world.contracts = s.contracts.map((c) => ({ ...c, terms: { ...c.terms } }));
     world.offers = s.offers.map((o) => ({ ...o, terms: { ...o.terms } }));
+    world.candidates = s.candidates.map((c) => ({ ...c }));
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
     world.people = s.people.map((p) => ({ ...p, path: [...p.path] }));
@@ -226,6 +256,7 @@ export class World {
       stats: this.stats,
       contracts: this.contracts,
       offers: this.offers,
+      candidates: this.candidates,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       map: this.map.toData(),
@@ -247,7 +278,7 @@ export class World {
       case 'bulldoze':
         return this.bulldoze(cmd.tiles);
       case 'hire':
-        return this.hire();
+        return this.hire(cmd.candidateId);
       case 'fire':
         return this.fire(cmd.id);
       case 'signContract':
@@ -330,11 +361,22 @@ export class World {
     else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
   }
 
-  private hire(): void {
+  private hire(candidateId: number): void {
+    const c = this.candidates.find((x) => x.id === candidateId);
+    if (!c) return this.message('That candidate has taken another job.', 'bad');
     if (this.cash < B.HIRE_FEE) return this.message('Not enough money to hire', 'bad');
     this.cash -= B.HIRE_FEE;
-    const p = this.spawnDockhand(this.map.entry);
+    this.candidates = this.candidates.filter((x) => x !== c);
+    const p = this.spawnDockhand(this.map.entry, c);
     this.message(`${p.name} has been hired and is on their way.`, 'good');
+  }
+
+  /** Replace one candidate each day and top the list up. */
+  private refreshCandidates(): void {
+    if (this.candidates.length >= B.CANDIDATES) this.candidates.shift();
+    while (this.candidates.length < B.CANDIDATES) {
+      this.candidates.push(makeCandidate(this.rng, this.nextId++));
+    }
   }
 
   private fire(id: number): void {
@@ -504,9 +546,19 @@ export class World {
       walk += Number.isFinite(d) ? d : 0;
     }
     const avgWalk = jetties.length && bays.length ? walk / jetties.length : 0;
-    const tripTicks = (2 * avgWalk * 1.2) / B.WALK_SPEED + B.PICK_TICKS + B.DROP_TICKS;
-    const unloading =
-      bays.length && jetties.length ? (this.people.length * TICKS_PER_DAY) / tripTicks : 0;
+    let hasHut = false;
+    for (let i = 0; i < m.build.length && !hasHut; i++) hasHut = m.build[i] === Build.BreakHut;
+    // Share of the day spent working rather than resting.
+    const uptime = hasHut ? 0.88 : 0.72;
+    let unloading = 0;
+    if (bays.length && jetties.length) {
+      for (const p of this.people) {
+        const handling = (B.PICK_TICKS + B.DROP_TICKS) * traitDef(p.trait).handling;
+        const pace = paceFactor(p.skill, p.morale, 100);
+        const tripTicks = (2 * avgWalk * 1.2) / (B.WALK_SPEED * pace) + handling;
+        unloading += (TICKS_PER_DAY * uptime) / tripTicks;
+      }
+    }
 
     // One truck trip: highway to bay and back, plus loading. A bay loads one
     // truck at a time, so trucks beyond the number of bays add nothing.
@@ -557,8 +609,28 @@ export class World {
     for (const t of [...this.trucks]) this.updateTruck(t);
   }
 
+  private wageBill(): number {
+    return this.people.reduce((n, p) => n + p.wage, 0);
+  }
+
+  /** Staff whose morale stays rock bottom hand in their notice. */
+  private checkMorale(): void {
+    for (const p of [...this.people]) {
+      p.lowMoraleDays = p.morale < B.QUIT_MORALE ? p.lowMoraleDays + 1 : 0;
+      if (p.lowMoraleDays === 1) {
+        this.message(`${p.name} is miserable and thinking about quitting.`, 'bad');
+      } else if (p.lowMoraleDays >= B.QUIT_DAYS) {
+        this.cancelJob(p);
+        this.people = this.people.filter((q) => q !== p);
+        this.message(`${p.name} has quit. Morale was too low.`, 'bad');
+      }
+    }
+  }
+
   private newDay(): void {
-    const costs = this.people.length * B.WAGE_DOCKHAND + this.dailyFees();
+    this.checkMorale();
+    this.refreshCandidates();
+    const costs = this.wageBill() + this.dailyFees();
     this.cash -= costs;
     this.refreshOffers();
     this.adviseOnBays();
@@ -857,10 +929,17 @@ export class World {
 
   // ── Dockhands ─────────────────────────────────────────────
 
-  private spawnDockhand(at: number): Dockhand {
+  private spawnDockhand(at: number, c: Candidate): Dockhand {
     const p: Dockhand = {
       id: this.nextId++,
-      name: randomName(this.rng),
+      name: c.name,
+      skill: c.skill,
+      trait: c.trait,
+      wage: c.wage,
+      energy: 100,
+      morale: B.START_MORALE,
+      hutIdx: -1,
+      lowMoraleDays: 0,
       x: this.map.xOf(at) + 0.5,
       y: this.map.yOf(at) + 0.5,
       dir: 0,
@@ -879,7 +958,9 @@ export class World {
 
   private walkCost: CostFn = (i) => {
     const b = this.map.build[i];
-    if (b === Build.Footpath || b === Build.Jetty || b === Build.TruckBay) return 1;
+    if (b === Build.Footpath || b === Build.Jetty || b === Build.TruckBay || b === Build.BreakHut) {
+      return 1;
+    }
     if (b === Build.Road) return 1.25;
     if (this.map.deco[i] === Deco.Tree) return Infinity;
     const t = this.map.terrain[i];
@@ -894,7 +975,61 @@ export class World {
   };
 
   private walk(p: Dockhand) {
-    return this.move(p, this.walkCost, true, this.walkSpeed);
+    const pace = paceFactor(p.skill, p.morale, p.energy);
+    return this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace);
+  }
+
+  private handlingTicks(p: Dockhand, base: number): number {
+    return Math.max(1, Math.round(base * traitDef(p.trait).handling));
+  }
+
+  private changeMorale(p: Dockhand, delta: number): void {
+    const scaled = delta < 0 ? delta * traitDef(p.trait).moraleLoss : delta;
+    p.morale = Math.max(0, Math.min(100, p.morale + scaled));
+  }
+
+  /** Energy use; returns true if the dockhand should head off for a break now. */
+  private tire(p: Dockhand): boolean {
+    if (p.state === 'resting' || p.state === 'toBreak') return false;
+    const drain = WORKING.has(p.state) ? B.WORK_DRAIN * traitDef(p.trait).drain : B.IDLE_DRAIN;
+    const before = p.energy;
+    p.energy = Math.max(0, p.energy - drain);
+    if (before > 0 && p.energy === 0) this.changeMorale(p, B.MORALE_EXHAUSTED);
+    // Only stop between jobs, never with a crate in hand.
+    return p.energy < B.TIRED_ENERGY && (p.state === 'idle' || p.state === 'wander');
+  }
+
+  private hutOccupancy(hut: number): number {
+    return this.people.filter((q) => q.hutIdx === hut).length;
+  }
+
+  private goOnBreak(p: Dockhand): void {
+    p.path = [];
+    const here = this.tileOf(p);
+    const huts: number[] = [];
+    for (let i = 0; i < this.map.build.length; i++) {
+      if (this.map.build[i] === Build.BreakHut && this.hutOccupancy(i) < B.HUT_SLOTS) huts.push(i);
+    }
+    huts.sort((a, b) => this.dist(here, a) - this.dist(here, b));
+    for (const hut of huts) {
+      if (this.headTo(p, hut)) {
+        p.hutIdx = hut;
+        p.state = 'toBreak';
+        return;
+      }
+    }
+    // Nowhere to go: sit down on the spot. Slow, and bad for morale.
+    p.hutIdx = -1;
+    p.state = 'resting';
+    this.changeMorale(p, B.MORALE_FLOOR_BREAK);
+  }
+
+  /** Spread people resting at a hut along its front. */
+  private seatAtHut(p: Dockhand): void {
+    const seat = this.people.filter((q) => q.hutIdx === p.hutIdx && q !== p).length;
+    p.x = this.map.xOf(p.hutIdx) + 0.25 + (seat % B.HUT_SLOTS) * 0.25;
+    p.y = this.map.yOf(p.hutIdx) + 0.82;
+    p.dir = Math.PI / 2;
   }
 
   private pathFrom(a: Agent, goal: number): number[] | null {
@@ -902,7 +1037,28 @@ export class World {
   }
 
   private updateDockhand(p: Dockhand): void {
+    if (this.tire(p)) return this.goOnBreak(p);
     switch (p.state) {
+      case 'toBreak': {
+        if (this.map.build[p.hutIdx] !== Build.BreakHut) return this.goOnBreak(p);
+        const r = this.walk(p);
+        if (r === 'blocked') return this.goOnBreak(p);
+        if (r === 'arrived') {
+          this.seatAtHut(p);
+          p.state = 'resting';
+        }
+        return;
+      }
+      case 'resting': {
+        const inHut = p.hutIdx >= 0 && this.map.build[p.hutIdx] === Build.BreakHut;
+        p.energy = Math.min(100, p.energy + (inHut ? B.HUT_REST : B.FLOOR_REST));
+        if (p.energy >= 100) {
+          if (inHut) this.changeMorale(p, B.MORALE_HUT_BREAK);
+          p.hutIdx = -1;
+          p.state = 'idle';
+        }
+        return;
+      }
       case 'idle':
       case 'wander': {
         if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) return;
@@ -920,7 +1076,7 @@ export class World {
         if (r === 'blocked') return this.cancelJob(p);
         if (r === 'arrived') {
           p.state = 'picking';
-          p.timer = B.PICK_TICKS;
+          p.timer = this.handlingTicks(p, B.PICK_TICKS);
         }
         return;
       }
@@ -943,7 +1099,7 @@ export class World {
         if (r === 'blocked') return this.retargetCrate(p);
         if (r === 'arrived') {
           p.state = 'dropping';
-          p.timer = B.DROP_TICKS;
+          p.timer = this.handlingTicks(p, B.DROP_TICKS);
         }
         return;
       }
@@ -1039,6 +1195,7 @@ export class World {
     if (bay) bay.incoming = Math.max(0, bay.incoming - 1);
     p.boatId = -1;
     p.bayIdx = -1;
+    p.hutIdx = -1;
     p.carrying = 0;
     p.path = [];
     p.state = 'idle';
@@ -1269,6 +1426,7 @@ export class World {
 
   snapshot(): Snapshot {
     const entities: EntityView[] = [];
+    const staff: StaffView[] = [];
     for (const p of this.people) {
       entities.push({
         id: p.id,
@@ -1282,6 +1440,24 @@ export class World {
         activity: ACTIVITY[p.state],
         variant: 0,
         capacity: 1,
+      });
+      staff.push({
+        id: p.id,
+        name: p.name,
+        skill: p.skill,
+        trait: p.trait,
+        wage: p.wage,
+        energy: Math.round(p.energy),
+        morale: Math.round(p.morale),
+        activity: ACTIVITY[p.state],
+        thought: thought({
+          energy: p.energy,
+          morale: p.morale,
+          resting: p.state === 'resting',
+          hasHut: p.hutIdx >= 0,
+          carrying: p.carrying > 0,
+          idle: p.state === 'idle' || p.state === 'wander',
+        }),
       });
     }
     for (const b of this.boats) {
@@ -1349,7 +1525,9 @@ export class World {
       speed: this.speed,
       seed: this.seed,
       staff: this.people.length,
-      wages: this.people.length * B.WAGE_DOCKHAND,
+      wages: this.wageBill(),
+      people: staff,
+      candidates: this.candidates.map((c) => ({ ...c })),
       contractFees: this.dailyFees(),
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,

@@ -806,6 +806,57 @@ button:focus-visible {
   color: #ffd08a;
 }
 
+.skill {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.pip {
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--raised-2);
+}
+
+.pip.on {
+  background: var(--accent);
+}
+
+.badge.good {
+  color: #8ff0c2;
+  background: rgba(62, 207, 142, 0.14);
+}
+
+.badge.bad {
+  color: #ffb3b3;
+  background: var(--bad-soft);
+}
+
+.needs {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  align-items: center;
+  gap: 6px 8px;
+  color: var(--text-3);
+}
+
+.needs .icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.thought {
+  font-style: italic;
+  color: var(--text-2);
+}
+
+.card.person {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
 /* Build dock */
 
 .dock {

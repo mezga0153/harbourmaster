@@ -45,6 +45,20 @@ const PATHS: Record<string, JSX.Element> = {
     </>
   ),
   pause: <path d="M8 5v14M16 5v14" />,
+  hut: (
+    <>
+      <path d="M3 11l9-7 9 7" />
+      <path d="M5 10v10h14V10" />
+      <path d="M10 20v-5h4v5" />
+    </>
+  ),
+  bolt: <path d="M13 2L4 14h7l-1 8 9-12h-7z" />,
+  smile: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14.5c1 1.2 2.1 1.8 3.5 1.8s2.5-.6 3.5-1.8M9 9.5v.5M15 9.5v.5" />
+    </>
+  ),
   save: (
     <>
       <path d="M5 4h11l3 3v13H5z" />

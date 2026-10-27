@@ -1,11 +1,16 @@
-import { Group, type Object3D } from 'three';
+import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { Build } from '../sim/types';
 import { crate } from './models';
 import { C } from './palette';
-import { box, cyl } from './parts';
+import { box, cyl, mat } from './parts';
 import { DECK_Y, MARGIN, SEABED, landTop } from './terrain';
+
+const roofGeo = new ConeGeometry(0.56, 0.26, 4);
+roofGeo.rotateY(Math.PI / 4);
+roofGeo.scale(1.05, 1, 0.8);
+roofGeo.translate(0, 0.13, 0);
 
 interface BayStack {
   crates: Object3D[];
@@ -99,6 +104,20 @@ export class Structures {
             g.add(cyl(0.05, DECK_Y - 0.06 - SEABED, C.woodDark, px, SEABED, pz));
           }
         }
+        return g;
+      }
+      case Build.BreakHut: {
+        // A little timber hut with a red roof and a bench out front.
+        g.add(box(1, 0.04, 1, C.path, 0.5, top, 0.5));
+        g.add(box(0.7, 0.34, 0.5, C.cabin, 0.5, top + 0.04, 0.38));
+        g.add(box(0.14, 0.22, 0.02, C.woodDark, 0.5, top + 0.04, 0.64));
+        g.add(box(0.14, 0.1, 0.02, C.window, 0.3, top + 0.2, 0.64));
+        g.add(box(0.14, 0.1, 0.02, C.window, 0.7, top + 0.2, 0.64));
+        const roof = new Mesh(roofGeo, mat(C.funnel));
+        roof.position.set(0.5, top + 0.38, 0.38);
+        roof.castShadow = roof.receiveShadow = true;
+        g.add(roof);
+        g.add(box(0.7, 0.04, 0.12, C.wood, 0.5, top + 0.12, 0.9));
         return g;
       }
       case Build.TruckBay: {

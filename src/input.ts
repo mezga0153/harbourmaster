@@ -8,7 +8,7 @@ import {
   placementCost,
   placementError,
 } from './sim/rules';
-import { contractsOpen, hover, preview, selection, snapshot, tool } from './ui/store';
+import { hover, panel, preview, selection, snapshot, togglePanel, tool } from './ui/store';
 import { TOOL_KEYS } from './ui/tools';
 
 type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
@@ -131,10 +131,10 @@ export class Input {
     else if (k === 'escape') {
       tool.value = 'select';
       selection.value = null;
-      contractsOpen.value = false;
+      panel.value = null;
     } else if (k === 'delete' || k === 'backspace') tool.value = 'bulldoze';
-    else if (k === 'h') this.send({ type: 'hire' });
-    else if (k === 'c') contractsOpen.value = !contractsOpen.value;
+    else if (k === 'h') togglePanel('staff');
+    else if (k === 'c') togglePanel('contracts');
     else if (k in TOOL_KEYS) tool.value = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
     else if (k === '+' || k === '=') this.renderer.cam.zoom(1 / 1.2);
     else if (k === '-') this.renderer.cam.zoom(1.2);
