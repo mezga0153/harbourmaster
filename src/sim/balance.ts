@@ -19,24 +19,25 @@ export const BOAT_CRATES_MIN = 8;
 export const BOAT_CRATES_MAX = 12;
 export const BOAT_MAX_LOAD = 16;
 export const BOAT_DRAFT = 1; // metres
-export const MAX_BOATS = 10;
+export const MAX_BOATS = 24;
 
 export const MAX_OFFERS = 4;
 export const START_SATISFACTION = 75;
-export const SATISFACTION_PER_BOAT = 5; // for a boat that never waited
-export const ANCHOR_PENALTY_TICKS = 60; // -1 satisfaction per this many ticks at anchor
+export const SATISFACTION_PER_BOAT = 6; // for a boat that never waited
+export const ANCHOR_PENALTY_TICKS = 90; // -1 satisfaction per this many ticks at anchor
 export const MOORED_GRACE_TICKS = 40; // plus MOORED_TICKS_PER_CRATE for each crate on board
 export const MOORED_TICKS_PER_CRATE = 90; // about one dockhand's pace
 export const MOORED_PENALTY_TICKS = 60;
 export const BOAT_GIVE_UP_TICKS = 900; // a boat kept this long leaves with its cargo
-export const GAVE_UP_PENALTY = 15; // extra satisfaction lost when that happens
+export const GAVE_UP_PENALTY = 10;
+export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded harbour // extra satisfaction lost when that happens
 export const DEMURRAGE_PER_DAY = 120; // charged for each day a boat is kept waiting
 export const STARTER_BREACH_PENALTY = 300; // when the starter fishery walks out
 export const CANCEL_FEE_SHARE = 0.5; // of the signing fee, when you end a contract
 export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the port
 
 export const WALK_SPEED = 0.24; // tiles per tick on a footpath
-export const TRUCK_SPEED = 0.5;
+export const TRUCK_SPEED = 0.7;
 export const BOAT_SPEED = 0.15;
 
 export const PICK_TICKS = 8;

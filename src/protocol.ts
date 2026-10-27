@@ -53,6 +53,13 @@ export interface OfferView {
   expiresIn: number;
 }
 
+/** Crates per day: what the fisheries send versus what the port can move. */
+export interface Capacity {
+  demand: number;
+  unloading: number;
+  trucking: number;
+}
+
 export interface BayView {
   idx: number;
   stock: number;
@@ -85,6 +92,7 @@ export interface Snapshot {
   bays: BayView[];
   contracts: ContractView[];
   offers: OfferView[];
+  capacity: Capacity;
 }
 
 export type SimEvent =

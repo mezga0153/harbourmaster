@@ -1,5 +1,6 @@
 import type {
   BayView,
+  Capacity,
   Command,
   ContractView,
   EntityView,
@@ -10,6 +11,7 @@ import type {
 } from '../protocol';
 import * as B from './balance';
 import {
+  fisheryDailyCrates,
   makeOffer,
   STARTER_FISHERY,
   STARTER_HAULIER,
@@ -54,7 +56,8 @@ interface Dockhand extends Agent {
 }
 
 interface Boat extends Agent {
-  state: 'arriving' | 'anchored' | 'moored' | 'leaving';
+  /** Sails in to the anchorage, waits there if needed, then moors at a jetty. */
+  state: 'approaching' | 'anchored' | 'arriving' | 'moored' | 'leaving';
   contractId: number;
   company: string;
   fee: number;
@@ -146,6 +149,11 @@ export class World {
   trucks: Truck[] = [];
   bays = new Map<number, Bay>();
 
+  private anchorageTile = -1;
+  /** Ticks today with a full truck bay, for the advisor. Not saved. */
+  private bayFullTicks = 0;
+  /** Cached planning estimate; cleared when the port changes. Not saved. */
+  private capacityCache: Capacity | null = null;
   private events: SimEvent[] = [];
   private dirty = new Set<number>();
 
@@ -232,6 +240,7 @@ export class World {
 
   command(cmd: Command): void {
     if (this.bankrupt) return;
+    this.capacityCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles);
@@ -365,7 +374,15 @@ export class World {
       this.message('Some contract offers have expired.', 'info');
     }
     if (this.offers.length < B.MAX_OFFERS && this.rng.next() < 0.7) {
-      const kind = this.rng.next() < 0.6 ? 'fishery' : 'haulier';
+      // Keep at least one offer of each kind on the board.
+      const has = (k: Terms['kind']) => this.offers.some((o) => o.terms.kind === k);
+      const kind = !has('haulier')
+        ? 'haulier'
+        : !has('fishery')
+          ? 'fishery'
+          : this.rng.next() < 0.6
+            ? 'fishery'
+            : 'haulier';
       const before = this.offers.length;
       this.addOffer(kind);
       if (this.offers.length > before) {
@@ -455,6 +472,70 @@ export class World {
     }
   }
 
+  private adviseOnBays(): void {
+    const fullForLong = this.bayFullTicks > TICKS_PER_DAY / 3;
+    this.bayFullTicks = 0;
+    if (!fullForLong) return;
+    const trucks = this.hauliers().reduce((n, c) => n + c.terms.fleet, 0);
+    this.message(
+      trucks < this.bays.size
+        ? 'Crates are piling up in the truck bays. Sign another haulier for more trucks.'
+        : 'Truck bays keep filling up. Each bay loads one truck at a time, so build another truck bay.',
+      'info',
+    );
+  }
+
+  /**
+   * Rough crates-per-day estimates for planning, from walking and driving
+   * distances. Shown in the Contracts panel.
+   */
+  capacity(): Capacity {
+    if (this.capacityCache) return this.capacityCache;
+    const m = this.map;
+    const demand = this.fisheries().reduce((n, c) => n + fisheryDailyCrates(c.terms), 0);
+
+    // One dockhand trip: jetty to the nearest bay and back, plus handling.
+    const jetties: number[] = [];
+    for (let i = 0; i < m.build.length; i++) if (m.build[i] === Build.Jetty) jetties.push(i);
+    const bays = [...this.bays.keys()];
+    let walk = 0;
+    for (const j of jetties) {
+      const d = Math.min(...bays.map((b) => this.dist(j, b)));
+      walk += Number.isFinite(d) ? d : 0;
+    }
+    const avgWalk = jetties.length && bays.length ? walk / jetties.length : 0;
+    const tripTicks = (2 * avgWalk * 1.2) / B.WALK_SPEED + B.PICK_TICKS + B.DROP_TICKS;
+    const unloading =
+      bays.length && jetties.length ? (this.people.length * TICKS_PER_DAY) / tripTicks : 0;
+
+    // One truck trip: highway to bay and back, plus loading. A bay loads one
+    // truck at a time, so trucks beyond the number of bays add nothing.
+    let trucking = 0;
+    const roadLen = bays.length
+      ? Math.min(
+          ...bays.map(
+            (b) => findPath(m.w, m.h, m.entry, b, this.truckCost(b), false)?.length ?? Infinity,
+          ),
+        )
+      : Infinity;
+    if (Number.isFinite(roadLen)) {
+      const fleets = this.hauliers()
+        .flatMap((c) => Array.from({ length: c.terms.fleet }, () => c.terms.capacity))
+        .sort((a, b) => b - a)
+        .slice(0, bays.length);
+      for (const cap of fleets) {
+        const ticks = (2 * roadLen) / B.TRUCK_SPEED + cap * 5 + 30;
+        trucking += (cap * TICKS_PER_DAY) / ticks;
+      }
+    }
+    this.capacityCache = {
+      demand: Math.round(demand),
+      unloading: Math.round(unloading),
+      trucking: Math.round(trucking),
+    };
+    return this.capacityCache;
+  }
+
   private dailyFees(): number {
     return this.hauliers().reduce((sum, c) => sum + c.terms.dailyFee, 0);
   }
@@ -480,6 +561,8 @@ export class World {
     const costs = this.people.length * B.WAGE_DOCKHAND + this.dailyFees();
     this.cash -= costs;
     this.refreshOffers();
+    this.adviseOnBays();
+    this.capacityCache = null;
 
     if (this.cash >= 0) {
       if (this.daysInRed > 0) this.message('The port is back in the black.', 'good');
@@ -509,7 +592,12 @@ export class World {
       if (this.tick < c.nextBoatTick) continue;
       const days = c.terms.boatEvery * this.rng.range(0.7, 1.3);
       c.nextBoatTick = this.tick + Math.round(TICKS_PER_DAY * days);
-      if (this.boats.length < B.MAX_BOATS) this.spawnBoat(c.id, c.terms);
+      if (this.boats.length < B.MAX_BOATS) {
+        this.spawnBoat(c.id, c.terms);
+      } else {
+        // The harbour is jammed; the fishery notices.
+        c.satisfaction = Math.max(0, c.satisfaction - B.NO_ROOM_PENALTY);
+      }
     }
   }
 
@@ -530,7 +618,7 @@ export class World {
       dir: Math.PI,
       path: [],
       goal: start,
-      state: 'anchored',
+      state: 'approaching',
       crates: this.rng.int(terms.cratesMin, terms.cratesMax),
       reserved: 0,
       berth: -1,
@@ -541,9 +629,72 @@ export class World {
     boat.grace = B.MOORED_GRACE_TICKS + boat.crates * B.MOORED_TICKS_PER_CRATE;
     this.boats.push(boat);
     this.stats.boats++;
-    if (!this.tryBerth(boat)) {
-      this.message('A boat is waiting at anchor. There is no free jetty berth.', 'info');
+    // Head for a spot at the anchorage; the berth is decided on arrival.
+    const spot = this.anchorSpot(boat);
+    const path = findPath(this.map.w, this.map.h, start, spot, this.boatCost, true);
+    if (path) {
+      boat.path = path;
+      boat.goal = spot;
+    } else {
+      boat.state = 'anchored';
     }
+  }
+
+  /**
+   * Open water a little offshore from the first jetty, where boats wait for a
+   * berth. Derived from the map, so it is not saved.
+   */
+  private anchorage(): number {
+    if (this.anchorageTile >= 0) return this.anchorageTile;
+    const m = this.map;
+    const row = m.yOf(m.entry);
+    let x = 0;
+    while (x < m.w - 1 && this.boatCost(m.idx(x, row)) !== 1) x++;
+    // Out past the shallows, but well short of the map edge.
+    let depthSteps = 0;
+    while (x < m.w - 6 && (m.depth[m.idx(x, row)] < 4 || depthSteps < 6)) {
+      x++;
+      depthSteps++;
+    }
+    this.anchorageTile = m.idx(Math.min(x, m.w - 6), row);
+    return this.anchorageTile;
+  }
+
+  /** A free tile near the anchorage, clear of other waiting boats. */
+  private anchorSpot(boat: Boat): number {
+    const m = this.map;
+    const centre = this.anchorage();
+    const cx = m.xOf(centre);
+    const cy = m.yOf(centre);
+    const taken = this.boats
+      .filter((b) => b !== boat && (b.state === 'approaching' || b.state === 'anchored'))
+      .map((b) => b.goal);
+    for (let r = 0; r < 12; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy * 2; // spread along the coast rather than out to sea
+          if (!m.inBounds(x, y)) continue;
+          const i = m.idx(x, y);
+          if (this.boatCost(i) !== 1) continue;
+          const clear = taken.every(
+            (t) => Math.max(Math.abs(m.xOf(t) - x), Math.abs(m.yOf(t) - y)) > 2,
+          );
+          if (clear) return i;
+        }
+      }
+    }
+    return centre;
+  }
+
+  /** Anchored boats get berths in the order they arrived. */
+  private nextInQueue(): Boat | undefined {
+    let first: Boat | undefined;
+    for (const b of this.boats) {
+      if (b.state === 'anchored' && (!first || b.anchorTicks > first.anchorTicks)) first = b;
+    }
+    return first;
   }
 
   private seaEdgeTiles(): number[] {
@@ -646,9 +797,17 @@ export class World {
       }
     }
     switch (b.state) {
+      case 'approaching':
+        if (this.move(b, this.boatCost, true, () => B.BOAT_SPEED) !== 'moving') {
+          b.state = 'anchored';
+          if (!this.tryBerth(b)) {
+            this.message(`A ${b.company} boat is waiting at anchor for a free berth.`, 'info');
+          }
+        }
+        return;
       case 'anchored':
         b.anchorTicks++;
-        if ((this.tick + b.id) % 30 === 0) this.tryBerth(b);
+        if (this.tick % 10 === 0 && this.nextInQueue() === b) this.tryBerth(b);
         return;
       case 'arriving': {
         const r = this.move(b, this.boatCost, true, () => B.BOAT_SPEED);
@@ -919,6 +1078,9 @@ export class World {
       .filter((b) => b.truckId < 0 && b.crates.length > 0 && this.tick >= b.nextTruckTick)
       .sort((a, b) => b.crates.length - a.crates.length || a.idx - b.idx);
 
+    for (const bay of this.bays.values()) {
+      if (bay.crates.length >= B.BAY_CAPACITY) this.bayFullTicks += 10;
+    }
     for (const bay of bays) {
       const haulier = hauliers.find((h) => (out.get(h.id) ?? 0) < h.terms.fleet);
       if (!haulier) return;
@@ -1131,13 +1293,15 @@ export class World {
         moving: b.path.length > 0,
         name: b.company,
         activity:
-          b.state === 'anchored'
-            ? 'Waiting at anchor for a berth'
-            : b.state === 'arriving'
-              ? 'Sailing to the jetty'
-              : b.state === 'moored'
-                ? `Unloading, ${b.crates} crates left`
-                : 'Heading back out to sea',
+          b.state === 'approaching'
+            ? 'Sailing in from sea'
+            : b.state === 'anchored'
+              ? 'Waiting at anchor for a berth'
+              : b.state === 'arriving'
+                ? 'Sailing to the jetty'
+                : b.state === 'moored'
+                  ? `Unloading, ${b.crates} crates left`
+                  : 'Heading back out to sea',
         variant: b.variant,
         capacity: B.BOAT_MAX_LOAD,
       });
@@ -1191,6 +1355,7 @@ export class World {
       entities,
       bays,
       contracts,
+      capacity: this.capacity(),
       offers: this.offers.map((o) => ({
         id: o.id,
         terms: o.terms,

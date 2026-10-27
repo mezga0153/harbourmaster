@@ -90,6 +90,11 @@ export const STARTER_HAULIER: HaulierTerms = {
   dailyFee: B.STARTER_HAULIER_FEE,
 };
 
+/** Average crates a fishery lands per day. */
+export function fisheryDailyCrates(t: FisheryTerms): number {
+  return (t.cratesMin + t.cratesMax) / 2 / t.boatEvery;
+}
+
 /** Rough income a fishery brings per day if every crate is handled. */
 export function fisheryDailyValue(t: FisheryTerms): number {
   return (((t.cratesMin + t.cratesMax) / 2) * t.fee) / t.boatEvery;
