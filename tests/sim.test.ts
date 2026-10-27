@@ -334,6 +334,19 @@ describe('Coastal Wharf tier', () => {
     expect(world.cash).toBe(100);
   });
 
+  it('places a bought forklift where you click, on hard ground only', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    const m = world.map;
+    const path = m.build.findIndex((b) => b === Build.Footpath);
+    const grass = m.terrain.findIndex((t, i) => t === Terrain.Grass && m.build[i] === Build.None);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: grass });
+    expect(world.people.some((p) => p.kind === 'forklift')).toBe(false);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: path });
+    const f = world.people.find((p) => p.kind === 'forklift')!;
+    expect(m.idx(Math.floor(f.x), Math.floor(f.y))).toBe(path);
+  });
+
   it('builds quays in deeper water than jetties allow', () => {
     const world = World.create(7);
     world.tier = 1;

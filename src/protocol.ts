@@ -12,7 +12,7 @@ export type Command =
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }
   | { type: 'upgrade' }
-  | { type: 'buyMachine'; kind: MachineKind }
+  | { type: 'buyMachine'; kind: MachineKind; tile?: number }
   | { type: 'raise'; id: number; accept: boolean }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }

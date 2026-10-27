@@ -8,7 +8,7 @@ import { dayProgress, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
 import { PortPanel } from './Port';
-import { BUILD_TIER, TIERS } from '../sim/tiers';
+import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
 import { TOOL_GROUPS, type ToolDef } from './tools';
@@ -344,13 +344,17 @@ function HoverTip() {
 
 function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   const def = t.tool in BUILDABLES ? BUILDABLES[t.tool as BuildKind] : null;
-  const needTier = def ? BUILD_TIER[t.tool as BuildKind] : 0;
+  const machine = t.tool === 'forklift';
+  const needTier = def ? BUILD_TIER[t.tool as BuildKind] : machine ? MACHINE_TIER.forklift : 0;
   const locked = needTier > (snapshot.value?.progress.tier ?? 0);
+  const hint = def
+    ? `${def.label}: ${def.hint}`
+    : machine
+      ? `Forklift: carries ${B.FORKLIFT_CAPACITY} crates a trip. Put it on a quay, path, road or truck bay. Operator ${money(B.FORKLIFT_WAGE)}/day`
+      : t.label;
   const title = locked
-    ? `${def!.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
-    : [def ? `${def.label}: ${def.hint}` : t.label, t.key && `(${t.key})`]
-        .filter(Boolean)
-        .join(' ');
+    ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
+    : [hint, t.key && `(${t.key})`].filter(Boolean).join(' ');
   return (
     <button
       class={`tool ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
@@ -367,7 +371,9 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
       )}
       <Icon name={t.icon} />
       <span class="tool-label">{t.label}</span>
-      <span class="tool-cost">{def ? money(def.cost) : t.note}</span>
+      <span class="tool-cost">
+        {def ? money(def.cost) : machine ? money(B.FORKLIFT_PRICE) : t.note}
+      </span>
     </button>
   );
 }

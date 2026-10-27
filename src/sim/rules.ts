@@ -122,6 +122,18 @@ export function placementError(
   return null;
 }
 
+/** Forklifts are put down on the hard surfaces they can drive on. */
+export function machinePlacementError(map: GameMap, i: number): string | null {
+  const b = map.build[i];
+  const paved =
+    b === Build.Footpath ||
+    b === Build.Quay ||
+    b === Build.JibCrane ||
+    b === Build.Road ||
+    b === Build.TruckBay;
+  return paved ? null : 'Put a forklift on a quay, path, road or truck bay';
+}
+
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {
   const base = kind === 'quay' && !map.isLand(i) ? B.QUAY_COST_WATER : BUILDABLES[kind].cost;
   return base + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);

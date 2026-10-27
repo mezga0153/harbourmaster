@@ -1,13 +1,16 @@
 import type { Command } from './protocol';
 import type { Renderer } from './render/renderer';
 import type { GameMap } from './sim/map';
+import * as B from './sim/balance';
 import {
   BUILDABLES,
   bulldozeError,
   bulldozeValue,
+  machinePlacementError,
   placementCost,
   placementError,
 } from './sim/rules';
+import type { BuildKind } from './sim/types';
 import { hover, panel, preview, selection, snapshot, togglePanel, tool } from './ui/store';
 import { TOOL_KEYS } from './ui/tools';
 
@@ -74,7 +77,7 @@ export class Input {
     }
     const t = tool.value;
     if (t === 'select') this.mode = 'select';
-    else if (t === 'bulldoze' || BUILDABLES[t].drag) {
+    else if (t === 'bulldoze' || (t in BUILDABLES && BUILDABLES[t as BuildKind].drag)) {
       this.mode = 'drag';
       this.dragStart = this.renderer.pickTile(e.clientX, e.clientY);
     } else this.mode = 'place';
@@ -109,10 +112,10 @@ export class Input {
     if (mode === 'drag' || mode === 'place') {
       const tiles = this.tilesFor(i);
       const t = tool.value;
-      if (tiles.length > 0 && t !== 'select') {
-        this.send(
-          t === 'bulldoze' ? { type: 'bulldoze', tiles } : { type: 'build', kind: t, tiles },
-        );
+      if (tiles.length > 0) {
+        if (t === 'forklift') this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
+        else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
+        else if (t !== 'select') this.send({ type: 'build', kind: t, tiles });
       }
     }
     this.dragStart = null;
@@ -192,14 +195,23 @@ export class Input {
     let error: string | null = null;
     for (const tile of tiles) {
       const err =
-        t === 'bulldoze' ? bulldozeError(map, tile) : placementError(map, t, tile, pending);
+        t === 'bulldoze'
+          ? bulldozeError(map, tile)
+          : t === 'forklift'
+            ? machinePlacementError(map, tile)
+            : placementError(map, t, tile, pending);
       ok.push(!err);
       if (err) {
         error ??= err;
         continue;
       }
       pending.add(tile);
-      value += t === 'bulldoze' ? bulldozeValue(map, tile) : -placementCost(map, t, tile);
+      value +=
+        t === 'bulldoze'
+          ? bulldozeValue(map, tile)
+          : t === 'forklift'
+            ? -B.FORKLIFT_PRICE
+            : -placementCost(map, t, tile);
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);
     preview.value = { count: pending.size, value, error: pending.size === 0 ? error : null };

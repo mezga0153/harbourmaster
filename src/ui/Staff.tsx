@@ -6,7 +6,7 @@ import type { Actions } from './App';
 import { money } from './format';
 import { Icon } from './icons';
 import { MACHINE_TIER, TIERS } from '../sim/tiers';
-import { panel, snapshot } from './store';
+import { panel, snapshot, tool } from './store';
 import { InfoHeader, Meter } from './widgets';
 
 function Skill({ value }: { value: number }) {
@@ -303,9 +303,13 @@ export function StaffPanel({ actions }: { actions: Actions }) {
           <button
             class="btn primary sm"
             disabled={locked || s.cash < B.FORKLIFT_PRICE}
-            onClick={() => actions.send({ type: 'buyMachine', kind: 'forklift' })}
+            onClick={() => {
+              // Buying is done by placing it, like a building.
+              tool.value = 'forklift';
+              panel.value = null;
+            }}
           >
-            {locked ? 'Locked' : `Buy · ${money(B.FORKLIFT_PRICE)}`}
+            {locked ? 'Locked' : `Place · ${money(B.FORKLIFT_PRICE)}`}
           </button>
         </div>
       </div>

@@ -30,7 +30,14 @@ import { randomName } from './names';
 import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trait } from './staff';
 import { findPath, type CostFn } from './path';
 import { Rng } from './rng';
-import { BUILDABLES, bulldozeError, bulldozeValue, placementCost, placementError } from './rules';
+import {
+  BUILDABLES,
+  bulldozeError,
+  bulldozeValue,
+  machinePlacementError,
+  placementCost,
+  placementError,
+} from './rules';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
 import {
   Build,
@@ -405,7 +412,7 @@ export class World {
       case 'upgrade':
         return this.upgrade();
       case 'buyMachine':
-        return this.buyMachine(cmd.kind);
+        return this.buyMachine(cmd.kind, cmd.tile);
       case 'raise':
         return this.answerRaise(cmd.id, cmd.accept);
       case 'signContract':
@@ -1300,13 +1307,21 @@ export class World {
     return p;
   }
 
-  private buyMachine(kind: MachineKind): void {
+  /** Buy a forklift and put it down at `tile`, or at the first truck bay. */
+  private buyMachine(kind: MachineKind, tile?: number): void {
     if (this.tier < MACHINE_TIER[kind]) {
       return this.message(`Forklifts unlock at the ${TIERS[MACHINE_TIER[kind]].name}.`, 'bad');
     }
+    if (tile !== undefined) {
+      const err =
+        tile >= 0 && tile < this.map.build.length
+          ? machinePlacementError(this.map, tile)
+          : 'Off the map';
+      if (err) return this.message(err, 'bad');
+    }
     if (this.cash < B.FORKLIFT_PRICE) return this.message('Not enough money', 'bad');
     this.book('construction', -B.FORKLIFT_PRICE);
-    const at = [...this.bays.keys()][0] ?? this.map.entry;
+    const at = tile ?? [...this.bays.keys()][0] ?? this.map.entry;
     const p = this.spawnDockhand(at, {
       id: 0,
       name: `Forklift ${this.people.filter((q) => q.kind === 'forklift').length + 1}`,
