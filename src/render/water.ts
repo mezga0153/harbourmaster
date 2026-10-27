@@ -7,8 +7,11 @@ import {
   Mesh,
   PlaneGeometry,
   RedFormat,
+  RepeatWrapping,
   RGBAFormat,
   ShaderMaterial,
+  TextureLoader,
+  type Texture,
   UnsignedByteType,
   Vector3,
 } from 'three';
@@ -35,6 +38,7 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform sampler2D uField; // r: depth, g: distance to shore (first few tiles)
   uniform sampler2D uDist; // r: distance to the nearest land, in tiles
+  uniform sampler2D uNormals; // tileable water normal map
   uniform vec2 uSize;
   uniform float uTime;
   uniform vec3 uShallow;
@@ -45,12 +49,9 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uView;
   varying vec2 vXZ;
 
-  // Big, slow swell: only shapes the breaking waves near the shore.
+  // Slow swell that follows the coastline; only drives the surf.
   const float K_SWELL = 6.28318 / 1.8;
   const float SWELL_SPEED = 1.5;
-  // Tiny wavelets that cover the whole sea, also running towards the coast.
-  const float K_TINY = 6.28318 / 0.5;
-  const float TINY_SPEED = 2.4;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -67,37 +68,35 @@ const fragmentShader = /* glsl */ `
     );
   }
 
-  // Distance to land. Past the seaward map edge it keeps growing, so the
-  // waves keep rolling in from beyond the map.
+  // Distance to land. Past the seaward map edge it keeps growing.
   float distAt(vec2 p) {
     return texture2D(uDist, p / uSize).r + max(0.0, p.x - uSize.x);
   }
 
-  // Crests follow the coastline (equal distance to land), so they bend round
-  // headlands and arrive parallel to the beach. The phase shrinks the
-  // distance over time, so crests travel towards land.
+  // Crests follow the coastline and travel towards it.
   float swellIn(float d) {
     return sin(d * K_SWELL + uTime * SWELL_SPEED);
   }
 
-  // The bounce: a weaker wave running back out, fading within a few tiles.
+  // The bounce: a weaker wave running back out from the shore.
   float swellBack(float d) {
     return sin(d * K_SWELL * 1.07 - uTime * SWELL_SPEED + 1.7);
   }
 
-  // Two trains of small wavelets; noise bends and breaks the crests up so
-  // they read as many short waves rather than long lines.
-  float wavelets(vec2 p, float d) {
-    float a = sin(d * K_TINY + noise(p * 0.9) * 3.0 + uTime * TINY_SPEED);
-    float b = sin(d * K_TINY * 1.38 + noise(p * 1.4 + 9.1) * 4.0 + uTime * TINY_SPEED * 1.2);
-    return a * 0.6 + b * 0.4;
-  }
-
-  float surface(vec2 p) {
-    float d = distAt(p);
-    float near = exp(-d * 0.6);
-    float chop = (noise(p * 3.4 + vec2(-uTime * 0.6, uTime * 0.2)) - 0.5) * 0.5;
-    return wavelets(p, d) + (swellIn(d) + swellBack(d) * 0.55) * near * 1.5 + chop;
+  // The normal-map technique from three.js's Water: four samples of one
+  // tileable normal map at different scales, drifting in different
+  // directions (mostly towards the coast, to the west). Together they look
+  // like many small irregular waves that never visibly repeat.
+  vec3 waterNormal(vec2 p) {
+    float t = uTime;
+    vec2 uv0 = p / 1.7 + vec2(t / 17.0, t / 53.0);
+    vec2 uv1 = p / 1.9 + vec2(t / 19.0, -t / 41.0);
+    vec2 uv2 = p / vec2(14.0, 16.0) + vec2(t / 101.0, t / 97.0);
+    vec2 uv3 = p / vec2(5.5, 6.1) + vec2(t / 109.0, -t / 113.0);
+    vec4 n = texture2D(uNormals, uv0) + texture2D(uNormals, uv1) +
+      texture2D(uNormals, uv2) + texture2D(uNormals, uv3);
+    n = n * 0.5 - 1.0;
+    return normalize(n.xzy * vec3(1.5, 1.0, 1.5));
   }
 
   void main() {
@@ -109,41 +108,24 @@ const fragmentShader = /* glsl */ `
     vec3 col = mix(uShallow, uMid, smoothstep(0.0, 0.2, depth));
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
-    // Lighting from the surface slope.
-    float e = 0.03;
-    float h0 = surface(vXZ);
-    float steep = 0.012;
-    vec3 n = normalize(vec3(
-      -(surface(vXZ + vec2(e, 0.0)) - h0) / e * steep,
-      1.0,
-      -(surface(vXZ + vec2(0.0, e)) - h0) / e * steep
-    ));
-    col *= 0.9 + 0.18 * dot(n, uSun);
-    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 90.0);
-    col += spec * 0.45;
-
-    // Wavelet crests: lots of short, light dashes rolling in.
-    float wl = wavelets(vXZ, d);
-    float crest = smoothstep(0.82, 1.0, wl) * smoothstep(0.35, 0.75, noise(vXZ * 2.2 + uTime * 0.3));
-    col = mix(col, uFoam, crest * 0.16);
-
-    // Glitter: scattered points of sun that flash on and off.
-    vec2 gp = vXZ * 7.0;
-    vec2 gi = floor(gp);
-    float r = hash(gi);
-    vec2 jitter = vec2(hash(gi + 3.1), hash(gi + 7.7)) - 0.5;
-    float dotShape = smoothstep(0.3, 0.0, length(fract(gp) - 0.5 - jitter * 0.4));
-    float flicker = pow(max(0.0, sin(uTime * (3.0 + r * 6.0) + r * 40.0)), 20.0);
-    float facing = smoothstep(0.1, 0.9, wl * 0.5 + 0.5);
-    float glitter = step(0.78, r) * dotShape * flicker * facing;
-    col += vec3(1.0, 0.96, 0.82) * glitter * 1.8;
+    vec3 n = waterNormal(vXZ);
+    col *= 0.78 + 0.34 * max(dot(n, uSun), 0.0);
+    // Soft sheen from the sun, and tight bright glints that flicker as the
+    // wave layers drift past each other. The glint light sits a little off
+    // the mirror direction so only tilted facets catch it.
+    float sheen = pow(max(dot(reflect(-uSun, n), uView), 0.0), 40.0);
+    vec3 mirror = reflect(-uView, vec3(0.0, 1.0, 0.0));
+    vec3 glintLight = normalize(mirror + vec3(0.32, 0.0, 0.22));
+    float glint = pow(max(dot(reflect(-glintLight, n), uView), 0.0), 900.0);
+    float spec = sheen * 0.18 + glint * 1.6;
+    col += vec3(1.0, 0.97, 0.88) * spec;
 
     // Foam hugging the coast.
     float edge = 1.0 - smoothstep(0.02, 0.07, shore);
     float breakup = noise(vXZ * 3.0 + uTime * 0.4);
     float foam = edge * smoothstep(0.3, 0.65, breakup + edge * 0.45);
 
-    // Breaking: the swell turns white in the last stretch before the beach…
+    // Surf: the swell turns white in the last stretch before the beach…
     float near = 1.0 - smoothstep(0.4, 2.0, d);
     float breaking = smoothstep(0.75, 1.0, swellIn(d)) * near;
     breaking *= smoothstep(0.25, 0.65, noise(vXZ * 1.6 + uTime * 0.2));
@@ -155,7 +137,7 @@ const fragmentShader = /* glsl */ `
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
     float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
     alpha = max(alpha, foam * 0.9);
-    alpha = min(1.0, alpha + spec * 0.5 + glitter);
+    alpha = min(1.0, alpha + spec * 0.5);
     gl_FragColor = vec4(col, alpha);
     #include <colorspace_fragment>
   }
@@ -194,6 +176,7 @@ export class Water {
       uniforms: {
         uField: { value: tex },
         uDist: { value: dist },
+        uNormals: { value: loadNormals() },
         uSize: { value: [map.w, map.h] },
         uTime: { value: 0 },
         uShallow: { value: new Color(C.waterShallow) },
@@ -222,8 +205,17 @@ export class Water {
     this.mesh.geometry.dispose();
     (this.material.uniforms.uField.value as DataTexture).dispose();
     (this.material.uniforms.uDist.value as DataTexture).dispose();
+    (this.material.uniforms.uNormals.value as Texture).dispose();
     this.material.dispose();
   }
+}
+
+/** The tileable water normal map, see public/textures/CREDITS.md. */
+function loadNormals(): Texture {
+  const tex = new TextureLoader().load(`${import.meta.env.BASE_URL}textures/waternormals.jpg`);
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  return tex;
 }
 
 /**
