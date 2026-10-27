@@ -97,6 +97,12 @@ export interface ContractView {
   satisfaction: number;
   /** What it costs you to end this contract. */
   cancelFee: number;
+  /** What the company claims if it walks out. */
+  breach: number;
+  /** Boats of this company waiting at anchor right now. */
+  waiting: number;
+  /** Ticks until the next boat sets out, or -1 for hauliers. */
+  nextIn: number;
   /** Boats or trucks of this company currently at the port. */
   active: number;
 }
@@ -106,6 +112,9 @@ export interface OfferView {
   terms: Terms;
   signingFee: number;
   expiresIn: number;
+  breach: number;
+  /** Trucking capacity (crates/day) if this offer were signed. */
+  truckingAfter: number;
 }
 
 /** Crates per day: what the fisheries send versus what the port can move. */

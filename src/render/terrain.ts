@@ -21,7 +21,8 @@ import { C } from './palette';
 
 /** How far the scenery continues past the playable map edge, in tiles. */
 export const MARGIN = 40;
-export const SEABED = -0.6;
+/** Bottom of cliffs, piles and quay walls; below the deepest seabed shown. */
+export const SEABED = -1.1;
 export const DECK_Y = 0.42;
 export const QUAY_Y = 0.36;
 
@@ -72,6 +73,69 @@ export function surfaceY(map: GameMap, x: number, y: number): number {
 
 export function landTop(t: number): number {
   return TOP[t];
+}
+
+/** Seabed height for a water depth in metres (squashed so it reads well). */
+export function seabedY(depth: number): number {
+  return -0.06 - Math.min(depth, 10) * 0.1;
+}
+
+/**
+ * Smooth seabed under the transparent sea: sand in the shallows, weed and
+ * then dark water further out. Heights follow the real depth.
+ */
+export function buildSeabed(map: GameMap): Mesh {
+  const tileDepth = (x: number, y: number) => {
+    if (x < -MARGIN || y < -MARGIN || x >= map.w + MARGIN || y >= map.h + MARGIN) return 12;
+    const cx = Math.min(map.w - 1, Math.max(0, x));
+    const cy = Math.min(map.h - 1, Math.max(0, y));
+    const i = map.idx(cx, cy);
+    return map.isLand(i) ? 0 : map.depth[i];
+  };
+  const x0 = -MARGIN;
+  const y0 = -MARGIN;
+  const nx = map.w + MARGIN * 2 + 1;
+  const ny = map.h + MARGIN * 2 + 1;
+  const pos = new Float32Array(nx * ny * 3);
+  const col = new Float32Array(nx * ny * 3);
+  const sand = new Color(C.seabedSand);
+  const weed = new Color(C.seabedWeed);
+  const deep = new Color(C.seabedDeep);
+  const c = new Color();
+  for (let j = 0; j < ny; j++) {
+    for (let k = 0; k < nx; k++) {
+      const x = x0 + k;
+      const y = y0 + j;
+      // Corner height: average of the four tiles that meet here.
+      const d =
+        (tileDepth(x - 1, y - 1) + tileDepth(x, y - 1) + tileDepth(x - 1, y) + tileDepth(x, y)) / 4;
+      const v = (j * nx + k) * 3;
+      pos[v] = x;
+      pos[v + 1] = seabedY(d);
+      pos[v + 2] = y;
+      if (d < 2.5) c.copy(sand).lerp(weed, d / 2.5);
+      else c.copy(weed).lerp(deep, Math.min(1, (d - 2.5) / 6));
+      c.multiplyScalar(0.94 + hash01(5, x, y) * 0.08);
+      col[v] = c.r;
+      col[v + 1] = c.g;
+      col[v + 2] = c.b;
+    }
+  }
+  const index: number[] = [];
+  for (let j = 0; j < ny - 1; j++) {
+    for (let k = 0; k < nx - 1; k++) {
+      const a = j * nx + k;
+      index.push(a, a + nx, a + 1, a + 1, a + nx, a + nx + 1);
+    }
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  const mesh = new Mesh(geo, new MeshLambertMaterial({ vertexColors: true }));
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /** One merged, flat-shaded mesh of blocky land tiles with cliff sides. */

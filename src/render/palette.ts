@@ -8,10 +8,13 @@ export const C = {
   rock: 0x9ea5ac,
   rockGround: 0xa9b07f,
 
-  waterShallow: 0x5fcfe9,
+  waterShallow: 0x2cc0da,
   waterMid: 0x2b92d8,
   waterDeep: 0x1c64ae,
   foam: 0xf4fbff,
+  seabedSand: 0xc2aa74,
+  seabedWeed: 0x4c8470,
+  seabedDeep: 0x1d4565,
 
   asphalt: 0x737a82,
   marking: 0xf5f5f0,

@@ -245,6 +245,8 @@ export class World {
   private bayFullTicks = 0;
   /** Cached planning estimate; cleared when the port changes. Not saved. */
   private capacityCache: Capacity | null = null;
+  /** Shortest road from the highway to a truck bay; set by capacity(). */
+  private roadLen = Infinity;
   private events: SimEvent[] = [];
   private dirty = new Set<number>();
 
@@ -773,31 +775,41 @@ export class World {
 
     // One truck trip: highway to bay and back, plus loading. A bay loads one
     // truck at a time, so trucks beyond the number of bays add nothing.
-    let trucking = 0;
-    const roadLen = bays.length
+    this.roadLen = bays.length
       ? Math.min(
           ...bays.map(
             (b) => findPath(m.w, m.h, m.entry, b, this.truckCost(b), false)?.length ?? Infinity,
           ),
         )
       : Infinity;
-    if (Number.isFinite(roadLen)) {
-      const fleets = this.hauliers()
-        .flatMap((c) => Array.from({ length: c.terms.fleet }, () => c.terms.capacity))
-        .sort((a, b) => b - a)
-        .slice(0, bays.length);
-      for (const cap of fleets) {
-        const ticks = (2 * roadLen) / B.TRUCK_SPEED + cap * 5 + 30;
-        trucking += (cap * TICKS_PER_DAY) / ticks;
-      }
-    }
     this.capacityCache = {
       demand: Math.round(demand),
       unloading: Math.round(unloading),
-      trucking: Math.round(trucking),
+      trucking: this.truckingWith(null),
       deepBerths: this.berthCount(B.COASTER_DRAFT),
     };
     return this.capacityCache;
+  }
+
+  /**
+   * Crates per day the hauliers can take away, optionally with one more
+   * haulier signed. Uses the road length found by capacity().
+   */
+  private truckingWith(extra: HaulierTerms | null): number {
+    if (!Number.isFinite(this.roadLen)) return 0;
+    const terms = this.hauliers().map((c) => c.terms);
+    if (extra) terms.push(extra);
+    // A bay loads one truck at a time, so trucks beyond the bays add nothing.
+    const fleets = terms
+      .flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity))
+      .sort((a, b) => b - a)
+      .slice(0, this.bays.size);
+    let total = 0;
+    for (const cap of fleets) {
+      const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + cap * 5 + 30;
+      total += (cap * TICKS_PER_DAY) / ticks;
+    }
+    return Math.round(total);
   }
 
   private dailyFees(): number {
@@ -1968,11 +1980,15 @@ export class World {
       terms: c.terms,
       satisfaction: c.satisfaction,
       cancelFee: cancelFee(c),
+      breach: breachPenalty(c),
       active:
         c.terms.kind === 'fishery'
           ? this.boats.filter((b) => b.contractId === c.id).length
           : this.trucks.filter((t) => t.contractId === c.id).length,
+      waiting: this.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
+      nextIn: c.terms.kind === 'fishery' ? Math.max(0, c.nextBoatTick - this.tick) : -1,
     }));
+    const cap = this.capacity();
     return {
       tick: this.tick,
       cash: this.cash,
@@ -2006,6 +2022,8 @@ export class World {
         terms: o.terms,
         signingFee: o.signingFee,
         expiresIn: o.expires - this.tick,
+        breach: breachPenalty(o),
+        truckingAfter: o.terms.kind === 'haulier' ? this.truckingWith(o.terms) : cap.trucking,
       })),
     };
   }

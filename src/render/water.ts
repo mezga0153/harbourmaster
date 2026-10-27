@@ -98,7 +98,11 @@ const fragmentShader = /* glsl */ `
     foam = max(foam, roll * 0.55);
 
     col = mix(col, uFoam, foam);
-    gl_FragColor = vec4(col, 1.0);
+    // Clear in the shallows so the seabed shows, nearly opaque out at sea.
+    float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
+    alpha = max(alpha, foam * 0.9);
+    alpha = min(1.0, alpha + spec * 0.5);
+    gl_FragColor = vec4(col, alpha);
     #include <colorspace_fragment>
   }
 `;
@@ -126,6 +130,8 @@ export class Water {
     this.material = new ShaderMaterial({
       vertexShader,
       fragmentShader,
+      transparent: true,
+      depthWrite: false,
       uniforms: {
         uField: { value: tex },
         uSize: { value: [map.w, map.h] },

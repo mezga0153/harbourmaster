@@ -1,19 +1,24 @@
+import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import type { Capacity, ContractView, OfferView } from '../protocol';
 import { C } from '../render/palette';
-import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
 import * as B from '../sim/balance';
+import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { money } from './format';
+import { Icon } from './icons';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter } from './widgets';
+
+type Tab = 'active' | 'offers' | 'rules';
 
 function css(hex: number): string {
   return `#${hex.toString(16).padStart(6, '0')}`;
 }
 
-function every(days: number): string {
+/** "~5 h" or "~1.5 days" from a number of days. */
+function span(days: number): string {
   const hours = Math.round(days * 24);
   if (hours <= 36) return `~${hours} h`;
   return `~${Math.round(days * 10) / 10} days`;
@@ -26,20 +31,51 @@ function mood(satisfaction: number): { label: string; tone: string } {
   return { label: 'Furious', tone: 'bad' };
 }
 
-function TermsLines({ terms }: { terms: Terms }) {
-  const rows: [string, string][] =
-    terms.kind === 'fishery'
-      ? [
-          [terms.vessel === 'coaster' ? 'Coasters' : 'Boats', `every ${every(terms.boatEvery)}`],
-          ['Load', `${terms.cratesMin}–${terms.cratesMax} crates`],
-          ['Rate', `${money(terms.fee)} / crate`],
-          ['Value', `${money(fisheryDailyValue(terms))} / day`],
-        ]
-      : [
-          ['Fleet', `${terms.fleet} truck${terms.fleet > 1 ? 's' : ''}`],
-          ['Capacity', `${terms.capacity} crates`],
-          ['Fee', `${money(terms.dailyFee)} / day`],
-        ];
+function kindLabel(t: Terms): string {
+  if (t.kind === 'haulier') return 'Haulier';
+  return t.vessel === 'coaster' ? 'Shipping line' : 'Fishery';
+}
+
+function CardHead({ terms, extra }: { terms: Terms; extra?: ComponentChildren }) {
+  const color = terms.kind === 'fishery' ? C.hulls[terms.color] : C.trucks[terms.color];
+  return (
+    <div class="card-head">
+      <span class="swatch" style={{ background: css(color) }} />
+      <strong>{terms.name}</strong>
+      {extra}
+      <span class={`badge ${terms.kind}`}>{kindLabel(terms)}</span>
+    </div>
+  );
+}
+
+/** The one-line headline: what this contract brings or costs per day. */
+function Headline({ terms }: { terms: Terms }) {
+  if (terms.kind === 'fishery') {
+    return (
+      <div class="headline">
+        <span>
+          <strong>≈{Math.round(fisheryDailyCrates(terms))}</strong> crates/day
+        </span>
+        <span class="pos">
+          <strong>≈{money(fisheryDailyValue(terms))}</strong>/day
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div class="headline">
+      <span>
+        <strong>{terms.fleet}</strong> truck{terms.fleet > 1 ? 's' : ''} ×{' '}
+        <strong>{terms.capacity}</strong> crates
+      </span>
+      <span class="neg">
+        <strong>{money(-terms.dailyFee)}</strong>/day
+      </span>
+    </div>
+  );
+}
+
+function Facts({ rows }: { rows: [string, ComponentChildren][] }) {
   return (
     <dl class="terms">
       {rows.map(([k, v]) => (
@@ -52,44 +88,117 @@ function TermsLines({ terms }: { terms: Terms }) {
   );
 }
 
-function CardHead({ terms }: { terms: Terms }) {
-  const color = terms.kind === 'fishery' ? C.hulls[terms.color] : C.trucks[terms.color];
+function termRows(t: Terms): [string, ComponentChildren][] {
+  if (t.kind === 'haulier') {
+    return [
+      ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
+      ['Per truck', `${t.capacity} crates`],
+    ];
+  }
+  return [
+    [t.vessel === 'coaster' ? 'A coaster' : 'A boat', `every ${span(t.boatEvery)}`],
+    ['Load', `${t.cratesMin}–${t.cratesMax} crates`],
+    ['Pays', `${money(t.fee)} a crate`],
+    ['Needs', t.vessel === 'coaster' ? `${B.COASTER_DRAFT} m deep berth` : 'Any berth'],
+  ];
+}
+
+// ── Summary ───────────────────────────────────────────────
+
+function Kpi({
+  label,
+  value,
+  demand,
+  hint,
+}: {
+  label: string;
+  value: number;
+  demand?: number;
+  hint: string;
+}) {
+  const tone =
+    demand === undefined ? '' : value >= demand * 1.1 ? 'good' : value >= demand ? 'warn' : 'bad';
   return (
-    <div class="card-head">
-      <span class="swatch" style={{ background: css(color) }} />
-      <strong>{terms.name}</strong>
-      <span class={`badge ${terms.kind}`}>
-        {terms.kind === 'haulier'
-          ? 'Haulier'
-          : terms.vessel === 'coaster'
-            ? 'Shipping line'
-            : 'Fishery'}
+    <div class={`kpi ${tone}`} title={hint}>
+      <span class="kpi-label">{label}</span>
+      <span class="kpi-value">
+        {value}
+        <span class="muted">/day</span>
       </span>
     </div>
   );
 }
 
+function Summary({ cap }: { cap: Capacity }) {
+  const short =
+    cap.demand > cap.unloading
+      ? 'Bottleneck: unloading. Hire dockhands or buy forklifts.'
+      : cap.demand > cap.trucking
+        ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare.'
+        : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
+          ? 'Running close to capacity. Expand before signing more.'
+          : null;
+  return (
+    <div class="summary">
+      <div class="kpis">
+        <Kpi label="Arriving" value={cap.demand} hint="Crates per day your contracts send" />
+        <Kpi
+          label="Unloading"
+          value={cap.unloading}
+          demand={cap.demand}
+          hint="Crates per day your dockhands and forklifts can carry to the bays"
+        />
+        <Kpi
+          label="Trucking"
+          value={cap.trucking}
+          demand={cap.demand}
+          hint="Crates per day your hauliers can take away"
+        />
+      </div>
+      {short && <p class="note bad">{short}</p>}
+    </div>
+  );
+}
+
+// ── Active ────────────────────────────────────────────────
+
 function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
   const [confirming, setConfirming] = useState(false);
-  const isFishery = c.terms.kind === 'fishery';
+  const t = c.terms;
   const m = mood(c.satisfaction);
-  const unit = isFishery ? 'boat' : 'truck';
+  const rows = termRows(t);
+  if (t.kind === 'fishery') {
+    rows.push(['Next boat', c.nextIn <= 0 ? 'Due now' : `in ${span(c.nextIn / TICKS_PER_DAY)}`]);
+    rows.push([
+      'Waiting now',
+      c.waiting > 0 ? (
+        <span class="neg">{c.waiting} at anchor</span>
+      ) : (
+        <span class="muted">None</span>
+      ),
+    ]);
+  } else {
+    rows.push(['On the road', `${c.active} of ${t.fleet}`]);
+  }
   return (
-    <div class="card">
-      <CardHead terms={c.terms} />
-      <TermsLines terms={c.terms} />
-      {isFishery && (
-        <div class="mood">
+    <div class={`card ${c.waiting > 0 ? 'alerting' : ''}`}>
+      <CardHead terms={t} />
+      <Headline terms={t} />
+      <Facts rows={rows} />
+      {t.kind === 'fishery' && (
+        <div class="mood" title={`Walks out at 0 and claims ${money(c.breach)}`}>
           <span class="field-label">Relationship</span>
           <Meter value={c.satisfaction / 100} tone={m.tone} />
           <span class={`mood-label ${m.tone}`}>{m.label}</span>
         </div>
       )}
+      {t.kind === 'fishery' && c.satisfaction < 45 && (
+        <p class="note bad">
+          Unhappy. If the relationship reaches zero they walk out and claim {money(c.breach)}.
+        </p>
+      )}
       <div class="card-foot">
-        <span class="muted">
-          {c.active} {unit}
-          {c.active === 1 ? '' : 's'} {isFishery ? 'here or on the way' : 'at the port'}
-        </span>
+        <span class="muted">Ending it costs {money(c.cancelFee)}</span>
         {confirming ? (
           <span class="confirm">
             <button class="btn ghost sm" onClick={() => setConfirming(false)}>
@@ -99,7 +208,7 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
               class="btn danger sm"
               onClick={() => actions.send({ type: 'cancelContract', id: c.id })}
             >
-              End{c.cancelFee > 0 ? ` · ${money(c.cancelFee)}` : ''}
+              End · {money(c.cancelFee)}
             </button>
           </span>
         ) : (
@@ -112,47 +221,23 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
   );
 }
 
-function load(demand: number, capacity: number): { pct: number; tone: string } {
-  const pct = capacity > 0 ? demand / capacity : demand > 0 ? Infinity : 0;
-  return { pct, tone: pct < 0.7 ? 'good' : pct < 0.9 ? 'ok' : pct <= 1 ? 'warn' : 'bad' };
-}
+// ── Offers ────────────────────────────────────────────────
 
-function CapacityRow({ label, value, demand }: { label: string; value: number; demand: number }) {
-  const l = load(demand, value);
+function Check({
+  ok,
+  warn,
+  children,
+}: {
+  ok: boolean;
+  warn?: boolean;
+  children: ComponentChildren;
+}) {
+  const tone = ok ? 'good' : warn ? 'warn' : 'bad';
   return (
-    <div class="cap-row">
-      <span class="cap-label">{label}</span>
-      <Meter value={Math.min(1, l.pct)} tone={l.tone} />
-      <span class={`cap-value ${l.tone}`}>
-        {value}
-        <span class="muted">/day</span>
-      </span>
-    </div>
-  );
-}
-
-/** What the fisheries send against what the port can move, in crates/day. */
-function CapacityPanel({ cap }: { cap: Capacity }) {
-  const short =
-    cap.demand > cap.unloading
-      ? 'Not enough dockhands to unload what arrives. Hire more.'
-      : cap.demand > cap.trucking
-        ? 'Not enough trucks. Sign a haulier, or build another truck bay if trucks are spare.'
-        : null;
-  return (
-    <div class="capacity">
-      <div class="cap-row head">
-        <span class="cap-label">Arriving</span>
-        <span />
-        <span class="cap-value">
-          {cap.demand}
-          <span class="muted">/day</span>
-        </span>
-      </div>
-      <CapacityRow label="Unloading" value={cap.unloading} demand={cap.demand} />
-      <CapacityRow label="Trucking" value={cap.trucking} demand={cap.demand} />
-      {short && <p class="note bad">{short}</p>}
-    </div>
+    <li class={`check ${tone}`}>
+      <span class="check-mark">{ok ? '✓' : warn ? '!' : '✕'}</span>
+      <span>{children}</span>
+    </li>
   );
 }
 
@@ -160,39 +245,80 @@ function OfferCard({
   o,
   cash,
   cap,
+  bays,
+  trucks,
   actions,
 }: {
   o: OfferView;
   cash: number;
   cap: Capacity;
+  bays: number;
+  /** Trucks already under contract. */
+  trucks: number;
   actions: Actions;
 }) {
+  const t = o.terms;
   const days = Math.max(1, Math.ceil(o.expiresIn / TICKS_PER_DAY));
-  const extra = o.terms.kind === 'fishery' ? fisheryDailyCrates(o.terms) : 0;
-  const overload = extra > 0 && cap.demand + extra > Math.min(cap.unloading, cap.trucking);
+  const checks: ComponentChildren[] = [];
+  let blocked = false;
+
+  if (t.kind === 'fishery') {
+    const after = cap.demand + Math.round(fisheryDailyCrates(t));
+    const payback = o.signingFee / Math.max(1, fisheryDailyValue(t));
+    const unloadOk = after <= cap.unloading;
+    const truckOk = after <= cap.trucking;
+    checks.push(
+      <Check ok={unloadOk} warn={!unloadOk && after <= cap.unloading * 1.2}>
+        Unloading: {after} needed, {cap.unloading} possible
+      </Check>,
+      <Check ok={truckOk} warn={!truckOk && after <= cap.trucking * 1.2}>
+        Trucking: {after} needed, {cap.trucking} possible
+      </Check>,
+    );
+    if (t.vessel === 'coaster') {
+      const ok = cap.deepBerths > 0;
+      blocked = !ok;
+      checks.push(
+        <Check ok={ok}>
+          {ok
+            ? `${cap.deepBerths} berth${cap.deepBerths === 1 ? '' : 's'} deep enough (${B.COASTER_DRAFT} m)`
+            : `No berth is ${B.COASTER_DRAFT} m deep. Build a quay into deeper water first`}
+        </Check>,
+      );
+    }
+    checks.push(
+      <Check ok={payback <= 3} warn={payback > 3}>
+        Signing fee pays back in {span(payback)}
+      </Check>,
+    );
+  } else {
+    const gain = o.truckingAfter - cap.trucking;
+    const total = trucks + t.fleet;
+    checks.push(
+      <Check ok={gain > 0} warn={gain === 0}>
+        Trucking {cap.trucking} → {o.truckingAfter} crates/day
+      </Check>,
+      <Check ok={total <= bays} warn={total > bays}>
+        {total <= bays
+          ? `${bays} truck bays for ${total} trucks`
+          : `Only ${bays} truck bay${bays === 1 ? '' : 's'} for ${total} trucks: build more bays`}
+      </Check>,
+    );
+  }
+
   return (
     <div class="card offer">
-      <CardHead terms={o.terms} />
-      <TermsLines terms={o.terms} />
-      {o.terms.kind === 'fishery' && o.terms.vessel === 'coaster' && (
-        <p class={`hint ${cap.deepBerths === 0 ? 'warn' : ''}`}>
-          {cap.deepBerths === 0
-            ? `No berth is deep enough yet. Coasters need ${B.COASTER_DRAFT} m: build a quay out into deeper water first.`
-            : `Coasters need ${B.COASTER_DRAFT} m of water. You have ${cap.deepBerths} deep berth${cap.deepBerths === 1 ? '' : 's'}.`}
-        </p>
-      )}
-      {overload && (
-        <p class="hint warn">
-          Adds ~{Math.round(extra)} crates/day, more than the port can handle right now.
-        </p>
-      )}
+      <CardHead terms={t} extra={<span class="chip">{days}d left</span>} />
+      <Headline terms={t} />
+      <Facts rows={termRows(t)} />
+      <ul class="checks">{checks}</ul>
       <div class="card-foot">
         <span class="muted">
-          Expires in {days} day{days === 1 ? '' : 's'}
+          {t.kind === 'fishery' ? `Walk-out penalty ${money(o.breach)}` : 'No penalties'}
         </span>
         <button
           class="btn primary sm"
-          disabled={cash < o.signingFee}
+          disabled={cash < o.signingFee || blocked}
           onClick={() => actions.send({ type: 'signContract', id: o.id })}
         >
           Sign · {money(o.signingFee)}
@@ -202,54 +328,141 @@ function OfferCard({
   );
 }
 
+// ── Penalties ─────────────────────────────────────────────
+
+function Rules() {
+  const rows: [string, string][] = [
+    ['A boat waits at anchor or unloads slowly', `${money(B.DEMURRAGE_PER_DAY)} per boat per day`],
+    [
+      'A boat gives up after ~1.5 days',
+      `${Math.round(B.LOST_CARGO_SHARE * 100)}% of the cargo still on board`,
+    ],
+    [
+      'A fishery or shipping line walks out',
+      `${B.BREACH_MULTIPLIER}× the signing fee, at least ${money(B.BREACH_MIN)}`,
+    ],
+    ['You end a contract yourself', 'The signing fee'],
+  ];
+  return (
+    <>
+      <p class="muted intro">
+        Every boat served promptly improves the relationship. Waiting at anchor, slow unloading and
+        boats leaving with cargo all damage it. At zero, they walk out.
+      </p>
+      <table class="ledger rules">
+        <tbody>
+          {rows.map(([when, cost]) => (
+            <tr key={when}>
+              <td>{when}</td>
+              <td class="neg">{cost}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="muted intro">
+        Hauliers never charge penalties, but each truck bay loads only one truck at a time, so
+        trucks beyond your number of bays just wait.
+      </p>
+    </>
+  );
+}
+
+// ── Panel ─────────────────────────────────────────────────
+
+function TabButton({
+  id,
+  tab,
+  setTab,
+  children,
+}: {
+  id: Tab;
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  children: ComponentChildren;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={tab === id}
+      class={tab === id ? 'on' : ''}
+      onClick={() => setTab(id)}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function ContractsPanel({ actions }: { actions: Actions }) {
+  const [tab, setTab] = useState<Tab>('active');
   const s = snapshot.value;
   if (!s) return null;
-  const fisheries = s.contracts.filter((c) => c.terms.kind === 'fishery');
-  const hauliers = s.contracts.filter((c) => c.terms.kind === 'haulier');
-  const fleet = hauliers.reduce((n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0), 0);
+  const waiting = s.contracts.reduce((n, c) => n + c.waiting, 0);
+  const trucks = s.contracts.reduce(
+    (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
+    0,
+  );
+  // Fisheries first, the unhappiest at the top.
+  const sorted = [...s.contracts].sort(
+    (a, b) =>
+      (a.terms.kind === 'haulier' ? 1 : 0) - (b.terms.kind === 'haulier' ? 1 : 0) ||
+      a.satisfaction - b.satisfaction,
+  );
   return (
-    <aside class="side panel wide" aria-label="Contracts">
+    <aside class="side panel wide xwide" aria-label="Contracts">
       <InfoHeader kicker="Business" title="Contracts" onClose={() => (panel.value = null)} />
-      <p class="muted intro">
-        Fisheries send boats and pay for every crate that leaves on a truck. Hauliers supply the
-        trucks. Boats kept waiting cost demurrage, and a fishery that runs out of patience walks out
-        and claims its signing fee as a penalty.
-      </p>
-      {fisheries.length === 0 && (
-        <p class="note bad">No fishery is sending boats. Sign one below.</p>
-      )}
-      {hauliers.length === 0 && (
-        <p class="note bad">No haulier under contract. No trucks will collect crates.</p>
+      <Summary cap={s.capacity} />
+
+      <div class="tabs" role="tablist">
+        <TabButton id="active" tab={tab} setTab={setTab}>
+          Active <span class="tab-count">{s.contracts.length}</span>
+          {waiting > 0 && (
+            <span class="count bad" title="Boats waiting at anchor">
+              {waiting}
+            </span>
+          )}
+        </TabButton>
+        <TabButton id="offers" tab={tab} setTab={setTab}>
+          Offers <span class="tab-count">{s.offers.length}</span>
+        </TabButton>
+        <TabButton id="rules" tab={tab} setTab={setTab}>
+          <Icon name="alert" /> Penalties
+        </TabButton>
+      </div>
+
+      {tab === 'active' && (
+        <>
+          {!s.contracts.some((c) => c.terms.kind === 'fishery') && (
+            <p class="note bad">No fishery is sending boats. Sign one from the Offers tab.</p>
+          )}
+          {!s.contracts.some((c) => c.terms.kind === 'haulier') && (
+            <p class="note bad">No haulier under contract. No trucks will collect crates.</p>
+          )}
+          {sorted.map((c) => (
+            <ContractCard key={c.id} c={c} actions={actions} />
+          ))}
+        </>
       )}
 
-      <div class="section-title">
-        <span>Port capacity</span>
-        <span class="muted">crates per day</span>
-      </div>
-      <CapacityPanel cap={s.capacity} />
-
-      <div class="section-title">
-        <span>Active</span>
-        <span class="muted">
-          {fisheries.length} fisher{fisheries.length === 1 ? 'y' : 'ies'} · {fleet} truck
-          {fleet === 1 ? '' : 's'}
-        </span>
-      </div>
-      {s.contracts.map((c) => (
-        <ContractCard key={c.id} c={c} actions={actions} />
-      ))}
-
-      <div class="section-title">
-        <span>Offers</span>
-        <span class="muted">{s.offers.length} open</span>
-      </div>
-      {s.offers.length === 0 && (
-        <p class="muted">No offers right now. New ones arrive every few days.</p>
+      {tab === 'offers' && (
+        <>
+          {s.offers.length === 0 && (
+            <p class="muted">No offers right now. New ones arrive every few days.</p>
+          )}
+          {s.offers.map((o) => (
+            <OfferCard
+              key={o.id}
+              o={o}
+              cash={s.cash}
+              cap={s.capacity}
+              bays={s.bays.length}
+              trucks={trucks}
+              actions={actions}
+            />
+          ))}
+        </>
       )}
-      {s.offers.map((o) => (
-        <OfferCard key={o.id} o={o} cash={s.cash} cap={s.capacity} actions={actions} />
-      ))}
+
+      {tab === 'rules' && <Rules />}
     </aside>
   );
 }

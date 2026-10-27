@@ -21,7 +21,7 @@ import { Entities } from './entities';
 import { Overlay } from './overlay';
 import { C } from './palette';
 import { Structures } from './structures';
-import { buildLand, buildRocks, buildTrees } from './terrain';
+import { buildLand, buildRocks, buildSeabed, buildTrees } from './terrain';
 import { Water } from './water';
 
 const SUN_DIR = new Vector3(-0.55, 1, 0.35).normalize();
@@ -110,7 +110,7 @@ export class Renderer {
     const trees = buildTrees(map);
     const land = buildLand(map);
     const rocks = buildRocks(map);
-    scenery.add(land, rocks, trees);
+    scenery.add(buildSeabed(map), land, rocks, trees);
     const root = new Group();
     root.add(water.mesh, scenery, structures.group, entities.group);
     this.scene.add(root);
