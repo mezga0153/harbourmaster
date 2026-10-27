@@ -69,7 +69,7 @@ export const BOAT_SPEED = 0.15;
 export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;
 
-export const MAX_JETTY_DEPTH = 8;
+export const MAX_JETTY_DEPTH = 3.5; // wooden piles only reach so far
 export const TREE_CLEAR_COST = 10;
 export const ROCK_CLEAR_COST = 50;
 export const BULLDOZE_REFUND = 0.5;

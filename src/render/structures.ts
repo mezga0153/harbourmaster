@@ -89,11 +89,18 @@ export class Structures {
         g.add(box(0.9, 0.025, 0.9, C.path, 0.5, top + 0.03, 0.5));
         return g;
       case Build.Jetty: {
-        const alongX =
-          this.is(i, 1, 0, Build.Jetty) ||
-          this.is(i, -1, 0, Build.Jetty) ||
-          this.landAt(i, 1, 0) ||
-          this.landAt(i, -1, 0);
+        const onBeach = this.map.isLand(i);
+        const ew = this.is(i, 1, 0, Build.Jetty) || this.is(i, -1, 0, Build.Jetty);
+        const ns = this.is(i, 0, 1, Build.Jetty) || this.is(i, 0, -1, Build.Jetty);
+        // Run along neighbouring jetty; a lone beach jetty runs along the shore.
+        const alongX = ew
+          ? true
+          : ns
+            ? false
+            : onBeach
+              ? !this.landAt(i, 0, 1) || !this.landAt(i, 0, -1)
+              : this.landAt(i, 1, 0) || this.landAt(i, -1, 0);
+        const footing = onBeach ? top : SEABED;
         for (let k = 0; k < 4; k++) {
           const o = 0.13 + k * 0.245;
           const [x, z, w, d] = alongX ? [o, 0.5, 0.22, 1] : [0.5, o, 1, 0.22];
@@ -101,7 +108,7 @@ export class Structures {
         }
         for (const px of [0.12, 0.88]) {
           for (const pz of [0.12, 0.88]) {
-            g.add(cyl(0.05, DECK_Y - 0.06 - SEABED, C.woodDark, px, SEABED, pz));
+            g.add(cyl(0.05, DECK_Y - 0.06 - footing, C.woodDark, px, footing, pz));
           }
         }
         return g;

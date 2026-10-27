@@ -63,6 +63,7 @@ export class Renderer {
   private selectedId: number | null = null;
   private tmp = new Vector3();
   private sunTarget = new Vector3();
+  private viewDir = new Vector3();
 
   constructor(
     private container: HTMLElement,
@@ -102,7 +103,7 @@ export class Renderer {
       this.scene.remove(this.layers.root);
       this.layers.water.dispose();
     }
-    const water = new Water(map);
+    const water = new Water(map, SUN_DIR);
     const structures = new Structures(map);
     const entities = new Entities(map);
     const scenery = new Group();
@@ -236,7 +237,10 @@ export class Renderer {
     this.followSun();
 
     if (this.layers) {
-      this.layers.water.update(time);
+      this.layers.water.update(
+        time,
+        this.viewDir.copy(this.cam.camera.position).sub(this.cam.target).normalize(),
+      );
       this.layers.entities.update(now, time);
       const pos =
         this.selectedId !== null

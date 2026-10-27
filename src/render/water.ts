@@ -4,15 +4,21 @@ import {
   LinearFilter,
   Mesh,
   PlaneGeometry,
-  RedFormat,
+  RGBAFormat,
   ShaderMaterial,
   UnsignedByteType,
+  Vector3,
 } from 'three';
 import type { GameMap } from '../sim/map';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 
+/** Depth that maps to the darkest blue, in metres. */
 const MAX_DEPTH = 16;
+/** Subcells per tile in the water field, for smooth shore contours. */
+const SUB = 4;
+/** Distance from the coast, in tiles, that the shore field spans. */
+const SHORE_TILES = 4;
 
 const vertexShader = /* glsl */ `
   varying vec2 vXZ;
@@ -24,42 +30,95 @@ const vertexShader = /* glsl */ `
 `;
 
 const fragmentShader = /* glsl */ `
-  uniform sampler2D uDepth;
+  uniform sampler2D uField; // r: depth, g: distance to shore
   uniform vec2 uSize;
   uniform float uTime;
   uniform vec3 uShallow;
+  uniform vec3 uMid;
   uniform vec3 uDeep;
   uniform vec3 uFoam;
+  uniform vec3 uSun;
+  uniform vec3 uView;
   varying vec2 vXZ;
 
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+      u.y
+    );
+  }
+
+  // Small wind waves, only used for lighting.
+  float waves(vec2 p) {
+    float t = uTime;
+    float h = sin(dot(p, vec2(0.9, 0.4)) * 1.6 + t * 1.1) * 0.5;
+    h += sin(dot(p, vec2(-0.3, 1.0)) * 2.3 + t * 1.4) * 0.35;
+    h += sin(dot(p, vec2(0.7, -0.8)) * 3.7 - t * 1.8) * 0.2;
+    h += (noise(p * 1.3 + vec2(t * 0.25, -t * 0.18)) - 0.5) * 0.8;
+    return h;
+  }
+
   void main() {
-    float d = texture2D(uDepth, vXZ / uSize).r;
-    vec3 col = mix(uShallow, uDeep, smoothstep(0.02, 0.22, d));
+    vec4 field = texture2D(uField, vXZ / uSize);
+    float depth = field.r;
+    float shore = field.g;
 
-    float w = sin(vXZ.x * 3.1 + uTime * 1.3 + sin(vXZ.y * 1.7))
-            * sin(vXZ.y * 2.6 - uTime * 1.1 + sin(vXZ.x * 1.3));
-    col += 0.012 * w;
+    vec3 col = mix(uShallow, uMid, smoothstep(0.0, 0.2, depth));
+    col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
-    float shore = 1.0 - smoothstep(0.0, 0.07, d);
-    float pulse = 0.65 + 0.35 * sin(uTime * 1.8 + d * 90.0);
-    col = mix(col, uFoam, shore * pulse * 0.75);
+    float e = 0.08;
+    float h0 = waves(vXZ);
+    vec3 n = normalize(vec3(
+      -(waves(vXZ + vec2(e, 0.0)) - h0) / e * 0.08,
+      1.0,
+      -(waves(vXZ + vec2(0.0, e)) - h0) / e * 0.08
+    ));
+    col *= 0.93 + 0.1 * dot(n, uSun);
+    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 140.0);
+    col += spec * 0.5;
 
+    // Broken foam line hugging the coast.
+    float edge = 1.0 - smoothstep(0.02, 0.07, shore);
+    float breakup = noise(vXZ * 3.0 + uTime * 0.4);
+    float foam = edge * smoothstep(0.3, 0.65, breakup + edge * 0.45);
+
+    // Gentle swell lines rolling in towards the beach.
+    float band = fract(shore * 5.0 + uTime * 0.28);
+    float roll = smoothstep(0.0, 0.06, band) * (1.0 - smoothstep(0.06, 0.16, band));
+    roll *= (1.0 - smoothstep(0.05, 0.24, shore));
+    roll *= smoothstep(0.35, 0.7, noise(vXZ * 1.4 - uTime * 0.15));
+    foam = max(foam, roll * 0.55);
+
+    col = mix(col, uFoam, foam);
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
 `;
 
-/** Flat animated sea, coloured by depth from a per-tile texture. */
+/**
+ * Flat stylised sea. Colour comes from a smoothed depth field and foam from
+ * a distance-to-shore field, both baked into one texture at SUB× tile size.
+ */
 export class Water {
   readonly mesh: Mesh;
   private readonly material: ShaderMaterial;
 
-  constructor(map: GameMap) {
-    const data = new Uint8Array(map.w * map.h);
-    for (let i = 0; i < data.length; i++) {
-      data[i] = map.isLand(i) ? 0 : Math.round(Math.min(1, map.depth[i] / MAX_DEPTH) * 255);
-    }
-    const tex = new DataTexture(data, map.w, map.h, RedFormat, UnsignedByteType);
+  constructor(map: GameMap, sunDir: Vector3) {
+    const tex = new DataTexture(
+      bakeField(map),
+      map.w * SUB,
+      map.h * SUB,
+      RGBAFormat,
+      UnsignedByteType,
+    );
     tex.magFilter = LinearFilter;
     tex.minFilter = LinearFilter;
     tex.needsUpdate = true;
@@ -68,12 +127,15 @@ export class Water {
       vertexShader,
       fragmentShader,
       uniforms: {
-        uDepth: { value: tex },
+        uField: { value: tex },
         uSize: { value: [map.w, map.h] },
         uTime: { value: 0 },
         uShallow: { value: new Color(C.waterShallow) },
+        uMid: { value: new Color(C.waterMid) },
         uDeep: { value: new Color(C.waterDeep) },
         uFoam: { value: new Color(C.foam) },
+        uSun: { value: sunDir.clone() },
+        uView: { value: new Vector3(0, 1, 0) },
       },
     });
 
@@ -84,13 +146,111 @@ export class Water {
     this.mesh.position.set(map.w / 2, 0, map.h / 2);
   }
 
-  update(time: number): void {
+  /** `view` points from the water towards the camera. */
+  update(time: number, view: Vector3): void {
     this.material.uniforms.uTime.value = time;
+    (this.material.uniforms.uView.value as Vector3).copy(view);
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
-    (this.material.uniforms.uDepth.value as DataTexture).dispose();
+    (this.material.uniforms.uField.value as DataTexture).dispose();
     this.material.dispose();
+  }
+}
+
+/** RGBA bytes: r = smoothed depth, g = distance to the nearest land. */
+function bakeField(map: GameMap): Uint8Array {
+  const W = map.w * SUB;
+  const H = map.h * SUB;
+  const land = new Uint8Array(W * H);
+  const depth = new Float32Array(W * H);
+
+  const tileDepth = (x: number, y: number) => {
+    const tx = Math.min(map.w - 1, Math.max(0, x));
+    const ty = Math.min(map.h - 1, Math.max(0, y));
+    const i = map.idx(tx, ty);
+    return map.isLand(i) ? 0 : map.depth[i];
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const tx = Math.floor(x / SUB);
+      const ty = Math.floor(y / SUB);
+      land[y * W + x] = map.isLand(map.idx(tx, ty)) ? 1 : 0;
+      // Bilinear between tile centres.
+      const fx = (x + 0.5) / SUB - 0.5;
+      const fy = (y + 0.5) / SUB - 0.5;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const ax = fx - x0;
+      const ay = fy - y0;
+      const top = tileDepth(x0, y0) * (1 - ax) + tileDepth(x0 + 1, y0) * ax;
+      const bottom = tileDepth(x0, y0 + 1) * (1 - ax) + tileDepth(x0 + 1, y0 + 1) * ax;
+      depth[y * W + x] = top * (1 - ay) + bottom * ay;
+    }
+  }
+  boxBlur(depth, W, H, SUB);
+  boxBlur(depth, W, H, SUB);
+
+  const dist = chamferDistance(land, W, H);
+  const out = new Uint8Array(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const d = land[i] ? 0 : Math.min(1, depth[i] / MAX_DEPTH);
+    const s = Math.min(1, dist[i] / SUB / SHORE_TILES);
+    out[i * 4] = Math.round(d * 255);
+    out[i * 4 + 1] = Math.round(s * 255);
+    out[i * 4 + 3] = 255;
+  }
+  return out;
+}
+
+/** Two-pass 3-4 chamfer distance from land cells, in cells. */
+function chamferDistance(land: Uint8Array, W: number, H: number): Float32Array {
+  const d = new Float32Array(W * H);
+  for (let i = 0; i < d.length; i++) d[i] = land[i] ? 0 : 1e9;
+  const pass = (x: number, y: number, dx: number, dy: number, cost: number) => {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= W || ny >= H) return;
+    const v = d[ny * W + nx] + cost;
+    if (v < d[y * W + x]) d[y * W + x] = v;
+  };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      pass(x, y, -1, 0, 3);
+      pass(x, y, 0, -1, 3);
+      pass(x, y, -1, -1, 4);
+      pass(x, y, 1, -1, 4);
+    }
+  }
+  for (let y = H - 1; y >= 0; y--) {
+    for (let x = W - 1; x >= 0; x--) {
+      pass(x, y, 1, 0, 3);
+      pass(x, y, 0, 1, 3);
+      pass(x, y, 1, 1, 4);
+      pass(x, y, -1, 1, 4);
+    }
+  }
+  for (let i = 0; i < d.length; i++) d[i] /= 3;
+  return d;
+}
+
+/** Separable box blur in place, clamping at the edges. */
+function boxBlur(v: Float32Array, W: number, H: number, r: number): void {
+  const tmp = new Float32Array(v.length);
+  const n = 2 * r + 1;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let sum = 0;
+      for (let k = -r; k <= r; k++) sum += v[y * W + Math.min(W - 1, Math.max(0, x + k))];
+      tmp[y * W + x] = sum / n;
+    }
+  }
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let sum = 0;
+      for (let k = -r; k <= r; k++) sum += tmp[Math.min(H - 1, Math.max(0, y + k)) * W + x];
+      v[y * W + x] = sum / n;
+    }
   }
 }

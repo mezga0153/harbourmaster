@@ -1,4 +1,4 @@
-import { BOAT_DRAFT } from './balance';
+import { BOAT_DRAFT, MAX_JETTY_DEPTH } from './balance';
 import { GameMap } from './map';
 import { fbm } from './noise';
 import { Rng } from './rng';
@@ -134,7 +134,11 @@ function layoutStart(map: GameMap): number {
   for (let x = 0; x <= shoreX - 5; x++) map.build[map.idx(x, row)] = Build.Road;
   map.build[map.idx(shoreX - 4, row)] = Build.TruckBay;
   for (let x = shoreX - 3; x <= shoreX; x++) map.build[map.idx(x, row)] = Build.Footpath;
-  for (let x = shoreX + 1; x <= shoreX + 3; x++) map.build[map.idx(x, row)] = Build.Jetty;
+  for (let x = shoreX + 1; x <= shoreX + 3; x++) {
+    const i = map.idx(x, row);
+    map.build[i] = Build.Jetty;
+    map.depth[i] = Math.min(map.depth[i], MAX_JETTY_DEPTH - 0.5);
+  }
   map.entry = map.idx(0, row);
 
   return map.idx(shoreX, row);

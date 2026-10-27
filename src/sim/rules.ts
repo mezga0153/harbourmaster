@@ -64,7 +64,12 @@ export function placementError(
   const t = map.terrain[i];
 
   if (kind === 'jetty') {
-    if (t !== Terrain.Water) return 'Jetties are built on water';
+    // On the beach, right at the water's edge, boats can moor alongside.
+    if (t === Terrain.Sand) {
+      const atWater = map.neighbors4(i).some((n) => map.ocean[n] === 1);
+      return atWater ? null : 'On land, jetties go on the beach at the water’s edge';
+    }
+    if (t !== Terrain.Water) return 'Jetties are built on water or at the edge of the beach';
     if (!map.ocean[i]) return 'This water is not connected to the sea';
     if (map.depth[i] > B.MAX_JETTY_DEPTH) return 'Too deep for a wooden jetty';
     const connected = map

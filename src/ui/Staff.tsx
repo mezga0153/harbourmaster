@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks';
 import type { StaffView } from '../protocol';
 import * as B from '../sim/balance';
 import { traitDef, type Candidate, type Trait } from '../sim/staff';
@@ -125,6 +126,39 @@ function CandidateCard({ c, cash, actions }: { c: Candidate; cash: number; actio
   );
 }
 
+function PersonCard({ p, actions }: { p: StaffView; actions: Actions }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div class="card person">
+      <div class="card-head">
+        <strong>{p.name}</strong>
+        <TraitBadge trait={p.trait} />
+        <Skill value={p.skill} />
+      </div>
+      <Needs p={p} />
+      <div class="card-foot">
+        <span class="muted">
+          {p.activity} · {money(p.wage)}/day
+        </span>
+        {confirming ? (
+          <span class="confirm">
+            <button class="btn ghost sm" onClick={() => setConfirming(false)}>
+              Keep
+            </button>
+            <button class="btn danger sm" onClick={() => actions.send({ type: 'fire', id: p.id })}>
+              Dismiss
+            </button>
+          </span>
+        ) : (
+          <button class="btn ghost sm" onClick={() => setConfirming(true)}>
+            Dismiss
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StaffPanel({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
@@ -194,18 +228,7 @@ export function StaffPanel({ actions }: { actions: Actions }) {
         </span>
       </div>
       {s.people.map((p) => (
-        <div class="card person" key={p.id}>
-          <div class="card-head">
-            <strong>{p.name}</strong>
-            <TraitBadge trait={p.trait} />
-            <Skill value={p.skill} />
-          </div>
-          <Needs p={p} />
-          <div class="card-foot">
-            <span class="muted">{p.activity}</span>
-            <span>{money(p.wage)}/day</span>
-          </div>
-        </div>
+        <PersonCard key={p.id} p={p} actions={actions} />
       ))}
     </aside>
   );
