@@ -175,6 +175,8 @@ export interface Snapshot {
   progress: TierProgress;
   cranes: CraneView[];
   depots: { idx: number; forklifts: number }[];
+  /** Jetty and quay structures, and how many the harbour office coordinates. */
+  docks: { total: number; coordinated: number; offices: number };
 }
 
 export type SimEvent =

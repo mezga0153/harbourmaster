@@ -81,6 +81,8 @@ export const BOAT_SPEED = 0.15;
 export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;
 
+export const FREE_DOCKS = 2; // jetties that work without a harbour office (never quays)
+export const DOCKS_PER_OFFICE = 6;
 export const MAX_JETTY_DEPTH = 3.5; // wooden piles only reach so far
 export const MAX_QUAY_DEPTH = 8;
 export const QUAY_COST_LAND = 120;

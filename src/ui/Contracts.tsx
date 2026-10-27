@@ -129,6 +129,20 @@ function Kpi({
   );
 }
 
+function DockAlert() {
+  const d = snapshot.value?.docks;
+  if (!d || d.coordinated >= d.total) return null;
+  const idle = d.total - d.coordinated;
+  return (
+    <p class="note bad">
+      {idle} dock{idle === 1 ? ' is' : 's are'} not in use.{' '}
+      {d.offices === 0
+        ? `Without a harbour office only ${B.FREE_DOCKS} jetties work, and no quays. Build one (O).`
+        : `Each harbour office coordinates ${B.DOCKS_PER_OFFICE} docks. Build another.`}
+    </p>
+  );
+}
+
 function Summary({ cap }: { cap: Capacity }) {
   const jammed = cap.congestion >= 0.15;
   const short =
@@ -165,6 +179,7 @@ function Summary({ cap }: { cap: Capacity }) {
         </p>
       )}
       {short && <p class="note bad">{short}</p>}
+      <DockAlert />
     </div>
   );
 }

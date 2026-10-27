@@ -65,6 +65,18 @@ const PATHS: Record<string, JSX.Element> = {
     </>
   ),
   stairs: <path d="M3 20h5v-5h5v-5h5V5h3" />,
+  office: (
+    <>
+      <path d="M5 21V9h14v12M3 21h18M8 12h2M14 12h2M8 16h2M14 16h2" />
+      <path d="M9 9V5h6v4M12 5V2" />
+    </>
+  ),
+  lane: (
+    <>
+      <path d="M5 3v18M19 3v18" />
+      <path d="M9 14h4l1.5 3V19H9zM14.5 14V9" />
+    </>
+  ),
   garage: (
     <>
       <path d="M3 10l9-6 9 6v10H3z" />

@@ -35,6 +35,7 @@ import {
   bulldozeError,
   bulldozeValue,
   drivable,
+  walkable,
   machinePlacementError,
   placementCost,
   placementError,
@@ -278,6 +279,10 @@ export class World {
   private bayFullTicks = 0;
   /** Cached planning estimate; cleared when the port changes. Not saved. */
   private capacityCache: Capacity | null = null;
+  /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */
+  private dockCache: ReturnType<World['docks']> | null = null;
+  private coordinated = new Set<number>();
+  private warnedOffice = false;
   /** Shortest road from the highway to a truck bay; set by capacity(). */
   private roadLen = Infinity;
   private events: SimEvent[] = [];
@@ -410,6 +415,7 @@ export class World {
   command(cmd: Command): void {
     if (this.bankrupt) return;
     this.capacityCache = null;
+    this.dockCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles);
@@ -469,7 +475,22 @@ export class World {
       if (kind === 'jibCrane') this.addCrane(i);
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
-    else if (firstError) this.message(firstError, 'bad');
+    if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
+      this.dockCache = null;
+      const idle = this.docks().some((g) => !g.coordinated);
+      if (idle && !this.warnedOffice) {
+        this.warnedOffice = true;
+        this.message(
+          kind === 'quay'
+            ? 'Quays need a harbour office to coordinate them. Boats will not use this one until you build one.'
+            : `Only ${B.FREE_DOCKS} jetties can run without a harbour office. Build one so boats use this jetty.`,
+          'bad',
+        );
+      }
+    } else if (spent > 0 && kind === 'office') {
+      this.warnedOffice = false;
+      this.message('The harbour office is open and coordinating berths.', 'good');
+    } else if (firstError) this.message(firstError, 'bad');
   }
 
   private boatInTheWay(kind: BuildKind, i: number): string | null {
@@ -593,8 +614,8 @@ export class World {
     if (this.cash < B.HIRE_FEE) return this.message('Not enough money to hire', 'bad');
     this.book('hiring', -B.HIRE_FEE);
     this.candidates = this.candidates.filter((x) => x !== c);
-    const p = this.spawnDockhand(this.map.entry, c);
-    this.message(`${p.name} has been hired and is on their way.`, 'good');
+    const p = this.spawnDockhand(this.muster(), c);
+    this.message(`${p.name} has been hired and reports at the truck bay.`, 'good');
   }
 
   /** Replace one candidate each day and top the list up. */
@@ -785,7 +806,7 @@ export class World {
 
     // One trip: dock to the nearest bay and back, plus handling.
     const jetties: number[] = [];
-    for (let i = 0; i < m.build.length; i++) if (isDock(m.build[i])) jetties.push(i);
+    for (let i = 0; i < m.build.length; i++) if (this.dockInUse(i)) jetties.push(i);
     const bays = [...this.bays.keys()];
     let walk = 0;
     for (const j of jetties) {
@@ -1149,12 +1170,64 @@ export class World {
   }
 
   /** How many boats of this draft could moor at once, ignoring current traffic. */
+  /**
+   * Docks (connected jetty or quay structures) and whether the harbour
+   * office coordinates each. Without an office only the first FREE_DOCKS
+   * jetties, nearest the truck bay, are used; quays always need one.
+   */
+  docks(): { tiles: number[]; quay: boolean; coordinated: boolean }[] {
+    if (this.dockCache) return this.dockCache;
+    const m = this.map;
+    const seen = new Uint8Array(m.build.length);
+    const groups: { tiles: number[]; quay: boolean; coordinated: boolean; d: number }[] = [];
+    const home = this.muster();
+    for (let i = 0; i < m.build.length; i++) {
+      if (seen[i] || !isDock(m.build[i])) continue;
+      const tiles: number[] = [];
+      const stack = [i];
+      seen[i] = 1;
+      while (stack.length > 0) {
+        const t = stack.pop()!;
+        tiles.push(t);
+        for (const n of m.neighbors4(t)) {
+          if (!seen[n] && isDock(m.build[n])) {
+            seen[n] = 1;
+            stack.push(n);
+          }
+        }
+      }
+      const quay = tiles.some((t) => m.build[t] !== Build.Jetty);
+      const d = Math.min(...tiles.map((t) => this.dist(t, home)));
+      groups.push({ tiles, quay, coordinated: false, d });
+    }
+    groups.sort((a, b) => a.d - b.d || a.tiles[0] - b.tiles[0]);
+    let offices = 0;
+    for (const b of m.build) if (b === Build.Office) offices++;
+    if (offices > 0) {
+      groups.slice(0, offices * B.DOCKS_PER_OFFICE).forEach((g) => (g.coordinated = true));
+    } else {
+      groups
+        .filter((g) => !g.quay)
+        .slice(0, B.FREE_DOCKS)
+        .forEach((g) => (g.coordinated = true));
+    }
+    this.dockCache = groups;
+    this.coordinated = new Set(groups.filter((g) => g.coordinated).flatMap((g) => g.tiles));
+    return groups;
+  }
+
+  /** Dock tiles boats may use; see docks(). */
+  private dockInUse(i: number): boolean {
+    this.docks();
+    return this.coordinated.has(i);
+  }
+
   private berthCount(draft: number): number {
     const m = this.map;
     const water = this.boatCostFor(draft);
     const chosen: number[][] = [];
     for (let j = 0; j < m.build.length; j++) {
-      if (!isDock(m.build[j])) continue;
+      if (!this.dockInUse(j)) continue;
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
         const fp = this.footprint(n, j);
@@ -1173,7 +1246,7 @@ export class World {
       .map((b) => this.footprint(b.berth, b.jetty) ?? [b.berth]);
     const out: { berth: number; jetty: number; d: number }[] = [];
     for (let j = 0; j < m.build.length; j++) {
-      if (!isDock(m.build[j])) continue;
+      if (!this.dockInUse(j)) continue;
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
         const fp = this.footprint(n, j);
@@ -1406,26 +1479,8 @@ export class World {
     this.moneyAt(-cost, this.tileOf(p));
   }
 
-  private walkCost: CostFn = (i) => {
-    const b = this.map.build[i];
-    if (
-      b === Build.Footpath ||
-      b === Build.Jetty ||
-      b === Build.TruckBay ||
-      b === Build.BreakHut ||
-      b === Build.Quay ||
-      b === Build.JibCrane ||
-      b === Build.Depot
-    ) {
-      return 1;
-    }
-    if (b === Build.Road) return 1.25;
-    if (this.map.deco[i] === Deco.Tree) return Infinity;
-    const t = this.map.terrain[i];
-    if (t === Terrain.Grass) return 1.4;
-    if (t === Terrain.Sand) return 1.6;
-    return Infinity;
-  };
+  /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
+  private walkCost: CostFn = (i) => (walkable(this.map.build[i]) ? 1 : Infinity);
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
   private driveCost: CostFn = (i) => (drivable(this.map.build[i]) ? 1 : Infinity);
@@ -1434,10 +1489,29 @@ export class World {
     return p.kind === 'forklift' ? this.driveCost : this.walkCost;
   }
 
-  private walkSpeed = (i: number) => {
-    const c = this.walkCost(i);
-    return Number.isFinite(c) ? B.WALK_SPEED / c : B.WALK_SPEED;
-  };
+  private walkSpeed = () => B.WALK_SPEED;
+
+  /** Where new staff report for work and lost staff are taken back to. */
+  private muster(): number {
+    const bay = [...this.bays.keys()].find((b) => this.map.build[b] === Build.TruckBay);
+    if (bay !== undefined) return bay;
+    for (let i = 0; i < this.map.build.length; i++) if (walkable(this.map.build[i])) return i;
+    return this.map.entry;
+  }
+
+  /**
+   * Someone standing where they no longer may (the path under them was
+   * bulldozed, or an old save had them on the grass) is taken back to the
+   * truck bay, or a forklift to its depot.
+   */
+  private rescue(p: Dockhand): boolean {
+    if (Number.isFinite(this.costFor(p)(this.tileOf(p)))) return false;
+    const at = p.kind === 'forklift' && p.home >= 0 ? p.home : this.muster();
+    p.x = this.map.xOf(at) + 0.5;
+    p.y = this.map.yOf(at) + 0.5;
+    p.path = [];
+    return true;
+  }
 
   private walk(p: Dockhand) {
     const before = this.tileOf(p);
@@ -1450,7 +1524,7 @@ export class World {
       r = this.move(p, this.driveCost, true, () => speed, enter);
     } else {
       const pace = paceFactor(p.skill, p.morale, p.energy);
-      r = this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace, enter);
+      r = this.move(p, this.walkCost, true, () => this.walkSpeed() * pace, enter);
     }
     const after = this.tileOf(p);
     const laneAfter = laneOf(p.dir);
@@ -1509,7 +1583,8 @@ export class World {
 
   /** Resting workers sit out of the way, so they do not count. */
   private takesSpace(p: Dockhand): boolean {
-    return p.state !== 'resting';
+    // Resting and idle people stand aside on their tile, so others can pass.
+    return p.state !== 'resting' && !(p.state === 'idle' && p.path.length === 0);
   }
 
   private countOccupancy(): void {
@@ -1563,36 +1638,6 @@ export class World {
     const crowded: CostFn = (i) => base(i) + (this.tileBusy(i) ? 6 : 0);
     const path = findPath(this.map.w, this.map.h, this.tileOf(p), p.goal, crowded, true);
     if (path) p.path = path;
-  }
-
-  /** Idle workers stand off walkways so they do not block the busy ones. */
-  private clearTheWay(p: Dockhand): boolean {
-    if (p.kind === 'forklift') return false;
-    const here = this.tileOf(p);
-    const b = this.map.build[here];
-    if (b === Build.None || b === Build.BreakHut) return false;
-    const m = this.map;
-    for (let r = 1; r <= 4; r++) {
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const x = m.xOf(here) + dx;
-          const y = m.yOf(here) + dy;
-          if (!m.inBounds(x, y)) continue;
-          const i = m.idx(x, y);
-          if (m.build[i] !== Build.None || !Number.isFinite(this.walkCost(i))) continue;
-          if (this.tileBusy(i)) continue;
-          const path = this.pathFor(p, here, i);
-          if (path && path.length <= 6) {
-            p.path = path;
-            p.goal = i;
-            p.state = 'wander';
-            return true;
-          }
-        }
-      }
-    }
-    return false;
   }
 
   private handlingTicks(p: Dockhand, base: number): number {
@@ -1656,6 +1701,7 @@ export class World {
   }
 
   private updateDockhand(p: Dockhand): void {
+    if ((p.state === 'idle' || p.state === 'wander') && this.rescue(p)) return;
     if (this.tire(p)) return this.goOnBreak(p);
     switch (p.state) {
       case 'broken':
@@ -1721,8 +1767,6 @@ export class World {
         if (p.state === 'wander') {
           const r = this.walk(p);
           if (r === 'arrived' || r === 'blocked') p.state = 'idle';
-        } else if ((this.tick + p.id) % 20 === 0 && this.clearTheWay(p)) {
-          // stepped off the walkway
         } else if (p.kind === 'dockhand' && this.rng.next() < 0.008) {
           this.wander(p);
         }
@@ -2334,6 +2378,11 @@ export class World {
       bays,
       contracts,
       capacity: this.capacity(),
+      docks: {
+        total: this.docks().length,
+        coordinated: this.docks().filter((g) => g.coordinated).length,
+        offices: this.map.build.filter((b) => b === Build.Office).length,
+      },
       depots: this.depotViews(),
       progress: { tier: this.tier, ...this.tierProgress(), canUpgrade: this.canUpgrade() },
       cranes: [...this.cranes.values()].map((c) => ({

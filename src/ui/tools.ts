@@ -18,11 +18,13 @@ export const TOOL_GROUPS: ToolDef[][] = [
     { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J' },
     { tool: 'truckBay', icon: 'truckBay', label: 'Truck bay', key: 'T' },
     { tool: 'breakHut', icon: 'hut', label: 'Break hut', key: 'K' },
+    { tool: 'office', icon: 'office', label: 'Office', key: 'O' },
   ],
   [
     { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
     { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
     { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
+    { tool: 'forkliftLane', icon: 'lane', label: 'Lane', key: 'Y' },
     { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },
   ],
   [{ tool: 'bulldoze', icon: 'bulldoze', label: 'Bulldoze', key: 'B', note: 'Clear' }],

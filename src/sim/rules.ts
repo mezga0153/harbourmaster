@@ -12,12 +12,25 @@ export interface Buildable {
 }
 
 export const BUILDABLES: Record<BuildKind, Buildable> = {
-  road: { code: Build.Road, label: 'Road', cost: 20, hint: 'Trucks drive on roads', drag: true },
+  road: {
+    code: Build.Road,
+    label: 'Public road',
+    cost: 20,
+    hint: 'For the hauliers’ trucks. Port staff never use public roads',
+    drag: true,
+  },
   footpath: {
     code: Build.Footpath,
-    label: 'Footpath',
+    label: 'Port path',
     cost: 5,
-    hint: 'Dockhands walk faster on paths',
+    hint: 'Dockhands and forklifts move on port paths, never on grass or public roads',
+    drag: true,
+  },
+  forkliftLane: {
+    code: Build.ForkliftLane,
+    label: 'Forklift lane',
+    cost: 10,
+    hint: 'A port path for forklifts only, so they do not queue behind people on foot',
     drag: true,
   },
   jetty: {
@@ -46,6 +59,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     label: 'Forklift depot',
     cost: 1200,
     hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. Must touch a road, path or quay`,
+    drag: false,
+  },
+  office: {
+    code: Build.Office,
+    label: 'Harbour office',
+    cost: 1500,
+    hint: `Coordinates berths. Needed for more than ${B.FREE_DOCKS} jetties or any quay; each office handles ${B.DOCKS_PER_OFFICE} docks. Must touch a port path or road`,
     drag: false,
   },
   breakHut: {
@@ -127,19 +147,45 @@ export function placementError(
     return 'A truck bay must touch a road';
   }
   if (kind === 'depot' && !map.neighbors4(i).some((n) => drivable(map.build[n]))) {
-    return 'A forklift depot must touch a road, path or quay';
+    return 'A forklift depot must touch a port path, forklift lane or quay';
+  }
+  if (
+    kind === 'office' &&
+    !map.neighbors4(i).some((n) => walkable(map.build[n]) || map.build[n] === Build.Road)
+  ) {
+    return 'A harbour office must touch a port path or road';
+  }
+  if (kind === 'breakHut' && !map.neighbors4(i).some((n) => walkable(map.build[n]))) {
+    return 'A break hut must touch a port path, quay or truck bay';
   }
   return null;
 }
 
 /** Hard surfaces a forklift can drive on. */
+/**
+ * Port surfaces forklifts can drive on. Not public roads (those are for the
+ * hauliers) and not wooden jetties (they cannot take the weight).
+ */
 export function drivable(code: number): boolean {
   return (
     code === Build.Footpath ||
+    code === Build.ForkliftLane ||
     code === Build.Quay ||
     code === Build.JibCrane ||
-    code === Build.Road ||
     code === Build.TruckBay ||
+    code === Build.Depot
+  );
+}
+
+/** Port surfaces dockhands walk on. Never grass, beach or public roads. */
+export function walkable(code: number): boolean {
+  return (
+    code === Build.Footpath ||
+    code === Build.Jetty ||
+    code === Build.Quay ||
+    code === Build.JibCrane ||
+    code === Build.TruckBay ||
+    code === Build.BreakHut ||
     code === Build.Depot
   );
 }

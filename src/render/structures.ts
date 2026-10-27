@@ -118,6 +118,35 @@ export class Structures {
         }
         return g;
       }
+      case Build.Office: {
+        // Harbour office: two storeys, a control room on top, radio mast and flag.
+        g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
+        const y = top + 0.05;
+        g.add(box(0.7, 0.4, 0.62, C.cabin, 0.5, y, 0.5));
+        for (const z of [0.18, 0.82]) {
+          g.add(box(0.56, 0.06, 0.012, C.window, 0.5, y + 0.08, z));
+          g.add(box(0.56, 0.06, 0.012, C.window, 0.5, y + 0.25, z));
+        }
+        g.add(box(0.74, 0.03, 0.66, C.sign, 0.5, y + 0.4, 0.5));
+        g.add(box(0.36, 0.16, 0.36, C.window, 0.5, y + 0.43, 0.5));
+        g.add(box(0.42, 0.03, 0.42, C.sign, 0.5, y + 0.59, 0.5));
+        g.add(cyl(0.012, 0.42, C.chassis, 0.62, y + 0.62, 0.62));
+        g.add(cyl(0.012, 0.5, C.chassis, 0.16, y, 0.84));
+        g.add(box(0.012, 0.1, 0.14, C.funnel, 0.16, y + 0.4, 0.91));
+        return g;
+      }
+      case Build.ForkliftLane: {
+        // Dark asphalt with yellow edge lines and a forklift marking.
+        g.add(box(1, 0.03, 1, C.asphalt, 0.5, top, 0.5));
+        const along = this.is(i, 1, 0, Build.ForkliftLane) || this.is(i, -1, 0, Build.ForkliftLane);
+        for (const o of [0.08, 0.92]) {
+          const [x, z, w, d] = along ? [0.5, o, 1, 0.04] : [o, 0.5, 0.04, 1];
+          g.add(box(w, 0.006, d, C.stripe, x, top + 0.03, z));
+        }
+        g.add(box(0.22, 0.006, 0.12, C.stripe, 0.46, top + 0.03, 0.5));
+        g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, top + 0.03, 0.5));
+        return g;
+      }
       case Build.Footpath:
         g.add(box(1, 0.03, 1, C.pathEdge, 0.5, top, 0.5));
         g.add(box(0.9, 0.025, 0.9, C.path, 0.5, top + 0.03, 0.5));

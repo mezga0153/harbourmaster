@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
-import { placementError } from '../src/sim/rules';
+import { placementError, walkable } from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -334,6 +334,25 @@ describe('Coastal Wharf tier', () => {
     expect(world.cash).toBe(100);
   });
 
+  function buildOffice(world: World): number {
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+    world.command({ type: 'build', kind: 'office', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.Office);
+    return spot;
+  }
+
+  it('needs a harbour office before boats use a quay', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const { side } = besideTip(world);
+    world.command({ type: 'build', kind: 'quay', tiles: [side] });
+    expect(world.docks().every((d) => !d.coordinated)).toBe(true);
+    buildOffice(world);
+    expect(world.docks().every((d) => d.coordinated)).toBe(true);
+  });
+
   /** Build a forklift depot beside the starting footpath. */
   function buildDepot(world: World): number {
     const m = world.map;
@@ -406,6 +425,7 @@ describe('Coastal Wharf tier', () => {
     expect(world.map.build[side]).toBe(Build.Quay);
     world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.JibCrane);
+    buildOffice(world);
     buildDepot(world);
     world.command({ type: 'buyMachine', kind: 'forklift' });
     expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(1);
@@ -416,6 +436,40 @@ describe('Coastal Wharf tier', () => {
     }
     expect(craneWorked).toBe(true);
     expect(world.stats.cratesHandled).toBeGreaterThan(10);
+  });
+});
+
+describe('Port side', () => {
+  it('keeps dockhands off grass and public roads', () => {
+    const world = World.create(7);
+    const m = world.map;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      for (const p of world.people) {
+        expect(walkable(m.build[m.idx(Math.floor(p.x), Math.floor(p.y))])).toBe(true);
+      }
+    }
+  });
+
+  it('runs only two jetties without a harbour office', () => {
+    const world = World.create(7);
+    world.cash = 50_000;
+    const m = world.map;
+    // Add standalone jetties further along the coast.
+    let built = 0;
+    for (const off of [4, -4, 8, -8, 12, -12]) {
+      const row = m.yOf(m.entry) + off;
+      let x = 0;
+      while (x < m.w - 1 && m.ocean[m.idx(x, row)] !== 1) x++;
+      const tile = m.idx(x, row);
+      if (!placementError(m, 'jetty', tile)) {
+        world.command({ type: 'build', kind: 'jetty', tiles: [tile] });
+        built++;
+      }
+      if (built === 2) break;
+    }
+    expect(world.docks()).toHaveLength(3);
+    expect(world.docks().filter((d) => d.coordinated)).toHaveLength(B.FREE_DOCKS);
   });
 });
 

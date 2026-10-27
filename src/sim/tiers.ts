@@ -23,7 +23,7 @@ export const TIERS: Tier[] = [
     cost: 0,
     crates: 0,
     contracts: 0,
-    unlocks: ['Wooden jetties', 'Truck bays', 'Break huts', 'Fishery contracts'],
+    unlocks: ['Wooden jetties', 'Truck bays', 'Break huts', 'Harbour office', 'Fishery contracts'],
   },
   {
     name: 'Coastal Wharf',
@@ -33,7 +33,7 @@ export const TIERS: Tier[] = [
     contracts: 2,
     unlocks: [
       'Concrete quay, up to 8 m deep',
-      'Forklifts (4 crates a trip) and forklift depots',
+      'Forklifts (4 crates a trip), forklift depots and forklift lanes',
       'Jib cranes',
       'Shipping lines with coasters',
     ],
@@ -67,6 +67,8 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   quay: 1,
   jibCrane: 1,
   depot: 1,
+  forkliftLane: 1,
+  office: 0,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {

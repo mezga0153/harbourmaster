@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { fisheryDailyCrates, type FisheryTerms } from '../src/sim/contracts';
-import { placementError } from '../src/sim/rules';
+import { placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -133,6 +133,43 @@ function signHaulier(w: World): boolean {
   return true;
 }
 
+/**
+ * Lay a port path from `from` to the nearest existing port surface, as a
+ * player would when putting down a new bay, hut or jetty.
+ */
+function connect(w: World, from: number[]): boolean {
+  const m = w.map;
+  const own = new Set(from);
+  const prev = new Map<number, number>();
+  const queue = [...from];
+  for (const f of from) prev.set(f, -1);
+  while (queue.length > 0) {
+    const i = queue.shift()!;
+    for (const n of m.neighbors4(i)) {
+      if (prev.has(n)) continue;
+      if (walkable(m.build[n]) && !own.has(n) && m.build[n] !== Build.Jetty) {
+        // Reached the network: build the path back to the start.
+        const tiles: number[] = [];
+        for (let t = i; !own.has(t); t = prev.get(t)!) tiles.push(t);
+        if (tiles.length > 0) w.command({ type: 'build', kind: 'footpath', tiles });
+        return tiles.every((t) => m.build[t] === Build.Footpath);
+      }
+      if (placementError(m, 'footpath', n)) continue;
+      prev.set(n, i);
+      queue.push(n);
+    }
+  }
+  return false;
+}
+
+function buildOffice(w: World): boolean {
+  const m = w.map;
+  const spot = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+  if (spot < 0) return false;
+  w.command({ type: 'build', kind: 'office', tiles: [spot] });
+  return m.build[spot] === Build.Office;
+}
+
 /** Put a truck bay beside the road, as close to the jetty as possible. */
 function buildBay(w: World): boolean {
   const m = w.map;
@@ -151,7 +188,7 @@ function buildBay(w: World): boolean {
   const tile = candidates[0];
   if (tile === undefined) return false;
   w.command({ type: 'build', kind: 'truckBay', tiles: [tile] });
-  return m.build[tile] === Build.TruckBay;
+  return m.build[tile] === Build.TruckBay && connect(w, [tile]);
 }
 
 /**
@@ -160,6 +197,11 @@ function buildBay(w: World): boolean {
  */
 function newJetty(w: World): boolean {
   const m = w.map;
+  // Beyond the free docks, a harbour office has to coordinate the berths.
+  const docks = w.docks();
+  if (docks.length >= B.FREE_DOCKS && !m.build.some((b) => b === Build.Office)) {
+    if (w.cash < 3500 || !buildOffice(w)) return false;
+  }
   const row0 = m.yOf(m.entry);
   for (const off of [3, -3, 6, -6, 9, -9, 12, -12]) {
     const row = row0 + off;
@@ -178,7 +220,7 @@ function newJetty(w: World): boolean {
     });
     if (!ok) continue;
     w.command({ type: 'build', kind: 'jetty', tiles });
-    return tiles.every((t) => m.build[t] === Build.Jetty);
+    return tiles.every((t) => m.build[t] === Build.Jetty) && connect(w, tiles);
   }
   return false;
 }
