@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import type { Capacity, ContractView, OfferView } from '../protocol';
 import { C } from '../render/palette';
 import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
+import * as B from '../sim/balance';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { money } from './format';
@@ -29,7 +30,7 @@ function TermsLines({ terms }: { terms: Terms }) {
   const rows: [string, string][] =
     terms.kind === 'fishery'
       ? [
-          ['Boats', `every ${every(terms.boatEvery)}`],
+          [terms.vessel === 'coaster' ? 'Coasters' : 'Boats', `every ${every(terms.boatEvery)}`],
           ['Load', `${terms.cratesMin}–${terms.cratesMax} crates`],
           ['Rate', `${money(terms.fee)} / crate`],
           ['Value', `${money(fisheryDailyValue(terms))} / day`],
@@ -57,7 +58,13 @@ function CardHead({ terms }: { terms: Terms }) {
     <div class="card-head">
       <span class="swatch" style={{ background: css(color) }} />
       <strong>{terms.name}</strong>
-      <span class={`badge ${terms.kind}`}>{terms.kind === 'fishery' ? 'Fishery' : 'Haulier'}</span>
+      <span class={`badge ${terms.kind}`}>
+        {terms.kind === 'haulier'
+          ? 'Haulier'
+          : terms.vessel === 'coaster'
+            ? 'Shipping line'
+            : 'Fishery'}
+      </span>
     </div>
   );
 }
@@ -167,6 +174,12 @@ function OfferCard({
     <div class="card offer">
       <CardHead terms={o.terms} />
       <TermsLines terms={o.terms} />
+      {o.terms.kind === 'fishery' && o.terms.vessel === 'coaster' && (
+        <p class="hint">
+          Coasters need a berth at least {B.COASTER_DRAFT} m deep: build a quay out into deeper
+          water.
+        </p>
+      )}
       {overload && (
         <p class="hint warn">
           Adds ~{Math.round(extra)} crates/day, more than the port can handle right now.

@@ -7,6 +7,8 @@ import { Terrain, type BuildKind } from '../sim/types';
 import { dayProgress, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
+import { PortPanel } from './Port';
+import { BUILD_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
 import { Icon, type IconName } from './icons';
 import { TOOL_GROUPS, type ToolDef } from './tools';
@@ -56,6 +58,8 @@ export function App({ actions }: { actions: Actions }) {
         <StaffPanel actions={actions} />
       ) : panel.value === 'finance' ? (
         <FinancePanel actions={actions} />
+      ) : panel.value === 'port' ? (
+        <PortPanel actions={actions} />
       ) : (
         <InfoPanel actions={actions} />
       )}
@@ -106,7 +110,10 @@ function TopBar({ actions }: { actions: Actions }) {
           <span class="brand-mark">
             <Icon name="anchor" />
           </span>
-          <span class="brand-name">Harbourmaster</span>
+          <span class="brand-text">
+            <span class="brand-name">Harbourmaster</span>
+            <span class="brand-tier">{TIERS[s.progress.tier].name}</span>
+          </span>
         </div>
         <span class="vr" />
         <button
@@ -165,6 +172,15 @@ function TopBar({ actions }: { actions: Actions }) {
       </div>
 
       <div class="topbar-right">
+        <button
+          class={`btn ${panel.value === 'port' ? 'on' : ''}`}
+          onClick={() => togglePanel('port')}
+          title="Port development and upgrades (P)"
+        >
+          <Icon name="stairs" />
+          <span>Port</span>
+          {s.progress.canUpgrade && <span class="count">!</span>}
+        </button>
         <button
           class={`btn ${panel.value === 'staff' ? 'on' : ''}`}
           onClick={() => togglePanel('staff')}
@@ -328,17 +344,27 @@ function HoverTip() {
 
 function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   const def = t.tool in BUILDABLES ? BUILDABLES[t.tool as BuildKind] : null;
-  const title = [def ? `${def.label}: ${def.hint}` : t.label, t.key && `(${t.key})`]
-    .filter(Boolean)
-    .join(' ');
+  const needTier = def ? BUILD_TIER[t.tool as BuildKind] : 0;
+  const locked = needTier > (snapshot.value?.progress.tier ?? 0);
+  const title = locked
+    ? `${def!.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
+    : [def ? `${def.label}: ${def.hint}` : t.label, t.key && `(${t.key})`]
+        .filter(Boolean)
+        .join(' ');
   return (
     <button
-      class={`tool ${active ? 'on' : ''}`}
-      onClick={() => (tool.value = active ? 'select' : t.tool)}
+      class={`tool ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
+      onClick={() => (locked ? (panel.value = 'port') : (tool.value = active ? 'select' : t.tool))}
       title={title}
       aria-pressed={active}
     >
-      {t.key && <kbd>{t.key}</kbd>}
+      {locked ? (
+        <span class="lock">
+          <Icon name="lock" />
+        </span>
+      ) : (
+        t.key && <kbd>{t.key}</kbd>
+      )}
       <Icon name={t.icon} />
       <span class="tool-label">{t.label}</span>
       <span class="tool-cost">{def ? money(def.cost) : t.note}</span>

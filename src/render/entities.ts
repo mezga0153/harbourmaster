@@ -1,7 +1,7 @@
-import { Group, Vector3 } from 'three';
+import { Group, Vector3, type Object3D } from 'three';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { boat, person, showLoad, truck, type Model } from './models';
+import { alertMarker, boat, forklift, person, showLoad, truck, type Model } from './models';
 import { surfaceY } from './terrain';
 
 const SNAPSHOT_MS = 100;
@@ -9,6 +9,7 @@ const SNAPSHOT_MS = 100;
 interface Entry {
   view: EntityView;
   model: Model;
+  alert: Object3D | null;
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -31,11 +32,19 @@ export class Entities {
         const model =
           v.kind === 'dockhand'
             ? person()
-            : v.kind === 'boat'
-              ? boat(v.variant)
-              : truck(v.variant, v.capacity);
+            : v.kind === 'forklift'
+              ? forklift()
+              : v.kind === 'boat'
+                ? boat(v.variant, v.vessel)
+                : truck(v.variant, v.capacity);
         this.group.add(model.root);
-        e = { view: v, model };
+        // Only machines show a warning marker; boats at anchor are normal.
+        const alert = v.kind === 'forklift' ? alertMarker() : null;
+        if (alert) {
+          alert.visible = false;
+          this.group.add(alert);
+        }
+        e = { view: v, model, alert };
         this.entries.set(v.id, e);
       }
       e.view = v;
@@ -44,6 +53,7 @@ export class Entities {
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {
         this.group.remove(e.model.root);
+        if (e.alert) this.group.remove(e.alert);
         this.entries.delete(id);
       }
     }
@@ -66,8 +76,12 @@ export class Entities {
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
       }
-      if (e.model.body) {
+      if (e.model.body && cur.kind === 'dockhand') {
         e.model.body.position.y = cur.moving ? Math.abs(Math.sin(time * 14 + id)) * 0.03 : 0;
+      }
+      if (e.alert) {
+        e.alert.visible = cur.alert;
+        e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);
       }
     }
   }

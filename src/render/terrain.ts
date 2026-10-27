@@ -23,6 +23,7 @@ import { C } from './palette';
 export const MARGIN = 40;
 export const SEABED = -0.6;
 export const DECK_Y = 0.42;
+export const QUAY_Y = 0.36;
 
 const up = new Vector3(0, 1, 0);
 
@@ -63,6 +64,7 @@ export function surfaceY(map: GameMap, x: number, y: number): number {
   const i = map.idx(tx, ty);
   const b = map.build[i];
   if (b === Build.Jetty) return DECK_Y;
+  if (b === Build.Quay || b === Build.JibCrane) return QUAY_Y;
   const t = map.terrain[i];
   if (t === Terrain.Water) return 0;
   return TOP[t] + (b === Build.None ? 0 : 0.05);

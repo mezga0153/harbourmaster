@@ -5,6 +5,7 @@ import { traitDef, type Candidate, type Trait } from '../sim/staff';
 import type { Actions } from './App';
 import { money } from './format';
 import { Icon } from './icons';
+import { MACHINE_TIER, TIERS } from '../sim/tiers';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter } from './widgets';
 
@@ -60,6 +61,33 @@ export function StaffDetails({
 }) {
   const p = snapshot.value?.people.find((x) => x.id === id);
   if (!p) return null;
+  if (p.kind === 'forklift') {
+    return (
+      <>
+        <dl class="props">
+          <dt>Carries</dt>
+          <dd>{B.FORKLIFT_CAPACITY} crates a trip</dd>
+          <dt>Drives on</dt>
+          <dd>Quays, paths, roads</dd>
+          <dt>Operator</dt>
+          <dd>{money(p.wage)} / day</dd>
+          <dt>Repairs</dt>
+          <dd>{money(B.REPAIR_COST)} per breakdown</dd>
+        </dl>
+        <div class="actions">
+          <button
+            class="btn danger"
+            onClick={() => {
+              actions.send({ type: 'fire', id: p.id });
+              onDismiss();
+            }}
+          >
+            Sell · {money(B.FORKLIFT_PRICE * B.SELL_SHARE)}
+          </button>
+        </div>
+      </>
+    );
+  }
   return (
     <>
       <p class="thought">“{p.thought}”</p>
@@ -126,6 +154,26 @@ function CandidateCard({ c, cash, actions }: { c: Candidate; cash: number; actio
   );
 }
 
+function MachineCard({ p, actions }: { p: StaffView; actions: Actions }) {
+  return (
+    <div class="card person">
+      <div class="card-head">
+        <Icon name="forklift" />
+        <strong>{p.name}</strong>
+        {p.broken && <span class="badge bad">Broken down</span>}
+      </div>
+      <div class="card-foot">
+        <span class="muted">
+          {p.activity} · {money(p.wage)}/day
+        </span>
+        <button class="btn ghost sm" onClick={() => actions.send({ type: 'fire', id: p.id })}>
+          Sell · {money(B.FORKLIFT_PRICE * B.SELL_SHARE)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PersonCard({ p, actions }: { p: StaffView; actions: Actions }) {
   const [confirming, setConfirming] = useState(false);
   return (
@@ -165,6 +213,9 @@ export function StaffPanel({ actions }: { actions: Actions }) {
   const tired = s.people.filter((p) => p.energy < B.TIRED_ENERGY).length;
   const unhappy = s.people.filter((p) => p.morale < 30).length;
   const asks = s.people.filter((p) => p.raiseAsk > 0);
+  const crew = s.people.filter((p) => p.kind === 'dockhand');
+  const machines = s.people.filter((p) => p.kind === 'forklift');
+  const locked = s.progress.tier < MACHINE_TIER.forklift;
   return (
     <aside class="side panel wide" aria-label="Staff">
       <InfoHeader kicker="People" title="Staff" onClose={() => (panel.value = null)} />
@@ -224,11 +275,42 @@ export function StaffPanel({ actions }: { actions: Actions }) {
       <div class="section-title">
         <span>Your staff</span>
         <span class="muted">
-          {s.people.length} · {money(s.wages)}/day{tired > 0 ? ` · ${tired} tired` : ''}
+          {crew.length} · {money(s.wages)}/day{tired > 0 ? ` · ${tired} tired` : ''}
         </span>
       </div>
-      {s.people.map((p) => (
+      {crew.map((p) => (
         <PersonCard key={p.id} p={p} actions={actions} />
+      ))}
+
+      <div class="section-title">
+        <span>Machines</span>
+        <span class="muted">
+          {machines.length} forklift{machines.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      <div class="card offer">
+        <div class="card-head">
+          <Icon name="forklift" />
+          <strong>Forklift</strong>
+          {locked && <span class="badge">{TIERS[MACHINE_TIER.forklift].name}</span>}
+        </div>
+        <p class="muted">
+          Carries {B.FORKLIFT_CAPACITY} crates a trip, never tires, but only drives on quays, paths
+          and roads, not wooden jetties. Breaks down now and then ({money(B.REPAIR_COST)} repair).
+        </p>
+        <div class="card-foot">
+          <span class="muted">Operator {money(B.FORKLIFT_WAGE)}/day</span>
+          <button
+            class="btn primary sm"
+            disabled={locked || s.cash < B.FORKLIFT_PRICE}
+            onClick={() => actions.send({ type: 'buyMachine', kind: 'forklift' })}
+          >
+            {locked ? 'Locked' : `Buy · ${money(B.FORKLIFT_PRICE)}`}
+          </button>
+        </div>
+      </div>
+      {machines.map((p) => (
+        <MachineCard key={p.id} p={p} actions={actions} />
       ))}
     </aside>
   );

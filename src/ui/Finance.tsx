@@ -13,6 +13,7 @@ const ROWS: { key: LedgerCategory; label: string }[] = [
   { key: 'hiring', label: 'Hiring' },
   { key: 'contracts', label: 'Contracts' },
   { key: 'penalties', label: 'Penalties' },
+  { key: 'maintenance', label: 'Maintenance' },
   { key: 'interest', label: 'Loan interest' },
 ];
 

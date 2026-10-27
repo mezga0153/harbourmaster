@@ -387,6 +387,7 @@ export class World {
         return;
       case 'newGame':
       case 'save':
+      case 'debug':
         return; // handled by the worker
     }
   }
@@ -464,6 +465,22 @@ export class World {
     }
     if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
     else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
+  }
+
+  /** Testing shortcuts. The worker only forwards these on the dev server. */
+  debug(cmd: Extract<Command, { type: 'debug' }>): void {
+    if (cmd.cash) this.cash += cmd.cash;
+    if (cmd.tier !== undefined) this.tier = cmd.tier;
+    if (cmd.coaster) {
+      const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
+      for (let k = 0; k < 20; k++) {
+        const o = makeOffer(this.rng, this.nextId++, this.tick, 'fishery', taken, 1);
+        if (o && o.terms.kind === 'fishery' && o.terms.vessel === 'coaster') {
+          this.addContract(o.terms, this.tick + 30, o.signingFee);
+          return;
+        }
+      }
+    }
   }
 
   /** Every change to cash goes through here, so the ledger adds up. */
@@ -1064,7 +1081,15 @@ export class World {
         if (water(n) !== 1) continue;
         const fp = this.footprint(n, j);
         if (!fp || taken.some((t) => this.berthsClash(fp, t))) continue;
-        const d = Math.abs(m.xOf(n) - m.xOf(from)) + Math.abs(m.yOf(n) - m.yOf(from));
+        // The harbour master sends boats to the best-equipped free berth:
+        // under a crane first, then a quay forklifts can reach.
+        const nx = m.xOf(n);
+        const ny = m.yOf(n);
+        const craned = [...this.cranes.keys()].some(
+          (c) => Math.max(Math.abs(m.xOf(c) - nx), Math.abs(m.yOf(c) - ny)) <= 1,
+        );
+        const bonus = craned ? 200 : m.build[j] === Build.Jetty ? 0 : 100;
+        const d = Math.abs(nx - m.xOf(from)) + Math.abs(ny - m.yOf(from)) - bonus;
         out.push({ berth: n, jetty: j, d });
       }
     }

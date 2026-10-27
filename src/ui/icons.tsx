@@ -45,6 +45,33 @@ const PATHS: Record<string, JSX.Element> = {
     </>
   ),
   pause: <path d="M8 5v14M16 5v14" />,
+  quay: (
+    <>
+      <path d="M3 9h18v5H3z" />
+      <path d="M6 14v6M18 14v6M3 20c2-1.2 3-1.2 5 0s3 1.2 5 0 3-1.2 5 0 3 1.2 5 0" />
+      <path d="M7 9V7M17 9V7" />
+    </>
+  ),
+  crane: (
+    <>
+      <path d="M7 21V5M4 21h6M7 5l13 3M7 8l13 0" />
+      <path d="M18 8v6M16.5 14h3" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 018 0v3" />
+    </>
+  ),
+  stairs: <path d="M3 20h5v-5h5v-5h5V5h3" />,
+  forklift: (
+    <>
+      <path d="M3 17V9h7l2 4v4M14 5v14M14 17h7" />
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="11" cy="18" r="2" />
+    </>
+  ),
   hut: (
     <>
       <path d="M3 11l9-7 9 7" />

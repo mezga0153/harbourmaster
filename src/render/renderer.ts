@@ -152,6 +152,7 @@ export class Renderer {
     if (!this.layers) return;
     this.layers.entities.push(s.entities, performance.now());
     this.layers.structures.setBays(s.bays);
+    this.layers.structures.setCranes(s.cranes);
   }
 
   select(id: number | null): void {
@@ -242,6 +243,7 @@ export class Renderer {
         this.viewDir.copy(this.cam.camera.position).sub(this.cam.target).normalize(),
       );
       this.layers.entities.update(now, time);
+      this.layers.structures.update(dt, time);
       const pos =
         this.selectedId !== null
           ? this.layers.entities.positionOf(this.selectedId, this.tmp)

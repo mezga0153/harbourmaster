@@ -44,6 +44,8 @@ function handle(cmd: Command): void {
     save(false);
   } else if (cmd.type === 'save') {
     save(true);
+  } else if (cmd.type === 'debug') {
+    if (import.meta.env.DEV) world.debug(cmd);
   } else {
     world.command(cmd);
   }

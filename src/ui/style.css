@@ -913,6 +913,92 @@ button:focus-visible {
   color: var(--text);
 }
 
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-tier {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tool.locked {
+  opacity: 0.45;
+}
+
+.tool.locked:hover {
+  opacity: 0.7;
+}
+
+.tool .lock {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  color: var(--text-3);
+}
+
+.tool .lock .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.tier.done,
+.tier.later {
+  opacity: 0.6;
+}
+
+.tier.current {
+  border-color: rgba(62, 207, 142, 0.4);
+}
+
+.tier.next {
+  border-color: rgba(245, 184, 61, 0.5);
+  border-style: solid;
+}
+
+.tier-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--raised-2);
+  flex: none;
+}
+
+.unlocks {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.req {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.req-value {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 /* Build dock */
 
 .dock {

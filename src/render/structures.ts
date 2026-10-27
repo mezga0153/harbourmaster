@@ -1,11 +1,11 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
-import type { BayView, TileChange } from '../protocol';
+import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { Build } from '../sim/types';
+import { Build, isDock } from '../sim/types';
 import { crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
-import { DECK_Y, MARGIN, SEABED, landTop } from './terrain';
+import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 
 const roofGeo = new ConeGeometry(0.56, 0.26, 4);
 roofGeo.rotateY(Math.PI / 4);
@@ -16,11 +16,22 @@ interface BayStack {
   crates: Object3D[];
 }
 
+interface CraneParts {
+  /** Rotates about Y to point the jib at the boat being unloaded. */
+  slew: Object3D;
+  hook: Object3D;
+  stack: Object3D[];
+  angle: number;
+  target: number;
+  busy: boolean;
+}
+
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
 export class Structures {
   readonly group = new Group();
   private tiles = new Map<number, Object3D>();
   private stacks = new Map<number, BayStack>();
+  private cranes = new Map<number, CraneParts>();
 
   constructor(private map: GameMap) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
@@ -36,6 +47,28 @@ export class Structures {
     for (const i of touched) this.rebuild(i);
   }
 
+  setCranes(views: CraneView[]): void {
+    for (const v of views) {
+      const c = this.cranes.get(v.idx);
+      if (!c) continue;
+      c.stack.forEach((o, k) => (o.visible = k < v.stack));
+      c.busy = v.busy;
+      if (v.busy) c.target = -v.angle;
+    }
+  }
+
+  /** Per-frame animation: slew cranes towards their boats, bob the hooks. */
+  update(dt: number, time: number): void {
+    for (const c of this.cranes.values()) {
+      let d = c.target - c.angle;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      c.angle += d * Math.min(1, dt * 3);
+      c.slew.rotation.y = c.angle;
+      c.hook.position.y = 0.55 + (c.busy ? Math.sin(time * 6) * 0.2 : 0.2);
+    }
+  }
+
   setBays(bays: BayView[]): void {
     for (const b of bays) {
       const stack = this.stacks.get(b.idx);
@@ -49,6 +82,7 @@ export class Structures {
       this.group.remove(old);
       this.tiles.delete(i);
       this.stacks.delete(i);
+      this.cranes.delete(i);
     }
     const obj = this.make(i);
     if (!obj) return;
@@ -113,6 +147,45 @@ export class Structures {
         }
         return g;
       }
+      case Build.Quay:
+        this.quay(g, i);
+        return g;
+      case Build.JibCrane: {
+        this.quay(g, i);
+        // Pedestal, then a slewing cab and jib that swings to face the boat.
+        g.add(cyl(0.13, 0.5, C.craneYellow, 0.5, QUAY_Y, 0.5, 8));
+        const slew = new Group();
+        slew.position.set(0.5, QUAY_Y + 0.5, 0.5);
+        slew.add(box(0.3, 0.2, 0.24, C.craneYellow, -0.02, 0));
+        slew.add(box(0.06, 0.1, 0.2, C.window, 0.13, 0.05));
+        const jib = box(1.25, 0.06, 0.07, C.craneYellow, 0.6, 0.18);
+        jib.rotation.z = 0.28;
+        slew.add(jib);
+        slew.add(box(0.16, 0.14, 0.2, C.chassis, -0.2, 0.02));
+        const hook = new Group();
+        hook.position.set(1.08, 0.55, 0);
+        hook.add(box(0.01, 0.35, 0.01, C.chassis, 0, 0));
+        hook.add(box(0.07, 0.05, 0.07, C.chassis, 0, -0.04));
+        slew.add(hook);
+        g.add(slew);
+        // Landing stack on the landward half of the tile.
+        const stack: Object3D[] = [];
+        const back = this.landwardOffset(i);
+        for (let layer = 0; layer < 2; layer++) {
+          for (let k = 0; k < 5; k++) {
+            const a = 0.15 + k * 0.17;
+            const [cx, cz] = back.alongX
+              ? [a, 0.5 + back.side * 0.32]
+              : [0.5 + back.side * 0.32, a];
+            const c = crate(0.15, cx, QUAY_Y + layer * 0.15, cz);
+            c.visible = false;
+            g.add(c);
+            stack.push(c);
+          }
+        }
+        this.cranes.set(i, { slew, hook, stack, angle: 0, target: 0, busy: false });
+        return g;
+      }
       case Build.BreakHut: {
         // A little timber hut with a red roof and a bench out front.
         g.add(box(1, 0.04, 1, C.path, 0.5, top, 0.5));
@@ -154,6 +227,69 @@ export class Structures {
       }
     }
     return null;
+  }
+
+  /** Concrete slab (on the shore) or block (in the water) with edge details. */
+  private quay(g: Group, i: number): void {
+    const onLand = this.map.isLand(i);
+    const base = onLand ? landTop(this.map.terrain[i]) : SEABED;
+    g.add(box(1, QUAY_Y - 0.03 - base, 1, C.quayWall, 0.5, base, 0.5));
+    g.add(box(0.98, 0.03, 0.98, C.quayTop, 0.5, QUAY_Y - 0.03, 0.5));
+    // Safety line, bollards and tyre fenders along open-water edges.
+    const sides = [
+      { dx: 1, dy: 0, x: 0.95, z: 0.5, w: 0.04, d: 0.9 },
+      { dx: -1, dy: 0, x: 0.05, z: 0.5, w: 0.04, d: 0.9 },
+      { dx: 0, dy: 1, x: 0.5, z: 0.95, w: 0.9, d: 0.04 },
+      { dx: 0, dy: -1, x: 0.5, z: 0.05, w: 0.9, d: 0.04 },
+    ];
+    for (const s of sides) {
+      const nx = this.map.xOf(i) + s.dx;
+      const ny = this.map.yOf(i) + s.dy;
+      if (!this.map.inBounds(nx, ny)) continue;
+      const n = this.map.idx(nx, ny);
+      if (this.map.isLand(n) || isDock(this.map.build[n])) continue;
+      const inX = s.dx !== 0 ? s.x - s.dx * 0.07 : s.x;
+      const inZ = s.dy !== 0 ? s.z - s.dy * 0.07 : s.z;
+      g.add(box(s.w, 0.005, s.d, C.stripe, inX, QUAY_Y, inZ));
+      g.add(
+        cyl(
+          0.04,
+          0.08,
+          C.chassis,
+          s.dx ? s.x - s.dx * 0.03 : 0.3,
+          QUAY_Y,
+          s.dy ? s.z - s.dy * 0.03 : 0.3,
+        ),
+      );
+      g.add(
+        box(
+          s.dx ? 0.05 : 0.14,
+          0.12,
+          s.dy ? 0.05 : 0.14,
+          C.tyre,
+          s.dx ? s.x + s.dx * 0.06 : 0.5,
+          QUAY_Y - 0.2,
+          s.dy ? s.z + s.dy * 0.06 : 0.5,
+        ),
+      );
+    }
+  }
+
+  /** Which half of a crane tile faces land, for its landing stack. */
+  private landwardOffset(i: number): { alongX: boolean; side: number } {
+    const water = (dx: number, dy: number) => {
+      const x = this.map.xOf(i) + dx;
+      const y = this.map.yOf(i) + dy;
+      return (
+        this.map.inBounds(x, y) &&
+        !this.map.isLand(this.map.idx(x, y)) &&
+        !isDock(this.map.build[this.map.idx(x, y)])
+      );
+    };
+    if (water(0, -1)) return { alongX: true, side: 1 };
+    if (water(0, 1)) return { alongX: true, side: -1 };
+    if (water(-1, 0)) return { alongX: false, side: 1 };
+    return { alongX: false, side: -1 };
   }
 
   private landAt(i: number, dx: number, dy: number): boolean {

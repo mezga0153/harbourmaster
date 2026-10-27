@@ -136,6 +136,7 @@ export class Input {
     else if (k === 'h') togglePanel('staff');
     else if (k === 'c') togglePanel('contracts');
     else if (k === 'm') togglePanel('finance');
+    else if (k === 'p') togglePanel('port');
     else if (k in TOOL_KEYS) tool.value = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
     else if (k === '+' || k === '=') this.renderer.cam.zoom(1 / 1.2);
     else if (k === '-') this.renderer.cam.zoom(1.2);

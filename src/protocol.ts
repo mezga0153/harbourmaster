@@ -18,7 +18,9 @@ export type Command =
   | { type: 'cancelContract'; id: number }
   | { type: 'setSpeed'; speed: number }
   | { type: 'newGame'; seed?: number }
-  | { type: 'save' };
+  | { type: 'save' }
+  /** Dev server only: jump ahead for testing. */
+  | { type: 'debug'; cash?: number; tier?: number; coaster?: boolean };
 
 export type EntityKind = 'dockhand' | 'forklift' | 'boat' | 'truck';
 

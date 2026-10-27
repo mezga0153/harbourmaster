@@ -55,8 +55,65 @@ deckShape.closePath();
 const deckGeo = new ExtrudeGeometry(deckShape, { depth: 0.02, bevelEnabled: false });
 deckGeo.rotateX(-Math.PI / 2);
 
-/** Small coaster / fishing boat, about two tiles long. */
-export function boat(variant: number): Model {
+function hullGeometry(length: number, beam: number, depth: number, bow: number) {
+  const back = -length / 2;
+  const shoulder = length / 2 - bow;
+  const shape = new Shape();
+  shape.moveTo(back, -beam / 2);
+  shape.lineTo(shoulder, -beam / 2);
+  shape.lineTo(length / 2, 0);
+  shape.lineTo(shoulder, beam / 2);
+  shape.lineTo(back, beam / 2);
+  shape.closePath();
+  const geo = new ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+const coasterHull = hullGeometry(2.7, 0.84, 0.4, 0.55);
+const coasterDeck = hullGeometry(2.6, 0.76, 0.02, 0.5);
+
+/** A small cargo coaster from a shipping line, about three tiles long. */
+function coaster(variant: number): Model {
+  const root = new Group();
+  const hull = new Mesh(coasterHull, mat(C.hulls[variant % C.hulls.length]));
+  hull.position.y = -0.15;
+  hull.castShadow = hull.receiveShadow = true;
+  const band = new Mesh(coasterHull, mat(C.funnel));
+  band.scale.set(1.005, 0.2, 1.02);
+  band.position.y = -0.12;
+  const deck = new Mesh(coasterDeck, mat(C.quayTop));
+  deck.position.y = 0.25;
+  deck.receiveShadow = true;
+  root.add(hull, band, deck);
+
+  // Bridge aft, two decks high, with a funnel.
+  root.add(box(0.46, 0.26, 0.66, C.cabin, -1.0, 0.27));
+  root.add(box(0.36, 0.2, 0.56, C.cabin, -1.02, 0.53));
+  root.add(box(0.37, 0.06, 0.57, C.window, -1.02, 0.63));
+  root.add(cyl(0.07, 0.24, C.funnel, -1.14, 0.73));
+  // Hatch coamings and a cargo derrick forward.
+  root.add(box(1.5, 0.05, 0.62, C.quayWall, 0.05, 0.27));
+  root.add(cyl(0.025, 0.75, C.chassis, 0.95, 0.27));
+
+  // Slots fill the hold bottom layer first; a full coaster carries 24.
+  const crates: Object3D[] = [];
+  for (let layer = 0; layer < 2; layer++) {
+    for (const x of [-0.55, -0.32, -0.09, 0.14, 0.37, 0.6]) {
+      for (const z of [-0.2, 0.0, 0.2]) {
+        const c = crate(0.19, x, 0.32 + layer * 0.2, z);
+        c.visible = false;
+        root.add(c);
+        crates.push(c);
+      }
+    }
+  }
+  return { root, crates };
+}
+
+/** Small fishing boat, about two tiles long, or a coaster for shipping lines. */
+export function boat(variant: number, vessel = 'smack'): Model {
+  if (vessel === 'coaster') return coaster(variant);
   const root = new Group();
   const hull = new Mesh(hullGeo, mat(C.hulls[variant % C.hulls.length]));
   hull.position.y = -0.12;
@@ -116,6 +173,53 @@ export function truck(variant: number, capacity: number): Model {
     }
   }
   return { root, crates };
+}
+
+/** A counterbalance forklift with its driver. Forks face +X. */
+export function forklift(): Model {
+  const root = new Group();
+  const body = new Group();
+  body.add(box(0.36, 0.14, 0.3, C.forklift, -0.04, 0.06));
+  body.add(box(0.12, 0.16, 0.3, C.chassis, -0.2, 0.06));
+  for (const x of [-0.14, 0.1]) {
+    for (const z of [-0.15, 0.15]) {
+      const wheel = cyl(0.06, 0.05, C.tyre, x, 0, z, 8);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.y = 0.06;
+      body.add(wheel);
+    }
+  }
+  // Driver under the overhead guard.
+  body.add(box(0.1, 0.1, 0.12, C.vest, -0.06, 0.2));
+  body.add(box(0.08, 0.08, 0.08, C.skin, -0.06, 0.3));
+  for (const x of [-0.16, 0.06]) {
+    for (const z of [-0.13, 0.13]) body.add(box(0.02, 0.26, 0.02, C.chassis, x, 0.2, z));
+  }
+  body.add(box(0.26, 0.02, 0.3, C.chassis, -0.05, 0.46));
+  // Mast and forks.
+  body.add(box(0.03, 0.42, 0.03, C.chassis, 0.16, 0.06, -0.09));
+  body.add(box(0.03, 0.42, 0.03, C.chassis, 0.16, 0.06, 0.09));
+  body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, -0.07));
+  body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, 0.07));
+  const crates: Object3D[] = [];
+  for (let layer = 0; layer < 2; layer++) {
+    for (const z of [-0.08, 0.08]) {
+      const c = crate(0.15, 0.3, 0.08 + layer * 0.15, z);
+      c.visible = false;
+      body.add(c);
+      crates.push(c);
+    }
+  }
+  root.add(body);
+  return { root, crates, body };
+}
+
+/** Floating warning marker for things that need the player's attention. */
+export function alertMarker(): Object3D {
+  const g = new Group();
+  g.add(box(0.06, 0.16, 0.06, C.funnel, 0, 0.1));
+  g.add(box(0.06, 0.06, 0.06, C.funnel, 0, 0));
+  return g;
 }
 
 export function showLoad(model: Model, load: number): void {

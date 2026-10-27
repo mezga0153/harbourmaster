@@ -36,7 +36,7 @@ export const hover = signal<HoverInfo | null>(null);
 export const preview = signal<Preview | null>(null);
 export const newGameOpen = signal(false);
 /** Which management panel is open on the right. */
-export type PanelName = 'contracts' | 'staff' | 'finance';
+export type PanelName = 'contracts' | 'staff' | 'finance' | 'port';
 export const panel = signal<PanelName | null>(null);
 
 export function togglePanel(name: PanelName): void {
