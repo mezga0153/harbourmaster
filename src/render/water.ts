@@ -45,8 +45,12 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uView;
   varying vec2 vXZ;
 
-  const float K = 6.28318 / 1.8; // swell wavelength: 1.8 tiles
-  const float SPEED = 1.5; // radians per second; crests travel ~0.4 tiles/s
+  // Big, slow swell: only shapes the breaking waves near the shore.
+  const float K_SWELL = 6.28318 / 1.8;
+  const float SWELL_SPEED = 1.5;
+  // Tiny wavelets that cover the whole sea, also running towards the coast.
+  const float K_TINY = 6.28318 / 0.5;
+  const float TINY_SPEED = 2.4;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -64,34 +68,36 @@ const fragmentShader = /* glsl */ `
   }
 
   // Distance to land. Past the seaward map edge it keeps growing, so the
-  // swell keeps rolling in from beyond the map.
+  // waves keep rolling in from beyond the map.
   float distAt(vec2 p) {
     return texture2D(uDist, p / uSize).r + max(0.0, p.x - uSize.x);
   }
 
-  // Incoming swell: crests follow the coastline (equal distance to land),
-  // so they bend around headlands and arrive parallel to the beach. The
-  // phase shrinks the distance over time, so crests travel towards land.
-  float incoming(float d) {
-    return sin(d * K + uTime * SPEED);
+  // Crests follow the coastline (equal distance to land), so they bend round
+  // headlands and arrive parallel to the beach. The phase shrinks the
+  // distance over time, so crests travel towards land.
+  float swellIn(float d) {
+    return sin(d * K_SWELL + uTime * SWELL_SPEED);
   }
 
   // The bounce: a weaker wave running back out, fading within a few tiles.
-  float reflected(float d) {
-    return sin(d * K * 1.07 - uTime * SPEED + 1.7) * exp(-d * 0.8);
+  float swellBack(float d) {
+    return sin(d * K_SWELL * 1.07 - uTime * SWELL_SPEED + 1.7);
   }
 
-  // Groups of bigger waves drift through; between them the sea is calmer.
-  float waveSets(vec2 p) {
-    return 0.35 + 0.65 * smoothstep(0.25, 0.8, noise(p * 0.09 + vec2(uTime * 0.04, uTime * 0.01)));
+  // Two trains of small wavelets; noise bends and breaks the crests up so
+  // they read as many short waves rather than long lines.
+  float wavelets(vec2 p, float d) {
+    float a = sin(d * K_TINY + noise(p * 0.9) * 3.0 + uTime * TINY_SPEED);
+    float b = sin(d * K_TINY * 1.38 + noise(p * 1.4 + 9.1) * 4.0 + uTime * TINY_SPEED * 1.2);
+    return a * 0.6 + b * 0.4;
   }
 
-  float swell(vec2 p) {
+  float surface(vec2 p) {
     float d = distAt(p);
-    // Wave sets: some stretches of a crest are taller than others.
-    float sets = waveSets(p);
-    float chop = (noise(p * 2.6 + vec2(-uTime * 0.5, uTime * 0.15)) - 0.5) * 0.3;
-    return incoming(d) * sets + reflected(d) * 0.55 + chop;
+    float near = exp(-d * 0.6);
+    float chop = (noise(p * 3.4 + vec2(-uTime * 0.6, uTime * 0.2)) - 0.5) * 0.5;
+    return wavelets(p, d) + (swellIn(d) + swellBack(d) * 0.55) * near * 1.5 + chop;
   }
 
   void main() {
@@ -103,44 +109,53 @@ const fragmentShader = /* glsl */ `
     vec3 col = mix(uShallow, uMid, smoothstep(0.0, 0.2, depth));
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
-    // Lighting from the swell's slope; waves steepen as they reach the shore.
-    float e = 0.08;
-    float h0 = swell(vXZ);
-    float steep = 0.08 + 0.06 * (1.0 - smoothstep(0.5, 6.0, d));
+    // Lighting from the surface slope.
+    float e = 0.03;
+    float h0 = surface(vXZ);
+    float steep = 0.012;
     vec3 n = normalize(vec3(
-      -(swell(vXZ + vec2(e, 0.0)) - h0) / e * steep,
+      -(surface(vXZ + vec2(e, 0.0)) - h0) / e * steep,
       1.0,
-      -(swell(vXZ + vec2(0.0, e)) - h0) / e * steep
+      -(surface(vXZ + vec2(0.0, e)) - h0) / e * steep
     ));
-    col *= 0.9 + 0.16 * dot(n, uSun);
-    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 110.0);
-    col += spec * 0.5;
+    col *= 0.9 + 0.18 * dot(n, uSun);
+    float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 90.0);
+    col += spec * 0.45;
 
-    // Crests catch the light as thin bands rolling in, mostly in the sets.
-    float sets = waveSets(vXZ);
-    float crest = smoothstep(0.85, 1.0, incoming(d)) * smoothstep(0.45, 1.0, sets);
-    crest *= 0.6 + 0.4 * noise(vXZ * 0.7 + uTime * 0.05);
-    col = mix(col, uFoam, crest * 0.06 * smoothstep(0.3, 1.5, d));
+    // Wavelet crests: lots of short, light dashes rolling in.
+    float wl = wavelets(vXZ, d);
+    float crest = smoothstep(0.82, 1.0, wl) * smoothstep(0.35, 0.75, noise(vXZ * 2.2 + uTime * 0.3));
+    col = mix(col, uFoam, crest * 0.16);
+
+    // Glitter: scattered points of sun that flash on and off.
+    vec2 gp = vXZ * 7.0;
+    vec2 gi = floor(gp);
+    float r = hash(gi);
+    vec2 jitter = vec2(hash(gi + 3.1), hash(gi + 7.7)) - 0.5;
+    float dotShape = smoothstep(0.3, 0.0, length(fract(gp) - 0.5 - jitter * 0.4));
+    float flicker = pow(max(0.0, sin(uTime * (3.0 + r * 6.0) + r * 40.0)), 20.0);
+    float facing = smoothstep(0.1, 0.9, wl * 0.5 + 0.5);
+    float glitter = step(0.78, r) * dotShape * flicker * facing;
+    col += vec3(1.0, 0.96, 0.82) * glitter * 1.8;
 
     // Foam hugging the coast.
     float edge = 1.0 - smoothstep(0.02, 0.07, shore);
     float breakup = noise(vXZ * 3.0 + uTime * 0.4);
     float foam = edge * smoothstep(0.3, 0.65, breakup + edge * 0.45);
 
-    // Breaking: crests turn white in the last stretch before the beach…
+    // Breaking: the swell turns white in the last stretch before the beach…
     float near = 1.0 - smoothstep(0.4, 2.0, d);
-    float breaking = smoothstep(0.75, 1.0, incoming(d)) * near * sets;
+    float breaking = smoothstep(0.75, 1.0, swellIn(d)) * near;
     breaking *= smoothstep(0.25, 0.65, noise(vXZ * 1.6 + uTime * 0.2));
     // …and the backwash leaves a fainter line as it bounces back out.
-    float backwash = smoothstep(0.85, 1.0, reflected(d) / max(exp(-d * 0.8), 0.001));
-    backwash *= (1.0 - smoothstep(0.15, 0.9, d)) * 0.45;
+    float backwash = smoothstep(0.85, 1.0, swellBack(d)) * (1.0 - smoothstep(0.15, 0.9, d)) * 0.45;
     foam = max(foam, max(breaking * 0.9, backwash));
 
     col = mix(col, uFoam, foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
     float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
     alpha = max(alpha, foam * 0.9);
-    alpha = min(1.0, alpha + spec * 0.5);
+    alpha = min(1.0, alpha + spec * 0.5 + glitter);
     gl_FragColor = vec4(col, alpha);
     #include <colorspace_fragment>
   }
