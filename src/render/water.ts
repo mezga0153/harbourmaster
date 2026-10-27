@@ -1,9 +1,12 @@
 import {
   Color,
   DataTexture,
+  DataUtils,
+  HalfFloatType,
   LinearFilter,
   Mesh,
   PlaneGeometry,
+  RedFormat,
   RGBAFormat,
   ShaderMaterial,
   UnsignedByteType,
@@ -30,7 +33,8 @@ const vertexShader = /* glsl */ `
 `;
 
 const fragmentShader = /* glsl */ `
-  uniform sampler2D uField; // r: depth, g: distance to shore
+  uniform sampler2D uField; // r: depth, g: distance to shore (first few tiles)
+  uniform sampler2D uDist; // r: distance to the nearest land, in tiles
   uniform vec2 uSize;
   uniform float uTime;
   uniform vec3 uShallow;
@@ -40,6 +44,9 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uSun;
   uniform vec3 uView;
   varying vec2 vXZ;
+
+  const float K = 6.28318 / 1.8; // swell wavelength: 1.8 tiles
+  const float SPEED = 1.5; // radians per second; crests travel ~0.4 tiles/s
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -56,55 +63,78 @@ const fragmentShader = /* glsl */ `
     );
   }
 
-  // Wind waves and finer ripples, only used for lighting.
-  float waves(vec2 p) {
-    float t = uTime;
-    float h = sin(dot(p, vec2(0.9, 0.4)) * 1.6 + t * 1.1) * 0.5;
-    h += sin(dot(p, vec2(-0.3, 1.0)) * 2.3 + t * 1.4) * 0.35;
-    h += sin(dot(p, vec2(0.7, -0.8)) * 3.7 - t * 1.8) * 0.2;
-    h += sin(dot(p, vec2(-0.8, -0.5)) * 6.1 + t * 2.6) * 0.12;
-    h += (noise(p * 1.3 + vec2(t * 0.25, -t * 0.18)) - 0.5) * 0.8;
-    h += (noise(p * 4.1 - vec2(t * 0.6, t * 0.45)) - 0.5) * 0.35;
-    return h;
+  // Distance to land. Past the seaward map edge it keeps growing, so the
+  // swell keeps rolling in from beyond the map.
+  float distAt(vec2 p) {
+    return texture2D(uDist, p / uSize).r + max(0.0, p.x - uSize.x);
+  }
+
+  // Incoming swell: crests follow the coastline (equal distance to land),
+  // so they bend around headlands and arrive parallel to the beach. The
+  // phase shrinks the distance over time, so crests travel towards land.
+  float incoming(float d) {
+    return sin(d * K + uTime * SPEED);
+  }
+
+  // The bounce: a weaker wave running back out, fading within a few tiles.
+  float reflected(float d) {
+    return sin(d * K * 1.07 - uTime * SPEED + 1.7) * exp(-d * 0.8);
+  }
+
+  // Groups of bigger waves drift through; between them the sea is calmer.
+  float waveSets(vec2 p) {
+    return 0.35 + 0.65 * smoothstep(0.25, 0.8, noise(p * 0.09 + vec2(uTime * 0.04, uTime * 0.01)));
+  }
+
+  float swell(vec2 p) {
+    float d = distAt(p);
+    // Wave sets: some stretches of a crest are taller than others.
+    float sets = waveSets(p);
+    float chop = (noise(p * 2.6 + vec2(-uTime * 0.5, uTime * 0.15)) - 0.5) * 0.3;
+    return incoming(d) * sets + reflected(d) * 0.55 + chop;
   }
 
   void main() {
     vec4 field = texture2D(uField, vXZ / uSize);
     float depth = field.r;
     float shore = field.g;
+    float d = distAt(vXZ);
 
     vec3 col = mix(uShallow, uMid, smoothstep(0.0, 0.2, depth));
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
-    float e = 0.06;
-    float h0 = waves(vXZ);
+    // Lighting from the swell's slope; waves steepen as they reach the shore.
+    float e = 0.08;
+    float h0 = swell(vXZ);
+    float steep = 0.08 + 0.06 * (1.0 - smoothstep(0.5, 6.0, d));
     vec3 n = normalize(vec3(
-      -(waves(vXZ + vec2(e, 0.0)) - h0) / e * 0.13,
+      -(swell(vXZ + vec2(e, 0.0)) - h0) / e * steep,
       1.0,
-      -(waves(vXZ + vec2(0.0, e)) - h0) / e * 0.13
+      -(swell(vXZ + vec2(0.0, e)) - h0) / e * steep
     ));
     col *= 0.9 + 0.16 * dot(n, uSun);
     float spec = pow(max(dot(reflect(-uSun, n), uView), 0.0), 110.0);
-    col += spec * 0.55;
+    col += spec * 0.5;
 
-    // Soft ripple lines drifting across the surface, stronger out at sea.
-    float rn = noise(vXZ * 0.55 + vec2(uTime * 0.05, uTime * 0.03));
-    float ripple = smoothstep(0.86, 1.0, abs(sin((rn + vXZ.x * 0.02) * 22.0 - uTime * 0.6)));
-    // Broken into short dashes so they read as wind ripples, not contours.
-    ripple *= smoothstep(0.55, 0.8, noise(vXZ * 1.7 - uTime * 0.12));
-    col = mix(col, uFoam, ripple * (0.04 + 0.06 * smoothstep(0.05, 0.4, depth)));
+    // Crests catch the light as thin bands rolling in, mostly in the sets.
+    float sets = waveSets(vXZ);
+    float crest = smoothstep(0.85, 1.0, incoming(d)) * smoothstep(0.45, 1.0, sets);
+    crest *= 0.6 + 0.4 * noise(vXZ * 0.7 + uTime * 0.05);
+    col = mix(col, uFoam, crest * 0.06 * smoothstep(0.3, 1.5, d));
 
-    // Broken foam line hugging the coast.
+    // Foam hugging the coast.
     float edge = 1.0 - smoothstep(0.02, 0.07, shore);
     float breakup = noise(vXZ * 3.0 + uTime * 0.4);
     float foam = edge * smoothstep(0.3, 0.65, breakup + edge * 0.45);
 
-    // Gentle swell lines rolling in towards the beach.
-    float band = fract(shore * 5.0 + uTime * 0.28);
-    float roll = smoothstep(0.0, 0.06, band) * (1.0 - smoothstep(0.06, 0.16, band));
-    roll *= (1.0 - smoothstep(0.05, 0.24, shore));
-    roll *= smoothstep(0.35, 0.7, noise(vXZ * 1.4 - uTime * 0.15));
-    foam = max(foam, roll * 0.55);
+    // Breaking: crests turn white in the last stretch before the beach…
+    float near = 1.0 - smoothstep(0.4, 2.0, d);
+    float breaking = smoothstep(0.75, 1.0, incoming(d)) * near * sets;
+    breaking *= smoothstep(0.25, 0.65, noise(vXZ * 1.6 + uTime * 0.2));
+    // …and the backwash leaves a fainter line as it bounces back out.
+    float backwash = smoothstep(0.85, 1.0, reflected(d) / max(exp(-d * 0.8), 0.001));
+    backwash *= (1.0 - smoothstep(0.15, 0.9, d)) * 0.45;
+    foam = max(foam, max(breaking * 0.9, backwash));
 
     col = mix(col, uFoam, foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
@@ -125,16 +155,21 @@ export class Water {
   private readonly material: ShaderMaterial;
 
   constructor(map: GameMap, sunDir: Vector3) {
+    const baked = bakeField(map);
     const tex = new DataTexture(
-      bakeField(map),
+      baked.field,
       map.w * SUB,
       map.h * SUB,
       RGBAFormat,
       UnsignedByteType,
     );
-    tex.magFilter = LinearFilter;
-    tex.minFilter = LinearFilter;
-    tex.needsUpdate = true;
+    // Half floats keep the distance smooth enough for clean wave crests.
+    const dist = new DataTexture(baked.dist, map.w * SUB, map.h * SUB, RedFormat, HalfFloatType);
+    for (const t of [tex, dist]) {
+      t.magFilter = LinearFilter;
+      t.minFilter = LinearFilter;
+      t.needsUpdate = true;
+    }
 
     this.material = new ShaderMaterial({
       vertexShader,
@@ -143,6 +178,7 @@ export class Water {
       depthWrite: false,
       uniforms: {
         uField: { value: tex },
+        uDist: { value: dist },
         uSize: { value: [map.w, map.h] },
         uTime: { value: 0 },
         uShallow: { value: new Color(C.waterShallow) },
@@ -170,12 +206,16 @@ export class Water {
   dispose(): void {
     this.mesh.geometry.dispose();
     (this.material.uniforms.uField.value as DataTexture).dispose();
+    (this.material.uniforms.uDist.value as DataTexture).dispose();
     this.material.dispose();
   }
 }
 
-/** RGBA bytes: r = smoothed depth, g = distance to the nearest land. */
-function bakeField(map: GameMap): Uint8Array {
+/**
+ * field: RGBA bytes, r = smoothed depth, g = distance to shore over the first
+ * few tiles. dist: half floats, distance to the nearest land in tiles.
+ */
+function bakeField(map: GameMap): { field: Uint8Array; dist: Uint16Array } {
   const W = map.w * SUB;
   const H = map.h * SUB;
   const land = new Uint8Array(W * H);
@@ -208,14 +248,70 @@ function bakeField(map: GameMap): Uint8Array {
   boxBlur(depth, W, H, SUB);
 
   const dist = chamferDistance(land, W, H);
+  // The swell needs smooth, round contours: exact distance, then softened.
+  const exact = euclideanDistance(land, W, H);
+  boxBlur(exact, W, H, SUB);
+  boxBlur(exact, W, H, SUB);
   const out = new Uint8Array(W * H * 4);
+  const tiles = new Uint16Array(W * H);
   for (let i = 0; i < W * H; i++) {
     const d = land[i] ? 0 : Math.min(1, depth[i] / MAX_DEPTH);
     const s = Math.min(1, dist[i] / SUB / SHORE_TILES);
     out[i * 4] = Math.round(d * 255);
     out[i * 4 + 1] = Math.round(s * 255);
     out[i * 4 + 3] = 255;
+    tiles[i] = DataUtils.toHalfFloat(exact[i] / SUB);
   }
+  return { field: out, dist: tiles };
+}
+
+/**
+ * Exact Euclidean distance from land cells, in cells (Felzenszwalb and
+ * Huttenlocher's separable squared distance transform).
+ */
+function euclideanDistance(land: Uint8Array, W: number, H: number): Float32Array {
+  const INF = 1e20;
+  const grid = new Float64Array(W * H);
+  for (let i = 0; i < grid.length; i++) grid[i] = land[i] ? 0 : INF;
+  const n = Math.max(W, H);
+  const f = new Float64Array(n);
+  const d = new Float64Array(n);
+  const v = new Int32Array(n);
+  const z = new Float64Array(n + 1);
+  const transform1d = (len: number) => {
+    let k = 0;
+    v[0] = 0;
+    z[0] = -INF;
+    z[1] = INF;
+    for (let q = 1; q < len; q++) {
+      let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      while (s <= z[k]) {
+        k--;
+        s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      }
+      k++;
+      v[k] = q;
+      z[k] = s;
+      z[k + 1] = INF;
+    }
+    k = 0;
+    for (let q = 0; q < len; q++) {
+      while (z[k + 1] < q) k++;
+      d[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
+    }
+  };
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) f[y] = grid[y * W + x];
+    transform1d(H);
+    for (let y = 0; y < H; y++) grid[y * W + x] = d[y];
+  }
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) f[x] = grid[y * W + x];
+    transform1d(W);
+    for (let x = 0; x < W; x++) grid[y * W + x] = d[x];
+  }
+  const out = new Float32Array(W * H);
+  for (let i = 0; i < out.length; i++) out[i] = Math.sqrt(grid[i]);
   return out;
 }
 
