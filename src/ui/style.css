@@ -1019,6 +1019,10 @@ button:focus-visible {
   gap: 6px;
 }
 
+.kpis.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .kpi {
   display: flex;
   flex-direction: column;

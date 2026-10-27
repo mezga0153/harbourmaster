@@ -591,6 +591,23 @@ export class World {
   debug(cmd: Extract<Command, { type: 'debug' }>): void {
     if (cmd.cash) this.cash += cmd.cash;
     if (cmd.tier !== undefined) this.tier = cmd.tier;
+    if (cmd.containers) {
+      const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
+      let line = false;
+      let haul = false;
+      for (let k = 0; k < 60 && !(line && haul); k++) {
+        const kind = line ? 'haulier' : 'fishery';
+        const o = makeOffer(this.rng, this.nextId++, this.tick, kind, taken, 2);
+        if (!o) continue;
+        if (!line && o.terms.kind === 'fishery' && o.terms.vessel === 'feeder') {
+          this.addContract(o.terms, this.tick + 30, o.signingFee);
+          line = true;
+        } else if (line && o.terms.kind === 'haulier' && o.terms.cargo === 'container') {
+          this.addContract(o.terms, 0, o.signingFee);
+          haul = true;
+        }
+      }
+    }
     if (cmd.coaster) {
       const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
       for (let k = 0; k < 20; k++) {
@@ -1362,7 +1379,7 @@ export class World {
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
         if (wide && !this.wideQuay(j, n)) continue;
-        if (needCrane && !this.harbourCraneReaches(n)) continue;
+        if (needCrane !== this.harbourCraneReaches(n)) continue;
         const fp = this.footprint(n, j);
         if (fp && !chosen.some((c) => this.berthsClash(fp, c))) chosen.push(fp);
       }
@@ -1388,15 +1405,18 @@ export class World {
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
         if (wide && !this.wideQuay(j, n)) continue;
-        if (needCrane && !this.harbourCraneReaches(n)) continue;
+        // Berths under a harbour crane are kept for container ships.
+        if (needCrane !== this.harbourCraneReaches(n)) continue;
         const fp = this.footprint(n, j);
         if (!fp || taken.some((t) => this.berthsClash(fp, t))) continue;
         // The harbour master sends boats to the best-equipped free berth:
         // under a crane first, then a quay forklifts can reach.
         const nx = m.xOf(n);
         const ny = m.yOf(n);
-        const craned = [...this.cranes.keys()].some(
-          (c) => Math.max(Math.abs(m.xOf(c) - nx), Math.abs(m.yOf(c) - ny)) <= 1,
+        const craned = [...this.cranes.values()].some(
+          (c) =>
+            c.kind === 'jib' &&
+            Math.max(Math.abs(m.xOf(c.idx) - nx), Math.abs(m.yOf(c.idx) - ny)) <= 1,
         );
         const bonus = craned ? 200 : m.build[j] === Build.Jetty ? 0 : 100;
         const d = Math.abs(nx - m.xOf(from)) + Math.abs(ny - m.yOf(from)) - bonus;
@@ -1465,7 +1485,10 @@ export class World {
           // Lie alongside the jetty.
           const alongX = this.map.yOf(b.jetty) !== this.map.yOf(b.berth);
           b.dir = alongX ? 0 : Math.PI / 2;
-          this.message(`A ${b.company} boat has moored with ${b.crates} crates.`, 'info');
+          const what =
+            b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
+          const cargo = b.vessel === 'feeder' ? 'containers' : 'crates';
+          this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
         }
         return;
       }

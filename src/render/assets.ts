@@ -41,6 +41,15 @@ const FIT = {
     maxBeam: 0.62,
   },
   coaster: { file: 'watercraft/ship-cargo-c.glb', length: 2.7, yaw: Math.PI / 2, maxBeam: 0.86 },
+  feeder: {
+    file: 'watercraft/ship-cargo-c.glb',
+    length: 2.95,
+    yaw: Math.PI / 2,
+    maxBeam: 0.9,
+  },
+  'container-a': { file: 'watercraft/cargo-container-a.glb', length: 0.4, yaw: Math.PI / 2 },
+  'container-b': { file: 'watercraft/cargo-container-b.glb', length: 0.4, yaw: Math.PI / 2 },
+  'container-c': { file: 'watercraft/cargo-container-c.glb', length: 0.4, yaw: Math.PI / 2 },
   truck: { file: 'cars/truck-flat.glb', length: 0.95, yaw: Math.PI / 2 },
   ...Object.fromEntries(
     ['male', 'female'].flatMap((g) =>
@@ -77,6 +86,7 @@ export type AssetName = keyof typeof FIT;
 
 export const PEOPLE = Object.keys(FIT).filter((k) => k.startsWith('person-')) as AssetName[];
 export const TREES = Object.keys(FIT).filter((k) => k.startsWith('tree_')) as AssetName[];
+export const CONTAINERS: AssetName[] = ['container-a', 'container-b', 'container-c'];
 export const ROCKS = Object.keys(FIT).filter((k) => k.startsWith('stone_')) as AssetName[];
 
 interface Loaded {

@@ -7,7 +7,7 @@ import {
   type AnimationMixer,
   type Object3D,
 } from 'three';
-import { assetSize, instance, PEOPLE } from './assets';
+import { assetSize, CONTAINERS, instance, PEOPLE } from './assets';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 
@@ -38,6 +38,33 @@ function deckCrates(
     for (const x of xs) {
       for (const z of zs) {
         const c = crate(size, x, y + layer * size, z);
+        c.visible = false;
+        root.add(c);
+        out.push(c);
+      }
+    }
+  }
+  return out;
+}
+
+/** A shipping container, lying along X with its base at y=0. */
+export function container(seed: number, x = 0, y = 0, z = 0): Object3D {
+  const kenney = instance(CONTAINERS[seed % CONTAINERS.length]);
+  const g = new Group();
+  if (kenney) g.add(kenney.root);
+  else g.add(box(0.4, 0.17, 0.17, [C.funnel, C.sign, C.stripe][seed % 3]));
+  g.position.set(x, y, z);
+  return g;
+}
+
+/** Container slots in a grid: `xs` along the length, `zs` across. */
+function deckBoxes(root: Group, xs: number[], zs: number[], y: number, layers = 1): Object3D[] {
+  const out: Object3D[] = [];
+  let k = 0;
+  for (let layer = 0; layer < layers; layer++) {
+    for (const x of xs) {
+      for (const z of zs) {
+        const c = container(k++, x, y + layer * 0.17, z);
         c.visible = false;
         root.add(c);
         out.push(c);
@@ -168,6 +195,18 @@ function coaster(variant: number): Model {
 
 /** Small fishing boat, about two tiles long, or a coaster for shipping lines. */
 export function boat(variant: number, vessel = 'smack'): Model {
+  if (vessel === 'feeder') {
+    const kenney = instance('feeder');
+    const size = assetSize('feeder');
+    if (kenney && size) {
+      const root = new Group();
+      kenney.root.position.y = -size.y * 0.18;
+      root.add(kenney.root);
+      // Ten containers, two abreast, over the open deck.
+      const crates = deckBoxes(root, spread(-0.8, 0.6, 5), [-0.1, 0.1], size.y * 0.18);
+      return { root, crates };
+    }
+  }
   const name = vessel === 'coaster' ? 'coaster' : 'smack';
   const kenney = instance(name);
   const size = assetSize(name);
@@ -215,9 +254,18 @@ export function boat(variant: number, vessel = 'smack'): Model {
 }
 
 /** Flatbed truck: 6 crates in about 0.9 tiles, or a longer 8-crate rig. */
-export function truck(variant: number, capacity: number): Model {
+export function truck(variant: number, capacity: number, boxes = false): Model {
   const kenney = instance('truck');
   const size = assetSize('truck');
+  if (kenney && size && boxes) {
+    // Container truck: a long flatbed with containers end to end.
+    const root = new Group();
+    kenney.root.scale.x = 1.35;
+    root.add(kenney.root);
+    const len = size.x * 1.35;
+    const xs = spread(-len / 2 + 0.22, -len / 2 + 0.22 + (capacity - 1) * 0.42, capacity);
+    return { root, crates: deckBoxes(root, xs, [0], size.y * 0.42) };
+  }
   if (kenney && size) {
     const root = new Group();
     // Longer chassis for the 8-crate rigs.
@@ -307,6 +355,32 @@ export function forklift(): Model {
   }
   root.add(body);
   return { root, crates, body };
+}
+
+/** A reach stacker: heavy yellow carrier with a boom that grips one container. */
+export function stacker(): Model {
+  const root = new Group();
+  const body = new Group();
+  body.add(box(0.62, 0.14, 0.32, C.forklift, -0.05, 0.08));
+  body.add(box(0.2, 0.1, 0.3, C.chassis, -0.28, 0.22));
+  body.add(box(0.14, 0.18, 0.2, C.window, 0.02, 0.22, -0.05));
+  body.add(box(0.15, 0.04, 0.22, C.forklift, 0.02, 0.4, -0.05));
+  for (const x of [-0.24, 0.16]) {
+    for (const z of [-0.17, 0.17]) {
+      const wheel = cyl(0.09, 0.07, C.tyre, x, 0, z, 10);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.y = 0.09;
+      body.add(wheel);
+    }
+  }
+  const boom = box(0.7, 0.07, 0.08, C.forklift, 0.12, 0.3, 0.1);
+  boom.rotation.z = 0.35;
+  body.add(boom);
+  const load = container(1, 0.48, 0.42, 0.04);
+  load.visible = false;
+  body.add(load);
+  root.add(body);
+  return { root, crates: [load], body };
 }
 
 /** Floating warning marker for things that need the player's attention. */

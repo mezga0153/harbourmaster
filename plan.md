@@ -307,14 +307,14 @@ tests/                    vitest, sim-only
 
 Each milestone ends with something playable.
 
-**Status (27 Oct 2026):** M0 and M1 are done. M2 is mostly done: contracts with failure modes,
-capacity planning, staff skills/traits/energy/morale, break huts, candidates, thoughts, raise
-requests, bank loans and a finance statement (toilets are still open). M3 has started: port tiers
-with an upgrade panel, and the Coastal Wharf tier with concrete quays (shore or up to 8 m deep),
-jib cranes, forklifts with breakdowns and shipping lines whose coasters need deep berths. Wooden
-jetties are limited to 3.5 m and can sit on the beach. Still open in M3: pallets, warehouses and a
-mechanic role. A playthrough bot in `tests/playthrough.test.ts` checks the balance on every test
-run.
+**Status (27 Oct 2026):** M0–M2 are done apart from toilets. M3 (Coastal Wharf) is done:
+concrete quays, jib cranes, forklifts with depots, forklift lanes, large truck bays, coasters that
+need a two-wide quay, and a harbour office that coordinates more than two docks. The port is
+separate from public roads: staff stay on port paths, trucks on public roads. M4 (Container Port)
+has its first version: feeder ships, mobile harbour cranes, reach stackers and container
+hauliers, with containers as a second cargo type. Art uses Kenney models (CC0) for boats,
+ships, trucks, people, trees, rocks and containers. Next: a container yard for buffering, and
+then M5 (Bulk). A playthrough bot in `tests/playthrough.test.ts` checks the balance.
 
 ### M0 — Skeleton ✅
 
@@ -343,13 +343,13 @@ run.
 - Advisor messages; click a person to see their thoughts.
 - Contracts board v1.
 
-### M3 — Tier 1: Coastal Wharf (in progress)
+### M3 — Tier 1: Coastal Wharf ✅
 
 - Concrete quay, pallets, forklift (machine plus operator), warehouse storage.
 - Jib crane, mechanic and breakdowns.
 - Research at the harbour office; the milestone and unlock framework.
 
-### M4 — Tier 2: Containers
+### M4 — Tier 2: Containers (first version)
 
 - Containers as instanced entities, container yard zone with stacking rules.
 - Mobile harbour crane, reach stacker, truck gate with clerk, customs shed.

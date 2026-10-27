@@ -2,7 +2,7 @@ import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { Build, isBay, isDock } from '../sim/types';
-import { crate } from './models';
+import { container, crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
@@ -14,6 +14,7 @@ roofGeo.translate(0, 0.13, 0);
 
 interface BayStack {
   crates: Object3D[];
+  boxes: Object3D[];
 }
 
 interface CraneParts {
@@ -72,7 +73,9 @@ export class Structures {
   setBays(bays: BayView[]): void {
     for (const b of bays) {
       const stack = this.stacks.get(b.idx);
-      if (stack) stack.crates.forEach((c, k) => (c.visible = k < b.stock));
+      if (!stack) continue;
+      stack.crates.forEach((c, k) => (c.visible = k < b.stock));
+      stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
     }
   }
 
@@ -179,6 +182,53 @@ export class Structures {
       case Build.Quay:
         this.quay(g, i);
         return g;
+      case Build.HarbourCrane: {
+        // Mobile harbour crane: a wheeled base with outriggers, a tall tower
+        // and a long boom that slews out over the ship.
+        this.quay(g, i);
+        const y = QUAY_Y;
+        g.add(box(0.86, 0.12, 0.86, C.chassis, 0.5, y, 0.5));
+        for (const [ox, oz] of [
+          [0.06, 0.06],
+          [0.94, 0.06],
+          [0.06, 0.94],
+          [0.94, 0.94],
+        ]) {
+          g.add(box(0.1, 0.06, 0.1, C.stripe, ox, y, oz));
+        }
+        g.add(cyl(0.1, 1.15, C.sign, 0.5, y + 0.12, 0.5, 8));
+        const slew = new Group();
+        slew.position.set(0.5, y + 1.27, 0.5);
+        slew.add(box(0.36, 0.24, 0.3, C.sign, -0.04, -0.12));
+        slew.add(box(0.12, 0.12, 0.26, C.window, 0.14, -0.06));
+        slew.add(box(0.22, 0.2, 0.3, C.chassis, -0.28, -0.14));
+        const boom = box(2.1, 0.08, 0.1, C.craneYellow, 0.95, 0.04);
+        boom.rotation.z = 0.12;
+        slew.add(boom);
+        const hook = new Group();
+        hook.position.set(1.9, 0.55, 0);
+        hook.add(box(0.012, 0.7, 0.012, C.chassis, 0, 0));
+        hook.add(box(0.36, 0.04, 0.16, C.stripe, 0, -0.04));
+        slew.add(hook);
+        g.add(slew);
+        // Landing stack for up to four containers on the landward side.
+        const stack: Object3D[] = [];
+        const back = this.landwardOffset(i);
+        for (let layer = 0; layer < 2; layer++) {
+          for (const a of [0.27, 0.73]) {
+            const [cx, cz] = back.alongX
+              ? [a, 0.5 + back.side * 0.34]
+              : [0.5 + back.side * 0.34, a];
+            const c = container(stack.length + 1, cx, y + 0.12 + layer * 0.17, cz);
+            if (!back.alongX) c.rotation.y = Math.PI / 2;
+            c.visible = false;
+            g.add(c);
+            stack.push(c);
+          }
+        }
+        this.cranes.set(i, { slew, hook, stack, angle: 0, target: 0, busy: false });
+        return g;
+      }
       case Build.JibCrane: {
         this.quay(g, i);
         // Pedestal, then a slewing cab and jib that swings to face the boat.
@@ -291,7 +341,21 @@ export class Structures {
         const [px, pz] = roadX ? [0.92, 0.92] : [0.92, 0.08];
         g.add(cyl(0.02, 0.5, C.chassis, px, y, pz));
         g.add(box(0.04, 0.16, 0.22, C.sign, px, y + 0.45, pz));
-        this.stacks.set(i, { crates });
+        // Large bays also hold up to four containers, two by two.
+        const boxes: Object3D[] = [];
+        if (large) {
+          for (let layer = 0; layer < 2; layer++) {
+            for (const a of [0.3, 0.72]) {
+              const [cx, cz] = roadX ? [a, 0.3] : [0.3, a];
+              const c = container(boxes.length, cx, y + layer * 0.17, cz);
+              if (!roadX) c.rotation.y = Math.PI / 2;
+              c.visible = false;
+              g.add(c);
+              boxes.push(c);
+            }
+          }
+        }
+        this.stacks.set(i, { crates, boxes });
         return g;
       }
     }

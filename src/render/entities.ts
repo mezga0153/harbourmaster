@@ -1,7 +1,16 @@
 import { Group, Vector3, type Object3D } from 'three';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { alertMarker, boat, forklift, person, showLoad, truck, type Model } from './models';
+import {
+  alertMarker,
+  boat,
+  forklift,
+  person,
+  showLoad,
+  stacker,
+  truck,
+  type Model,
+} from './models';
 import { surfaceY } from './terrain';
 
 const SNAPSHOT_MS = 100;
@@ -34,12 +43,14 @@ export class Entities {
             ? person(v.id)
             : v.kind === 'forklift'
               ? forklift()
-              : v.kind === 'boat'
-                ? boat(v.variant, v.vessel)
-                : truck(v.variant, v.capacity);
+              : v.kind === 'stacker'
+                ? stacker()
+                : v.kind === 'boat'
+                  ? boat(v.variant, v.vessel)
+                  : truck(v.variant, v.capacity, v.boxes);
         this.group.add(model.root);
         // Only machines show a warning marker; boats at anchor are normal.
-        const alert = v.kind === 'forklift' ? alertMarker() : null;
+        const alert = v.kind === 'forklift' || v.kind === 'stacker' ? alertMarker() : null;
         if (alert) {
           alert.visible = false;
           this.group.add(alert);
@@ -91,7 +102,7 @@ export class Entities {
       if (cur.kind === 'boat') {
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.025;
-      } else if (cur.kind === 'dockhand' || cur.kind === 'forklift') {
+      } else if (cur.kind === 'dockhand' || cur.kind === 'forklift' || cur.kind === 'stacker') {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
         const rx = x - Math.sin(dir) * keep;

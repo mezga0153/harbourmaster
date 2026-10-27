@@ -32,8 +32,18 @@ function mood(satisfaction: number): { label: string; tone: string } {
 }
 
 function kindLabel(t: Terms): string {
-  if (t.kind === 'haulier') return 'Haulier';
-  return t.vessel === 'coaster' ? 'Shipping line' : 'Fishery';
+  if (t.kind === 'haulier') return t.cargo === 'container' ? 'Container haulier' : 'Haulier';
+  return t.vessel === 'feeder'
+    ? 'Container line'
+    : t.vessel === 'coaster'
+      ? 'Shipping line'
+      : 'Fishery';
+}
+
+function unit(t: Terms): string {
+  return (t.kind === 'haulier' ? t.cargo === 'container' : t.vessel === 'feeder')
+    ? 'containers'
+    : 'crates';
 }
 
 function CardHead({ terms, extra }: { terms: Terms; extra?: ComponentChildren }) {
@@ -54,7 +64,7 @@ function Headline({ terms }: { terms: Terms }) {
     return (
       <div class="headline">
         <span>
-          <strong>≈{Math.round(fisheryDailyCrates(terms))}</strong> crates/day
+          <strong>≈{Math.round(fisheryDailyCrates(terms))}</strong> {unit(terms)}/day
         </span>
         <span class="pos">
           <strong>≈{money(fisheryDailyValue(terms))}</strong>/day
@@ -66,7 +76,7 @@ function Headline({ terms }: { terms: Terms }) {
     <div class="headline">
       <span>
         <strong>{terms.fleet}</strong> truck{terms.fleet > 1 ? 's' : ''} ×{' '}
-        <strong>{terms.capacity}</strong> crates
+        <strong>{terms.capacity}</strong> {unit(terms)}
       </span>
       <span class="neg">
         <strong>{money(-terms.dailyFee)}</strong>/day
@@ -92,15 +102,25 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   if (t.kind === 'haulier') {
     return [
       ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
-      ['Per truck', `${t.capacity} crates`],
-      ['Needs', t.capacity > B.TRUCK_CAPACITY ? 'Large truck bays' : 'Any truck bay'],
+      ['Per truck', `${t.capacity} ${unit(t)}`],
+      ['Needs', t.capacity > B.TRUCK_CAPACITY || t.cargo ? 'Large truck bays' : 'Any truck bay'],
     ];
   }
   return [
-    [t.vessel === 'coaster' ? 'A coaster' : 'A boat', `every ${span(t.boatEvery)}`],
-    ['Load', `${t.cratesMin}–${t.cratesMax} crates`],
-    ['Pays', `${money(t.fee)} a crate`],
-    ['Needs', t.vessel === 'coaster' ? `2-wide quay, ${B.COASTER_DRAFT} m` : 'Any berth'],
+    [
+      t.vessel === 'feeder' ? 'A feeder' : t.vessel === 'coaster' ? 'A coaster' : 'A boat',
+      `every ${span(t.boatEvery)}`,
+    ],
+    ['Load', `${t.cratesMin}–${t.cratesMax} ${unit(t)}`],
+    ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)}`],
+    [
+      'Needs',
+      t.vessel === 'feeder'
+        ? `Harbour crane, ${B.FEEDER_DRAFT} m`
+        : t.vessel === 'coaster'
+          ? `2-wide quay, ${B.COASTER_DRAFT} m`
+          : 'Any berth',
+    ],
   ];
 }
 
@@ -144,6 +164,33 @@ function DockAlert() {
   );
 }
 
+function ContainerSummary({ cap }: { cap: Capacity }) {
+  const b = cap.boxes;
+  const tier = snapshot.value?.progress.tier ?? 0;
+  if (tier < 2 && b.demand === 0) return null;
+  const short =
+    b.demand > 0 && b.berths === 0
+      ? 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water.'
+      : b.demand > b.lifting
+        ? 'Containers bottleneck: lifting. Build another harbour crane.'
+        : b.demand > b.moving
+          ? 'Containers bottleneck: moving. Buy reach stackers.'
+          : b.demand > b.trucking
+            ? 'Containers bottleneck: trucking. Sign a container haulier and build large truck bays.'
+            : null;
+  return (
+    <>
+      <div class="kpis four">
+        <Kpi label="Containers" value={b.demand} hint="Containers per day your lines send" />
+        <Kpi label="Lifting" value={b.lifting} demand={b.demand} hint="Harbour cranes" />
+        <Kpi label="Moving" value={b.moving} demand={b.demand} hint="Reach stackers" />
+        <Kpi label="Trucking" value={b.trucking} demand={b.demand} hint="Container trucks" />
+      </div>
+      {short && <p class="note bad">{short}</p>}
+    </>
+  );
+}
+
 function Summary({ cap }: { cap: Capacity }) {
   const jammed = cap.congestion >= 0.15;
   const short =
@@ -180,6 +227,7 @@ function Summary({ cap }: { cap: Capacity }) {
         </p>
       )}
       {short && <p class="note bad">{short}</p>}
+      <ContainerSummary cap={cap} />
       <DockAlert />
     </div>
   );
@@ -287,7 +335,36 @@ function OfferCard({
   const checks: ComponentChildren[] = [];
   let blocked = false;
 
-  if (t.kind === 'fishery') {
+  if (t.kind === 'fishery' && t.vessel === 'feeder') {
+    const b = cap.boxes;
+    const after = b.demand + Math.round(fisheryDailyCrates(t));
+    blocked = b.berths === 0;
+    checks.push(
+      <Check ok={b.berths > 0}>
+        {b.berths > 0
+          ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a harbour crane`
+          : 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water'}
+      </Check>,
+      <Check ok={after <= b.lifting} warn={after > b.lifting}>
+        Lifting: {after} needed, {b.lifting} possible
+      </Check>,
+      <Check ok={after <= b.moving} warn={after > b.moving}>
+        Moving: {after} needed, {b.moving} possible
+      </Check>,
+      <Check ok={after <= b.trucking} warn={after > b.trucking}>
+        Trucking: {after} needed, {b.trucking} possible
+      </Check>,
+    );
+  } else if (t.kind === 'haulier' && t.cargo === 'container') {
+    const large = (snapshot.value?.bays ?? []).filter((x) => x.large).length;
+    checks.push(
+      <Check ok={large > 0}>
+        {large > 0
+          ? `${large} large truck bay${large === 1 ? '' : 's'} to load at`
+          : 'Container trucks only load at large truck bays: build one'}
+      </Check>,
+    );
+  } else if (t.kind === 'fishery') {
     const after = cap.demand + Math.round(fisheryDailyCrates(t));
     const payback = o.signingFee / Math.max(1, fisheryDailyValue(t));
     const unloadOk = after <= cap.unloading;
