@@ -54,7 +54,7 @@ describe('World', () => {
     expect(world.stats.cratesHandled).toBeGreaterThan(5);
     expect(world.stats.earned).toBeGreaterThan(0);
     // Earnings minus penalties and three days of wages and haulier fees.
-    const daily = B.WAGE_DOCKHAND + B.STARTER_HAULIER_FEE;
+    const daily = B.START_DOCKHANDS * B.WAGE_DOCKHAND + B.STARTER_HAULIER_FEE;
     expect(world.cash).toBe(start + world.stats.earned - world.stats.penalties - 3 * daily);
   });
 
@@ -164,8 +164,8 @@ describe('Contracts', () => {
 
   it('makes an overloaded fishery unhappy, charges demurrage and lets it walk out', () => {
     const world = World.create(7);
-    // Sack the only dockhand so nothing is ever unloaded.
-    world.command({ type: 'fire', id: world.people[0].id });
+    // Sack every dockhand so nothing is ever unloaded.
+    for (const p of [...world.people]) world.command({ type: 'fire', id: p.id });
     const starter = world.contracts.find((c) => c.terms.kind === 'fishery')!;
     const before = world.cash;
     for (let t = 0; t < TICKS_PER_DAY * 30 && world.contracts.includes(starter); t++) {

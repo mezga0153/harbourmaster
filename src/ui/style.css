@@ -756,6 +756,56 @@ button:focus-visible {
   gap: 4px;
 }
 
+.capacity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
+
+.cap-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+}
+
+.cap-label {
+  color: var(--text-2);
+}
+
+.cap-row.head .cap-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cap-value {
+  text-align: right;
+  font-weight: 600;
+}
+
+.cap-value .muted {
+  font-weight: 400;
+  font-size: 11px;
+  margin-left: 1px;
+}
+
+.cap-value.warn {
+  color: var(--warn);
+}
+
+.cap-value.bad {
+  color: var(--bad);
+}
+
+.hint.warn {
+  font-size: 12px;
+  color: #ffd08a;
+}
+
 /* Build dock */
 
 .dock {

@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
-import type { ContractView, OfferView } from '../protocol';
+import type { Capacity, ContractView, OfferView } from '../protocol';
 import { C } from '../render/palette';
-import { fisheryDailyValue, type Terms } from '../sim/contracts';
+import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { money } from './format';
@@ -105,12 +105,73 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
   );
 }
 
-function OfferCard({ o, cash, actions }: { o: OfferView; cash: number; actions: Actions }) {
+function load(demand: number, capacity: number): { pct: number; tone: string } {
+  const pct = capacity > 0 ? demand / capacity : demand > 0 ? Infinity : 0;
+  return { pct, tone: pct < 0.7 ? 'good' : pct < 0.9 ? 'ok' : pct <= 1 ? 'warn' : 'bad' };
+}
+
+function CapacityRow({ label, value, demand }: { label: string; value: number; demand: number }) {
+  const l = load(demand, value);
+  return (
+    <div class="cap-row">
+      <span class="cap-label">{label}</span>
+      <Meter value={Math.min(1, l.pct)} tone={l.tone} />
+      <span class={`cap-value ${l.tone}`}>
+        {value}
+        <span class="muted">/day</span>
+      </span>
+    </div>
+  );
+}
+
+/** What the fisheries send against what the port can move, in crates/day. */
+function CapacityPanel({ cap }: { cap: Capacity }) {
+  const short =
+    cap.demand > cap.unloading
+      ? 'Not enough dockhands to unload what arrives. Hire more.'
+      : cap.demand > cap.trucking
+        ? 'Not enough trucks. Sign a haulier, or build another truck bay if trucks are spare.'
+        : null;
+  return (
+    <div class="capacity">
+      <div class="cap-row head">
+        <span class="cap-label">Arriving</span>
+        <span />
+        <span class="cap-value">
+          {cap.demand}
+          <span class="muted">/day</span>
+        </span>
+      </div>
+      <CapacityRow label="Unloading" value={cap.unloading} demand={cap.demand} />
+      <CapacityRow label="Trucking" value={cap.trucking} demand={cap.demand} />
+      {short && <p class="note bad">{short}</p>}
+    </div>
+  );
+}
+
+function OfferCard({
+  o,
+  cash,
+  cap,
+  actions,
+}: {
+  o: OfferView;
+  cash: number;
+  cap: Capacity;
+  actions: Actions;
+}) {
   const days = Math.max(1, Math.ceil(o.expiresIn / TICKS_PER_DAY));
+  const extra = o.terms.kind === 'fishery' ? fisheryDailyCrates(o.terms) : 0;
+  const overload = extra > 0 && cap.demand + extra > Math.min(cap.unloading, cap.trucking);
   return (
     <div class="card offer">
       <CardHead terms={o.terms} />
       <TermsLines terms={o.terms} />
+      {overload && (
+        <p class="hint warn">
+          Adds ~{Math.round(extra)} crates/day, more than the port can handle right now.
+        </p>
+      )}
       <div class="card-foot">
         <span class="muted">
           Expires in {days} day{days === 1 ? '' : 's'}
@@ -153,6 +214,12 @@ export function ContractsPanel({ actions }: { actions: Actions }) {
       )}
 
       <div class="section-title">
+        <span>Port capacity</span>
+        <span class="muted">crates per day</span>
+      </div>
+      <CapacityPanel cap={s.capacity} />
+
+      <div class="section-title">
         <span>Active</span>
         <span class="muted">
           {fisheries.length} fisher{fisheries.length === 1 ? 'y' : 'ies'} · {fleet} truck
@@ -171,7 +238,7 @@ export function ContractsPanel({ actions }: { actions: Actions }) {
         <p class="muted">No offers right now. New ones arrive every few days.</p>
       )}
       {s.offers.map((o) => (
-        <OfferCard key={o.id} o={o} cash={s.cash} actions={actions} />
+        <OfferCard key={o.id} o={o} cash={s.cash} cap={s.capacity} actions={actions} />
       ))}
     </aside>
   );

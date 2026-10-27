@@ -3,6 +3,7 @@
 export const START_CASH = 5000;
 export const START_YEAR = 1962;
 
+export const START_DOCKHANDS = 2;
 export const HIRE_FEE = 100;
 export const WAGE_DOCKHAND = 40; // per day
 

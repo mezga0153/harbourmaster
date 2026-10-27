@@ -169,7 +169,7 @@ export class World {
     for (let i = 0; i < map.build.length; i++) {
       if (map.build[i] === Build.TruckBay) world.addBay(i);
     }
-    world.spawnDockhand(spawn);
+    for (let k = 0; k < B.START_DOCKHANDS; k++) world.spawnDockhand(spawn);
     world.addContract(STARTER_FISHERY, 50, B.STARTER_BREACH_PENALTY);
     world.addContract(STARTER_HAULIER, 0, 0);
     world.addOffer('fishery');
@@ -800,8 +800,10 @@ export class World {
       case 'approaching':
         if (this.move(b, this.boatCost, true, () => B.BOAT_SPEED) !== 'moving') {
           b.state = 'anchored';
-          if (!this.tryBerth(b)) {
-            this.message(`A ${b.company} boat is waiting at anchor for a free berth.`, 'info');
+          b.dir = Math.PI; // swing to face the shore like the others
+          const queue = this.boats.filter((q) => q.state === 'anchored').length;
+          if (!this.tryBerth(b) && queue === 1) {
+            this.message('Boats are queueing at the anchorage. Every berth is taken.', 'info');
           }
         }
         return;
