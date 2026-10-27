@@ -130,9 +130,12 @@ function Kpi({
 }
 
 function Summary({ cap }: { cap: Capacity }) {
+  const jammed = cap.congestion >= 0.15;
   const short =
     cap.demand > cap.unloading
-      ? 'Bottleneck: unloading. Hire dockhands or buy forklifts.'
+      ? jammed
+        ? 'Bottleneck: unloading, and workers are queueing on narrow walkways. More staff will not help much: widen jetties and paths, add berths, or use cranes and forklifts.'
+        : 'Bottleneck: unloading. Hire dockhands or buy forklifts.'
       : cap.demand > cap.trucking
         ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare.'
         : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
@@ -155,6 +158,12 @@ function Summary({ cap }: { cap: Capacity }) {
           hint="Crates per day your hauliers can take away"
         />
       </div>
+      {cap.congestion >= 0.05 && (
+        <p class={`hint ${jammed ? 'warn' : ''}`}>
+          Workers lost {Math.round(cap.congestion * 100)}% of their walking time yesterday waiting
+          for each other to get out of the way.
+        </p>
+      )}
       {short && <p class="note bad">{short}</p>}
     </div>
   );

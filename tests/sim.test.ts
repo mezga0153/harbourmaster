@@ -367,3 +367,58 @@ describe('Coastal Wharf tier', () => {
     expect(world.stats.cratesHandled).toBeGreaterThan(10);
   });
 });
+
+describe('Crowding', () => {
+  /** The starting jetty's tiles, from the shore outwards. */
+  function jetty(world: World): number[] {
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const out: number[] = [];
+    for (let x = 0; x < m.w; x++) if (m.build[m.idx(x, r)] === Build.Jetty) out.push(m.idx(x, r));
+    return out;
+  }
+
+  function place(world: World, p: World['people'][number], at: number, dir: number): void {
+    p.x = world.map.xOf(at) + 0.5;
+    p.y = world.map.yOf(at) + 0.5;
+    p.dir = dir;
+  }
+
+  it('lets workers going opposite ways pass on a narrow jetty', () => {
+    const world = World.create(7);
+    const [a, b] = world.people;
+    const [j0, j1, j2] = jetty(world);
+    place(world, a, j0, 0);
+    place(world, b, j2, Math.PI);
+    Object.assign(a, { state: 'wander', path: [j1, j2], goal: j2 });
+    Object.assign(b, { state: 'wander', path: [j1, j0], goal: j0 });
+    let worst = 0;
+    let passed = false;
+    for (let t = 0; t < 40 && !passed; t++) {
+      world.step();
+      worst = Math.max(worst, a.blocked, b.blocked);
+      passed = Math.floor(a.x) === world.map.xOf(j2) && Math.floor(b.x) === world.map.xOf(j0);
+    }
+    expect(passed).toBe(true);
+    // They kept to their own side; nobody had to squeeze through.
+    expect(worst).toBeLessThan(B.SIDESTEP_AFTER);
+  });
+
+  it('makes workers going the same way queue behind someone working', () => {
+    const world = World.create(7);
+    const [a, b] = world.people;
+    const [j0, j1, j2] = jetty(world);
+    place(world, a, j1, 0);
+    Object.assign(a, { state: 'picking', timer: 200, path: [], goal: j1 });
+    place(world, b, j0, 0);
+    Object.assign(b, { state: 'wander', path: [j1, j2], goal: j2 });
+    let waited = 0;
+    for (let t = 0; t < 40; t++) {
+      world.step();
+      waited = Math.max(waited, b.blocked);
+      // Never overtakes: stays short of the worker lifting the crate.
+      expect(b.x).toBeLessThan(world.map.xOf(j1));
+    }
+    expect(waited).toBeGreaterThan(3);
+  });
+});

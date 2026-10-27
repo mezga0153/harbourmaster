@@ -101,6 +101,7 @@ export function paceFactor(skill: number, morale: number, energy: number): numbe
 }
 
 export interface Needs {
+  blocked: boolean;
   energy: number;
   morale: number;
   resting: boolean;
@@ -111,6 +112,7 @@ export interface Needs {
 
 /** A short line for the inspector, Theme Hospital style. */
 export function thought(n: Needs): string {
+  if (n.blocked) return 'Out of the way, please!';
   if (n.resting) return n.hasHut ? 'Ahh, a cup of tea.' : 'Nowhere to sit down around here…';
   if (n.morale < 25) return "I'm thinking about quitting.";
   if (n.energy < B.TIRED_ENERGY) return "I'm exhausted.";

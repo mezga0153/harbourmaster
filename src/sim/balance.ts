@@ -68,6 +68,13 @@ export const LOAN_DAILY_RATE = 0.004; // charged on the outstanding loan each da
 export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the port
 
 export const WALK_SPEED = 0.24; // tiles per tick on a footpath
+
+// Crowding: workers do not walk through each other.
+export const GATHER_CAP = 3; // workers per lane on a truck bay or break hut tile
+export const SIDESTEP_AFTER = 6; // ticks blocked before trying to step aside
+export const REROUTE_AFTER = 18; // ticks blocked before looking for a way around
+export const SQUEEZE_AFTER = 60; // ticks blocked before squeezing past anyway
+export const WORKERS_PER_SPOT = 2; // sent to the same loading spot at once
 export const TRUCK_SPEED = 0.7;
 export const BOAT_SPEED = 0.15;
 

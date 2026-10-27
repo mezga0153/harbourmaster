@@ -124,6 +124,8 @@ export interface Capacity {
   trucking: number;
   /** Berths deep enough for a coaster. */
   deepBerths: number;
+  /** Share of worker travel time lost waiting for each other yesterday. */
+  congestion: number;
 }
 
 export interface BayView {

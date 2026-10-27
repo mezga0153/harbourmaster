@@ -42,7 +42,7 @@ import {
   type MachineKind,
 } from './types';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -76,6 +76,10 @@ interface Dockhand extends Agent {
   capacity: number;
   /** Forklifts: breaks down at the next idle moment. */
   needsRepair: boolean;
+  /** Ticks spent stuck behind another worker. */
+  blocked: number;
+  /** Allowed to push into a full tile once, to break a deadlock. */
+  squeeze: boolean;
   skill: number;
   trait: Trait | null;
   wage: number;
@@ -169,6 +173,8 @@ export interface SaveData {
   offers: Offer[];
   candidates: Candidate[];
   cranes: Crane[];
+  congestion: number;
+  jam: { moving: number; waiting: number };
   tier: number;
   loan: number;
   today: Ledger;
@@ -200,6 +206,11 @@ export function breachPenalty(c: { signingFee: number }): number {
   return Math.max(B.BREACH_MIN, c.signingFee * B.BREACH_MULTIPLIER);
 }
 
+/** Direction of travel as a lane: 0 east, 1 south, 2 west, 3 north. */
+function laneOf(dir: number): number {
+  return ((Math.round(dir / (Math.PI / 2)) % 4) + 4) % 4;
+}
+
 function cancelFee(c: Contract): number {
   return Math.round(c.signingFee * B.CANCEL_FEE_SHARE);
 }
@@ -226,6 +237,10 @@ export class World {
   offers: Offer[] = [];
   candidates: Candidate[] = [];
   cranes = new Map<number, Crane>();
+  /** Share of yesterday's worker travel time lost waiting for each other. */
+  congestion = 0;
+  /** Today's worker ticks spent moving and waiting, for `congestion`. */
+  jam = { moving: 0, waiting: 0 };
   /** Index into TIERS. */
   tier = 0;
   loan = 0;
@@ -248,13 +263,17 @@ export class World {
   /** Shortest road from the highway to a truck bay; set by capacity(). */
   private roadLen = Infinity;
   private events: SimEvent[] = [];
+  /** Workers per tile and lane (tile * 4 + lane), rebuilt every tick. Not saved. */
+  private occupancy: Uint8Array;
   private dirty = new Set<number>();
 
   private constructor(
     readonly seed: number,
     readonly map: GameMap,
     readonly rng: Rng,
-  ) {}
+  ) {
+    this.occupancy = new Uint8Array(map.w * map.h * 4);
+  }
 
   static create(seed: number): World {
     const { map, spawn } = generateMap(seed);
@@ -295,6 +314,7 @@ export class World {
       Array.isArray(d.candidates) &&
       Number.isFinite(d.loan) &&
       Number.isFinite(d.tier) &&
+      Number.isFinite(d.congestion) &&
       Array.isArray(d.cranes) &&
       d.boats.every((b) => Number.isFinite(b.draft)) &&
       !!d.today &&
@@ -322,6 +342,8 @@ export class World {
     world.candidates = s.candidates.map((c) => ({ ...c }));
     world.loan = s.loan;
     world.tier = s.tier;
+    world.congestion = s.congestion;
+    world.jam = { ...s.jam };
     for (const c of s.cranes) world.cranes.set(c.idx, { ...c, stack: [...c.stack] });
     world.today = { ...s.today };
     world.yesterday = s.yesterday ? { ...s.yesterday } : null;
@@ -348,6 +370,8 @@ export class World {
       offers: this.offers,
       candidates: this.candidates,
       cranes: [...this.cranes.values()],
+      congestion: this.congestion,
+      jam: this.jam,
       tier: this.tier,
       loan: this.loan,
       today: this.today,
@@ -782,7 +806,10 @@ export class World {
           ),
         )
       : Infinity;
+    // Time lost in queues on narrow walkways comes straight off the top.
+    unloading *= 1 - this.congestion;
     this.capacityCache = {
+      congestion: this.congestion,
       demand: Math.round(demand),
       unloading: Math.round(unloading),
       trucking: this.truckingWith(null),
@@ -829,6 +856,7 @@ export class World {
     this.spawnBoats();
     for (const b of [...this.boats]) this.updateBoat(b);
     for (const c of this.cranes.values()) this.updateCrane(c);
+    this.countOccupancy();
     for (const p of this.people) this.updateDockhand(p);
     if (this.tick % 10 === 0) this.spawnTrucks();
     for (const t of [...this.trucks]) this.updateTruck(t);
@@ -884,6 +912,10 @@ export class World {
     this.checkMorale();
     this.raiseRequests();
     this.refreshCandidates();
+    const travel = this.jam.moving + this.jam.waiting;
+    this.congestion = travel > 0 ? this.jam.waiting / travel : 0;
+    this.jam = { moving: 0, waiting: 0 };
+    this.capacityCache = null;
     this.book('wages', -this.wageBill());
     this.book('hauliers', -this.dailyFees());
     this.book('maintenance', -this.cranes.size * B.CRANE_RUNNING_COST);
@@ -1248,6 +1280,8 @@ export class World {
       raiseAsk: 0,
       capacity: 1,
       needsRepair: false,
+      blocked: 0,
+      squeeze: false,
       x: this.map.xOf(at) + 0.5,
       y: this.map.yOf(at) + 0.5,
       dir: 0,
@@ -1328,9 +1362,154 @@ export class World {
   };
 
   private walk(p: Dockhand) {
-    if (p.kind === 'forklift') return this.move(p, this.driveCost, true, () => B.FORKLIFT_SPEED);
-    const pace = paceFactor(p.skill, p.morale, p.energy);
-    return this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace);
+    const before = this.tileOf(p);
+    const laneBefore = laneOf(p.dir);
+    const enter = (i: number) => p.squeeze || this.laneFree(i, laneOf(this.headingTo(p, i)));
+    let r: ReturnType<World['move']>;
+    if (p.kind === 'forklift') {
+      r = this.move(p, this.driveCost, true, () => B.FORKLIFT_SPEED, enter);
+    } else {
+      const pace = paceFactor(p.skill, p.morale, p.energy);
+      r = this.move(p, this.walkCost, true, (i) => this.walkSpeed(i) * pace, enter);
+    }
+    const after = this.tileOf(p);
+    const laneAfter = laneOf(p.dir);
+    if (after !== before || laneAfter !== laneBefore) {
+      const old = before * 4 + laneBefore;
+      this.occupancy[old] = Math.max(0, this.occupancy[old] - 1);
+      this.occupancy[after * 4 + laneAfter]++;
+    }
+    if (after !== before) {
+      p.squeeze = false;
+      // Only real progress clears the wait; shuffling within a tile does not.
+      p.blocked = 0;
+    }
+    // Congestion is measured on working trips only, not strolls or breaks.
+    const working = WORKING.has(p.state);
+    if (r === 'waiting') {
+      p.blocked++;
+      if (working) this.jam.waiting++;
+      this.resolveJam(p);
+    } else if (r === 'moving') {
+      if (working) this.jam.moving++;
+    } else {
+      p.blocked = 0;
+    }
+    return r;
+  }
+
+  // ── Crowding ──────────────────────────────────────────────
+  //
+  // Each tile has a lane per direction of travel. Workers keep to the right,
+  // so people going opposite ways pass each other, but nobody overtakes
+  // someone heading the same way: queues form behind whoever is in front.
+
+  /** How many workers fit in one lane of a tile. */
+  private laneCap(i: number): number {
+    const b = this.map.build[i];
+    return b === Build.TruckBay || b === Build.BreakHut ? B.GATHER_CAP : 1;
+  }
+
+  private laneFree(i: number, lane: number): boolean {
+    return this.occupancy[i * 4 + lane] < this.laneCap(i);
+  }
+
+  /** Any lane of the tile in use at all. */
+  private tileBusy(i: number): boolean {
+    const o = this.occupancy;
+    return o[i * 4] + o[i * 4 + 1] + o[i * 4 + 2] + o[i * 4 + 3] >= this.laneCap(i);
+  }
+
+  private headingTo(a: Agent, i: number): number {
+    return Math.atan2(this.map.yOf(i) + 0.5 - a.y, this.map.xOf(i) + 0.5 - a.x);
+  }
+
+  /** Resting workers sit out of the way, so they do not count. */
+  private takesSpace(p: Dockhand): boolean {
+    return p.state !== 'resting';
+  }
+
+  private countOccupancy(): void {
+    this.occupancy.fill(0);
+    for (const p of this.people) {
+      if (this.takesSpace(p)) this.occupancy[this.tileOf(p) * 4 + laneOf(p.dir)]++;
+    }
+  }
+
+  /**
+   * Someone ahead is going the same way and has stopped (lifting a crate, or
+   * queueing themselves). Wait, then try stepping aside, then a route around
+   * the crowd, and finally squeeze past so nobody is stuck for good.
+   */
+  private resolveJam(p: Dockhand): void {
+    if (p.blocked === B.SIDESTEP_AFTER) this.sidestep(p);
+    else if (p.blocked === B.REROUTE_AFTER) this.reroute(p);
+    else if (p.blocked >= B.SQUEEZE_AFTER) p.squeeze = true;
+  }
+
+  private sidestep(p: Dockhand): void {
+    const cost = this.costFor(p);
+    const m = this.map;
+    const here = this.tileOf(p);
+    const ahead = p.path[0];
+    // Only step sideways: never onto the tile ahead or back the way we came.
+    const dx = Math.sign(m.xOf(ahead) - m.xOf(here));
+    const dy = Math.sign(m.yOf(ahead) - m.yOf(here));
+    const behind = m.inBounds(m.xOf(here) - dx, m.yOf(here) - dy)
+      ? m.idx(m.xOf(here) - dx, m.yOf(here) - dy)
+      : -1;
+    let best = -1;
+    let bestD = Infinity;
+    for (const n of m.neighbors4(here)) {
+      if (n === ahead || n === behind || !Number.isFinite(cost(n))) continue;
+      if (!this.laneFree(n, laneOf(this.headingTo(p, n)))) continue;
+      const d = this.dist(n, p.goal);
+      if (d < bestD) {
+        bestD = d;
+        best = n;
+      }
+    }
+    if (best < 0) return;
+    const onward = this.pathFor(p, best, p.goal);
+    if (!onward) return;
+    p.path = [best, ...onward];
+  }
+
+  private reroute(p: Dockhand): void {
+    const base = this.costFor(p);
+    const crowded: CostFn = (i) => base(i) + (this.tileBusy(i) ? 6 : 0);
+    const path = findPath(this.map.w, this.map.h, this.tileOf(p), p.goal, crowded, true);
+    if (path) p.path = path;
+  }
+
+  /** Idle workers stand off walkways so they do not block the busy ones. */
+  private clearTheWay(p: Dockhand): boolean {
+    if (p.kind === 'forklift') return false;
+    const here = this.tileOf(p);
+    const b = this.map.build[here];
+    if (b === Build.None || b === Build.BreakHut) return false;
+    const m = this.map;
+    for (let r = 1; r <= 4; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = m.xOf(here) + dx;
+          const y = m.yOf(here) + dy;
+          if (!m.inBounds(x, y)) continue;
+          const i = m.idx(x, y);
+          if (m.build[i] !== Build.None || !Number.isFinite(this.walkCost(i))) continue;
+          if (this.tileBusy(i)) continue;
+          const path = this.pathFor(p, here, i);
+          if (path && path.length <= 6) {
+            p.path = path;
+            p.goal = i;
+            p.state = 'wander';
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   private handlingTicks(p: Dockhand, base: number): number {
@@ -1436,7 +1615,10 @@ export class World {
         }
         if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) return;
         if (p.state === 'wander') {
-          if (this.walk(p) !== 'moving') p.state = 'idle';
+          const r = this.walk(p);
+          if (r === 'arrived' || r === 'blocked') p.state = 'idle';
+        } else if ((this.tick + p.id) % 20 === 0 && this.clearTheWay(p)) {
+          // stepped off the walkway
         } else if (p.kind === 'dockhand' && this.rng.next() < 0.008) {
           this.wander(p);
         }
@@ -1527,7 +1709,9 @@ export class World {
     const craneCount = sources.length;
     for (const boat of this.boats) {
       const avail = boat.crates - boat.reserved;
-      if (boat.state === 'moored' && avail > 0) sources.push({ tile: boat.jetty, avail, boat });
+      if (boat.state !== 'moored' || avail <= 0) continue;
+      // Workers can load from any dock tile alongside the boat.
+      for (const tile of this.pickupSpots(boat)) sources.push({ tile, avail, boat });
     }
     const byDist = (a: { tile: number }, b: { tile: number }) =>
       this.dist(here, a.tile) - this.dist(here, b.tile);
@@ -1538,6 +1722,8 @@ export class World {
 
     for (const src of ordered) {
       if (!Number.isFinite(cost(src.tile))) continue;
+      // The foreman sends no more than two to the same spot; the rest wait.
+      if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
       const bay = this.bayWithRoom(p, src.tile);
       if (!bay) continue;
       if (!this.headTo(p, src.tile)) continue;
@@ -1554,6 +1740,24 @@ export class World {
       return true;
     }
     return false;
+  }
+
+  /** Dock tiles beside a moored boat's hull. */
+  private pickupSpots(b: Boat): number[] {
+    const fp = this.footprint(b.berth, b.jetty) ?? [b.berth];
+    const spots = new Set<number>([b.jetty]);
+    for (const t of fp) {
+      for (const n of this.map.neighbors4(t)) if (isDock(this.map.build[n])) spots.add(n);
+    }
+    return [...spots];
+  }
+
+  private workersAt(tile: number): number {
+    let n = 0;
+    for (const q of this.people) {
+      if (q.goal === tile && (q.state === 'toPickup' || q.state === 'picking')) n++;
+    }
+    return n;
   }
 
   private sourceValid(p: Dockhand): boolean {
@@ -1811,12 +2015,15 @@ export class World {
     cost: CostFn,
     diagonal: boolean,
     speedAt: (i: number) => number,
-  ): 'moving' | 'arrived' | 'blocked' {
+    canEnter?: (i: number) => boolean,
+  ): 'moving' | 'arrived' | 'blocked' | 'waiting' {
     const w = this.map.w;
     let budget = speedAt(this.tileOf(a));
     let repaths = 0;
     while (budget > 1e-6 && a.path.length > 0) {
       const next = a.path[0];
+      // Hold back at the edge of a tile someone else is standing on.
+      if (canEnter && next !== this.tileOf(a) && !canEnter(next)) return 'waiting';
       if (!Number.isFinite(cost(next))) {
         const p =
           repaths++ < 1 ? findPath(w, this.map.h, this.tileOf(a), a.goal, cost, diagonal) : null;
@@ -1896,7 +2103,7 @@ export class World {
         load: p.carrying,
         moving: p.path.length > 0,
         name: p.name,
-        activity: ACTIVITY[p.state],
+        activity: p.blocked > 3 ? 'Waiting for someone to get out of the way' : ACTIVITY[p.state],
         variant: 0,
         capacity: p.capacity,
         alert: p.state === 'broken',
@@ -1913,6 +2120,7 @@ export class World {
         morale: Math.round(p.morale),
         activity: ACTIVITY[p.state],
         thought: thought({
+          blocked: p.blocked > 3,
           energy: p.energy,
           morale: p.morale,
           resting: p.state === 'resting',

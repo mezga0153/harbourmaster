@@ -73,6 +73,12 @@ export class Entities {
       if (cur.kind === 'boat') {
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.025;
+      } else if (cur.kind === 'dockhand' || cur.kind === 'forklift') {
+        // Keep to the right of the tile, so people going opposite ways pass.
+        const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
+        const rx = x - Math.sin(dir) * keep;
+        const ry = y + Math.cos(dir) * keep;
+        root.position.set(rx, surfaceY(this.map, rx, ry), ry);
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
       }
