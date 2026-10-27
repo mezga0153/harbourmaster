@@ -130,6 +130,7 @@ export function StaffPanel({ actions }: { actions: Actions }) {
   if (!s) return null;
   const tired = s.people.filter((p) => p.energy < B.TIRED_ENERGY).length;
   const unhappy = s.people.filter((p) => p.morale < 30).length;
+  const asks = s.people.filter((p) => p.raiseAsk > 0);
   return (
     <aside class="side panel wide" aria-label="Staff">
       <InfoHeader kicker="People" title="Staff" onClose={() => (panel.value = null)} />
@@ -142,6 +143,40 @@ export function StaffPanel({ actions }: { actions: Actions }) {
           {unhappy} unhappy dockhand{unhappy === 1 ? '' : 's'}. Build a break hut so they can rest
           properly.
         </p>
+      )}
+
+      {asks.length > 0 && (
+        <>
+          <div class="section-title">
+            <span>Requests</span>
+            <span class="muted">answer by tomorrow</span>
+          </div>
+          {asks.map((p) => (
+            <div class="card" key={p.id}>
+              <div class="card-head">
+                <strong>{p.name}</strong>
+                <span class="muted">
+                  {money(p.wage)} → {money(p.raiseAsk)}/day
+                </span>
+              </div>
+              <p class="muted">Asks for a raise. Saying no will hurt their morale.</p>
+              <div class="actions">
+                <button
+                  class="btn sm"
+                  onClick={() => actions.send({ type: 'raise', id: p.id, accept: false })}
+                >
+                  Refuse
+                </button>
+                <button
+                  class="btn primary sm"
+                  onClick={() => actions.send({ type: 'raise', id: p.id, accept: true })}
+                >
+                  Give raise
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
       )}
 
       <div class="section-title">

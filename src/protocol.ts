@@ -11,6 +11,7 @@ export type Command =
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }
+  | { type: 'raise'; id: number; accept: boolean }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }
   | { type: 'setSpeed'; speed: number }
@@ -61,6 +62,8 @@ export interface StaffView {
   morale: number;
   activity: string;
   thought: string;
+  /** Wage this dockhand is asking for, or 0. */
+  raiseAsk: number;
 }
 
 export interface ContractView {

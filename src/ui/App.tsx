@@ -172,6 +172,9 @@ function TopBar({ actions }: { actions: Actions }) {
         >
           <Icon name="users" />
           <span>Staff</span>
+          {s.people.some((p) => p.raiseAsk > 0) && (
+            <span class="count">{s.people.filter((p) => p.raiseAsk > 0).length}</span>
+          )}
         </button>
         <button
           class={`btn ${panel.value === 'contracts' ? 'on' : ''}`}

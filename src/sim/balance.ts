@@ -22,6 +22,11 @@ export const MORALE_HUT_BREAK = 2;
 export const MORALE_FLOOR_BREAK = -4;
 export const MORALE_EXHAUSTED = -3; // ran completely out of energy
 export const QUIT_MORALE = 15;
+export const RAISE_CHANCE = 0.08; // per dockhand per day, when not delighted
+export const RAISE_MORALE_BELOW = 80;
+export const RAISE_STEP = 10; // per day
+export const RAISE_ACCEPT_MORALE = 20;
+export const RAISE_REFUSE_MORALE = -20;
 export const QUIT_DAYS = 2; // days in a row below QUIT_MORALE before quitting
 
 export const CRATE_FEE = 20; // paid when a truck leaves with the crate

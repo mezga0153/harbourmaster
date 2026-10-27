@@ -14,6 +14,10 @@ declare const process: { env: Record<string, string | undefined> };
  */
 function playDay(w: World): string[] {
   const did: string[] = [];
+  // Good staff are worth keeping: grant raises while the books are healthy.
+  for (const p of w.people) {
+    if (p.raiseAsk > 0) w.command({ type: 'raise', id: p.id, accept: w.cash > 1500 });
+  }
   const waiting = w.boats.filter((b) => b.state === 'anchored').length;
   const cap = w.capacity();
   const fleet = w.contracts.reduce(
@@ -34,6 +38,19 @@ function playDay(w: World): string[] {
       did.push('haulier');
     }
   }
+  // The fishery we would like to sign next, if we can afford it after
+  // hiring for it.
+  const nextOffer = w.offers
+    .filter((o) => o.terms.kind === 'fishery' && o.signingFee < w.cash - 1500 - B.HIRE_FEE * 2)
+    .sort((a, b) => b.signingFee - a.signingFee)[0];
+
+  // Far more hands than work and nothing to grow into: let the priciest go.
+  if (!nextOffer && cap.unloading > cap.demand * 1.6 && w.people.length > 3) {
+    const priciest = [...w.people].sort((a, b) => b.wage / b.skill - a.wage / a.skill)[0];
+    w.command({ type: 'fire', id: priciest.id });
+    did.push('dismiss');
+  }
+
   // Somewhere to rest once there is a crew. One hut seats three.
   const huts = w.map.build.filter((b) => b === Build.BreakHut).length;
   if (w.people.length > huts * 4 + 2 && w.cash > 700 && buildHut(w)) did.push('hut');
@@ -43,10 +60,7 @@ function playDay(w: World): string[] {
 
   // Spare capacity and money: take on another fishery, making room first.
   if (waiting === 0 && w.cash > 2500) {
-    const offer = w.offers
-      // Only prepare for offers we could still afford after hiring for them.
-      .filter((o) => o.terms.kind === 'fishery' && o.signingFee < w.cash - 1500 - B.HIRE_FEE * 2)
-      .sort((a, b) => b.signingFee - a.signingFee)[0];
+    const offer = nextOffer;
     if (offer) {
       const need = cap.demand + fisheryDailyCrates(offer.terms as FisheryTerms);
       if (need > cap.unloading * 0.85) {

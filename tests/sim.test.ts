@@ -246,6 +246,19 @@ describe('Staff', () => {
     expect(p.morale).toBeGreaterThan(morale);
   });
 
+  it('asks for raises; refusing hurts morale, accepting raises the wage', () => {
+    const world = World.create(7);
+    const [a, b] = world.people;
+    a.raiseAsk = a.wage + B.RAISE_STEP;
+    b.raiseAsk = b.wage + B.RAISE_STEP;
+    const moraleB = b.morale;
+    world.command({ type: 'raise', id: a.id, accept: true });
+    world.command({ type: 'raise', id: b.id, accept: false });
+    expect(a.wage).toBe(B.WAGE_DOCKHAND + B.RAISE_STEP);
+    expect(b.morale).toBeLessThan(moraleB);
+    expect(a.raiseAsk + b.raiseAsk).toBe(0);
+  });
+
   it('quits after staying miserable', () => {
     const world = World.create(7);
     const p = world.people[0];

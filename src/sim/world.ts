@@ -33,7 +33,7 @@ import { Rng } from './rng';
 import { BUILDABLES, bulldozeError, bulldozeValue, placementCost, placementError } from './rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY, type BuildKind } from './types';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -61,6 +61,8 @@ interface Dockhand extends Agent {
   /** Break hut tile while heading to or resting in one, else -1. */
   hutIdx: number;
   lowMoraleDays: number;
+  /** Wage asked for in a pending raise request, or 0. Answer by the next day. */
+  raiseAsk: number;
   state: DockhandState;
   timer: number;
   carrying: number;
@@ -241,7 +243,11 @@ export class World {
       Number.isFinite(d.loan) &&
       !!d.today &&
       d.people.every(
-        (p) => Number.isFinite(p.crateFee) && Number.isFinite(p.energy) && Number.isFinite(p.wage),
+        (p) =>
+          Number.isFinite(p.crateFee) &&
+          Number.isFinite(p.energy) &&
+          Number.isFinite(p.wage) &&
+          Number.isFinite(p.raiseAsk),
       ) &&
       d.bays.every((b) => Array.isArray(b.crates)) &&
       d.contracts.every((c) => Number.isFinite(c.signingFee))
@@ -312,6 +318,8 @@ export class World {
         return this.fire(cmd.id);
       case 'loan':
         return this.takeLoan(cmd.amount);
+      case 'raise':
+        return this.answerRaise(cmd.id, cmd.accept);
       case 'signContract':
         return this.signContract(cmd.id);
       case 'cancelContract':
@@ -673,6 +681,34 @@ export class World {
     return this.people.reduce((n, p) => n + p.wage, 0);
   }
 
+  private answerRaise(id: number, accept: boolean): void {
+    const p = this.people.find((q) => q.id === id);
+    if (!p || p.raiseAsk === 0) return;
+    if (accept) {
+      p.wage = p.raiseAsk;
+      this.changeMorale(p, B.RAISE_ACCEPT_MORALE);
+      this.message(`${p.name} is delighted with the raise.`, 'good');
+    } else {
+      this.changeMorale(p, B.RAISE_REFUSE_MORALE);
+      this.message(`${p.name} is not happy about being turned down.`, 'bad');
+    }
+    p.raiseAsk = 0;
+  }
+
+  /** Unanswered requests count as a no; then some staff ask for more. */
+  private raiseRequests(): void {
+    for (const p of this.people) {
+      if (p.raiseAsk > 0) this.answerRaise(p.id, false);
+      else if (p.morale < B.RAISE_MORALE_BELOW && this.rng.next() < B.RAISE_CHANCE) {
+        p.raiseAsk = p.wage + B.RAISE_STEP;
+        this.message(
+          `${p.name} asks for a raise to $${p.raiseAsk}/day. Answer in the Staff panel by tomorrow.`,
+          'info',
+        );
+      }
+    }
+  }
+
   /** Staff whose morale stays rock bottom hand in their notice. */
   private checkMorale(): void {
     for (const p of [...this.people]) {
@@ -689,6 +725,7 @@ export class World {
 
   private newDay(): void {
     this.checkMorale();
+    this.raiseRequests();
     this.refreshCandidates();
     this.book('wages', -this.wageBill());
     this.book('hauliers', -this.dailyFees());
@@ -1003,6 +1040,7 @@ export class World {
       morale: B.START_MORALE,
       hutIdx: -1,
       lowMoraleDays: 0,
+      raiseAsk: 0,
       x: this.map.xOf(at) + 0.5,
       y: this.map.yOf(at) + 0.5,
       dir: 0,
@@ -1521,6 +1559,7 @@ export class World {
           carrying: p.carrying > 0,
           idle: p.state === 'idle' || p.state === 'wander',
         }),
+        raiseAsk: p.raiseAsk,
       });
     }
     for (const b of this.boats) {
