@@ -154,12 +154,15 @@ const fragmentShader = /* glsl */ `
       float halfBeam = hull.x;
       float side = abs(l);
       // The faster the boat, the further back its wake reaches.
-      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.y, hull.w + 0.5, s));
+      // Nothing ahead of the stem: the wake starts right at the bow.
+      float on = a * smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(hull.y, hull.w + 0.5, s));
       if (on < 0.01) continue;
 
       // The arms of the V: a ridge of broken water spreading out at a
       // narrow angle, with smaller crests trailing inside it.
-      float halfW = halfBeam * 0.9 + s * WAKE_SPREAD;
+      // Hugging the hull as it widens from the stem, then spreading out.
+      float flare = 1.0 - pow(1.0 - clamp(s / (hull.y * 0.2), 0.0, 1.0), 1.7);
+      float halfW = halfBeam * 0.9 * flare + s * WAKE_SPREAD;
       float ridge = 0.04 + s * 0.025;
       // Ragged, so the ridge breaks up rather than ruling a line.
       float beyond = side - halfW + (noise(p * 5.0 + uTime * 0.5) - 0.5) * ridge * 1.6;
