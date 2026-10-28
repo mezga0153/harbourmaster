@@ -175,14 +175,20 @@ interface Boat extends Agent {
   held?: number;
   /** Going astern to make way for another boat. */
   astern?: boolean;
+  /**
+   * The boat whose way it is clearing, at the head of any chain of boats
+   * backing out of each other's way.
+   */
+  yieldFor?: number;
   /** Speed going astern, which builds up and comes off gradually too. */
   sternway?: number;
   /** Closest it has got to its goal, and ticks since it last got closer. */
   best?: number;
   stall?: number;
   /**
-   * The dock whose fairway this boat holds while it comes alongside or pulls
-   * out: one boat at a time per dock, so they do not meet in the narrows.
+   * The lane this boat holds while it comes alongside or pulls out (see
+   * fairwayOf): one boat at a time per lane, so they do not meet in the
+   * narrows.
    */
   fairway?: number;
   /** Where a leaving boat cast off, to tell when it is clear of the dock. */
@@ -1668,13 +1674,13 @@ export class World {
   private tryBerth(boat: Boat): boolean {
     const from = this.tileOf(boat);
     const feeder = boat.vessel === 'feeder';
-    for (const c of this.freeBerths(from, boat.draft, boat.vessel !== 'smack', feeder).slice(
-      0,
-      6,
-    )) {
-      // One boat at a time comes alongside or pulls out on each side of a
-      // dock; the rest wait at the anchorage, out of the way.
-      if (!this.fairwayFree(boat, c.jetty, c.berth)) continue;
+    // One boat at a time comes alongside or pulls out in each lane; the rest
+    // wait at the anchorage, out of the way. Of the berths with a clear lane,
+    // the best few that can be reached.
+    const berths = this.freeBerths(from, boat.draft, boat.vessel !== 'smack', feeder)
+      .filter((c) => this.fairwayFree(boat, c.jetty, c.berth))
+      .slice(0, 6);
+    for (const c of berths) {
       const path = findPath(this.map.w, this.map.h, from, c.berth, this.seaWay(boat), true);
       if (!path) continue;
       boat.berth = c.berth;
@@ -1710,7 +1716,15 @@ export class World {
         return;
       case 'anchored':
         b.anchorTicks++;
-        if (this.tick % 10 === 0 && this.nextInQueue() === b) this.tryBerth(b);
+        // The harbour master calls in whoever has waited longest and fits a
+        // free berth: a ship waiting for a crane berth does not hold up the
+        // boats behind it.
+        if (this.tick % 10 === 0 && this.nextInQueue() === b) {
+          const queue = this.boats
+            .filter((q) => q.state === 'anchored')
+            .sort((p, q) => q.anchorTicks - p.anchorTicks);
+          for (const q of queue) if (this.tryBerth(q)) break;
+        }
         return;
       case 'arriving': {
         // Come alongside: lie along the berth, parallel to the dock edge.
@@ -1725,6 +1739,9 @@ export class World {
           this.freeFairway(b);
           b.state = 'moored';
           b.speed = 0;
+          // Alongside, it is no longer wedged in anywhere.
+          b.squeeze = 0;
+          b.held = 0;
           const what =
             b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
           const cargo =
@@ -1851,11 +1868,19 @@ export class World {
     speed = Math.max(0, speed);
 
     // A boat with right of way is waiting on this one: go astern to clear
-    // its way, as long as nothing is behind.
-    if (way.makeWay) {
+    // its way, as long as nothing is behind. Backing and getting nowhere for
+    // too long counts as wedged too.
+    if (way.makeWay >= 0) {
+      b.yieldFor = way.makeWay;
       this.goAstern(b);
+      if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER) {
+        b.squeeze = 200;
+        b.held = 0;
+        b.stall = 0;
+      }
       return 'moving';
     }
+    b.yieldFor = undefined;
     b.astern = false;
     // Take any sternway off before going ahead again.
     if ((b.sternway ?? 0) > 0) {
@@ -2070,12 +2095,13 @@ export class World {
    * sail through each other; one that is wedged in all the same squeezes
    * past in the end rather than lock up the harbour.
    */
-  private giveWay(b: Boat): { speed: number; makeWay: boolean } {
+  private giveWay(b: Boat): { speed: number; makeWay: number } {
     const me = this.hullOf(b);
     const v = B.VESSELS[b.vessel];
     const look = me.half + 0.6 + ((b.speed ?? 0) / v.speed) * 1.2;
     let speed = 1;
-    let makeWay = false;
+    /** Id of the boat to back out of the way of, or -1. */
+    let makeWay = -1;
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
@@ -2095,10 +2121,18 @@ export class World {
         speed = Math.min(speed, clamp((gap - room) / Math.max(0.1, ease), 0, 1));
       }
       // Something with right of way is held up, and this boat is in its way;
-      // or a boat backing out of someone's way needs this one to back too.
-      if (!still && (this.outranks(o, b) || o.astern) && (o.held ?? 0) > 20) {
-        if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = true;
-      }
+      // or a boat backing out of the way of one that outranks this one needs
+      // this one to back too. The boat at the head of a chain always
+      // outranks the rest, so no ring of boats ends up all waiting astern.
+      if (makeWay >= 0 || still || (o.held ?? 0) <= 20) continue;
+      const head = this.outranks(o, b)
+        ? o.id
+        : o.astern && o.yieldFor !== undefined
+          ? o.yieldFor
+          : -1;
+      const lead = head === o.id ? o : this.boats.find((q) => q.id === head);
+      if (!lead || lead === b || !this.outranks(lead, b)) continue;
+      if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = head;
     }
     return { speed, makeWay };
   }
@@ -2152,23 +2186,17 @@ export class World {
   }
 
   /**
-   * The stretch of water a berth opens onto: one side of one dock. Boats on
-   * different sides, or at different docks, do not get in each other's way.
+   * The lane of water a boat comes alongside along: the row of a berth on
+   * the long side of a jetty, or the column of one off its end. One boat at
+   * a time moves in each lane, so boats in different lanes, even at the same
+   * dock, do not wait for each other.
    */
   private fairwayOf(jetty: number, berth: number): number | undefined {
     this.docks();
-    const key = this.dockKey.get(jetty);
-    if (key === undefined) return undefined;
+    if (!this.dockKey.has(jetty)) return undefined;
     const m = this.map;
-    const side =
-      m.xOf(berth) > m.xOf(jetty)
-        ? 0
-        : m.xOf(berth) < m.xOf(jetty)
-          ? 1
-          : m.yOf(berth) > m.yOf(jetty)
-            ? 2
-            : 3;
-    return key * 4 + side;
+    // Berth beside the jetty tile (east or west): a lane down that column.
+    return m.yOf(berth) === m.yOf(jetty) ? 2 * m.xOf(berth) + 1 : 2 * m.yOf(berth);
   }
 
   private fairwayFree(b: Boat, jetty: number, berth: number): boolean {

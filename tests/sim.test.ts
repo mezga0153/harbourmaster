@@ -749,6 +749,57 @@ describe('Port side', () => {
   });
 });
 
+describe('Boat traffic', () => {
+  it('never locks up in a knot of boats all backing out of each other’s way', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const template = world.boats[0];
+    world.boats.length = 0;
+    // A knot that froze for good in a real game: boats heading out and in
+    // met, every one ended up backing off for another and none could.
+    const knot = [
+      ['feeder', 'approaching', 86.0, 55.7, -2.68, 51, 38],
+      ['coaster', 'leaving', 88.7, 54.1, -0.23, 95, 52],
+      ['smack', 'leaving', 90.1, 52.2, -0.13, 95, 51],
+      ['smack', 'leaving', 90.1, 52.4, 0.02, 95, 52],
+      ['feeder', 'leaving', 86.3, 55.8, -0.03, 95, 55],
+      ['smack', 'approaching', 83.6, 55.5, -2.63, 46, 34],
+      ['smack', 'approaching', 81.9, 55.1, -2.32, 64, 36],
+      ['smack', 'approaching', 88.0, 54.4, -2.59, 60, 37],
+      ['smack', 'approaching', 87.5, 54.9, -2.51, 66, 39],
+      ['feeder', 'approaching', 82.2, 54.7, -2.11, 72, 38],
+    ] as const;
+    const draft = { smack: template.draft, coaster: B.COASTER_DRAFT, feeder: B.FEEDER_DRAFT };
+    knot.forEach(([vessel, state, x, y, dir, gx, gy], k) => {
+      expect(m.depth[m.idx(Math.floor(x), Math.floor(y))]).toBeGreaterThan(draft[vessel]);
+      world.boats.push({
+        ...template,
+        id: 1000 + k,
+        vessel,
+        draft: draft[vessel],
+        state,
+        x,
+        y,
+        dir,
+        speed: 0,
+        path: [],
+        goal: m.idx(gx, gy),
+        berth: -1,
+        jetty: -1,
+        astern: true,
+        held: 5000,
+      });
+    });
+    const start = new Map(world.boats.map((b) => [b.id, [b.x, b.y]]));
+    for (let t = 0; t < 600; t++) world.step();
+    // Every one of them has got away: off the map, or well clear of the knot.
+    for (const b of world.boats.filter((q) => start.has(q.id))) {
+      const [x, y] = start.get(b.id)!;
+      expect(Math.hypot(b.x - x, b.y - y)).toBeGreaterThan(3);
+    }
+  });
+});
+
 describe('Crowding', () => {
   /** The starting jetty's tiles, from the shore outwards. */
   function jetty(world: World): number[] {
