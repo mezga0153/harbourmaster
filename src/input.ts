@@ -213,25 +213,32 @@ export class Input {
     const pending = new Set<number>();
     let value = 0;
     let error: string | null = null;
-    for (const tile of tiles) {
-      const err =
-        t === 'bulldoze'
-          ? bulldozeError(map, tile)
-          : isMachineKind(t)
-            ? machinePlacementError(map, tile)
-            : placementError(map, t, tile, pending);
-      ok.push(!err);
-      if (err) {
-        error ??= err;
-        continue;
-      }
-      pending.add(tile);
-      value +=
-        t === 'bulldoze'
-          ? bulldozeValue(map, tile)
-          : isMachineKind(t)
-            ? -MACHINES[t].price
-            : -placementCost(map, t, tile);
+    // Same rounds as the sim: a dock dragged from the sea inwards still fits.
+    tiles.forEach(() => ok.push(false));
+    for (let progress = true; progress;) {
+      progress = false;
+      error = null;
+      tiles.forEach((tile, k) => {
+        if (ok[k]) return;
+        const err =
+          t === 'bulldoze'
+            ? bulldozeError(map, tile)
+            : isMachineKind(t)
+              ? machinePlacementError(map, tile)
+              : placementError(map, t, tile, pending);
+        if (err) {
+          error ??= err;
+          return;
+        }
+        ok[k] = progress = true;
+        pending.add(tile);
+        value +=
+          t === 'bulldoze'
+            ? bulldozeValue(map, tile)
+            : isMachineKind(t)
+              ? -MACHINES[t].price
+              : -placementCost(map, t, tile);
+      });
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);
     preview.value = { count: pending.size, value, error: pending.size === 0 ? error : null };

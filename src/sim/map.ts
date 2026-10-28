@@ -73,6 +73,7 @@ export class GameMap {
     const b = this.build[i];
     return (
       b === Build.Footpath ||
+      b === Build.PortRoad ||
       b === Build.Jetty ||
       b === Build.TruckBay ||
       b === Build.LargeBay ||

@@ -308,7 +308,7 @@ tests/                    vitest, sim-only
 Each milestone ends with something playable.
 
 **Status (27 Oct 2026):** M0–M2 are done apart from toilets. M3 (Coastal Wharf) is done:
-concrete quays, jib cranes, forklifts with depots, forklift lanes, large truck bays, coasters that
+concrete quays, jib cranes, forklifts with depots, port roads (forklift only), large truck bays, coasters that
 need a two-wide quay, and a harbour office that coordinates more than two docks. The port is
 separate from public roads: staff stay on port paths, trucks on public roads. M4 (Container Port)
 has its first version: feeder ships, mobile harbour cranes, reach stackers and container

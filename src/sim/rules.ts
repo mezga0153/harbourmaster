@@ -23,14 +23,21 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Footpath,
     label: 'Port path',
     cost: 5,
-    hint: 'Dockhands and forklifts move on port paths, never on grass or public roads',
+    hint: 'For dockhands on foot. Staff never walk on grass or public roads. Forklifts need a port road or quay',
+    drag: true,
+  },
+  portRoad: {
+    code: Build.PortRoad,
+    label: 'Port road',
+    cost: 25,
+    hint: 'Paved road for forklifts and dockhands alike. Build over a port path to upgrade it',
     drag: true,
   },
   forkliftLane: {
     code: Build.ForkliftLane,
     label: 'Forklift lane',
     cost: 10,
-    hint: 'A port path for forklifts only, so they do not queue behind people on foot',
+    hint: 'Paved lane for forklifts and stackers only, so they do not queue behind people on foot',
     drag: true,
   },
   jetty: {
@@ -44,7 +51,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Quay,
     label: 'Quay',
     cost: B.QUAY_COST_LAND,
-    hint: `Concrete wharf on the shore or in water up to ${B.MAX_QUAY_DEPTH} m. Forklifts can drive on it`,
+    hint: `Concrete wharf on the shore or in water up to ${B.MAX_QUAY_DEPTH} m. Forklifts can drive on it. Build over a jetty, from its shore end, to upgrade it`,
     drag: true,
   },
   jibCrane: {
@@ -58,7 +65,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Depot,
     label: 'Forklift depot',
     cost: 1200,
-    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. Must touch a road, path or quay`,
+    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. Must touch a port road or quay`,
     drag: false,
   },
   office: {
@@ -133,7 +140,12 @@ export function placementError(
       .some((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
     return atWater ? null : 'Put the crane at the quay edge, next to open water';
   }
-  if (map.build[i] !== Build.None) return 'Something is already built here';
+  // A jetty can be paved over into a quay and a port path into a port road;
+  // nothing else is built over.
+  const upgrade =
+    (kind === 'quay' && map.build[i] === Build.Jetty) ||
+    (kind === 'portRoad' && map.build[i] === Build.Footpath);
+  if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
 
   if (kind === 'quay') {
     const nearWater = map.neighbors4(i).some((n) => map.ocean[n] === 1);
@@ -144,10 +156,19 @@ export function placementError(
     if (!map.ocean[i]) return 'This water is not connected to the sea';
     if (map.depth[i] > B.MAX_QUAY_DEPTH)
       return `Too deep, even for a quay (max ${B.MAX_QUAY_DEPTH} m)`;
+    // Concrete grows out from the shore: never off the end of a wooden jetty,
+    // so a jetty is upgraded starting where it meets the land.
     const connected = map
       .neighbors4(i)
-      .some((n) => map.isLand(n) || isDock(map.build[n]) || pending?.has(n));
-    return connected ? null : 'A quay must connect to the shore or another quay';
+      .some(
+        (n) =>
+          pending?.has(n) ||
+          (map.build[n] !== Build.Jetty && (map.isLand(n) || isDock(map.build[n]))),
+      );
+    if (connected) return null;
+    return upgrade
+      ? 'Upgrade a jetty to quay from its shore end first'
+      : 'A quay must connect to the shore or another quay, not a jetty';
   }
 
   if (kind === 'jetty') {
@@ -174,7 +195,7 @@ export function placementError(
     return 'A truck bay must touch a public road';
   }
   if (kind === 'depot' && !map.neighbors4(i).some((n) => drivable(map.build[n]))) {
-    return 'A forklift depot must touch a port path, forklift lane or quay';
+    return 'A forklift depot must touch a port road or quay';
   }
   if (
     kind === 'office' &&
@@ -188,14 +209,14 @@ export function placementError(
   return null;
 }
 
-/** Hard surfaces a forklift can drive on. */
 /**
- * Port surfaces forklifts can drive on. Not public roads (those are for the
- * hauliers) and not wooden jetties (they cannot take the weight).
+ * Port surfaces forklifts can drive on: port roads and quays. Not port paths
+ * (those are for people on foot), public roads (for the hauliers) or wooden
+ * jetties (they cannot take the weight).
  */
 export function drivable(code: number): boolean {
   return (
-    code === Build.Footpath ||
+    code === Build.PortRoad ||
     code === Build.ForkliftLane ||
     code === Build.Quay ||
     code === Build.JibCrane ||
@@ -209,6 +230,7 @@ export function drivable(code: number): boolean {
 export function walkable(code: number): boolean {
   return (
     code === Build.Footpath ||
+    code === Build.PortRoad ||
     code === Build.Jetty ||
     code === Build.Quay ||
     code === Build.JibCrane ||
@@ -226,7 +248,13 @@ export function machinePlacementError(map: GameMap, i: number): string | null {
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {
   const base = kind === 'quay' && !map.isLand(i) ? B.QUAY_COST_WATER : BUILDABLES[kind].cost;
-  return base + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
+  // Upgrading: what is there already is worth what bulldozing it would pay.
+  const old = kindOfCode(map.build[i]);
+  const credit =
+    (kind === 'quay' && old === 'jetty') || (kind === 'portRoad' && old === 'footpath')
+      ? Math.floor(BUILDABLES[old].cost * B.BULLDOZE_REFUND)
+      : 0;
+  return base - credit + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
 }
 
 export function bulldozeError(map: GameMap, i: number): string | null {

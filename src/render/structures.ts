@@ -150,6 +150,16 @@ export class Structures {
         g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, top + 0.03, 0.5));
         return g;
       }
+      case Build.PortRoad: {
+        // Concrete paving with a dashed white centre line.
+        g.add(box(1, 0.03, 1, C.concrete, 0.5, top, 0.5));
+        const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
+        for (const o of [0.15, 0.6]) {
+          const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
+          g.add(box(w, 0.006, d, C.marking, x, top + 0.03, z));
+        }
+        return g;
+      }
       case Build.Footpath:
         g.add(box(1, 0.03, 1, C.pathEdge, 0.5, top, 0.5));
         g.add(box(0.9, 0.025, 0.9, C.path, 0.5, top + 0.03, 0.5));
@@ -420,7 +430,14 @@ export class Structures {
       const y = this.map.yOf(i) + dy;
       if (!this.map.inBounds(x, y)) continue;
       const b = this.map.build[this.map.idx(x, y)];
-      if (b === Build.Road || b === Build.Footpath || b === Build.Quay || isBay(b)) {
+      if (
+        b === Build.Road ||
+        b === Build.Footpath ||
+        b === Build.PortRoad ||
+        b === Build.ForkliftLane ||
+        b === Build.Quay ||
+        isBay(b)
+      ) {
         return { dx, dy };
       }
     }

@@ -33,7 +33,7 @@ export const TIERS: Tier[] = [
     contracts: 2,
     unlocks: [
       'Concrete quay, up to 8 m deep',
-      'Forklifts (4 crates a trip), forklift depots and forklift lanes',
+      'Forklifts (4 crates a trip), forklift depots, port roads and forklift lanes',
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',
       'Large truck bays for big trucks',
@@ -73,6 +73,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   jibCrane: 1,
   depot: 1,
   forkliftLane: 1,
+  portRoad: 1,
   office: 0,
   largeBay: 1,
   harbourCrane: 2,

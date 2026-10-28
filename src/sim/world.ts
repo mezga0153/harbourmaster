@@ -503,26 +503,38 @@ export class World {
     }
     let spent = 0;
     let firstError: string | null = null;
-    for (const i of tiles) {
-      if (i < 0 || i >= this.map.build.length) continue;
-      const err = placementError(this.map, kind, i) ?? this.boatInTheWay(kind, i);
-      if (err) {
-        firstError ??= err;
-        continue;
+    // Docks grow out from the shore, so a line dragged from the sea inwards
+    // only fits once the tiles nearer the shore are built: keep going round
+    // until nothing more can be placed.
+    let left = tiles.filter((i) => i >= 0 && i < this.map.build.length);
+    let broke = false;
+    while (left.length > 0 && !broke) {
+      firstError = null;
+      const skipped: number[] = [];
+      for (const i of left) {
+        const err = placementError(this.map, kind, i) ?? this.boatInTheWay(kind, i);
+        if (err) {
+          firstError ??= err;
+          skipped.push(i);
+          continue;
+        }
+        const cost = placementCost(this.map, kind, i);
+        if (cost > this.cash) {
+          firstError = 'Not enough money';
+          broke = true;
+          break;
+        }
+        this.book('construction', -cost);
+        spent += cost;
+        this.map.build[i] = def.code;
+        this.map.deco[i] = Deco.None;
+        this.dirty.add(i);
+        if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
+        if (kind === 'jibCrane') this.addCrane(i, 'jib');
+        if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
       }
-      const cost = placementCost(this.map, kind, i);
-      if (cost > this.cash) {
-        firstError ??= 'Not enough money';
-        break;
-      }
-      this.book('construction', -cost);
-      spent += cost;
-      this.map.build[i] = def.code;
-      this.map.deco[i] = Deco.None;
-      this.dirty.add(i);
-      if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
-      if (kind === 'jibCrane') this.addCrane(i, 'jib');
-      if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
+      if (skipped.length === left.length) break;
+      left = skipped;
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
@@ -544,6 +556,10 @@ export class World {
   }
 
   private boatInTheWay(kind: BuildKind, i: number): string | null {
+    if (kind === 'quay' && this.map.build[i] === Build.Jetty) {
+      const moored = this.boats.some((b) => b.jetty === i || b.berth === i);
+      return moored ? 'A boat is moored here' : null;
+    }
     if (kind !== 'jetty') return null;
     const blocked = this.boats.some((b) => b.berth === i || this.tileOf(b) === i);
     return blocked ? 'A boat is in the way' : null;

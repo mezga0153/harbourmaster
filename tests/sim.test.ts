@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
-import { placementError, walkable } from '../src/sim/rules';
+import { drivable, placementCost, placementError, walkable } from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -310,6 +310,46 @@ describe('Coastal Wharf tier', () => {
     return { tip: m.idx(x, r), side: m.idx(x, r - 1) };
   }
 
+  /** The starting jetty's tiles, from the shore outwards. */
+  function starterJetty(world: World): number[] {
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const out: number[] = [];
+    for (let x = 0; x < m.w; x++) if (m.build[m.idx(x, r)] === Build.Jetty) out.push(m.idx(x, r));
+    return out;
+  }
+
+  it('upgrades a jetty to a quay from its shore end only', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const m = world.map;
+    const jetty = starterJetty(world);
+    const tip = jetty[jetty.length - 1];
+    expect(placementError(m, 'quay', tip)).toMatch(/shore end/);
+    // A quay cannot carry on from the end of a jetty either.
+    expect(placementError(m, 'quay', tip + 1)).toMatch(/not a jetty/);
+    // The old timber counts towards the concrete.
+    expect(placementCost(m, 'quay', jetty[0])).toBeLessThan(B.QUAY_COST_WATER + 1);
+    // Dragged from the tip back to the shore, the whole jetty is paved.
+    world.command({ type: 'build', kind: 'quay', tiles: [...jetty].reverse() });
+    expect(jetty.every((i) => m.build[i] === Build.Quay)).toBe(true);
+    expect(placementError(m, 'quay', tip + 1)).toBeNull();
+  });
+
+  it('keeps forklifts off port paths, and upgrades paths to port roads', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const m = world.map;
+    expect(drivable(Build.Footpath)).toBe(false);
+    const path = m.build.findIndex((b) => b === Build.Footpath);
+    world.command({ type: 'build', kind: 'portRoad', tiles: [path] });
+    expect(m.build[path]).toBe(Build.PortRoad);
+    expect(walkable(Build.PortRoad) && drivable(Build.PortRoad)).toBe(true);
+    expect(walkable(Build.ForkliftLane)).toBe(false);
+  });
+
   it('locks quays, cranes and forklifts until the upgrade', () => {
     const world = World.create(7);
     const { side } = besideTip(world);
@@ -388,8 +428,7 @@ describe('Coastal Wharf tier', () => {
     const world = World.create(7);
     world.tier = 1;
     world.cash = 50_000;
-    const { side } = besideTip(world);
-    world.command({ type: 'build', kind: 'quay', tiles: [side] });
+    world.command({ type: 'build', kind: 'quay', tiles: [starterJetty(world)[0]] });
     expect(world.docks().every((d) => !d.coordinated)).toBe(true);
     buildOffice(world);
     expect(world.docks().every((d) => d.coordinated)).toBe(true);
@@ -462,8 +501,9 @@ describe('Coastal Wharf tier', () => {
     const world = World.create(7);
     world.tier = 1;
     world.cash = 50_000;
-    const { side } = besideTip(world);
-    world.command({ type: 'build', kind: 'quay', tiles: [side] });
+    const jetty = starterJetty(world);
+    const side = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
     expect(world.map.build[side]).toBe(Build.Quay);
     world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.JibCrane);
@@ -601,7 +641,7 @@ describe('Container Port tier', () => {
     if (end < 0) return null;
     for (const row of [r - 1, r - 2]) {
       for (const i of tiles(row, start, end)) {
-        const kind = m.isLand(i) ? 'footpath' : 'quay';
+        const kind = m.isLand(i) ? 'portRoad' : 'quay';
         world.command({ type: 'build', kind, tiles: [i] });
       }
     }

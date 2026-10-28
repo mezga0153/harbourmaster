@@ -93,6 +93,12 @@ const PATHS: Record<string, JSX.Element> = {
       <circle cx="10" cy="18" r="2" />
     </>
   ),
+  portRoad: (
+    <>
+      <path d="M4 3v18M20 3v18" />
+      <path d="M12 4v3M12 11v3M12 18v2" />
+    </>
+  ),
   lane: (
     <>
       <path d="M5 3v18M19 3v18" />
