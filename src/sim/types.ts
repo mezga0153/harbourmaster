@@ -23,6 +23,7 @@ export const Build = {
   PortRoad: 13,
   Yard: 14,
   Gate: 15,
+  Warehouse: 16,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -42,13 +43,14 @@ export type BuildKind =
   | 'harbourCrane'
   | 'portRoad'
   | 'containerYard'
-  | 'portGate';
+  | 'portGate'
+  | 'warehouse';
 
 export type MachineKind = 'forklift' | 'stacker';
 
-/** A truck bay of either size. */
+/** Where trucks collect crates: a truck bay of either size, or a warehouse. */
 export function isBay(code: number): boolean {
-  return code === Build.TruckBay || code === Build.LargeBay;
+  return code === Build.TruckBay || code === Build.LargeBay || code === Build.Warehouse;
 }
 
 /** Tiles boats can moor alongside. */

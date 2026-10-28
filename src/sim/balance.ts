@@ -35,8 +35,16 @@ export const BIG_TRUCK_CAPACITY = 8;
 export const STARTER_HAULIER_FEE = 20; // per day
 export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more crates
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
-export const BAY_CAPACITY = 16;
+export const BAY_CAPACITY = 12;
 export const LARGE_BAY_CAPACITY = 28;
+export const WAREHOUSE_CAPACITY = 60;
+// Ticks to put one crate on a truck: by hand at a truck bay, quicker with
+// the room of a large bay, and off the warehouse's loading docks quickest.
+export const BAY_LOAD_TICKS = 10;
+export const LARGE_BAY_LOAD_TICKS = 7;
+export const WAREHOUSE_LOAD_TICKS = 3;
+export const YARD_LOAD_TICKS = 5; // per container
+export const WAREHOUSE_DOCKS = 2; // trucks loading at once
 
 export const BOAT_INTERVAL_DAYS = 1; // starter fishery
 export const BOAT_CRATES_MIN = 8;

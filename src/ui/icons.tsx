@@ -99,6 +99,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M12 4v3M12 11v3M12 18v2" />
     </>
   ),
+  warehouse: (
+    <>
+      <path d="M2 10l10-6 10 6v10H2z" />
+      <path d="M5 20v-7h6v7M13 20v-7h6v7" />
+    </>
+  ),
   gate: (
     <>
       <rect x="3" y="8" width="5" height="12" />

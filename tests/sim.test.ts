@@ -636,6 +636,38 @@ describe('Buildings', () => {
     expect(world.bays.size).toBe(bays);
   });
 
+  it('loads two trucks at once at a warehouse, faster than at a truck bay', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'warehouse', i));
+    const f = bestFacing(m, 'warehouse', spot);
+    world.command({ type: 'build', kind: 'warehouse', tiles: [spot], facing: f });
+    const tiles = footprint(m, 'warehouse', spot, f);
+    expect(tiles.every((t) => m.build[t] === Build.Warehouse)).toBe(true);
+    expect(m.build[frontOf(m, spot, f)]).toBe(Build.Road);
+    const store = world.bays.get(spot)!;
+    expect(store.large).toBe(true);
+    // Only the warehouse has crates, and a haulier with two trucks.
+    for (const b of world.bays.values()) b.crates.length = 0;
+    store.crates.push(...Array(24).fill(20));
+    const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
+    if (h.terms.kind === 'haulier') h.terms.fleet = 2;
+    let together = false;
+    let loadTime = 0;
+    for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
+      world.step();
+      const loading = world.trucks.filter((k) => k.bayIdx === spot && k.state === 'loading');
+      if (loading.length === 2 && loading[0].goal !== loading[1].goal) together = true;
+      if (loading.length > 0) loadTime++;
+    }
+    expect(together).toBe(true);
+    expect(store.crates.length).toBe(0);
+    // 24 crates, two docks at a time, quicker per crate than by hand.
+    expect(loadTime).toBeLessThan((24 * B.BAY_LOAD_TICKS) / 2);
+  });
+
   it('lets trucks into the port only through a port gate', () => {
     const world = World.create(7);
     world.tier = 1;

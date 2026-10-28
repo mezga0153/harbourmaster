@@ -313,7 +313,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader
           kicker="Building"
-          title={bay.large ? 'Large truck bay' : 'Truck bay'}
+          title={bay.warehouse ? 'Warehouse' : bay.large ? 'Large truck bay' : 'Truck bay'}
           onClose={close}
         />
         <dl class="props">

@@ -211,8 +211,10 @@ interface Truck extends Agent {
 
 interface Bay {
   idx: number;
-  /** Large bays hold more, take the big trucks, and hold containers. */
+  /** Takes the big trucks: large bays and warehouses. */
   large: boolean;
+  /** A warehouse: lots of room, and two loading docks that load fast. */
+  warehouse?: boolean;
   /** Fees of containers waiting here (container yards only). */
   boxes: number[];
   boxIncoming: number;
@@ -220,7 +222,6 @@ interface Bay {
   crates: number[];
   /** Crates being carried here right now. */
   incoming: number;
-  truckId: number;
   nextTruckTick: number;
   noAccess: boolean;
   /** A container yard: no trucks, only a buffer for containers. */
@@ -296,7 +297,14 @@ function bayIncoming(b: Bay, boxes: boolean, delta: number): void {
 }
 
 function bayCap(b: Bay): number {
-  return b.large ? B.LARGE_BAY_CAPACITY : B.BAY_CAPACITY;
+  return b.warehouse ? B.WAREHOUSE_CAPACITY : b.large ? B.LARGE_BAY_CAPACITY : B.BAY_CAPACITY;
+}
+
+/** Ticks to put one crate or container on a truck here. */
+function loadTicks(b: Bay): number {
+  if (b.yard) return B.YARD_LOAD_TICKS;
+  if (b.warehouse) return B.WAREHOUSE_LOAD_TICKS;
+  return b.large ? B.LARGE_BAY_LOAD_TICKS : B.BAY_LOAD_TICKS;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -610,7 +618,7 @@ export class World {
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
         });
-        if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
+        if (kind === 'truckBay' || kind === 'largeBay' || kind === 'warehouse') this.addBay(i);
         if (kind === 'containerYard') this.addYard(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
@@ -1104,7 +1112,7 @@ export class World {
       const perTruck = this.hauliers()
         .filter((h) => h.terms.cargo === 'container')
         .flatMap((h) => {
-          const ticks = (2 * road) / B.TRUCK_SPEED + h.terms.capacity * 5 + 30;
+          const ticks = (2 * road) / B.TRUCK_SPEED + h.terms.capacity * B.YARD_LOAD_TICKS + 30;
           return Array<number>(h.terms.fleet).fill((h.terms.capacity * TICKS_PER_DAY) / ticks);
         })
         .sort((a, b) => b - a);
@@ -1129,16 +1137,21 @@ export class World {
       .map((c) => c.terms)
       .filter((t) => !t.cargo);
     if (extra && !extra.cargo) terms.push(extra);
-    // A bay loads one truck at a time, so trucks beyond the bays add nothing,
-    // and big trucks only fit large bays.
-    const trucks = terms.flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity));
-    const large = [...this.bays.values()].filter((b) => b.large).length;
-    const big = trucks.filter((c) => c > B.TRUCK_CAPACITY).slice(0, large);
-    const small = trucks.filter((c) => c <= B.TRUCK_CAPACITY).slice(0, this.bays.size - big.length);
-    const fleets = [...big, ...small];
+    // Each dock loads one truck at a time, so trucks beyond the docks add
+    // nothing, and big trucks only fit large bays and warehouses. Trucks take
+    // the quickest docks first, the big ones before the rest.
+    const trucks = terms
+      .flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity))
+      .sort((a, b) => b - a);
+    const docks = [...this.bays.values()]
+      .flatMap((b) => this.loadingDocks(b).map(() => ({ large: b.large, load: loadTicks(b) })))
+      .sort((a, b) => a.load - b.load);
     let total = 0;
-    for (const cap of fleets) {
-      const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + cap * 5 + 30;
+    for (const cap of trucks) {
+      const k = docks.findIndex((d) => d.large || cap <= B.TRUCK_CAPACITY);
+      if (k < 0) continue;
+      const [dock] = docks.splice(k, 1);
+      const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + cap * dock.load + 30;
       total += (cap * TICKS_PER_DAY) / ticks;
     }
     return Math.round(total);
@@ -2922,14 +2935,15 @@ export class World {
   // ── Trucks and bays ───────────────────────────────────────
 
   private addBay(i: number): void {
+    const warehouse = this.map.build[i] === Build.Warehouse;
     this.bays.set(i, {
       idx: i,
-      large: this.map.build[i] === Build.LargeBay,
+      large: warehouse || this.map.build[i] === Build.LargeBay,
+      warehouse,
       boxes: [],
       boxIncoming: 0,
       crates: [],
       incoming: 0,
-      truckId: -1,
       nextTruckTick: 0,
       noAccess: false,
     });
@@ -2944,10 +2958,24 @@ export class World {
       boxIncoming: 0,
       crates: [],
       incoming: 0,
-      truckId: -1,
       nextTruckTick: 0,
       noAccess: false,
     });
+  }
+
+  /** Where trucks stand to load: one spot, or a warehouse's two docks. */
+  private loadingDocks(bay: Bay): number[] {
+    if (!bay.warehouse) return [bay.idx];
+    const tiles = footprint(this.map, 'warehouse', bay.idx, this.map.orient[bay.idx]);
+    return tiles.slice(0, B.WAREHOUSE_DOCKS);
+  }
+
+  /** A dock at this bay no truck is using or heading for, or -1. */
+  private freeDock(bay: Bay): number {
+    const taken = new Set(
+      this.trucks.filter((t) => t.bayIdx === bay.idx && t.state !== 'leaving').map((t) => t.goal),
+    );
+    return this.loadingDocks(bay).find((d) => !taken.has(d)) ?? -1;
   }
 
   private removeYard(i: number): void {
@@ -3006,7 +3034,9 @@ export class World {
     const bays = [...this.bays.values(), ...this.yards.values()]
       .filter(
         (b) =>
-          b.truckId < 0 && b.crates.length + b.boxes.length > 0 && this.tick >= b.nextTruckTick,
+          b.crates.length + b.boxes.length > 0 &&
+          this.tick >= b.nextTruckTick &&
+          this.freeDock(b) >= 0,
       )
       .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
 
@@ -3041,7 +3071,8 @@ export class World {
         }
         continue;
       }
-      const path = findPath(m.w, m.h, m.entry, bay.idx, this.truckCost(bay.idx), false);
+      const dock = this.freeDock(bay);
+      const path = findPath(m.w, m.h, m.entry, dock, this.truckCost(bay.idx), false);
       if (!path) {
         if (!bay.noAccess) {
           this.message(
@@ -3064,7 +3095,7 @@ export class World {
         y: m.yOf(m.entry) + 0.5,
         dir: 0,
         path,
-        goal: bay.idx,
+        goal: dock,
         state: 'toBay',
         bayIdx: bay.idx,
         cargo: 0,
@@ -3074,7 +3105,6 @@ export class World {
         timer: 0,
         variant: haulier.terms.color,
       };
-      bay.truckId = truck.id;
       this.trucks.push(truck);
     }
   }
@@ -3085,23 +3115,21 @@ export class World {
       case 'toBay': {
         if (!bay) return this.truckLeave(t);
         const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED);
-        if (r === 'blocked') {
-          bay.truckId = -1;
-          return this.removeTruck(t);
-        }
+        if (r === 'blocked') return this.removeTruck(t);
         if (r === 'arrived') t.state = 'loading';
         return;
       }
       case 'loading': {
         if (!bay) return this.truckLeave(t);
-        if (++t.timer % 5 !== 0) return;
+        const every = loadTicks(bay);
+        if (++t.timer % every !== 0) return;
         const stock = t.boxes ? bay.boxes : bay.crates;
         if (stock.length > 0 && t.cargo < t.capacity) {
           t.value += stock.shift()!;
           t.cargo++;
           t.idle = 0;
         } else {
-          t.idle += 5;
+          t.idle += every;
         }
         const full = t.cargo >= t.capacity;
         const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
@@ -3119,10 +3147,7 @@ export class World {
 
   private truckLeave(t: Truck): void {
     const bay = this.dest(t.bayIdx);
-    if (bay) {
-      bay.truckId = -1;
-      bay.nextTruckTick = this.tick + 30;
-    }
+    if (bay) bay.nextTruckTick = this.tick + 30;
     if (t.cargo > 0) {
       const income = t.value;
       this.book('cargo', income);
@@ -3340,6 +3365,7 @@ export class World {
       boxes: b.boxes.length,
       capacity: bayCap(b),
       large: b.large,
+      warehouse: !!b.warehouse,
       noAccess: b.noAccess,
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({

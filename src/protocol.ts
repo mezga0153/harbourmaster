@@ -148,6 +148,7 @@ export interface BayView {
   boxes: number;
   capacity: number;
   large: boolean;
+  warehouse: boolean;
   noAccess: boolean;
 }
 

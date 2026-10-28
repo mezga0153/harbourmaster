@@ -77,6 +77,7 @@ export const CATEGORIES: Category[] = [
     tools: [
       { tool: 'truckBay', icon: 'truckBay', label: 'Truck bay', key: 'T' },
       { tool: 'largeBay', icon: 'bigTruck', label: 'Large truck bay', key: 'X' },
+      { tool: 'warehouse', icon: 'warehouse', label: 'Warehouse' },
       { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
       { tool: 'harbourCrane', icon: 'bigCrane', label: 'Harbour crane', key: 'I' },
       { tool: 'containerYard', icon: 'box', label: 'Container yard', key: 'V' },

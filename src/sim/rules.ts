@@ -96,18 +96,25 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: 'Lets the hauliers’ trucks into the port: they turn in off the public road at the front and drive on port roads to truck bays and container yards inside. Staff never leave through it',
     drag: false,
   },
+  warehouse: {
+    code: Build.Warehouse,
+    label: 'Warehouse',
+    cost: 2000,
+    hint: `Stores ${B.WAREHOUSE_CAPACITY} crates and loads trucks fast at two loading docks, big trucks too. 2×2; the docks face a public road, or a port road behind a port gate`,
+    drag: false,
+  },
   largeBay: {
     code: Build.LargeBay,
     label: 'Large truck bay',
     cost: 900,
-    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Two tiles wide; the entrance faces a public road, or a port road behind a port gate`,
+    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates, loads trucks quicker than a truck bay and takes the big 8-crate trucks. Two tiles wide; the entrance faces a public road, or a port road behind a port gate`,
     drag: false,
   },
   truckBay: {
     code: Build.TruckBay,
     label: 'Truck bay',
     cost: 300,
-    hint: 'Crates are stacked here for trucks. The entrance faces a public road, or a port road behind a port gate',
+    hint: `Holds ${B.BAY_CAPACITY} crates, loaded onto trucks by hand, one truck at a time. The entrance faces a public road, or a port road behind a port gate`,
     drag: false,
   },
 };
@@ -118,6 +125,7 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'largeBay',
   'containerYard',
   'portGate',
+  'warehouse',
   'depot',
   'office',
   'breakHut',
@@ -174,6 +182,12 @@ const PARTS: Partial<Record<BuildKind, readonly (readonly [number, number])[]>> 
     [1, 0],
   ],
   containerYard: [
+    [0, 0],
+    [1, 0],
+    [0, -1],
+    [1, -1],
+  ],
+  warehouse: [
     [0, 0],
     [1, 0],
     [0, -1],
@@ -316,7 +330,7 @@ export function placementError(
   if (!footprint(map, kind, i, facing).slice(1).every(clear)) {
     return kind === 'largeBay'
       ? 'A large truck bay is two tiles wide: clear the tile beside it'
-      : 'A container yard needs 2×2 clear tiles behind its gate';
+      : `A ${BUILDABLES[kind].label.toLowerCase()} needs 2×2 clear tiles behind its front`;
   }
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
@@ -326,7 +340,7 @@ export function placementError(
   if (kind === 'portGate') {
     return f === Build.Road ? null : 'The gate must face a public road, where the trucks turn in';
   }
-  if (kind === 'truckBay' || kind === 'largeBay') {
+  if (kind === 'truckBay' || kind === 'largeBay' || kind === 'warehouse') {
     return truckable ? null : 'The entrance must face a public road or a port road';
   }
   if (kind === 'depot') {

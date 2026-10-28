@@ -32,6 +32,8 @@ export const C = {
   forklift: 0xf5b31f,
   depotWall: 0xb8c2cc,
   depotRoof: 0x4a525c,
+  shed: 0x6f97b0,
+  shedTrim: 0xe8ecef,
   stripe: 0xf2c230,
   sign: 0x2f6fd0,
   wood: 0xb07a43,

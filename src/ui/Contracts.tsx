@@ -108,7 +108,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
         t.cargo
           ? 'Container yards'
           : t.capacity > B.TRUCK_CAPACITY
-            ? 'Large truck bays'
+            ? 'Large truck bays or warehouses'
             : 'Any truck bay',
       ],
     ];

@@ -445,6 +445,32 @@ export class Structures {
         this.stacks.set(i, { crates: [], boxes });
         return g;
       }
+      case Build.Warehouse: {
+        // 2×2: a loading apron with two truck docks at the front (+z, z 0..1)
+        // and a clad shed behind (z -1..0), its roller doors onto the docks.
+        g.add(box(2, 0.06, 2, C.quayTop, 1, top, 0));
+        const y = top + 0.06;
+        for (const x of [0.04, 1, 1.96]) g.add(box(0.04, 0.008, 0.9, C.stripe, x, y, 0.5));
+        g.add(box(1.9, 0.62, 0.9, C.shed, 1, y, -0.5));
+        // Ribs on the cladding, a pale roof and a canopy over the docks.
+        for (let k = 0; k < 7; k++) {
+          const x = 0.1 + k * 0.3;
+          g.add(box(0.02, 0.62, 0.92, C.shedTrim, x, y, -0.5));
+        }
+        g.add(box(1.96, 0.04, 0.96, C.shedTrim, 1, y + 0.62, -0.5));
+        g.add(box(1.96, 0.025, 0.34, C.depotRoof, 1, y + 0.5, 0.12));
+        for (const x of [0.5, 1.5]) {
+          g.add(box(0.52, 0.42, 0.02, C.chassis, x, y, -0.04));
+          for (let k = 0; k < 5; k++) {
+            g.add(box(0.52, 0.012, 0.024, C.quayWall, x, y + 0.05 + k * 0.08, -0.03));
+          }
+          // Rubber bumpers either side of each door.
+          for (const s of [-1, 1]) g.add(box(0.05, 0.1, 0.04, C.tyre, x + s * 0.3, y, 0));
+        }
+        // Name board over the docks.
+        g.add(box(0.9, 0.14, 0.02, C.sign, 1, y + 0.66, -0.04));
+        return g;
+      }
       case Build.LargeBay: {
         // Two tiles: a truck lane (x 0..1) and a covered cargo yard beside it
         // (x 1..2), both opening onto the road at the front (+z).
@@ -655,6 +681,7 @@ const DIRS = [
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([
   Build.Gate,
+  Build.Warehouse,
   Build.Yard,
   Build.TruckBay,
   Build.LargeBay,
