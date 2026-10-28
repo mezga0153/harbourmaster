@@ -21,7 +21,12 @@ interface BayStack {
 interface CraneParts {
   /** Rotates about Y to point the jib at the boat being unloaded. */
   slew: Object3D;
+  /** Cable from the jib tip, scaled to its length, and the hook on its end. */
+  rope: Object3D;
   hook: Object3D;
+  /** Cable length when idle, and how far it plays out while lifting. */
+  rest: number;
+  reach: number;
   stack: Object3D[];
   angle: number;
   target: number;
@@ -67,7 +72,10 @@ export class Structures {
       while (d < -Math.PI) d += Math.PI * 2;
       c.angle += d * Math.min(1, dt * 3);
       c.slew.rotation.y = c.angle;
-      c.hook.position.y = 0.55 + (c.busy ? Math.sin(time * 6) * 0.2 : 0.2);
+      const drop = c.rest + (c.busy ? (0.5 + 0.5 * Math.sin(time * 3)) * c.reach : 0);
+      c.rope.scale.y = drop;
+      c.rope.position.y = -drop / 2;
+      c.hook.position.y = -drop;
     }
   }
 
@@ -218,11 +226,14 @@ export class Structures {
         const boom = box(2.1, 0.08, 0.1, C.craneYellow, 0.95, 0.04);
         boom.rotation.z = 0.12;
         slew.add(boom);
+        // Cable and container spreader hang from under the boom tip.
+        const tip = new Group();
+        tip.position.set(1.9, 0.15, 0);
+        const rope = box(0.012, 1, 0.012, C.chassis);
         const hook = new Group();
-        hook.position.set(1.9, 0.55, 0);
-        hook.add(box(0.012, 0.7, 0.012, C.chassis, 0, 0));
         hook.add(box(0.36, 0.04, 0.16, C.stripe, 0, -0.04));
-        slew.add(hook);
+        tip.add(rope, hook);
+        slew.add(tip);
         g.add(slew);
         // Landing stack for up to four containers on the landward side.
         const stack: Object3D[] = [];
@@ -239,7 +250,17 @@ export class Structures {
             stack.push(c);
           }
         }
-        this.cranes.set(i, { slew, hook, stack, angle: 0, target: 0, busy: false });
+        this.cranes.set(i, {
+          slew,
+          rope,
+          hook,
+          rest: 0.45,
+          reach: 0.6,
+          stack,
+          angle: 0,
+          target: 0,
+          busy: false,
+        });
         return g;
       }
       case Build.JibCrane: {
@@ -254,11 +275,14 @@ export class Structures {
         jib.rotation.z = 0.28;
         slew.add(jib);
         slew.add(box(0.16, 0.14, 0.2, C.chassis, -0.2, 0.02));
+        // Cable and hook hang from under the jib, near its tip.
+        const tip = new Group();
+        tip.position.set(1.08, 0.31, 0);
+        const rope = box(0.01, 1, 0.01, C.chassis);
         const hook = new Group();
-        hook.position.set(1.08, 0.55, 0);
-        hook.add(box(0.01, 0.35, 0.01, C.chassis, 0, 0));
-        hook.add(box(0.07, 0.05, 0.07, C.chassis, 0, -0.04));
-        slew.add(hook);
+        hook.add(box(0.07, 0.05, 0.07, C.chassis, 0, -0.05));
+        tip.add(rope, hook);
+        slew.add(tip);
         g.add(slew);
         // Landing stack on the landward half of the tile.
         const stack: Object3D[] = [];
@@ -275,7 +299,17 @@ export class Structures {
             stack.push(c);
           }
         }
-        this.cranes.set(i, { slew, hook, stack, angle: 0, target: 0, busy: false });
+        this.cranes.set(i, {
+          slew,
+          rope,
+          hook,
+          rest: 0.2,
+          reach: 0.35,
+          stack,
+          angle: 0,
+          target: 0,
+          busy: false,
+        });
         return g;
       }
       case Build.Depot: {
