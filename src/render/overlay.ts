@@ -4,7 +4,9 @@ import {
   Float32BufferAttribute,
   Group,
   InstancedMesh,
+  Line,
   LineBasicMaterial,
+  LineDashedMaterial,
   LineLoop,
   Matrix4,
   Mesh,
@@ -30,6 +32,8 @@ export class Overlay {
   private ring: Mesh;
   private arrow: Mesh;
   private reach: InstancedMesh;
+  /** The marked ways in and out, through the buoys in order. */
+  private channels: Line[];
 
   constructor() {
     const square = new BufferGeometry();
@@ -89,7 +93,40 @@ export class Overlay {
     this.reach.count = 0;
     this.reach.frustumCulled = false;
 
-    this.group.add(this.hover, this.ghosts, this.ring, this.arrow, this.reach);
+    this.channels = [0x3fd06a, 0xff6a5c].map((color) => {
+      const line = new Line(
+        new BufferGeometry(),
+        new LineDashedMaterial({
+          color,
+          dashSize: 0.4,
+          gapSize: 0.25,
+          transparent: true,
+          opacity: 0.9,
+        }),
+      );
+      line.visible = false;
+      line.frustumCulled = false;
+      return line;
+    });
+
+    this.group.add(this.hover, this.ghosts, this.ring, this.arrow, this.reach, ...this.channels);
+  }
+
+  /**
+   * The way in through the green buoys and the way out through the red,
+   * in the order boats take them; empty lists hide them.
+   */
+  setChannels(map: GameMap, ways: [number[], number[]]): void {
+    ways.forEach((buoys, k) => {
+      const line = this.channels[k];
+      line.visible = buoys.length > 1;
+      if (!line.visible) return;
+      const pos = buoys.flatMap((i) => [map.xOf(i) + 0.5, 0.06, map.yOf(i) + 0.5]);
+      line.geometry.dispose();
+      line.geometry = new BufferGeometry();
+      line.geometry.setAttribute('position', new Float32BufferAttribute(pos, 3));
+      line.computeLineDistances();
+    });
   }
 
   /**

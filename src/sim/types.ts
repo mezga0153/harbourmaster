@@ -24,6 +24,9 @@ export const Build = {
   Yard: 14,
   Gate: 15,
   Warehouse: 16,
+  /** Channel buoys: green marks the way in, red the way out. */
+  BuoyIn: 17,
+  BuoyOut: 18,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -44,9 +47,16 @@ export type BuildKind =
   | 'portRoad'
   | 'containerYard'
   | 'portGate'
-  | 'warehouse';
+  | 'warehouse'
+  | 'buoyIn'
+  | 'buoyOut';
 
 export type MachineKind = 'forklift' | 'stacker';
+
+/** A channel buoy; boats sail past it, so the water stays open. */
+export function isBuoy(code: number): boolean {
+  return code === Build.BuoyIn || code === Build.BuoyOut;
+}
 
 /** Where trucks collect crates: a truck bay of either size, or a warehouse. */
 export function isBay(code: number): boolean {

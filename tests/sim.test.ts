@@ -884,6 +884,68 @@ describe('Dredging and reclaiming', () => {
   });
 });
 
+describe('Buoys', () => {
+  it('lead boats in past the green buoys and out past the red ones, in order', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const row = m.yOf(m.entry);
+    let shore = 0;
+    while (m.isLand(m.idx(shore + 1, row))) shore++;
+    // Way in to the north of the jetty, way out to the south.
+    const ins = [24, 16, 8].map((dx, k) => m.idx(shore + dx, row - 6 + k));
+    const outs = [8, 16, 24].map((dx, k) => m.idx(shore + dx, row + 6 + k));
+    world.command({ type: 'build', kind: 'buoyIn', tiles: ins });
+    world.command({ type: 'build', kind: 'buoyOut', tiles: outs });
+    expect(ins.every((i) => m.build[i] === Build.BuoyIn)).toBe(true);
+    expect(outs.every((i) => m.build[i] === Build.BuoyOut)).toBe(true);
+    // Buoys leave the water open, and stand a tile apart.
+    expect(placementError(m, 'buoyIn', ins[0] + 1)).not.toBeNull();
+    world.boats.length = 0;
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'smack',
+        name: 'Buoy Test',
+        color: 0,
+        boatEvery: 0.5,
+        cratesMin: 4,
+        cratesMax: 4,
+        fee: 20,
+      },
+      world.tick + 5,
+      0,
+    );
+    const near = new Map<number, number[]>();
+    const passed = (id: number, i: number) => {
+      const seen = near.get(id) ?? [];
+      if (!seen.includes(i)) seen.push(i);
+      near.set(id, seen);
+    };
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
+      world.step();
+      for (const b of world.boats) {
+        for (const i of b.state === 'leaving' ? outs : ins) {
+          if (Math.hypot(b.x - m.xOf(i) - 0.5, b.y - m.yOf(i) - 0.5) < 1.5) passed(b.id, i);
+        }
+      }
+    }
+    const routes = [...near.values()];
+    const way = (r: number[], buoys: number[]) => r.filter((i) => buoys.includes(i));
+    // Every boat met the buoys in order: green furthest out first, red
+    // nearest the docks first. Some passed all of them.
+    for (const r of routes) {
+      for (const buoys of [ins, outs]) {
+        const seen = way(r, buoys).map((i) => buoys.indexOf(i));
+        expect(seen).toEqual([...seen].sort((p, q) => p - q));
+      }
+    }
+    expect(routes.some((r) => way(r, ins).length === 3)).toBe(true);
+    expect(routes.some((r) => way(r, outs).length === 3)).toBe(true);
+  });
+});
+
 describe('Boat traffic', () => {
   it('never locks up in a knot of boats all backing out of each other’s way', () => {
     const world = World.create(7);

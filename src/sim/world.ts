@@ -33,11 +33,13 @@ import { Rng } from './rng';
 import {
   anchorOf,
   bestFacing,
+  buoyOrder,
   BUILDABLES,
   bulldozeError,
   bulldozeTiles,
   bulldozeValue,
   footprint,
+  harbourCentre,
   partOrient,
   FORKLIFT_ONLY,
   forkliftOnly,
@@ -59,6 +61,7 @@ import {
   Build,
   Deco,
   isBay,
+  isBuoy,
   isDock,
   Terrain,
   TICKS_PER_DAY,
@@ -1434,7 +1437,7 @@ export class World {
     // Head for a spot at the anchorage; the berth is decided on arrival.
     const spot = this.anchorSpot(boat);
     const from = this.tileOf(boat);
-    const path = findPath(this.map.w, this.map.h, from, spot, this.boatCostFor(boat.draft), true);
+    const path = this.route(boat, from, spot, this.boatCostFor(boat.draft));
     if (path) {
       boat.path = path;
       boat.goal = spot;
@@ -1446,6 +1449,44 @@ export class World {
     } else {
       boat.state = 'anchored';
     }
+  }
+
+  /**
+   * The buoys a boat passes on its way from `from` to `to`, in order. Coming
+   * in, the green ones between the two, furthest from the docks first; going
+   * out, the red ones further out than it is, nearest first.
+   */
+  private buoyStops(b: Boat, from: number, to: number): number[] {
+    const m = this.map;
+    const c = harbourCentre(m);
+    const d = (i: number) => Math.hypot(m.xOf(i) + 0.5 - c.x, m.yOf(i) + 0.5 - c.y);
+    const out = b.state === 'leaving';
+    const here = d(from);
+    const there = to >= 0 ? d(to) : 0;
+    return buoyOrder(m, out).filter((i) =>
+      out ? d(i) > here + 0.5 : d(i) < here - 0.5 && d(i) > there + 0.5,
+    );
+  }
+
+  /** A route through each of `stops` in turn; any it cannot reach it leaves out. */
+  private via(from: number, stops: number[], to: number, cost: CostFn): number[] | null {
+    const m = this.map;
+    const path: number[] = [];
+    let at = from;
+    for (const s of stops) {
+      const leg = findPath(m.w, m.h, at, s, cost, true);
+      if (!leg) continue;
+      path.push(...leg);
+      at = s;
+    }
+    const last = findPath(m.w, m.h, at, to, cost, true);
+    if (last) return [...path, ...last];
+    return stops.length > 0 ? findPath(m.w, m.h, from, to, cost, true) : null;
+  }
+
+  /** A route for this boat from `from` to `to`, by way of the buoys it should pass. */
+  private route(b: Boat, from: number, to: number, cost: CostFn): number[] | null {
+    return this.via(from, this.buoyStops(b, from, to), to, cost);
   }
 
   /**
@@ -1518,7 +1559,7 @@ export class World {
       for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
         if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > r + 0.5 || !m.inBounds(tx, ty)) continue;
         const i = m.idx(tx, ty);
-        if (m.isLand(i) || m.build[i] !== Build.None) return false;
+        if (m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i]))) return false;
       }
     }
     return true;
@@ -1567,7 +1608,9 @@ export class World {
     let fn = this.boatCosts.get(draft);
     if (!fn) {
       fn = (i) =>
-        this.map.ocean[i] && this.map.build[i] === Build.None && this.map.depth[i] >= draft
+        this.map.ocean[i] &&
+        (this.map.build[i] === Build.None || isBuoy(this.map.build[i])) &&
+        this.map.depth[i] >= draft
           ? 1
           : Infinity;
       this.boatCosts.set(draft, fn);
@@ -1799,7 +1842,7 @@ export class World {
       const path =
         (B.VESSELS[boat.vessel].length >= B.LINE_UP_LENGTH
           ? this.approachPath(boat, from, c.berth, c.jetty)
-          : null) ?? findPath(this.map.w, this.map.h, from, c.berth, this.seaWay(boat), true);
+          : null) ?? this.route(boat, from, c.berth, this.seaWay(boat));
       if (!path) continue;
       boat.berth = c.berth;
       boat.jetty = c.jetty;
@@ -1856,7 +1899,7 @@ export class World {
       for (let k = run; k >= 0; k--) {
         line.push(m.idx(m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k));
       }
-      const lead = findPath(m.w, m.h, from, line[0], sea, true);
+      const lead = this.route(boat, from, line[0], sea);
       if (!lead) continue;
       const path = [...lead, ...line.slice(1), berth];
       if (!best || path.length < best.length) {
@@ -2065,12 +2108,18 @@ export class World {
     const line = moor !== null && b.berthing === 'lead' ? b.path.indexOf(b.lineup ?? -1) : -1;
     const most = line >= 0 ? Math.min(line + 1, 4) : 4;
     for (let k = 1; k < Math.min(b.path.length, most); k++) {
+      // A buoy is passed, not cut past.
+      if (isBuoy(this.map.build[b.path[k - 1]])) break;
       if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear)) break;
       ahead = k;
     }
     b.path.splice(0, ahead);
     const target = b.path[0];
-    const want = Math.atan2(cy(target) - b.y, cx(target) - b.x);
+    // Buoys are passed close by, on the boat's starboard side.
+    const passBy = isBuoy(this.map.build[target]) ? B.BUOY_CLEARANCE : 0;
+    const tx = cx(target) - Math.sin(b.dir) * passBy;
+    const ty = cy(target) + Math.cos(b.dir) * passBy;
+    const want = Math.atan2(ty - b.y, tx - b.x);
     if (b.undock && this.castingOff(b, want)) return 'moving';
     if (b.berthing && b.lineup !== undefined && b.lineEnd !== undefined && moor !== null) {
       const sx = cx(b.lineup);
@@ -2181,8 +2230,8 @@ export class World {
       // Aim a ship's length or so along the route, not just at the next
       // waypoint, so a manoeuvre is judged by where it leaves the ship.
       // It should get there heading the way the route goes on.
-      let ax = cx(target);
-      let ay = cy(target);
+      let ax = tx;
+      let ay = ty;
       let adir = want;
       let left = Math.max(2, v.length * 0.75) - Math.hypot(ax - b.x, ay - b.y);
       for (let k = 1; k < b.path.length && left > 0; k++) {
@@ -2377,8 +2426,8 @@ export class World {
         (moor !== null && b.state === 'arriving' && v.length >= B.LINE_UP_LENGTH
           ? this.approachPath(b, from, b.berth, b.jetty)
           : null) ??
-        findPath(this.map.w, this.map.h, from, goal, this.seaWay(b, true), true) ??
-        findPath(this.map.w, this.map.h, from, goal, this.seaWay(b), true);
+        this.route(b, from, goal, this.seaWay(b, true)) ??
+        this.route(b, from, goal, this.seaWay(b));
       if (path) b.path = path.length > 0 ? path : [goal];
       else if (b.stall > B.BOAT_REROUTE_AFTER * 8) return 'blocked';
     }
@@ -2487,7 +2536,8 @@ export class World {
   private clips(b: Boat, x: number, y: number, dir: number, ships: Boat[]): number {
     const v = B.VESSELS[b.vessel];
     const m = this.map;
-    const cost: CostFn = (i) => (m.isLand(i) || m.build[i] !== Build.None ? Infinity : 1);
+    const cost: CostFn = (i) =>
+      m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i])) ? Infinity : 1;
     const hx = Math.cos(dir);
     const hy = Math.sin(dir);
     const side = (v.beam / 2) * 0.9;
@@ -2805,16 +2855,19 @@ export class World {
     b.berth = b.jetty = -1;
     const edge = this.seaEdgeTiles();
     const from = this.tileOf(b);
+    // Out past the red buoys, then off the map level with the last of them.
+    const stops = this.buoyStops(b, from, -1);
+    const last = stops.at(-1) ?? from;
     const exit = edge.reduce(
       (best, i) =>
-        Math.abs(this.map.yOf(i) - this.map.yOf(from)) <
-        Math.abs(this.map.yOf(best) - this.map.yOf(from))
+        Math.abs(this.map.yOf(i) - this.map.yOf(last)) <
+        Math.abs(this.map.yOf(best) - this.map.yOf(last))
           ? i
           : best,
       edge[0],
     );
     b.goal = exit;
-    b.path = findPath(this.map.w, this.map.h, from, exit, this.seaWay(b), true) ?? [];
+    b.path = this.via(from, stops, exit, this.seaWay(b)) ?? [];
     b.best = Infinity;
   }
 

@@ -105,6 +105,18 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M5 20v-7h6v7M13 20v-7h6v7" />
     </>
   ),
+  buoyIn: (
+    <>
+      <path d="M2 20c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" />
+      <path d="M8 17h8l-1-6H9zM12 4l-3 7h6z" />
+    </>
+  ),
+  buoyOut: (
+    <>
+      <path d="M2 20c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" />
+      <path d="M8 17h8l-1-6H9zM9.5 5h5v6h-5z" />
+    </>
+  ),
   dredge: (
     <>
       <path d="M2 18c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" />

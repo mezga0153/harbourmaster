@@ -5,10 +5,10 @@ import { loadAssets } from './render/assets';
 import { Renderer } from './render/renderer';
 import { isMachineKind } from './sim/machines';
 import { GameMap } from './sim/map';
-import { driveNetwork } from './sim/rules';
+import { buoyOrder, driveNetwork } from './sim/rules';
 import { isBay } from './sim/types';
 import { App, type Actions } from './ui/App';
-import { pushMessage, seed, selection, snapshot } from './ui/store';
+import { pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
 
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
@@ -36,6 +36,14 @@ selection.subscribe((s) => {
   renderer.select(s?.type === 'entity' ? s.id : null);
   showReach();
 });
+tool.subscribe(() => showChannels());
+
+/** With a buoy tool in hand, show the ways in and out the buoys mark. */
+function showChannels(): void {
+  if (!map) return;
+  const on = tool.peek() === 'buoyIn' || tool.peek() === 'buoyOut';
+  renderer.overlay.setChannels(map, on ? [buoyOrder(map, false), buoyOrder(map, true)] : [[], []]);
+}
 
 /** With a forklift, stacker or depot selected, show where it can drive. */
 function showReach(): void {
@@ -93,7 +101,10 @@ function handle(msg: WorkerMessage): void {
     map.deco[c.i] = c.deco;
   }
   renderer.applyTiles(msg.tiles, treesChanged, terrainChanged, seaChanged);
-  if (msg.tiles.length > 0) showReach();
+  if (msg.tiles.length > 0) {
+    showReach();
+    showChannels();
+  }
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
   for (const ev of msg.events) {

@@ -8,8 +8,13 @@ import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
+
+const LIGHT = 0xfff2b0;
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 
+/** The pointed top of a green buoy. */
+const coneGeo = new ConeGeometry(0.08, 0.14, 8);
+coneGeo.translate(0, 0.07, 0);
 const roofGeo = new ConeGeometry(0.56, 0.26, 4);
 roofGeo.rotateY(Math.PI / 4);
 roofGeo.scale(1.05, 1, 0.8);
@@ -49,6 +54,8 @@ export class Structures {
   private stacks = new Map<number, BayStack>();
   private cranes = new Map<number, CraneParts>();
   private gates = new Map<number, GateParts>();
+  /** Buoys, bobbing on the swell. */
+  private buoys = new Map<number, Object3D>();
 
   constructor(private map: GameMap) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
@@ -90,6 +97,11 @@ export class Structures {
 
   /** Per-frame animation: slew cranes towards their boats, bob the hooks, lift barriers. */
   update(dt: number, time: number): void {
+    for (const [i, buoy] of this.buoys) {
+      buoy.position.y = Math.sin(time * 1.7 + i * 0.37) * 0.025;
+      buoy.rotation.z = Math.sin(time * 1.3 + i) * 0.08;
+      buoy.rotation.x = Math.cos(time * 1.1 + i * 0.7) * 0.08;
+    }
     for (const g of this.gates.values()) {
       g.angle += ((g.open ? 1.4 : 0) - g.angle) * Math.min(1, dt * 5);
       g.boom.rotation.z = -g.angle;
@@ -130,6 +142,7 @@ export class Structures {
       this.stacks.delete(i);
       this.cranes.delete(i);
       this.gates.delete(i);
+      this.buoys.delete(i);
     }
     let obj = this.make(i);
     if (!obj) return;
@@ -221,6 +234,29 @@ export class Structures {
         }
         g.add(boom);
         this.gates.set(i, { boom, open: false, angle: 0 });
+        return g;
+      }
+      case Build.BuoyIn:
+      case Build.BuoyOut: {
+        // A lateral mark: green with a cone on top for the way in, red with
+        // a flat can top for the way out, a white band and a light.
+        const green = code === Build.BuoyIn;
+        const paint = green ? C.buoyGreen : C.buoyRed;
+        const buoy = new Group();
+        buoy.position.set(0.5, 0, 0.5);
+        buoy.scale.setScalar(1.3);
+        buoy.add(cyl(0.13, 0.12, paint, 0, -0.06, 0, 10));
+        buoy.add(cyl(0.07, 0.2, paint, 0, 0.06, 0, 8));
+        buoy.add(cyl(0.072, 0.04, C.cabin, 0, 0.14, 0, 8));
+        if (green) {
+          const cone = new Mesh(coneGeo, mat(paint));
+          cone.position.y = 0.26;
+          cone.castShadow = true;
+          buoy.add(cone);
+        } else buoy.add(cyl(0.085, 0.1, paint, 0, 0.26, 0, 8));
+        buoy.add(cyl(0.025, 0.05, LIGHT, 0, green ? 0.4 : 0.36, 0, 6));
+        g.add(buoy);
+        this.buoys.set(i, buoy);
         return g;
       }
       case Build.Footpath:

@@ -34,6 +34,8 @@ export const C = {
   depotRoof: 0x4a525c,
   shed: 0x6f97b0,
   shedTrim: 0xe8ecef,
+  buoyGreen: 0x2e9e4f,
+  buoyRed: 0xd6453d,
   stripe: 0xf2c230,
   sign: 0x2f6fd0,
   wood: 0xb07a43,

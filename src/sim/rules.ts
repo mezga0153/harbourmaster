@@ -1,6 +1,15 @@
 import * as B from './balance';
 import type { GameMap } from './map';
-import { Build, Deco, isBay, isDock, Terrain, type BuildCode, type BuildKind } from './types';
+import {
+  Build,
+  Deco,
+  isBay,
+  isBuoy,
+  isDock,
+  Terrain,
+  type BuildCode,
+  type BuildKind,
+} from './types';
 
 export interface Buildable {
   code: BuildCode;
@@ -102,6 +111,20 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     cost: 2000,
     hint: `Stores ${B.WAREHOUSE_CAPACITY} crates and loads trucks fast at two loading docks, big trucks too. 2×2; the docks face a public road, or a port road behind a port gate`,
     drag: false,
+  },
+  buoyIn: {
+    code: Build.BuoyIn,
+    label: 'Buoy: way in',
+    cost: B.BUOY_COST,
+    hint: 'Green buoys mark the way into the port. Boats coming in sail past them in order, from the one furthest out to the one nearest the docks. Place a line of them to give arrivals their own channel',
+    drag: true,
+  },
+  buoyOut: {
+    code: Build.BuoyOut,
+    label: 'Buoy: way out',
+    cost: B.BUOY_COST,
+    hint: 'Red buoys mark the way out to sea. Boats leaving sail past them in order, from the one nearest the docks outwards, so they keep clear of boats coming in',
+    drag: true,
   },
   largeBay: {
     code: Build.LargeBay,
@@ -302,6 +325,13 @@ export function placementError(
     return upgrade
       ? 'Upgrade a jetty to quay from its shore end first'
       : 'A quay must connect to the shore or another quay, not a jetty';
+  }
+
+  if (kind === 'buoyIn' || kind === 'buoyOut') {
+    if (t !== Terrain.Water) return 'Buoys go in the water';
+    if (!map.ocean[i]) return 'This water is not connected to the sea';
+    const crowded = map.neighbors4(i).some((n) => isBuoy(map.build[n]) || pending?.has(n));
+    return crowded ? 'Leave a tile between buoys' : null;
   }
 
   if (kind === 'jetty') {
@@ -538,4 +568,32 @@ export function reflood(map: GameMap): number[] {
     }
   }
   return changed;
+}
+
+/** The middle of the docks, which buoys are ordered from. */
+export function harbourCentre(map: GameMap): { x: number; y: number } {
+  let x = 0;
+  let y = 0;
+  let n = 0;
+  for (let i = 0; i < map.build.length; i++) {
+    if (!isDock(map.build[i])) continue;
+    x += map.xOf(i) + 0.5;
+    y += map.yOf(i) + 0.5;
+    n++;
+  }
+  if (n === 0) return { x: map.xOf(map.entry) + 0.5, y: map.yOf(map.entry) + 0.5 };
+  return { x: x / n, y: y / n };
+}
+
+/**
+ * Buoys of one colour in the order boats take them: the green way in from
+ * the one furthest from the docks, the red way out from the nearest.
+ */
+export function buoyOrder(map: GameMap, out: boolean): number[] {
+  const c = harbourCentre(map);
+  const d = (i: number) => Math.hypot(map.xOf(i) + 0.5 - c.x, map.yOf(i) + 0.5 - c.y);
+  const code = out ? Build.BuoyOut : Build.BuoyIn;
+  const buoys: number[] = [];
+  for (let i = 0; i < map.build.length; i++) if (map.build[i] === code) buoys.push(i);
+  return buoys.sort((p, q) => (out ? d(p) - d(q) : d(q) - d(p)));
 }

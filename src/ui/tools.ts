@@ -68,6 +68,8 @@ export const CATEGORIES: Category[] = [
       { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J' },
       { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
       { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O' },
+      { tool: 'buoyIn', icon: 'buoyIn', label: 'Buoy: way in' },
+      { tool: 'buoyOut', icon: 'buoyOut', label: 'Buoy: way out' },
       {
         tool: 'dredge',
         icon: 'dredge',

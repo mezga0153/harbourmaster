@@ -169,3 +169,7 @@ export const DIG_LAND_COST = 800; // digging a shore tile out into sea
 export const RECLAIM_COST = 500; // per tile, per step shallower
 export const MAX_DREDGE_DEPTH = 12;
 export const TERRAFORM_TIER = 1;
+
+export const BUOY_COST = 150;
+/** How far to one side of a buoy a boat passes it, in tiles. */
+export const BUOY_CLEARANCE = 0.7;
