@@ -48,7 +48,7 @@ export class Entities {
                 ? stacker()
                 : v.kind === 'boat'
                   ? boat(v.variant, v.vessel, v.id)
-                  : truck(v.variant, v.capacity, v.boxes);
+                  : truck(v.variant, v.capacity, v.boxes, v.id);
         this.group.add(model.root);
         // Only machines show a warning marker; boats at anchor are normal.
         const alert = v.kind === 'forklift' || v.kind === 'stacker' ? alertMarker() : null;

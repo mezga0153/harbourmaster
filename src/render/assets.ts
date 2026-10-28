@@ -42,7 +42,6 @@ const FIT = {
   'container-a': { file: 'watercraft/cargo-container-a.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   'container-b': { file: 'watercraft/cargo-container-b.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   'container-c': { file: 'watercraft/cargo-container-c.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
-  truck: { file: 'cars/truck-flat.glb', length: 0.95, yaw: Math.PI / 2 },
   ...Object.fromEntries(
     [
       'tree_default',
