@@ -37,6 +37,15 @@ export const WAKE_BOATS = 12;
 export const WAKE_POINTS = 16;
 /** Seconds a wake takes to settle once the boat stops. */
 const WAKE_LIFE = 3;
+/** How quickly a wake builds up and dies away, per second. */
+const WAKE_RISE = 0.45;
+const WAKE_FALL = 1.2;
+
+/** A wake barely shows while a boat is just getting under way. */
+function wakeStrength(way: number): number {
+  const w = Math.min(1, Math.max(0, way));
+  return w * w * (3 - 2 * w);
+}
 
 interface WakePoint {
   x: number;
@@ -144,8 +153,10 @@ export class Entities {
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
-        // The wake builds and dies away over a second or two, not per frame.
-        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * 1.2));
+        // The wake builds up slowly as the boat gathers way, over a few
+        // seconds whatever the game speed, and dies away a little quicker.
+        const rate = way > (e.way ?? 0) ? WAKE_RISE : WAKE_FALL;
+        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * rate));
         // The wake starts at whichever end is leading: the bow, or the
         // stern while going astern. Only a clear move the other way counts,
         // not a pause or a nudge sideways. The old wake is left to settle
@@ -203,18 +214,20 @@ export class Entities {
         for (const p of trail) {
           const [px, pz] = points[points.length - 1];
           s += Math.hypot(p.x - px, p.z - pz);
-          points.push([p.x, p.z, s, p.way * settle(p.time)]);
+          points.push([p.x, p.z, s, wakeStrength(p.way) * settle(p.time)]);
         }
         if (points.length < 2 || points.every((p) => p[3] < 0.02)) return false;
         // Always past the stern, so the wake grows out from behind the boat
         // as it picks up speed rather than popping out from under the hull.
-        const reach = hull.length + (hull.length * 0.5 + 3) * way;
+        const reach = hull.length + (hull.length * 0.5 + 3) * wakeStrength(way);
         out.push({ points, beam: hull.beam, length: hull.length, reach });
         return true;
       };
-      add(e.lead, e.trail, e.way ?? 0, e.way ?? 0);
+      add(e.lead, e.trail, e.way ?? 0, wakeStrength(e.way ?? 0));
       const g = e.ghost;
-      if (g && !add(g.lead, g.trail, g.way, g.way * settle(g.time))) e.ghost = undefined;
+      if (g && !add(g.lead, g.trail, g.way, wakeStrength(g.way) * settle(g.time))) {
+        e.ghost = undefined;
+      }
     }
     const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);
     return out.sort((a, b) => strength(b) - strength(a)).slice(0, WAKE_BOATS);
