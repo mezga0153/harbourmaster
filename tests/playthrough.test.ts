@@ -31,9 +31,16 @@ function playDay(w: World): string[] {
     0,
   );
 
-  // Queues on the jetty: more people will not help, more berths will.
-  const jammed = cap.congestion > 0.15;
-  if ((jammed || waiting > 1) && w.cash > 900 && newJetty(w)) did.push('new jetty');
+  // Queues on the jetty, two days running: more people will not help, more
+  // berths will. One busy day is not a pattern.
+  const busyDays = cap.congestion > 0.15 ? (jamDays.get(w) ?? 0) + 1 : 0;
+  jamDays.set(w, busyDays);
+  const jammed = busyDays >= 2;
+  if ((jammed || waiting > 1) && w.cash > 900 && newJetty(w)) {
+    did.push('new jetty');
+    // Give the new jetty a few days to take the pressure off.
+    jamDays.set(w, -3);
+  }
 
   // Not enough hands to unload what arrives.
   if (!jammed && cap.demand > cap.unloading * 0.85 && w.cash > 600) {
@@ -80,7 +87,8 @@ function playDay(w: World): string[] {
       const need = cap.demand + fisheryDailyCrates(offer.terms as FisheryTerms);
       if (need > cap.unloading * 0.85) {
         if (jammed) {
-          if (newJetty(w)) did.push('jetty ahead');
+          // One new jetty a day is plenty.
+          if (!did.includes('new jetty') && newJetty(w)) did.push('jetty ahead');
         } else {
           hireBest(w);
           did.push('hire ahead');
@@ -95,6 +103,9 @@ function playDay(w: World): string[] {
   }
   return did;
 }
+
+/** Days in a row each port has had queues on its walkways. */
+const jamDays = new WeakMap<World, number>();
 
 /** Hire the candidate with the most skill for the money. */
 function hireBest(w: World): void {
@@ -203,7 +214,7 @@ function newJetty(w: World): boolean {
     if (w.cash < 3500 || !buildOffice(w)) return false;
   }
   const row0 = m.yOf(m.entry);
-  for (const off of [3, -3, 6, -6, 9, -9, 12, -12]) {
+  for (const off of [4, -4, 8, -8, 12, -12, 16, -16]) {
     const row = row0 + off;
     if (row < 2 || row >= m.h - 2) continue;
     let rowHasJetty = false;
@@ -253,7 +264,7 @@ function playthrough(seed: number, days: number) {
       `d${String(d).padStart(2)} $${String(w.cash).padStart(6)} staff ${w.people.length} ` +
         `boats ${w.boats.length} (anch ${anchored}) bays ${bays} trucks ${w.trucks.length} ` +
         `cap ${w.capacity().demand}/${w.capacity().unloading}/${w.capacity().trucking} ` +
-        `pen ${w.stats.penalties} moods ${moods || '-'} ${did.join(', ')}`,
+        `pen ${w.stats.penalties} cong ${w.capacity().congestion.toFixed(2)} moods ${moods || '-'} ${did.join(', ')}`,
     );
   }
   return { w, log };

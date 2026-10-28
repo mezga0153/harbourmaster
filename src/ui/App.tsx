@@ -323,14 +323,6 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
         </dl>
         <Meter value={bay.stock / bay.capacity} />
-        {bay.large && (
-          <dl class="props">
-            <dt>Containers waiting</dt>
-            <dd>
-              {bay.boxes} / {B.LARGE_BAY_BOXES}
-            </dd>
-          </dl>
-        )}
         {bay.noAccess && <p class="note bad">No road connection. Trucks cannot reach this bay.</p>}
       </aside>
     );
@@ -343,8 +335,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader kicker="Building" title="Container yard" onClose={close} />
         <p class="muted">
-          Reach stackers stack containers here when the large truck bays are full, and take them on
-          to a bay when there is room.
+          Reach stackers stack containers here from the harbour cranes, and container trucks collect
+          them at the gate.
         </p>
         <dl class="props">
           <dt>Containers</dt>

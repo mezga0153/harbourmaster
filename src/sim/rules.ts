@@ -86,7 +86,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Yard,
     label: 'Container yard',
     cost: 2500,
-    hint: `Stacks up to ${B.YARD_BOXES} containers off the ships until there is room in a large truck bay. Reach stackers move them. 2×2; the gate faces a port road or quay`,
+    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2; the gate faces a public road, and a side or back touches a port road or quay`,
     drag: false,
   },
   largeBay: {
@@ -320,7 +320,13 @@ export function placementError(
     return drivable(f) ? null : 'The garage door must face a port road or quay';
   }
   if (kind === 'containerYard') {
-    return drivable(f) ? null : 'The gate must face a port road or quay';
+    if (f !== Build.Road) return 'The gate must face a public road, for the trucks';
+    // The stackers come in from the port side.
+    const tiles = footprint(map, kind, i, facing);
+    const port = tiles.some((t) =>
+      map.neighbors4(t).some((n) => n !== front && !tiles.includes(n) && drivable(map.build[n])),
+    );
+    return port ? null : 'A side or the back must touch a port road or quay, for the stackers';
   }
   if (kind === 'office') {
     const ok = walkableAt(map, front) || f === Build.Road;

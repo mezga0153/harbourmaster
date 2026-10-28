@@ -77,7 +77,20 @@ export const REROUTE_AFTER = 18; // ticks blocked before looking for a way aroun
 export const SQUEEZE_AFTER = 60; // ticks blocked before squeezing past anyway
 export const WORKERS_PER_SPOT = 2; // sent to the same loading spot at once
 export const TRUCK_SPEED = 0.7;
-export const BOAT_SPEED = 0.15;
+/**
+ * How each kind of vessel handles: hull size in tiles, top speed in tiles a
+ * tick, and how fast it can turn at that speed, in radians a tick. Big
+ * ships are slow and need room to turn.
+ */
+export const VESSELS = {
+  smack: { length: 1.9, beam: 0.6, speed: 0.15, turn: 0.07 },
+  coaster: { length: 2.7, beam: 0.84, speed: 0.11, turn: 0.045 },
+  feeder: { length: 5.6, beam: 0.96, speed: 0.08, turn: 0.028 },
+} as const;
+/** Ticks a boat can be held up before it looks for another way. */
+export const BOAT_REROUTE_AFTER = 50;
+/** Ticks without getting closer before a boat squeezes past others, so traffic never locks up. */
+export const BOAT_WEDGED_AFTER = 400;
 
 export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;
@@ -121,7 +134,6 @@ export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;
-export const LARGE_BAY_BOXES = 4; // containers a large truck bay can hold
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 /** Container yard: a 2×2 stacking area that buffers containers for the trucks. */
 export const YARD_BOXES = 24;

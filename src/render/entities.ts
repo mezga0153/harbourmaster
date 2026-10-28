@@ -1,4 +1,14 @@
-import { Group, Vector3, type Object3D } from 'three';
+import {
+  BufferGeometry,
+  DoubleSide,
+  Float32BufferAttribute,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  Vector3,
+  type Object3D,
+} from 'three';
+import { VESSELS } from '../sim/balance';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
 import {
@@ -20,6 +30,55 @@ interface Entry {
   view: EntityView;
   model: Model;
   alert: Object3D | null;
+  /** Boats: the foam they leave behind, and how far they lean in a turn. */
+  wake?: Mesh;
+  heel?: number;
+}
+
+const wakeMaterial = new MeshBasicMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  transparent: true,
+  depthWrite: false,
+  side: DoubleSide,
+});
+
+/**
+ * Foam around a hull: a bow wave either side of the stem and a widening
+ * wake behind the stern, fading out. Faces +X like the boats.
+ */
+function wakeMesh(length: number, beam: number): Mesh {
+  const bow = length / 2;
+  const stern = -length / 2;
+  const tail = stern - length * 1.1;
+  const spread = beam * 1.2;
+  const v = (x: number, z: number) => [x, 0, z];
+  const pos = [
+    // Bow wave: two thin wedges along the bow.
+    ...v(bow, 0),
+    ...v(bow - 0.35, beam * 0.62),
+    ...v(bow - 0.25, beam * 0.5),
+    ...v(bow, 0),
+    ...v(bow - 0.25, -beam * 0.5),
+    ...v(bow - 0.35, -beam * 0.62),
+    // Wake: a fan behind the stern.
+    ...v(stern, beam * 0.45),
+    ...v(tail, spread),
+    ...v(tail, -spread),
+    ...v(stern, beam * 0.45),
+    ...v(tail, -spread),
+    ...v(stern, -beam * 0.45),
+  ];
+  const a = (x: number) => (x === tail ? 0 : x <= stern ? 0.32 : x === bow ? 0.7 : 0.2);
+  const col: number[] = [];
+  for (let k = 0; k < pos.length; k += 3) col.push(1, 1, 1, a(pos[k]));
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 4));
+  const m = new Mesh(geo, wakeMaterial.clone());
+  m.position.y = 0.01;
+  m.renderOrder = 1;
+  return m;
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -57,6 +116,13 @@ export class Entities {
           this.group.add(alert);
         }
         e = { view: v, model, alert };
+        if (v.kind === 'boat') {
+          const hull = VESSELS[(v.vessel ?? 'smack') as keyof typeof VESSELS];
+          e.wake = wakeMesh(hull.length, hull.beam);
+          e.heel = 0;
+          model.root.add(e.wake);
+          model.root.rotation.order = 'YXZ';
+        }
         this.entries.set(v.id, e);
       }
       e.view = v;
@@ -83,8 +149,21 @@ export class Entities {
       root.rotation.y = -dir;
 
       if (cur.kind === 'boat') {
+        // Way on, from how far it moved since the last snapshot; boats lean
+        // out of a turn, lift their bow a touch under way and leave a wake.
+        const hull = VESSELS[(cur.vessel ?? 'smack') as keyof typeof VESSELS];
+        const way = Math.min(1, Math.hypot(cur.x - prev.x, cur.y - prev.y) / hull.speed);
+        const turn = lerpAngle(prev.dir, cur.dir, 1) - prev.dir;
+        const lean = Math.max(-0.12, Math.min(0.12, -turn * 3 * way));
+        e.heel = (e.heel ?? 0) + (lean - (e.heel ?? 0)) * 0.08;
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
-        root.rotation.z = Math.sin(time * 1.1 + id) * 0.025;
+        root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
+        root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
+        if (e.wake) {
+          const mat = e.wake.material as MeshBasicMaterial;
+          mat.opacity += (way - mat.opacity) * 0.1;
+          e.wake.visible = mat.opacity > 0.02;
+        }
       } else if (cur.kind === 'dockhand' || cur.kind === 'forklift' || cur.kind === 'stacker') {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? 0.16 : 0.2;

@@ -49,7 +49,7 @@ export const TIERS: Tier[] = [
       'Mobile harbour cranes (on a 2-wide quay)',
       'Reach stackers',
       'Feeder ships with containers (4 m draft)',
-      'Container hauliers (need large truck bays)',
+      'Container yards and container hauliers',
     ],
   },
   {

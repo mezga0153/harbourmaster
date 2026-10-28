@@ -369,14 +369,15 @@ export class Structures {
         return g;
       }
       case Build.Yard: {
-        // 2×2 behind a gate at the front (+z): x 0..2, z -1..1. A driving
-        // lane along the gate, then containers three along, four rows deep.
+        // 2×2 behind a gate onto the road at the front (+z): x 0..2, z -1..1.
+        // A lane along the gate where trucks load, then containers three
+        // along, four rows deep, two high.
         g.add(box(2, 0.05, 2, C.quayTop, 1, top, 0));
         const y = top + 0.05;
-        g.add(box(1.9, 0.008, 0.04, C.stripe, 1, y, 0.62));
+        g.add(box(1.9, 0.008, 0.04, C.stripe, 1, y, 0.3));
         const boxes: Object3D[] = [];
         for (let layer = 0; layer < 2; layer++) {
-          for (const z of [0.36, 0.02, -0.32, -0.66]) {
+          for (const z of [0.12, -0.2, -0.52, -0.84]) {
             for (const x of [0.35, 1, 1.65]) {
               const c = container(boxes.length * 7 + layer, x, y + layer * BOX_HEIGHT, z);
               c.visible = false;
@@ -402,20 +403,10 @@ export class Structures {
         const y = top + 0.06;
         for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         g.add(box(0.8, 0.01, 0.05, C.marking, 0.5, y, 0.08));
-        // Containers in two rows along the back of the yard, two high.
-        const boxes: Object3D[] = [];
-        for (let layer = 0; layer < 2; layer++) {
-          for (const z of [0.18, 0.49]) {
-            const c = container(boxes.length, 1.5, y + layer * BOX_HEIGHT, z);
-            c.visible = false;
-            g.add(c);
-            boxes.push(c);
-          }
-        }
-        // Crates in front of them: two rows of four, four high.
+        // Crates: four rows of four, stacked up.
         const crates: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [0.74, 0.91]) {
+          for (const z of [0.2, 0.4, 0.6, 0.8]) {
             for (const x of [1.2, 1.4, 1.6, 1.8]) {
               if (crates.length >= 28) break;
               const c = crate(0.17, x, y + layer * 0.17, z);
@@ -432,7 +423,7 @@ export class Structures {
         g.add(box(1, 0.04, 1, C.depotRoof, 1.5, y + 0.8, 0.5));
         g.add(cyl(0.02, 0.5, C.chassis, 0.08, y, 0.08));
         g.add(box(0.04, 0.16, 0.22, C.sign, 0.08, y + 0.45, 0.08));
-        this.stacks.set(i, { crates, boxes });
+        this.stacks.set(i, { crates, boxes: [] });
         return g;
       }
     }

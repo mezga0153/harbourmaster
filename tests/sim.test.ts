@@ -334,6 +334,7 @@ describe('Coastal Wharf tier', () => {
 
   it('upgrades a jetty to a quay from its shore end only', () => {
     const world = World.create(7);
+    world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
     const m = world.map;
@@ -537,6 +538,7 @@ describe('Coastal Wharf tier', () => {
 
   it('tells you when a forklift cannot reach the cargo', () => {
     const world = World.create(7);
+    world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
     const jetty = starterJetty(world);
@@ -556,6 +558,7 @@ describe('Coastal Wharf tier', () => {
 
   it('leaves pallets for forklifts', () => {
     const world = World.create(7);
+    world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
     const m = world.map;
@@ -578,6 +581,7 @@ describe('Coastal Wharf tier', () => {
 
   it('runs a jib crane and forklifts off a quay', () => {
     const world = World.create(7);
+    world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
     const jetty = starterJetty(world);
@@ -728,7 +732,7 @@ describe('Container Port tier', () => {
    * pier (rows r-1 and r-2) out to deep water with a harbour crane at the
    * end, a large truck bay on the road, a depot and a harbour office.
    */
-  function terminal(world: World): { crane: number } | null {
+  function terminal(world: World): { crane: number; yard: number } | null {
     const m = world.map;
     const r = m.yOf(m.entry);
     let shore = 0;
@@ -759,22 +763,23 @@ describe('Container Port tier', () => {
     }
     const crane = m.idx(end, r - 2);
     world.command({ type: 'build', kind: 'harbourCrane', tiles: [crane] });
-    // Two tiles wide, facing the road: the truck lane, then the yard by the path.
-    const bay = m.idx(start - 2, r - 1);
-    world.command({ type: 'bulldoze', tiles: [bay, bay + 1] });
-    world.command({ type: 'build', kind: 'largeBay', tiles: [bay] });
-    const depot = m.idx(start - 1, r - 2);
+    // A 2×2 container yard with its gate on the public road and its side on
+    // the port road, where the stackers come in.
+    const yard = m.idx(start - 2, r - 1);
+    world.command({ type: 'bulldoze', tiles: [yard, yard + 1, yard - m.w, yard - m.w + 1] });
+    world.command({ type: 'build', kind: 'containerYard', tiles: [yard], facing: 1 });
+    const depot = m.idx(start, r - 3);
     world.command({ type: 'bulldoze', tiles: [depot] });
-    world.command({ type: 'build', kind: 'depot', tiles: [depot] });
+    world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
     const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
     world.command({ type: 'build', kind: 'office', tiles: [office] });
     world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
-    if (m.build[crane] !== Build.HarbourCrane || m.build[bay] !== Build.LargeBay) return null;
+    if (m.build[crane] !== Build.HarbourCrane || m.build[yard] !== Build.Yard) return null;
     if (!world.people.some((p) => p.kind === 'stacker')) return null;
-    return { crane };
+    return { crane, yard };
   }
 
-  it('lifts containers off a feeder, stacks them to a large bay and trucks them out', () => {
+  it('lifts containers off a feeder, stacks them in a yard and trucks them out', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
@@ -819,15 +824,12 @@ describe('Container Port tier', () => {
     expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
   });
 
-  it('stacks containers in a yard while the truck bays are full', () => {
+  it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
-    expect(terminal(world)).not.toBeNull();
-    const m = world.map;
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'containerYard', i));
-    world.command({ type: 'build', kind: 'containerYard', tiles: [spot] });
-    expect(world.yards.size).toBe(1);
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
     const add = world['addContract'].bind(world);
     add(
       {
@@ -843,12 +845,11 @@ describe('Container Port tier', () => {
       world.tick + 10,
       0,
     );
-    // No container trucks yet, so the large bay fills and the rest wait.
+    // No container trucks yet: the containers wait in the yard.
     for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
-    const yard = world.yards.get(spot)!;
-    const bay = [...world.bays.values()].find((b) => b.large)!;
-    expect(bay.boxes).toHaveLength(B.LARGE_BAY_BOXES);
+    const yard = world.yards.get(t.yard)!;
     expect(yard.boxes.length).toBeGreaterThan(0);
+    expect([...world.bays.values()].every((b) => b.boxes.length === 0)).toBe(true);
     add(
       {
         kind: 'haulier',

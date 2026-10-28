@@ -103,7 +103,14 @@ function termRows(t: Terms): [string, ComponentChildren][] {
     return [
       ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
       ['Per truck', `${t.capacity} ${unit(t)}`],
-      ['Needs', t.capacity > B.TRUCK_CAPACITY || t.cargo ? 'Large truck bays' : 'Any truck bay'],
+      [
+        'Needs',
+        t.cargo
+          ? 'Container yards'
+          : t.capacity > B.TRUCK_CAPACITY
+            ? 'Large truck bays'
+            : 'Any truck bay',
+      ],
     ];
   }
   return [
@@ -176,7 +183,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
         : b.demand > b.moving
           ? 'Containers bottleneck: moving. Buy reach stackers.'
           : b.demand > b.trucking
-            ? 'Containers bottleneck: trucking. Sign a container haulier and build large truck bays.'
+            ? 'Containers bottleneck: trucking. Sign a container haulier and build container yards by a public road.'
             : null;
   return (
     <>
@@ -343,7 +350,7 @@ function OfferCard({
       <Check ok={b.berths > 0}>
         {b.berths > 0
           ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a harbour crane`
-          : 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water'}
+          : 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water, with 7 tiles of open water along it'}
       </Check>,
       <Check ok={after <= b.lifting} warn={after > b.lifting}>
         Lifting: {after} needed, {b.lifting} possible
@@ -356,12 +363,12 @@ function OfferCard({
       </Check>,
     );
   } else if (t.kind === 'haulier' && t.cargo === 'container') {
-    const large = (snapshot.value?.bays ?? []).filter((x) => x.large).length;
+    const yards = (snapshot.value?.yards ?? []).length;
     checks.push(
-      <Check ok={large > 0}>
-        {large > 0
-          ? `${large} large truck bay${large === 1 ? '' : 's'} to load at`
-          : 'Container trucks only load at large truck bays: build one'}
+      <Check ok={yards > 0}>
+        {yards > 0
+          ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
+          : 'Container trucks load at a container yard: build one by a public road'}
       </Check>,
     );
   } else if (t.kind === 'fishery') {
