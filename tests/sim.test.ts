@@ -928,7 +928,7 @@ describe('Rules of the road', () => {
 });
 
 describe('Buoys', () => {
-  it('lead boats in past the green buoys and out past the red ones, in order', () => {
+  it('lead boats in and out between pairs of buoys, in order, well clear of them', () => {
     const world = World.create(7);
     world.tier = 1;
     world.cash = 100_000;
@@ -936,15 +936,17 @@ describe('Buoys', () => {
     const row = m.yOf(m.entry);
     let shore = 0;
     while (m.isLand(m.idx(shore + 1, row))) shore++;
-    // Way in to the north of the jetty, way out to the south.
-    const ins = [24, 16, 8].map((dx, k) => m.idx(shore + dx, row - 6 + k));
-    const outs = [8, 16, 24].map((dx, k) => m.idx(shore + dx, row + 6 + k));
-    world.command({ type: 'build', kind: 'buoyIn', tiles: ins });
-    world.command({ type: 'build', kind: 'buoyOut', tiles: outs });
-    expect(ins.every((i) => m.build[i] === Build.BuoyIn)).toBe(true);
-    expect(outs.every((i) => m.build[i] === Build.BuoyOut)).toBe(true);
+    // Two pairs marking the way in to the north, two the way out to the south.
+    const pairs = (dy: number[], dxs: number[]) =>
+      dxs.map((dx) => dy.map((y) => m.idx(shore + dx, row + y)));
+    const ins = pairs([-13, -4], [26, 16]);
+    const outs = pairs([4, 13], [12, 22]);
+    world.command({ type: 'build', kind: 'buoyIn', tiles: ins.flat() });
+    world.command({ type: 'build', kind: 'buoyOut', tiles: outs.flat() });
+    expect(ins.flat().every((i) => m.build[i] === Build.BuoyIn)).toBe(true);
+    expect(outs.flat().every((i) => m.build[i] === Build.BuoyOut)).toBe(true);
     // Buoys leave the water open, and stand a tile apart.
-    expect(placementError(m, 'buoyIn', ins[0] + 1)).not.toBeNull();
+    expect(placementError(m, 'buoyIn', ins[0][0] + 1)).not.toBeNull();
     world.boats.length = 0;
     world['addContract'](
       {
@@ -960,32 +962,57 @@ describe('Buoys', () => {
       world.tick + 5,
       0,
     );
-    const near = new Map<number, number[]>();
-    const passed = (id: number, i: number) => {
-      const seen = near.get(id) ?? [];
-      if (!seen.includes(i)) seen.push(i);
-      near.set(id, seen);
+    const at = (i: number) => [m.xOf(i) + 0.5, m.yOf(i) + 0.5];
+    // Did the move from p to q cross the line between buoys a and b?
+    const cross = (p: number[], q: number[], [a, b]: number[]) => {
+      const [ax, ay] = at(a);
+      const [bx, by] = at(b);
+      const side = (x: number, y: number, x0: number, y0: number, x1: number, y1: number) =>
+        Math.sign((x1 - x0) * (y - y0) - (y1 - y0) * (x - x0));
+      return (
+        side(p[0], p[1], ax, ay, bx, by) !== side(q[0], q[1], ax, ay, bx, by) &&
+        side(ax, ay, p[0], p[1], q[0], q[1]) !== side(bx, by, p[0], p[1], q[0], q[1])
+      );
     };
+    const crossed = new Map<number, { in: number[]; out: number[] }>();
+    const last = new Map<number, number[]>();
+    let closest = Infinity;
+    const buoys = [...ins.flat(), ...outs.flat()].map(at);
+    const half = B.VESSELS.smack.length / 2;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
       for (const b of world.boats) {
-        for (const i of b.state === 'leaving' ? outs : ins) {
-          if (Math.hypot(b.x - m.xOf(i) - 0.5, b.y - m.yOf(i) - 0.5) < 1.5) passed(b.id, i);
+        const here = [b.x, b.y];
+        const was = last.get(b.id);
+        last.set(b.id, here);
+        const seen = crossed.get(b.id) ?? { in: [], out: [] };
+        crossed.set(b.id, seen);
+        if (was) {
+          ins.forEach((g, k) => cross(was, here, g) && seen.in.push(k));
+          outs.forEach((g, k) => cross(was, here, g) && seen.out.push(k));
+        }
+        // From each buoy to the nearest point of the hull's centreline.
+        for (const [x, y] of buoys) {
+          const t = (x - b.x) * Math.cos(b.dir) + (y - b.y) * Math.sin(b.dir);
+          const along = Math.max(-half, Math.min(half, t));
+          const d = Math.hypot(
+            b.x + Math.cos(b.dir) * along - x,
+            b.y + Math.sin(b.dir) * along - y,
+          );
+          closest = Math.min(closest, d);
         }
       }
     }
-    const routes = [...near.values()];
-    const way = (r: number[], buoys: number[]) => r.filter((i) => buoys.includes(i));
-    // Every boat met the buoys in order: green furthest out first, red
-    // nearest the docks first. Some passed all of them.
+    const routes = [...crossed.values()];
+    // In through each pair furthest out first, out through each nearest the docks first.
     for (const r of routes) {
-      for (const buoys of [ins, outs]) {
-        const seen = way(r, buoys).map((i) => buoys.indexOf(i));
-        expect(seen).toEqual([...seen].sort((p, q) => p - q));
-      }
+      expect(r.in).toEqual([...r.in].sort((p, q) => p - q));
+      expect(r.out).toEqual([...r.out].sort((p, q) => p - q));
     }
-    expect(routes.some((r) => way(r, ins).length === 3)).toBe(true);
-    expect(routes.some((r) => way(r, outs).length === 3)).toBe(true);
+    expect(routes.filter((r) => r.in.join() === '0,1').length).toBeGreaterThan(2);
+    expect(routes.filter((r) => r.out.join() === '0,1').length).toBeGreaterThan(2);
+    // Never close enough to touch a buoy.
+    expect(closest).toBeGreaterThan(B.VESSELS.smack.beam / 2 + 0.5);
   });
 });
 

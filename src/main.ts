@@ -5,7 +5,7 @@ import { loadAssets } from './render/assets';
 import { Renderer } from './render/renderer';
 import { isMachineKind } from './sim/machines';
 import { GameMap } from './sim/map';
-import { buoyOrder, driveNetwork } from './sim/rules';
+import { buoyGates, driveNetwork } from './sim/rules';
 import { isBay } from './sim/types';
 import { App, type Actions } from './ui/App';
 import { pushMessage, seed, selection, snapshot, tool } from './ui/store';
@@ -38,11 +38,14 @@ selection.subscribe((s) => {
 });
 tool.subscribe(() => showChannels());
 
-/** With a buoy tool in hand, show the ways in and out the buoys mark. */
+/** With a buoy tool in hand, show the lines the pairs of buoys mark. */
 function showChannels(): void {
   if (!map) return;
+  const m = map;
   const on = tool.peek() === 'buoyIn' || tool.peek() === 'buoyOut';
-  renderer.overlay.setChannels(map, on ? [buoyOrder(map, false), buoyOrder(map, true)] : [[], []]);
+  const lines = (out: boolean): [number, number][] =>
+    on ? buoyGates(m, out).flatMap((g) => (g.b < 0 ? [] : [[g.a, g.b] as [number, number]])) : [];
+  renderer.overlay.setChannels(m, [lines(false), lines(true)]);
 }
 
 /** With a forklift, stacker or depot selected, show where it can drive. */

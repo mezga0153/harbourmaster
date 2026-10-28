@@ -180,5 +180,9 @@ export const MAX_DREDGE_DEPTH = 12;
 export const TERRAFORM_TIER = 1;
 
 export const BUOY_COST = 150;
-/** How far to one side of a buoy a boat passes it, in tiles. */
+/** How far to one side of a lone buoy a boat passes it, in tiles. */
 export const BUOY_CLEARANCE = 0.7;
+/** Least room a boat leaves between its side and a buoy of a pair it crosses between. */
+export const GATE_CLEARANCE = 1.2;
+/** What sailing over a buoy's tile costs a route, against 1 for open water. */
+export const BUOY_DETOUR = 8;

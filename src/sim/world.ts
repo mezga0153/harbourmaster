@@ -33,7 +33,7 @@ import { Rng } from './rng';
 import {
   anchorOf,
   bestFacing,
-  buoyOrder,
+  buoyGates,
   BUILDABLES,
   bulldozeError,
   bulldozeTiles,
@@ -423,6 +423,8 @@ export class World {
   private capacityCache: Capacity | null = null;
   /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */
   private dockCache: ReturnType<World['docks']> | null = null;
+  private gateCache: Set<number>[] | null = null;
+  private buoyCache: Uint8Array | null = null;
   private coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
   private dockKey = new Map<number, number>();
@@ -578,6 +580,8 @@ export class World {
     if (this.bankrupt) return;
     this.capacityCache = null;
     this.dockCache = null;
+    this.gateCache = null;
+    this.buoyCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -1456,20 +1460,107 @@ export class World {
   }
 
   /**
-   * The buoys a boat passes on its way from `from` to `to`, in order. Coming
-   * in, the green ones between the two, furthest from the docks first; going
-   * out, the red ones further out than it is, nearest first.
+   * Where a boat goes by the buoys on its way from `from` to `to`, in order.
+   * Coming in, the green ones between the two, furthest from the docks
+   * first; going out, the red ones further out than it is, nearest first.
+   * Between a pair it crosses the line joining them, in a lane of its own
+   * and well clear of both; a lone buoy it passes close by.
    */
-  private buoyStops(b: Boat, from: number, to: number): number[] {
+  private buoyStops(b: Boat, from: number, to: number, cost: CostFn): number[] {
     const m = this.map;
     const c = harbourCentre(m);
     const d = (i: number) => Math.hypot(m.xOf(i) + 0.5 - c.x, m.yOf(i) + 0.5 - c.y);
     const out = b.state === 'leaving';
     const here = d(from);
     const there = to >= 0 ? d(to) : 0;
-    return buoyOrder(m, out).filter((i) =>
-      out ? d(i) > here + 0.5 : d(i) < here - 0.5 && d(i) > there + 0.5,
-    );
+    const stops: number[] = [];
+    for (const g of buoyGates(m, out)) {
+      const far = g.b < 0 ? d(g.a) : (d(g.a) + d(g.b)) / 2;
+      if (out ? far <= here + 0.5 : far >= here - 0.5 || far <= there + 0.5) continue;
+      stops.push(...(g.b < 0 ? [g.a] : this.crossing(b, g.a, g.b, out, cost)));
+    }
+    return stops;
+  }
+
+  /**
+   * Where a boat crosses between buoys `a` and `b`: a tile short of the
+   * line, one on it and one beyond, so it comes square across rather than
+   * running along the line. None if there is no room.
+   */
+  private crossing(boat: Boat, a: number, b: number, out: boolean, cost: CostFn): number[] {
+    const m = this.map;
+    const ax = m.xOf(a) + 0.5;
+    const ay = m.yOf(a) + 0.5;
+    const len = Math.hypot(m.xOf(b) + 0.5 - ax, m.yOf(b) + 0.5 - ay);
+    const ux = (m.xOf(b) + 0.5 - ax) / len;
+    const uy = (m.yOf(b) + 0.5 - ay) / len;
+    const room = B.GATE_CLEARANCE + B.VESSELS[boat.vessel].beam / 2 + 0.5;
+    if (len < room * 2) return [];
+    // Across the line, the way the boat is going: out from the docks or in.
+    const c = harbourCentre(m);
+    const outwards = -uy * (ax - c.x) + ux * (ay - c.y) > 0 ? 1 : -1;
+    const nx = -uy * outwards * (out ? 1 : -1);
+    const ny = ux * outwards * (out ? 1 : -1);
+    const tile = (t: number, n: number) =>
+      m.idx(Math.floor(ax + ux * t + nx * n), Math.floor(ay + uy * t + ny * n));
+    // Each boat has a lane of its own across the middle of the gap.
+    const lane = ((boat.id * 7) % 9) / 8 - 0.5;
+    const want = len / 2 + lane * (len - room * 2) * 0.8;
+    // The nearest place along the line to there that the boat can sail across.
+    for (let off = 0; off <= len; off += 0.5) {
+      for (const t of [want - off, want + off]) {
+        if (t < room || t > len - room) continue;
+        const way = [tile(t, -1.5), tile(t, 0), tile(t, 1.5)];
+        if (way.every((i) => cost(i) === 1)) return way;
+      }
+    }
+    return [];
+  }
+
+  /** Tiles within two of a buoy, which routes keep off. Not saved. */
+  private nearBuoy(): Uint8Array {
+    if (this.buoyCache) return this.buoyCache;
+    const m = this.map;
+    const near = new Uint8Array(m.build.length);
+    for (let i = 0; i < m.build.length; i++) {
+      if (!isBuoy(m.build[i])) continue;
+      const x = m.xOf(i);
+      const y = m.yOf(i);
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (m.inBounds(x + dx, y + dy)) near[m.idx(x + dx, y + dy)] = 1;
+        }
+      }
+    }
+    this.buoyCache = near;
+    return near;
+  }
+
+  /**
+   * Tiles on the lines between pairs of buoys, the green ones or the red,
+   * which boats coming in or going out must not cut past. Not saved.
+   */
+  private gateLines(out: boolean): Set<number> {
+    if (this.gateCache) return this.gateCache[out ? 1 : 0];
+    const m = this.map;
+    const lines = [false, true].map((out) => {
+      const tiles = new Set<number>();
+      for (const g of buoyGates(m, out)) {
+        if (g.b < 0) continue;
+        const ax = m.xOf(g.a) + 0.5;
+        const ay = m.yOf(g.a) + 0.5;
+        const ux = m.xOf(g.b) + 0.5 - ax;
+        const uy = m.yOf(g.b) + 0.5 - ay;
+        const n = Math.ceil(Math.hypot(ux, uy) * 4);
+        for (let k = 1; k < n; k++) {
+          const i = m.idx(Math.floor(ax + (ux * k) / n), Math.floor(ay + (uy * k) / n));
+          if (!isBuoy(m.build[i])) tiles.add(i);
+        }
+      }
+      return tiles;
+    });
+    this.gateCache = lines;
+    return lines[out ? 1 : 0];
   }
 
   /** A route through each of `stops` in turn; any it cannot reach it leaves out. */
@@ -1490,7 +1581,7 @@ export class World {
 
   /** A route for this boat from `from` to `to`, by way of the buoys it should pass. */
   private route(b: Boat, from: number, to: number, cost: CostFn): number[] | null {
-    return this.via(from, this.buoyStops(b, from, to), to, cost);
+    return this.via(from, this.buoyStops(b, from, to, cost), to, cost);
   }
 
   /**
@@ -1611,12 +1702,17 @@ export class World {
   private boatCostFor(draft: number): CostFn {
     let fn = this.boatCosts.get(draft);
     if (!fn) {
+      // Boats give buoys a wide berth, unless making for one.
       fn = (i) =>
-        this.map.ocean[i] &&
-        (this.map.build[i] === Build.None || isBuoy(this.map.build[i])) &&
-        this.map.depth[i] >= draft
-          ? 1
-          : Infinity;
+        !this.map.ocean[i] || this.map.depth[i] < draft
+          ? Infinity
+          : this.map.build[i] === Build.None
+            ? this.nearBuoy()[i]
+              ? B.BUOY_DETOUR / 2
+              : 1
+            : isBuoy(this.map.build[i])
+              ? B.BUOY_DETOUR
+              : Infinity;
       this.boatCosts.set(draft, fn);
     }
     return fn;
@@ -2175,8 +2271,9 @@ export class World {
     const line = moor !== null && b.berthing === 'lead' ? b.path.indexOf(b.lineup ?? -1) : -1;
     const most = line >= 0 ? Math.min(line + 1, 4) : 4;
     for (let k = 1; k < Math.min(b.path.length, most); k++) {
-      // A buoy is passed, not cut past.
-      if (isBuoy(this.map.build[b.path[k - 1]])) break;
+      // A buoy is passed, and the line between a pair crossed, not cut past.
+      const at = b.path[k - 1];
+      if (isBuoy(this.map.build[at]) || this.gateLines(b.state === 'leaving').has(at)) break;
       if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear)) break;
       ahead = k;
     }
@@ -3095,11 +3192,13 @@ export class World {
     const edge = this.seaEdgeTiles();
     const from = this.tileOf(b);
     // Out past the red buoys, then off the map level with the last of them.
-    const stops = this.buoyStops(b, from, -1);
+    const stops = this.buoyStops(b, from, -1, this.seaWay(b));
     const last = stops.at(-1) ?? from;
     // Each boat keeps to a lane of its own out at sea, a few rows either
-    // side, so departures do not all converge on one point.
-    const lane = this.map.yOf(last) + (((b.id * 7) % 9) - 4) * B.EXIT_LANES;
+    // side, so departures do not all converge on one point. Crossing
+    // between a pair of buoys it is in its lane already.
+    const crossed = stops.length > 0 && !isBuoy(this.map.build[last]);
+    const lane = this.map.yOf(last) + (crossed ? 0 : (((b.id * 7) % 9) - 4) * B.EXIT_LANES);
     const exit = edge.reduce(
       (best, i) =>
         Math.abs(this.map.yOf(i) - lane) < Math.abs(this.map.yOf(best) - lane) ? i : best,

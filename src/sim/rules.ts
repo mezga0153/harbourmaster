@@ -116,14 +116,14 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.BuoyIn,
     label: 'Buoy: way in',
     cost: B.BUOY_COST,
-    hint: 'Green buoys mark the way into the port. Boats coming in sail past them in order, from the one furthest out to the one nearest the docks. Place a line of them to give arrivals their own channel',
+    hint: 'Green buoys mark the way into the port. Place them in pairs: boats coming in cross between each pair in turn, from the pair furthest out to the one nearest the docks, well clear of the buoys. An odd one out they sail close past',
     drag: true,
   },
   buoyOut: {
     code: Build.BuoyOut,
     label: 'Buoy: way out',
     cost: B.BUOY_COST,
-    hint: 'Red buoys mark the way out to sea. Boats leaving sail past them in order, from the one nearest the docks outwards, so they keep clear of boats coming in',
+    hint: 'Red buoys mark the way out to sea. Place them in pairs: boats leaving cross between each pair in turn, from the pair nearest the docks outwards, well clear of the buoys, so they keep clear of boats coming in. An odd one out they sail close past',
     drag: true,
   },
   largeBay: {
@@ -605,4 +605,16 @@ export function buoyOrder(map: GameMap, out: boolean): number[] {
   const buoys: number[] = [];
   for (let i = 0; i < map.build.length; i++) if (map.build[i] === code) buoys.push(i);
   return buoys.sort((p, q) => (out ? d(p) - d(q) : d(q) - d(p)));
+}
+
+/**
+ * Buoys of one colour paired off in the order boats take them: each pair
+ * marks a line boats cross between the two (`b` is -1 for a buoy left over,
+ * which boats pass close by instead).
+ */
+export function buoyGates(map: GameMap, out: boolean): { a: number; b: number }[] {
+  const buoys = buoyOrder(map, out);
+  const gates: { a: number; b: number }[] = [];
+  for (let k = 0; k < buoys.length; k += 2) gates.push({ a: buoys[k], b: buoys[k + 1] ?? -1 });
+  return gates;
 }
