@@ -1173,18 +1173,27 @@ describe('Container Port tier', () => {
     let touching = 0;
     let moored = 0;
     const phases: string[] = [];
+    let heading = 0;
+    let turned = 0;
     const served = world.stats.boats;
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       world.step();
       for (const b of world.boats) {
         if (b.vessel !== 'feeder') continue;
         if (b.berthing && phases.at(-1) !== b.berthing) phases.push(b.berthing);
-        if (b.state === 'moored') moored++;
+        if (b.state === 'moored') {
+          moored++;
+          heading = b.dir;
+        }
+        // Leaving, it holds its heading until it is out in open water.
+        if (b.berthing === 'out') turned = Math.max(turned, Math.abs(b.dir - heading));
         else if (clips(b, b.x, b.y, b.dir, []) > 0) touching++;
       }
     }
-    // It lined up out along the dock before running in to the berth.
-    expect(phases.slice(0, 3)).toEqual(['lead', 'align', 'line']);
+    // It lined up out along the dock before running in to the berth, and ran
+    // out along it again before turning for the sea.
+    expect(phases.slice(0, 4)).toEqual(['lead', 'align', 'line', 'out']);
+    expect(turned).toBe(0);
     expect(moored).toBeGreaterThan(0);
     expect(world.stats.boats).toBeGreaterThan(served);
     expect(touching).toBe(0);

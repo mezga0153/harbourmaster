@@ -192,9 +192,10 @@ interface Boat extends Agent {
   lineEnd?: number;
   /**
    * A long ship coming in to a berth: heading for the start of the approach
-   * line, lining up there, then running in along it.
+   * line, lining up there, then running in along it; or leaving, running out
+   * along the dock to open water (`lineup`) before it turns.
    */
-  berthing?: 'lead' | 'align' | 'line';
+  berthing?: 'lead' | 'align' | 'line' | 'out';
   /**
    * The boat whose way it is clearing, at the head of any chain of boats
    * backing out of each other's way.
@@ -1867,34 +1868,17 @@ export class World {
    */
   private approachPath(boat: Boat, from: number, berth: number, jetty: number): number[] | null {
     const m = this.map;
-    const water = this.boatCostFor(boat.draft);
     const ox = m.xOf(berth) - m.xOf(jetty);
     const oy = m.yOf(berth) - m.yOf(jetty);
     const ax = oy !== 0 ? 1 : 0;
     const ay = oy !== 0 ? 0 : 1;
     const length = B.VESSELS[boat.vessel].length;
-    const least = Math.ceil(length / 2) + 1;
-    const most = Math.ceil(length * 1.5) + 1;
     const sea = this.seaWay(boat);
     let best: number[] | null = null;
     boat.lineup = boat.lineEnd = boat.berthing = undefined;
     for (const s of [1, -1]) {
-      // As far out along the dock as the water stays open.
-      let run = 0;
-      while (run < most) {
-        const x = m.xOf(berth) + ox + ax * s * (run + 1);
-        const y = m.yOf(berth) + oy + ay * s * (run + 1);
-        if (!m.inBounds(x, y) || water(m.idx(x, y)) !== 1) break;
-        run++;
-      }
-      // The line starts where there is open water to swing round in.
-      while (run >= least) {
-        const sx = m.xOf(berth) + ox + ax * s * run + 0.5;
-        const sy = m.yOf(berth) + oy + ay * s * run + 0.5;
-        if (this.openAround(sx, sy, length / 2)) break;
-        run--;
-      }
-      if (run < least || water(m.idx(m.xOf(berth) + ox, m.yOf(berth) + oy)) !== 1) continue;
+      const run = this.openAlong(boat, berth, jetty, s, length / 2);
+      if (run < 0) continue;
       const line: number[] = [];
       for (let k = run; k >= 0; k--) {
         line.push(m.idx(m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k));
@@ -1910,6 +1894,86 @@ export class World {
       }
     }
     return best;
+  }
+
+  /**
+   * A long ship leaving its berth runs out along the dock, a tile off it,
+   * to open water before it turns: bow first if there is room that way,
+   * otherwise astern. Sets it up as berthing 'out'.
+   */
+  private planRunOut(b: Boat): void {
+    b.lineup = b.lineEnd = b.berthing = undefined;
+    const v = B.VESSELS[b.vessel];
+    if (v.length < B.CAREFUL_LENGTH) return;
+    const m = this.map;
+    const ox = m.xOf(b.berth) - m.xOf(b.jetty);
+    const oy = m.yOf(b.berth) - m.yOf(b.jetty);
+    const ax = oy !== 0 ? 1 : 0;
+    const ay = oy !== 0 ? 0 : 1;
+    // Bow first: the way along the dock the ship is pointing.
+    const ahead = Math.cos(b.dir) * ax + Math.sin(b.dir) * ay >= 0 ? 1 : -1;
+    // A tile off the dock, with plenty of room to swing if it can be had,
+    // at least just enough; or where the water off the berth is too
+    // shallow, straight along the dock from the berth itself.
+    for (const [s, r, off] of [
+      [ahead, v.length / 2 + 0.5, 1],
+      [-ahead, v.length / 2 + 0.5, 1],
+      [ahead, v.length / 2, 1],
+      [-ahead, v.length / 2, 1],
+      [ahead, v.length / 2, 0],
+      [-ahead, v.length / 2, 0],
+    ]) {
+      const run = this.openAlong(b, b.berth, b.jetty, s, r, off);
+      if (run < 0) continue;
+      const x = m.xOf(b.berth) + ox * off;
+      const y = m.yOf(b.berth) + oy * off;
+      b.lineEnd = m.idx(x, y);
+      b.lineup = m.idx(x + ax * s * run, y + ay * s * run);
+      b.berthing = 'out';
+      return;
+    }
+  }
+
+  /**
+   * How many tiles along the dock, going `s` way (1 or -1) on the line
+   * `off` tiles out from the berth, a long ship has to go to find open water `r` tiles
+   * all round to turn in: between half its length and half as long again,
+   * and -1 when there is none.
+   */
+  private openAlong(
+    boat: Boat,
+    berth: number,
+    jetty: number,
+    s: number,
+    r: number,
+    off = 1,
+  ): number {
+    const m = this.map;
+    const water = this.boatCostFor(boat.draft);
+    const ax = m.yOf(berth) !== m.yOf(jetty) ? 1 : 0;
+    const ay = 1 - ax;
+    const ox = (m.xOf(berth) - m.xOf(jetty)) * off;
+    const oy = (m.yOf(berth) - m.yOf(jetty)) * off;
+    const length = B.VESSELS[boat.vessel].length;
+    const least = Math.ceil(length / 2) + 1;
+    const most = Math.ceil(length * 1.5) + 1;
+    const at = (k: number) => [m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k];
+    const [x0, y0] = at(0);
+    if (!m.inBounds(x0, y0) || water(m.idx(x0, y0)) !== 1) return -1;
+    // As far out along the dock as the water stays open...
+    let run = 0;
+    while (run < most) {
+      const [x, y] = at(run + 1);
+      if (!m.inBounds(x, y) || water(m.idx(x, y)) !== 1) break;
+      run++;
+    }
+    // ...and back to where there is room to swing round.
+    while (run >= least) {
+      const [x, y] = at(run);
+      if (this.openAround(x + 0.5, y + 0.5, r)) return run;
+      run--;
+    }
+    return -1;
   }
 
   private updateBoat(b: Boat): void {
@@ -1986,7 +2050,7 @@ export class World {
         return;
       case 'leaving':
         // Clear of the dock: the next boat may use its fairway.
-        if (b.fairway !== undefined && b.castOff !== undefined) {
+        if (b.fairway !== undefined && b.castOff !== undefined && b.berthing !== 'out') {
           const m = this.map;
           if (Math.hypot(b.x - m.xOf(b.castOff) - 0.5, b.y - m.yOf(b.castOff) - 0.5) > 3) {
             this.freeFairway(b);
@@ -2121,6 +2185,9 @@ export class World {
     const ty = cy(target) + Math.cos(b.dir) * passBy;
     const want = Math.atan2(ty - b.y, tx - b.x);
     if (b.undock && this.castingOff(b, want)) return 'moving';
+    if (b.berthing === 'out' && b.lineup !== undefined && b.lineEnd !== undefined) {
+      return this.runOut(b, b.lineup, b.lineEnd, goal, cx, cy);
+    }
     if (b.berthing && b.lineup !== undefined && b.lineEnd !== undefined && moor !== null) {
       const sx = cx(b.lineup);
       const sy = cy(b.lineup);
@@ -2297,6 +2364,63 @@ export class World {
   }
 
   /**
+   * A long ship leaving runs straight out along the dock, ahead or astern,
+   * keeping its heading, to the open water at `end`; there it is free to
+   * turn for the sea.
+   */
+  private runOut(
+    b: Boat,
+    end: number,
+    start: number,
+    goal: number,
+    cx: (i: number) => number,
+    cy: (i: number) => number,
+  ): 'moving' | 'blocked' {
+    const v = B.VESSELS[b.vessel];
+    const ex = cx(end);
+    const ey = cy(end);
+    const len = Math.hypot(ex - cx(start), ey - cy(start));
+    const ux = (ex - cx(start)) / len;
+    const uy = (ey - cy(start)) / len;
+    const gone = (b.x - cx(start)) * ux + (b.y - cy(start)) * uy;
+    if (gone >= len - 0.2) {
+      // Out in open water: on its way to sea.
+      b.lineup = b.lineEnd = b.berthing = undefined;
+      const from = this.tileOf(b);
+      b.path = this.route(b, from, goal, this.seaWay(b)) ?? [goal];
+      b.best = Infinity;
+      b.stall = 0;
+      return 'moving';
+    }
+    const fwd = Math.cos(b.dir) * ux + Math.sin(b.dir) * uy >= 0;
+    const ships = this.stillNear(b);
+    const now = this.clips(b, b.x, b.y, b.dir, ships);
+    const way = this.giveWay(b);
+    const accel = v.speed * B.BOAT_ACCEL;
+    const top = (fwd ? 0.5 : 0.35) * v.speed * way.speed;
+    const speed = clamp(
+      (b.speed ?? 0) + accel,
+      0,
+      Math.min(top, Math.sqrt(2 * accel * (len - gone)) + 0.004),
+    );
+    // Along the line, easing back onto it if it has drifted.
+    const side = -(b.x - cx(start)) * uy + (b.y - cy(start)) * ux;
+    const x = b.x + ux * speed - -uy * side * 0.05;
+    const y = b.y + uy * speed - ux * side * 0.05;
+    if (speed > 0 && this.clips(b, x, y, b.dir, ships) <= now) {
+      b.x = x;
+      b.y = y;
+      b.speed = fwd ? speed : 0;
+      b.sternway = fwd ? 0 : speed;
+      b.astern = !fwd;
+      return this.afterMove(b, speed, true, null, goal, cx, cy);
+    }
+    b.speed = 0;
+    b.sternway = 0;
+    return this.afterMove(b, 0, false, null, goal, cx, cy);
+  }
+
+  /**
    * A long ship at the start of its approach line comes round to lie along
    * it, heading for the berth: swung by tugs where it lies when there is room
    * for the whole hull, otherwise worked round under way.
@@ -2419,7 +2543,7 @@ export class World {
       b.best = straight;
       b.stall = 0;
     } else b.stall = (b.stall ?? 0) + 1;
-    const steady = b.berthing === 'align' || b.berthing === 'line';
+    const steady = b.berthing === 'align' || b.berthing === 'line' || b.berthing === 'out';
     if (!steady && b.stall > B.BOAT_REROUTE_AFTER && b.stall % B.BOAT_REROUTE_AFTER === 0) {
       const from = this.tileOf(b);
       const path =
@@ -2455,8 +2579,15 @@ export class World {
     if (b.undock === 1) {
       const off = (b.x - bx) * ax + (b.y - by) * ay;
       const step = v.speed * 0.2;
-      // A long ship gets far enough out for its stern to swing clear.
-      const clear = v.length < B.CAREFUL_LENGTH ? 0.3 : 1;
+      // A long ship gets a tile out, or with no run out along the dock, out
+      // as far as it takes to have room to swing.
+      const runAlong = b.berthing === 'out' && b.lineEnd === b.castOff;
+      const clear =
+        v.length < B.CAREFUL_LENGTH || runAlong
+          ? 0.3
+          : b.berthing === 'out' || this.openAround(b.x, b.y, v.length / 2)
+            ? 1
+            : 4;
       if (off < clear && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
         b.x += ax * step;
         b.y += ay * step;
@@ -2464,6 +2595,11 @@ export class World {
         return true;
       }
       b.undock = 2;
+    }
+    // Running out along the dock: no swinging round yet.
+    if (b.berthing === 'out') {
+      b.undock = undefined;
+      return false;
     }
     const err = wrapAngle(want - b.dir);
     const backed = Math.hypot(b.x - bx, b.y - by);
@@ -2850,6 +2986,7 @@ export class World {
       b.castOff = b.berth;
       b.castDock = b.jetty;
       b.undock = 1;
+      this.planRunOut(b);
     } else this.freeFairway(b);
     b.state = 'leaving';
     b.berth = b.jetty = -1;
