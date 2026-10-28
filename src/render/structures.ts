@@ -1,7 +1,7 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, FORKLIFT_ONLY } from '../sim/rules';
+import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY, footprint } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { Build, isDock } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
@@ -145,8 +145,17 @@ export class Structures {
       this.buoys.delete(i);
     }
     let obj = this.make(i);
+    if (FACES.has(this.map.build[i]) && obj) obj = turn(obj, this.map.orient[i]);
+    // A yard laid out on a quay stands on the quay's walls and piles.
+    if (this.map.orient[i] & ON_QUAY) {
+      const both = new Group();
+      const deck = new Group();
+      this.quay(deck, i, true);
+      both.add(deck);
+      if (obj) both.add(obj);
+      obj = both;
+    }
     if (!obj) return;
-    if (FACES.has(this.map.build[i])) obj = turn(obj, this.map.orient[i]);
     obj.position.set(this.map.xOf(i), 0, this.map.yOf(i));
     this.group.add(obj);
     this.tiles.set(i, obj);
@@ -457,8 +466,17 @@ export class Structures {
         // 2×2 behind a gate onto the road at the front (+z): x 0..2, z -1..1.
         // A lane along the gate where trucks load, then containers three
         // along, four rows deep, two high.
-        g.add(box(2, 0.05, 2, C.quayTop, 1, top, 0));
-        const y = top + 0.05;
+        // Laid out on a quay, the yard's paving sits on the quay deck.
+        const tiles = footprint(this.map, 'containerYard', i, this.map.orient[i] & 3);
+        const raised = tiles.some((t) => t >= 0 && this.map.orient[t] & ON_QUAY);
+        const floor = raised ? QUAY_Y : top;
+        const base = Math.min(
+          ...tiles.map((t) =>
+            t >= 0 && !(this.map.orient[t] & ON_QUAY) ? landTop(this.map.terrain[t]) : floor,
+          ),
+        );
+        g.add(box(2, floor + 0.05 - base, 2, C.quayTop, 1, base, 0));
+        const y = floor + 0.05;
         g.add(box(1.9, 0.008, 0.04, C.stripe, 1, y, 0.3));
         const boxes: Object3D[] = [];
         for (let layer = 0; layer < 2; layer++) {
@@ -592,7 +610,8 @@ export class Structures {
   }
 
   /** Concrete slab (on the shore) or block (in the water) with edge details. */
-  private quay(g: Group, i: number): void {
+  /** A quay tile; `bare` leaves off the edge furniture, for a deck built over. */
+  private quay(g: Group, i: number, bare = false): void {
     const onLand = this.map.isLand(i);
     const base = onLand ? landTop(this.map.terrain[i]) : SEABED;
     // Full-tile top so neighbouring quays and port roads join without a seam.
@@ -605,7 +624,7 @@ export class Structures {
       { dx: 0, dy: 1, x: 0.5, z: 0.95, w: 1, d: 0.04 },
       { dx: 0, dy: -1, x: 0.5, z: 0.05, w: 1, d: 0.04 },
     ];
-    for (const s of sides) {
+    for (const s of bare ? [] : sides) {
       if (!this.openWater(i, s.dx, s.dy)) continue;
       const inX = s.dx !== 0 ? s.x - s.dx * 0.07 : s.x;
       const inZ = s.dy !== 0 ? s.z - s.dy * 0.07 : s.z;

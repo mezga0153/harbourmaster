@@ -42,6 +42,7 @@ import {
   harbourCentre,
   partOrient,
   FORKLIFT_ONLY,
+  ON_QUAY,
   forkliftOnly,
   forkliftOnlyError,
   drivable,
@@ -644,8 +645,10 @@ export class World {
         this.book('construction', -cost);
         spent += cost;
         footprint(this.map, kind, i, f).forEach((t, k) => {
+          // A yard laid out on a quay remembers it, to leave it when cleared.
+          const quay = this.map.build[t] === Build.Quay ? ON_QUAY : 0;
           this.map.build[t] = def.code;
-          this.map.orient[t] = ROTATABLE.has(kind) ? partOrient(f, k) : 0;
+          this.map.orient[t] = (ROTATABLE.has(kind) ? partOrient(f, k) : 0) | quay;
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
         });
@@ -802,7 +805,7 @@ export class World {
         if (isBay(this.map.build[i])) this.removeBay(i);
         if (this.map.build[i] === Build.Yard) this.removeYard(i);
         for (const b of bulldozeTiles(this.map, i)) {
-          this.map.build[b] = Build.None;
+          this.map.build[b] = this.map.orient[b] & ON_QUAY ? Build.Quay : Build.None;
           this.map.orient[b] = 0;
           this.dirty.add(b);
         }
@@ -3823,7 +3826,7 @@ export class World {
     const way = (i: number): 'road' | 'port' | 'gate' | null => {
       const b = m.build[i];
       if (b === Build.Road) return 'road';
-      if (b === Build.PortRoad) return forkliftOnly(m, i) ? null : 'port';
+      if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(m, i) ? null : 'port';
       if (b === Build.Gate) return 'gate';
       const a = anchorOf(m, i);
       return a === target || a === home ? 'gate' : null;

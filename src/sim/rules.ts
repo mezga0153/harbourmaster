@@ -95,7 +95,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Yard,
     label: 'Container yard',
     cost: 2500,
-    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2; the gate faces a public road or a port road trucks reach through a port gate, and the stackers need a port road or quay alongside`,
+    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2, on land or laid out on a quay; the gate faces a public road, or a port road or quay trucks reach through a port gate, and the stackers need a port road or quay alongside`,
     drag: false,
   },
   portGate: {
@@ -160,6 +160,8 @@ export const EXTENSION = 4;
 const PART_SHIFT = 4;
 /** Marks a port road or quay tile that people on foot keep off. */
 export const FORKLIFT_ONLY = 8;
+/** Marks a container yard tile laid out on a quay, which it leaves behind. */
+export const ON_QUAY = 64;
 
 export function forkliftOnly(map: GameMap, i: number): boolean {
   return (map.orient[i] & FORKLIFT_ONLY) !== 0;
@@ -301,7 +303,11 @@ export function placementError(
   const upgrade =
     (kind === 'quay' && map.build[i] === Build.Jetty) ||
     (kind === 'portRoad' && map.build[i] === Build.Footpath);
-  if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
+  // A container yard can also be laid out on a quay.
+  const onQuay = (n: number) =>
+    kind === 'containerYard' && map.build[n] === Build.Quay && !forkliftOnly(map, n);
+  if (map.build[i] !== Build.None && !upgrade && !onQuay(i))
+    return 'Something is already built here';
 
   if (kind === 'quay') {
     const nearWater = map.neighbors4(i).some((n) => map.ocean[n] === 1);
@@ -349,14 +355,15 @@ export function placementError(
     return connected ? null : 'A jetty must connect to the shore or another jetty';
   }
 
-  if (t === Terrain.Water) return 'Must be built on land';
+  if (t === Terrain.Water && !onQuay(i)) return 'Must be built on land';
   if (t === Terrain.Rock) return 'Rock is in the way';
   const clear = (n: number) =>
     n >= 0 &&
-    map.build[n] === Build.None &&
-    map.terrain[n] !== Terrain.Water &&
-    map.terrain[n] !== Terrain.Rock &&
-    !pending?.has(n);
+    !pending?.has(n) &&
+    (onQuay(n) ||
+      (map.build[n] === Build.None &&
+        map.terrain[n] !== Terrain.Water &&
+        map.terrain[n] !== Terrain.Rock));
   if (!footprint(map, kind, i, facing).slice(1).every(clear)) {
     return kind === 'largeBay'
       ? 'A large truck bay is two tiles wide: clear the tile beside it'
@@ -365,8 +372,10 @@ export function placementError(
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
   const f = front >= 0 ? map.build[front] : Build.None;
-  // Trucks come in off a public road, or along port roads from a port gate.
-  const truckable = f === Build.Road || (f === Build.PortRoad && !forkliftOnly(map, front));
+  // Trucks come in off a public road, or along port roads and quays from a
+  // port gate.
+  const truckable =
+    f === Build.Road || ((f === Build.PortRoad || f === Build.Quay) && !forkliftOnly(map, front));
   if (kind === 'portGate') {
     return f === Build.Road ? null : 'The gate must face a public road, where the trucks turn in';
   }

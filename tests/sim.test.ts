@@ -12,6 +12,7 @@ import {
   footprint,
   forkliftOnly,
   frontOf,
+  ON_QUAY,
   placementCost,
   placementError,
   terraformError,
@@ -1197,6 +1198,31 @@ describe('Container Port tier', () => {
     expect(moored).toBeGreaterThan(0);
     expect(world.stats.boats).toBeGreaterThan(served);
     expect(touching).toBe(0);
+  });
+
+  it('lays out a container yard on a quay, and leaves the quay when cleared', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    // Two quay tiles wide along the pier: a yard fits across it, its gate
+    // facing on along the pier.
+    let x = 0;
+    while (!(m.build[m.idx(x, r - 1)] === Build.Quay && !m.isLand(m.idx(x, r - 1)))) x++;
+    const spot = m.idx(x + 1, r - 1);
+    const tiles = footprint(m, 'containerYard', spot, 0);
+    expect(tiles.every((t) => m.build[t] === Build.Quay)).toBe(true);
+    expect(placementError(m, 'containerYard', spot, undefined, 0)).toBeNull();
+    world.command({ type: 'build', kind: 'containerYard', tiles: [spot], facing: 0 });
+    expect(tiles.every((t) => m.build[t] === Build.Yard && (m.orient[t] & ON_QUAY) !== 0)).toBe(
+      true,
+    );
+    expect(world.yards.has(spot)).toBe(true);
+    world.command({ type: 'bulldoze', tiles: [tiles[3]] });
+    expect(tiles.every((t) => m.build[t] === Build.Quay && m.orient[t] === 0)).toBe(true);
+    expect(world.yards.has(spot)).toBe(false);
   });
 
   it('stores containers only in yards, where the trucks collect them', () => {
