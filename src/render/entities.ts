@@ -25,6 +25,10 @@ interface Entry {
   trail?: WakePoint[];
   way?: number;
   lead?: [number, number];
+  /** Going ahead (the wake starts at the bow) or astern (at the stern). */
+  ahead?: boolean;
+  /** The wake left behind before the boat last changed direction, settling. */
+  ghost?: { lead: [number, number]; trail: WakePoint[]; way: number; time: number };
   heel?: number;
 }
 
@@ -143,8 +147,20 @@ export class Entities {
         // The wake builds and dies away over a second or two, not per frame.
         e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * 1.2));
         // The wake starts at whichever end is leading: the bow, or the
-        // stern while going astern.
-        const ahead = (cur.x - prev.x) * Math.cos(dir) + (cur.y - prev.y) * Math.sin(dir) >= 0;
+        // stern while going astern. Only a clear move the other way counts,
+        // not a pause or a nudge sideways. The old wake is left to settle
+        // where it lies and a new one starts from the other end.
+        const along =
+          ((cur.x - prev.x) * Math.cos(dir) + (cur.y - prev.y) * Math.sin(dir)) /
+          (hull.speed * this.snapTicks);
+        const ahead = along > 0.03 ? true : along < -0.03 ? false : (e.ahead ?? true);
+        if (ahead !== (e.ahead ?? true) && e.lead) {
+          e.ghost = { lead: e.lead, trail: e.trail!, way: e.way, time };
+          e.trail = [];
+          // It has only just started back the other way.
+          e.way = Math.min(e.way, way);
+        }
+        e.ahead = ahead;
         const reach = ((ahead ? 1 : -1) * hull.length) / 2;
         const lx = x + Math.cos(dir) * reach;
         const lz = y + Math.sin(dir) * reach;
@@ -177,22 +193,28 @@ export class Entities {
   /** Wakes of the boats under way, strongest first, for the water to draw. */
   wakes(time: number): Wake[] {
     const out: Wake[] = [];
+    const settle = (t: number) => Math.max(0, 1 - (time - t) / WAKE_LIFE);
     for (const e of this.entries.values()) {
       if (!e.trail || !e.lead) continue;
       const hull = VESSELS[(e.view.vessel ?? 'smack') as keyof typeof VESSELS];
-      const settle = (t: number) => Math.max(0, 1 - (time - t) / WAKE_LIFE);
-      const points: Wake['points'] = [[e.lead[0], e.lead[1], 0, e.way ?? 0]];
-      let s = 0;
-      for (const p of e.trail) {
-        const [px, pz] = points[points.length - 1];
-        s += Math.hypot(p.x - px, p.z - pz);
-        points.push([p.x, p.z, s, p.way * settle(p.time)]);
-      }
-      if (points.length < 2 || points.every((p) => p[3] < 0.02)) continue;
-      // Always past the stern, so the wake grows out from behind the boat
-      // as it picks up speed rather than popping out from under the hull.
-      const reach = hull.length + (hull.length * 0.5 + 3) * (e.way ?? 0);
-      out.push({ points, beam: hull.beam, length: hull.length, reach });
+      const add = (lead: [number, number], trail: WakePoint[], way: number, head: number) => {
+        const points: Wake['points'] = [[lead[0], lead[1], 0, head]];
+        let s = 0;
+        for (const p of trail) {
+          const [px, pz] = points[points.length - 1];
+          s += Math.hypot(p.x - px, p.z - pz);
+          points.push([p.x, p.z, s, p.way * settle(p.time)]);
+        }
+        if (points.length < 2 || points.every((p) => p[3] < 0.02)) return false;
+        // Always past the stern, so the wake grows out from behind the boat
+        // as it picks up speed rather than popping out from under the hull.
+        const reach = hull.length + (hull.length * 0.5 + 3) * way;
+        out.push({ points, beam: hull.beam, length: hull.length, reach });
+        return true;
+      };
+      add(e.lead, e.trail, e.way ?? 0, e.way ?? 0);
+      const g = e.ghost;
+      if (g && !add(g.lead, g.trail, g.way, g.way * settle(g.time))) e.ghost = undefined;
     }
     const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);
     return out.sort((a, b) => strength(b) - strength(a)).slice(0, WAKE_BOATS);
