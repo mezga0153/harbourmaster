@@ -885,6 +885,48 @@ describe('Dredging and reclaiming', () => {
   });
 });
 
+describe('Rules of the road', () => {
+  it('has boats meeting head on both turn to starboard and pass port to port', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const template = world.boats[0];
+    world.boats.length = 0;
+    const y = m.yOf(m.entry) + 8.5;
+    const x = m.w - 30;
+    const boat = (id: number, from: number, to: number, state: 'leaving' | 'approaching') => ({
+      ...template,
+      id,
+      state,
+      x: from + 0.5,
+      y,
+      dir: to > from ? 0 : Math.PI,
+      speed: B.VESSELS.smack.speed,
+      path: [m.idx(to, Math.floor(y))],
+      goal: m.idx(to, Math.floor(y)),
+      berth: -1,
+      jetty: -1,
+    });
+    world.boats.push(
+      boat(1000, x - 8, m.w - 1, 'leaving'),
+      boat(1001, x + 8, x - 14, 'approaching'),
+    );
+    const [a, c] = world.boats;
+    let closest = Infinity;
+    let side = 0;
+    for (let t = 0; t < 200 && world.boats.length === 2; t++) {
+      world.step();
+      const d = Math.hypot(a.x - c.x, a.y - c.y);
+      if (d < closest) {
+        closest = d;
+        // Which side of the eastbound boat the other is on: port is north.
+        side = Math.sign(c.y - a.y);
+      }
+    }
+    expect(closest).toBeGreaterThan(B.VESSELS.smack.beam);
+    expect(side).toBe(-1);
+  });
+});
+
 describe('Buoys', () => {
   it('lead boats in past the green buoys and out past the red ones, in order', () => {
     const world = World.create(7);

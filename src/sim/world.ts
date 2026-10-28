@@ -2221,7 +2221,14 @@ export class World {
       }
     }
     const way = this.giveWay(b);
-    const err = wrapAngle(want - b.dir);
+    // The rules of the road, out on open water: look ahead for boats on a
+    // collision course.
+    const road =
+      remaining > 2.5 && (b.berthing === undefined || b.berthing === 'lead') && !b.undock
+        ? this.rulesOfTheRoad(b)
+        : { bias: 0, slow: 1 };
+    const course = wrapAngle(want + road.bias);
+    const err = wrapAngle(course - b.dir);
     // A boat needs way on to turn: it never spins on the spot, it slows and
     // swings round in an arc.
     const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
@@ -2231,7 +2238,7 @@ export class World {
     // but keep some way on through a bend so it swings round in an arc.
     let desired = v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
     desired = Math.min(desired, Math.sqrt(2 * accel * remaining) + 0.004);
-    desired *= way.speed;
+    desired *= way.speed * road.slow;
     speed += clamp(desired - speed, -accel * 2, accel);
     speed = Math.max(0, speed);
 
@@ -2300,9 +2307,11 @@ export class World {
       // Aim a ship's length or so along the route, not just at the next
       // waypoint, so a manoeuvre is judged by where it leaves the ship.
       // It should get there heading the way the route goes on.
-      let ax = tx;
-      let ay = ty;
-      let adir = want;
+      // Where the rules of the road put it: round other boats.
+      const rd = Math.hypot(tx - b.x, ty - b.y);
+      let ax = b.x + Math.cos(course) * rd;
+      let ay = b.y + Math.sin(course) * rd;
+      let adir = course;
       let left = Math.max(2, v.length * 0.75) - Math.hypot(ax - b.x, ay - b.y);
       for (let k = 1; k < b.path.length && left > 0; k++) {
         const nx = cx(b.path[k]);
@@ -2719,6 +2728,53 @@ export class World {
         o.state === 'moored' &&
         Math.hypot(o.x - b.x, o.y - b.y) < v.length + B.VESSELS[o.vessel].length / 2 + 2,
     );
+  }
+
+  /**
+   * The rules of the road, roughly as at sea. A boat keeps a lookout ahead
+   * for any boat under way that will pass too close (its closest point of
+   * approach) and acts early. Meeting head on, both alter to starboard, so
+   * they pass port to port. Overtaking, the faster boat keeps clear: it
+   * eases off and goes round the other's far side. Returns a turn to add
+   * (starboard positive) and a share of speed to keep.
+   */
+  private rulesOfTheRoad(b: Boat): { bias: number; slow: number } {
+    const v = B.VESSELS[b.vessel];
+    const mine = Math.max(b.speed ?? 0, v.speed * 0.5);
+    const mvx = Math.cos(b.dir) * mine;
+    const mvy = Math.sin(b.dir) * mine;
+    let bias = 0;
+    let slow = 1;
+    for (const o of this.boats) {
+      if (o === b || o.state === 'moored' || o.state === 'anchored') continue;
+      const rx = o.x - b.x;
+      const ry = o.y - b.y;
+      if (rx * rx + ry * ry > B.LOOKOUT_RANGE ** 2) continue;
+      const w = B.VESSELS[o.vessel];
+      const os = (o.speed ?? 0) - (o.sternway ?? 0);
+      const vx = Math.cos(o.dir) * os - mvx;
+      const vy = Math.sin(o.dir) * os - mvy;
+      const vv = vx * vx + vy * vy;
+      if (vv < 1e-6) continue;
+      // Closest point of approach: when, and how close.
+      const t = -(rx * vx + ry * vy) / vv;
+      if (t <= 0 || t > B.LOOKOUT_TICKS) continue;
+      const cpa = Math.hypot(rx + vx * t, ry + vy * t);
+      const safe = (v.beam + w.beam) / 2 + 0.6 + (v.length + w.length) * 0.075;
+      if (cpa >= safe) continue;
+      const urgency = clamp(1 - cpa / safe, 0.2, 1) * clamp(1.3 - t / B.LOOKOUT_TICKS, 0, 1);
+      const bearing = wrapAngle(Math.atan2(ry, rx) - b.dir);
+      const heading = wrapAngle(o.dir - b.dir);
+      if (Math.abs(heading) > 2.4 && Math.abs(bearing) < 0.7) {
+        // Head on: alter to starboard.
+        bias += 1.2 * urgency;
+      } else if (Math.abs(heading) < 0.7 && Math.abs(bearing) < 0.9 && mine > os + 0.005) {
+        // Overtaking: keep clear, round the other's far side, easing off.
+        bias += (bearing >= 0 ? -0.6 : 0.6) * urgency;
+        slow = Math.min(slow, 1 - 0.4 * urgency);
+      }
+    }
+    return { bias: clamp(bias, -0.9, 0.9), slow };
   }
 
   /**

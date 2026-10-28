@@ -97,6 +97,9 @@ export const VESSELS = {
 } as const;
 /** Share of top speed a boat gains per tick; it sheds way at twice that. */
 export const BOAT_ACCEL = 1 / 60;
+/** Boats look out this far, in tiles and in ticks ahead, for others on a collision course. */
+export const LOOKOUT_RANGE = 8;
+export const LOOKOUT_TICKS = 90;
 /** Ships at least this long mind their whole hull when they turn; see sail(). */
 export const CAREFUL_LENGTH = 4;
 /** Ships at least this long line up along the dock well before a berth; see approachPath(). */
