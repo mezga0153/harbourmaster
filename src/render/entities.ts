@@ -48,6 +48,8 @@ export interface Wake {
   points: [number, number, number, number][];
   beam: number;
   length: number;
+  /** How far back the wake reaches, longer the faster the boat goes. */
+  reach: number;
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -56,12 +58,18 @@ export class Entities {
   private entries = new Map<number, Entry>();
   private prev = new Map<number, EntityView>();
   private snapTime = 0;
+  /** Sim ticks between the last two snapshots, more at higher game speeds. */
+  private snapTicks = 1;
+  private lastTick = -1;
+  private lastTime = 0;
 
   constructor(private map: GameMap) {}
 
-  push(views: EntityView[], now: number): void {
+  push(views: EntityView[], now: number, tick: number): void {
     this.prev = new Map([...this.entries].map(([id, e]) => [id, e.view]));
     this.snapTime = now;
+    this.snapTicks = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
+    this.lastTick = tick;
     const seen = new Set<number>();
     for (const v of views) {
       seen.add(v.id);
@@ -107,6 +115,8 @@ export class Entities {
 
   update(now: number, time: number): void {
     const t = Math.min(1, (now - this.snapTime) / SNAPSHOT_MS);
+    const dt = Math.min(0.1, time - this.lastTime);
+    this.lastTime = time;
     for (const [id, e] of this.entries) {
       const cur = e.view;
       const prev = this.prev.get(id) ?? cur;
@@ -120,14 +130,18 @@ export class Entities {
         // Way on, from how far it moved since the last snapshot; boats lean
         // out of a turn, lift their bow a touch under way and leave a wake.
         const hull = VESSELS[(cur.vessel ?? 'smack') as keyof typeof VESSELS];
-        const way = Math.min(1, Math.hypot(cur.x - prev.x, cur.y - prev.y) / hull.speed);
+        const way = Math.min(
+          1,
+          Math.hypot(cur.x - prev.x, cur.y - prev.y) / (hull.speed * this.snapTicks),
+        );
         const turn = lerpAngle(prev.dir, cur.dir, 1) - prev.dir;
         const lean = Math.max(-0.12, Math.min(0.12, -turn * 3 * way));
         e.heel = (e.heel ?? 0) + (lean - (e.heel ?? 0)) * 0.08;
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
-        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * 0.1;
+        // The wake builds and dies away over a second or two, not per frame.
+        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * 1.2));
         // The wake starts at whichever end is leading: the bow, or the
         // stern while going astern.
         const ahead = (cur.x - prev.x) * Math.cos(dir) + (cur.y - prev.y) * Math.sin(dir) >= 0;
@@ -175,7 +189,8 @@ export class Entities {
         points.push([p.x, p.z, s, p.way * settle(p.time)]);
       }
       if (points.length < 2 || points.every((p) => p[3] < 0.02)) continue;
-      out.push({ points, beam: hull.beam, length: hull.length });
+      const reach = (hull.length * 0.5 + 3) * (e.way ?? 0);
+      out.push({ points, beam: hull.beam, length: hull.length, reach });
     }
     const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);
     return out.sort((a, b) => strength(b) - strength(a)).slice(0, WAKE_BOATS);

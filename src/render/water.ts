@@ -21,6 +21,8 @@ import { WAKE_BOATS, WAKE_POINTS, type Wake } from './entities';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 
+/** How fast a wake's arms open out, sideways per tile back from the bow. */
+const WAKE_SPREAD = 0.2;
 /** Depth that maps to the darkest blue, in metres. */
 const MAX_DEPTH = 16;
 /** Subcells per tile in the water field, for smooth shore contours. */
@@ -50,8 +52,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uSun;
   uniform vec3 uView;
   // Boat wakes: points along each track (x, z, distance back from the
-  // leading end, strength), and per boat (half beam, length, points) and
-  // the box the wake fits in.
+  // leading end, strength), and per boat (half beam, hull length, points,
+  // how far back the wake reaches) and the box the wake fits in.
   uniform vec4 uWake[WAKE_BOATS * WAKE_POINTS];
   uniform vec4 uWakeHull[WAKE_BOATS];
   uniform vec4 uWakeBox[WAKE_BOATS];
@@ -151,20 +153,21 @@ const fragmentShader = /* glsl */ `
       }
       float halfBeam = hull.x;
       float side = abs(l);
-      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.y + 1.5, hull.y + 3.5, s));
+      // The faster the boat, the further back its wake reaches.
+      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.w * 0.5, hull.w, s));
       if (on < 0.01) continue;
 
-      // The arms of the V: a ridge of broken water spreading out at about
-      // 19 degrees, with smaller crests trailing inside it.
-      float halfW = halfBeam + s * 0.34;
-      float ridge = 0.05 + s * 0.04;
+      // The arms of the V: a ridge of broken water spreading out at a
+      // narrow angle, with smaller crests trailing inside it.
+      float halfW = halfBeam * 0.9 + s * WAKE_SPREAD;
+      float ridge = 0.04 + s * 0.025;
       // Ragged, so the ridge breaks up rather than ruling a line.
       float beyond = side - halfW + (noise(p * 5.0 + uTime * 0.5) - 0.5) * ridge * 1.6;
       float arm = (1.0 - smoothstep(0.0, ridge, abs(beyond))) * on;
       float inside = (1.0 - smoothstep(-ridge, ridge, beyond)) * on;
       float behind = max(s - hull.y, 0.0);
       // Propeller wash: churned, aerated water straight behind the stern.
-      float washW = halfBeam * 0.7 + behind * 0.12;
+      float washW = halfBeam * 0.55 + behind * 0.07;
       float wash = smoothstep(hull.y * 0.8, hull.y, s) * (1.0 - smoothstep(washW * 0.4, washW, side));
       wash *= on * exp(-behind * 0.45);
 
@@ -263,7 +266,7 @@ export class Water {
     }
 
     this.material = new ShaderMaterial({
-      defines: { WAKE_BOATS, WAKE_POINTS },
+      defines: { WAKE_BOATS, WAKE_POINTS, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
       vertexShader,
       fragmentShader,
       transparent: true,
@@ -316,13 +319,13 @@ export class Water {
         const [x, z, s, a] = w.points[k];
         pts[b * WAKE_POINTS + k].set(x, z, s, a);
         // Room for the V to open out to either side.
-        const r = w.beam / 2 + s * 0.34 + 0.3;
+        const r = w.beam / 2 + s * WAKE_SPREAD + 0.3;
         x0 = Math.min(x0, x - r);
         z0 = Math.min(z0, z - r);
         x1 = Math.max(x1, x + r);
         z1 = Math.max(z1, z + r);
       }
-      hulls[b].set(w.beam / 2, w.length, n, 0);
+      hulls[b].set(w.beam / 2, w.length, n, w.reach);
       boxes[b].set(x0, z0, x1, z1);
     });
     u.uWakeCount.value = wakes.length;
