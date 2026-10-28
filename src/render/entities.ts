@@ -25,6 +25,8 @@ interface Entry {
   trail?: WakePoint[];
   way?: number;
   lead?: [number, number];
+  /** The other end of the hull at the waterline, which the wake runs along to. */
+  tail?: [number, number];
   /** Going ahead (the wake starts at the bow) or astern (at the stern). */
   ahead?: boolean;
   /** The wake left behind before the boat last changed direction, settling. */
@@ -37,6 +39,8 @@ export const WAKE_BOATS = 12;
 export const WAKE_POINTS = 16;
 /** Seconds a wake takes to settle once the boat stops. */
 const WAKE_LIFE = 3;
+/** Half the waterline length, as a share of the whole hull. */
+const WATERLINE = 0.45;
 /** How quickly a wake builds up and dies away, per second. */
 const WAKE_RISE = 0.45;
 const WAKE_FALL = 1.2;
@@ -172,10 +176,13 @@ export class Entities {
           e.way = Math.min(e.way, way);
         }
         e.ahead = ahead;
-        const reach = ((ahead ? 1 : -1) * hull.length) / 2;
+        // From the stem where it meets the water, a little behind the tip of
+        // the deck, along the hull to the other end.
+        const reach = (ahead ? 1 : -1) * hull.length * WATERLINE;
         const lx = x + Math.cos(dir) * reach;
         const lz = y + Math.sin(dir) * reach;
         e.lead = [lx, lz];
+        e.tail = [x - Math.cos(dir) * reach, y - Math.sin(dir) * reach];
         const trail = e.trail!;
         const spacing = (hull.length + 3.5) / (WAKE_POINTS - 2);
         const last = trail[0];
@@ -208,10 +215,24 @@ export class Entities {
     for (const e of this.entries.values()) {
       if (!e.trail || !e.lead) continue;
       const hull = VESSELS[(e.view.vessel ?? 'smack') as keyof typeof VESSELS];
-      const add = (lead: [number, number], trail: WakePoint[], way: number, head: number) => {
+      const add = (
+        lead: [number, number],
+        trail: WakePoint[],
+        way: number,
+        head: number,
+        tail?: [number, number],
+      ) => {
         const points: Wake['points'] = [[lead[0], lead[1], 0, head]];
         let s = 0;
-        for (const p of trail) {
+        // Alongside the hull the wake follows the hull itself, turning with
+        // it, rather than the chord back to where the bow was a while ago.
+        let along = trail;
+        if (tail) {
+          s = Math.hypot(tail[0] - lead[0], tail[1] - lead[1]);
+          points.push([tail[0], tail[1], s, head]);
+          along = trail.filter((p) => Math.hypot(p.x - lead[0], p.z - lead[1]) > s);
+        }
+        for (const p of along) {
           const [px, pz] = points[points.length - 1];
           s += Math.hypot(p.x - px, p.z - pz);
           points.push([p.x, p.z, s, wakeStrength(p.way) * settle(p.time)]);
@@ -223,7 +244,7 @@ export class Entities {
         out.push({ points, beam: hull.beam, length: hull.length, reach });
         return true;
       };
-      add(e.lead, e.trail, e.way ?? 0, wakeStrength(e.way ?? 0));
+      add(e.lead, e.trail, e.way ?? 0, wakeStrength(e.way ?? 0), e.tail);
       const g = e.ghost;
       if (g && !add(g.lead, g.trail, g.way, wakeStrength(g.way) * settle(g.time))) {
         e.ghost = undefined;
