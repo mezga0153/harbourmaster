@@ -20,6 +20,7 @@ import { surfaceY } from './terrain';
 const MAX_GHOSTS = 4096;
 const OK = new Color(0x5fdc7a);
 const BAD = new Color(0xff5a4f);
+const ROUTE = new Color(0x4fb3ff);
 
 /** Hover outline, build previews and the selection ring. */
 export class Overlay {
@@ -28,6 +29,7 @@ export class Overlay {
   private ghosts: InstancedMesh;
   private ring: Mesh;
   private arrow: Mesh;
+  private reach: InstancedMesh;
 
   constructor() {
     const square = new BufferGeometry();
@@ -79,7 +81,40 @@ export class Overlay {
     this.arrow.renderOrder = 10;
     this.arrow.visible = false;
 
-    this.group.add(this.hover, this.ghosts, this.ring, this.arrow);
+    this.reach = new InstancedMesh(
+      plane,
+      new MeshBasicMaterial({ transparent: true, opacity: 0.4, depthWrite: false }),
+      MAX_GHOSTS,
+    );
+    this.reach.count = 0;
+    this.reach.frustumCulled = false;
+
+    this.group.add(this.hover, this.ghosts, this.ring, this.arrow, this.reach);
+  }
+
+  /**
+   * Where a selected machine can drive: its roads in blue, the truck bays it
+   * reaches in green and those it cannot in red.
+   */
+  setReach(map: GameMap, route: number[], bays: number[], cutOff: number[]): void {
+    const m = new Matrix4();
+    let k = 0;
+    const put = (tiles: number[], color: Color) => {
+      for (const i of tiles) {
+        if (k >= MAX_GHOSTS) return;
+        const x = map.xOf(i);
+        const y = map.yOf(i);
+        m.makeTranslation(x, surfaceY(map, x, y) + 0.05, y);
+        this.reach.setMatrixAt(k, m);
+        this.reach.setColorAt(k++, color);
+      }
+    };
+    put(route, ROUTE);
+    put(bays, OK);
+    put(cutOff, BAD);
+    this.reach.count = k;
+    this.reach.instanceMatrix.needsUpdate = true;
+    if (this.reach.instanceColor) this.reach.instanceColor.needsUpdate = true;
   }
 
   /** Arrow on tile `i` pointing the way a building faces (0 +x, 1 +y, …). */

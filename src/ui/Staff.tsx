@@ -76,7 +76,7 @@ export function StaffDetails({
           <dt>Job</dt>
           <dd>{MACHINES[p.kind].hint}</dd>
           <dt>Drives on</dt>
-          <dd>Quays, paths, roads</dd>
+          <dd>Quays, port roads, forklift lanes</dd>
           <dt>Operator</dt>
           <dd>{money(p.wage)} / day</dd>
           <dt>Repairs</dt>

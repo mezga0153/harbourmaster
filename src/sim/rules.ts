@@ -295,6 +295,20 @@ export function drivable(code: number): boolean {
   );
 }
 
+/** Every tile a machine at `start` can drive to. */
+export function driveNetwork(map: GameMap, start: number): Set<number> {
+  const seen = new Set<number>([start]);
+  const queue = [start];
+  while (queue.length > 0) {
+    for (const n of map.neighbors4(queue.pop()!)) {
+      if (seen.has(n) || !drivable(map.build[n])) continue;
+      seen.add(n);
+      queue.push(n);
+    }
+  }
+  return seen;
+}
+
 /** Port surfaces dockhands walk on. Never grass, beach or public roads. */
 export function walkable(code: number): boolean {
   return (
