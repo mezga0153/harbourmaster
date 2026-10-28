@@ -221,6 +221,15 @@ interface Boat extends Agent {
   undock?: number;
   /** Ticks left squeezing past other boats after being wedged in. */
   squeeze?: number;
+  /**
+   * Water a ship pulling out of its berth keeps to itself, as circles (x, y,
+   * radius): the lane along the dock it runs out by and the water it turns
+   * in at the end of it, then just that, until it has come round onto its
+   * course or the tick `until`. Everyone else keeps out.
+   */
+  room?: { spots: [number, number, number][]; until: number; turning?: boolean };
+  /** Has turned for sea after pulling out, and given its room back. */
+  turned?: boolean;
 }
 
 interface Truck extends Agent {
@@ -424,6 +433,8 @@ export class World {
   /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */
   private dockCache: ReturnType<World['docks']> | null = null;
   private gateCache: Set<number>[] | null = null;
+  /** Boats held up this tick only by a ship pulling out. Not saved. */
+  private roomWait = new WeakSet<Boat>();
   private buoyCache: Uint8Array | null = null;
   private coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
@@ -2148,6 +2159,7 @@ export class World {
         }
         return;
       case 'leaving':
+        this.claimRoom(b);
         // Clear of the dock: the next boat may use its fairway.
         if (b.fairway !== undefined && b.castOff !== undefined && b.berthing !== 'out') {
           const m = this.map;
@@ -2533,7 +2545,7 @@ export class World {
     const now = this.clips(b, b.x, b.y, b.dir, ships);
     const way = this.giveWay(b);
     const accel = v.speed * B.BOAT_ACCEL;
-    const top = (fwd ? 0.5 : 0.35) * v.speed * way.speed;
+    const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed;
     const speed = clamp(
       (b.speed ?? 0) + accel,
       0,
@@ -2661,7 +2673,9 @@ export class World {
     const v = B.VESSELS[b.vessel];
     b.speed = speed;
 
-    b.held = speed < v.speed * 0.1 && !backed ? (b.held ?? 0) + 1 : 0;
+    // Waiting for a ship to pull out is not being wedged in.
+    const waiting = this.roomWait.has(b);
+    b.held = speed < v.speed * 0.1 && !backed && !waiting ? (b.held ?? 0) + 1 : 0;
     // Wedged in for most of a day: squeeze past for a while, as a last
     // resort so the harbour never locks up for good.
     if (b.squeeze) b.squeeze--;
@@ -3019,14 +3033,19 @@ export class World {
   }
 
   /**
-   * Right of way: boats leaving go first, then boats coming in to a berth,
-   * then those heading for the anchorage; between equals, the one that
-   * came first. Boats lying still never move for anyone.
+   * Right of way: a boat pulling out of its berth goes first, then boats
+   * leaving, boats coming in to a berth and those heading for the
+   * anchorage; going the same way, the bigger ship, then the one that came
+   * first. Boats lying still never move for anyone.
    */
   private outranks(a: Boat, b: Boat): boolean {
-    const rank = (q: Boat) =>
+    const state = (q: Boat) =>
       q.state === 'leaving' ? 3 : q.state === 'arriving' ? 2 : q.state === 'approaching' ? 1 : 0;
-    return rank(a) !== rank(b) ? rank(a) > rank(b) : a.id < b.id;
+    const rank = (q: Boat) => [this.pullingOut(q) ? 1 : 0, state(q), B.VESSELS[q.vessel].length];
+    const ra = rank(a);
+    const rb = rank(b);
+    for (let k = 0; k < ra.length; k++) if (ra[k] !== rb[k]) return ra[k] > rb[k];
+    return a.id < b.id;
   }
 
   /** The hull pointing the way the boat is going, astern included. */
@@ -3058,11 +3077,38 @@ export class World {
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
+    const m = this.map;
+    this.roomWait.delete(b);
     for (const o of this.boats) {
       if (o === b) continue;
       const other = this.hullOf(o);
       const still = o.state === 'moored' || o.state === 'anchored';
       if (wedged) continue;
+      // Keep out of the water a ship pulling out of its berth has claimed,
+      // stopping short of it; already inside and heading further in, back
+      // out. A boat coming in to a berth inside it has to pass through.
+      const bound =
+        o.room &&
+        b.state === 'arriving' &&
+        b.berth >= 0 &&
+        o.room.spots.some(
+          ([x, y, r]) => Math.hypot(m.xOf(b.berth) + 0.5 - x, m.yOf(b.berth) + 0.5 - y) < r + 1,
+        );
+      if (o.room && !bound && this.outranks(o, b)) {
+        const into = this.intoRoom(me, o.room.spots, look);
+        if (into !== null) {
+          this.roomWait.add(b);
+          if (into < 0) {
+            if (makeWay < 0) makeWay = o.id;
+            speed = 0;
+          } else {
+            speed = Math.min(
+              speed,
+              clamp(Math.sqrt(2 * accel * Math.max(0, into - 0.3)) / v.speed, 0, 1),
+            );
+          }
+        }
+      }
       const ahead = this.inWay(me, other, look);
       if (ahead !== null) {
         const gap = ahead - me.half;
@@ -3097,6 +3143,32 @@ export class World {
       if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = head;
     }
     return { speed, makeWay };
+  }
+
+  /**
+   * How far `me` can go ahead before its hull enters a room made of `spots`,
+   * within `look` tiles; -1 when it is inside already and heading further
+   * in, null when it is not heading into it.
+   */
+  private intoRoom(
+    me: ReturnType<World['hullOf']>,
+    spots: [number, number, number][],
+    look: number,
+  ): number | null {
+    let into: number | null = null;
+    for (const [x, y, radius] of spots) {
+      const rx = x - me.x;
+      const ry = y - me.y;
+      const fwd = rx * me.hx + ry * me.hy;
+      if (fwd <= 0) continue;
+      const side = Math.abs(-rx * me.hy + ry * me.hx);
+      const r = radius + me.beam;
+      if (side >= r) continue;
+      if (Math.hypot(rx, ry) < radius + me.half) return -1;
+      const at = fwd - Math.sqrt(r * r - side * side) - me.half;
+      if (at <= look) into = Math.min(into ?? Infinity, Math.max(0, at));
+    }
+    return into;
   }
 
   /**
@@ -3177,6 +3249,59 @@ export class World {
     b.fairway = undefined;
     b.castOff = undefined;
     b.castDock = undefined;
+  }
+
+  /** Pulling out of its berth: casting off, running out along the dock or turning for sea. */
+  private pullingOut(b: Boat): boolean {
+    return b.state === 'leaving' && (b.undock !== undefined || b.berthing === 'out' || !!b.room);
+  }
+
+  /**
+   * A ship pulling out of its berth claims the water it needs: the lane
+   * ahead of it along the dock as it runs out, and the water all round
+   * where it turns for sea, keeping that until it has come round onto its
+   * course.
+   */
+  private claimRoom(b: Boat): void {
+    const v = B.VESSELS[b.vessel];
+    const m = this.map;
+    if (b.turned || v.length < B.RUN_OUT_LENGTH) return;
+    if (b.room && this.tick > b.room.until) {
+      b.room = undefined;
+      b.turned = true;
+      return;
+    }
+    const turn = v.length / 2 + B.ROOM_MARGIN;
+    const until = b.room?.until ?? this.tick + B.ROOM_TICKS;
+    if (b.berthing === 'out' && b.lineup !== undefined) {
+      const ex = m.xOf(b.lineup) + 0.5;
+      const ey = m.yOf(b.lineup) + 0.5;
+      const n = Math.ceil(Math.hypot(ex - b.x, ey - b.y) / 0.5);
+      const lane = v.beam / 2 + 0.5;
+      const spots: [number, number, number][] = [];
+      for (let k = 0; k < n; k++) {
+        spots.push([b.x + ((ex - b.x) * k) / n, b.y + ((ey - b.y) * k) / n, lane]);
+      }
+      spots.push([ex, ey, turn]);
+      b.room = { spots, until };
+      return;
+    }
+    if (b.room?.turning) {
+      const target = b.path[0] ?? b.goal;
+      const course = Math.atan2(m.yOf(target) + 0.5 - b.y, m.xOf(target) + 0.5 - b.x);
+      const [x, y, r] = b.room.spots[0];
+      const round = Math.abs(wrapAngle(course - b.dir)) < 0.3;
+      const out = Math.hypot(b.x - x, b.y - y) > r;
+      if (round || out) {
+        b.room = undefined;
+        b.turned = true;
+      }
+      return;
+    }
+    // Off the berth, or at the end of its run out: room to turn.
+    if (b.castOff !== undefined && b.undock === undefined) {
+      b.room = { spots: [[b.x, b.y, turn]], until, turning: true };
+    }
   }
 
   private depart(b: Boat, gaveUp: boolean): void {

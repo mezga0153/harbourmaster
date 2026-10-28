@@ -1358,6 +1358,91 @@ describe('Container Port tier', () => {
     expect(touching).toBe(0);
   });
 
+  it('gives way to a boat pulling out, then to boats leaving, then to the bigger ship', () => {
+    const world = World.create(7);
+    const template = world.boats[0];
+    const boat = (
+      id: number,
+      vessel: 'smack' | 'feeder',
+      state: 'leaving' | 'arriving',
+      undock?: number,
+    ) => ({ ...template, id, vessel, state, undock });
+    const outranks = world['outranks'].bind(world);
+    // Going the same way, the bigger ship first, whichever came first.
+    expect(outranks(boat(2, 'feeder', 'arriving'), boat(1, 'smack', 'arriving'))).toBe(true);
+    // Leaving still beats coming in.
+    expect(outranks(boat(1, 'smack', 'leaving'), boat(2, 'feeder', 'arriving'))).toBe(true);
+    // Pulling out of its berth beats everyone.
+    expect(outranks(boat(3, 'smack', 'leaving', 1), boat(1, 'feeder', 'leaving'))).toBe(true);
+  });
+
+  it('keeps other boats out of the water a ship pulling out needs', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    for (const [vessel, every] of [
+      ['coaster', 0.4],
+      ['smack', 0.15],
+    ] as const) {
+      world['addContract'](
+        {
+          kind: 'fishery',
+          vessel,
+          name: `Test ${vessel}`,
+          color: 0,
+          boatEvery: every,
+          cratesMin: 4,
+          cratesMax: 4,
+          fee: 20,
+        },
+        world.tick + 10,
+        0,
+      );
+    }
+    const depot = world.map.build.findIndex((b) => b === Build.Depot);
+    for (let k = 0; k < 3; k++)
+      world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    const m = world.map;
+    const claimed = new Set<number>();
+    // Boats already in the water when it was claimed, which may sail out of it.
+    const inside = new Map<number, Set<number>>();
+    let intrusions = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 6; k++) {
+      world.step();
+      for (const b of world.boats) {
+        if (!b.room) {
+          inside.delete(b.id);
+          continue;
+        }
+        claimed.add(b.id);
+        const within = (o: (typeof world.boats)[number]) =>
+          b.room!.spots.some(([x, y, r]) => Math.hypot(o.x - x, o.y - y) < r);
+        const others = world.boats.filter(
+          (o) =>
+            o !== b &&
+            o.state !== 'moored' &&
+            o.state !== 'anchored' &&
+            // Wedged in and squeezing past as a last resort.
+            !o.squeeze &&
+            // Coming in to a berth inside it.
+            !(
+              o.state === 'arriving' &&
+              b.room!.spots.some(
+                ([x, y, r]) =>
+                  Math.hypot(m.xOf(o.berth) + 0.5 - x, m.yOf(o.berth) + 0.5 - y) < r + 1,
+              )
+            ),
+        );
+        const was = inside.get(b.id) ?? new Set(others.filter(within).map((o) => o.id));
+        inside.set(b.id, was);
+        for (const o of others) if (within(o) && !was.has(o.id)) intrusions++;
+      }
+    }
+    expect(claimed.size).toBeGreaterThan(2);
+    expect(intrusions).toBe(0);
+  });
+
   it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7);
     world.tier = 2;

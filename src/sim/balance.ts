@@ -101,6 +101,10 @@ export const BOAT_ACCEL = 1 / 60;
 export const BOAT_BRAKE = 1.25;
 /** Rows apart that departing boats' lanes out to sea are spread. */
 export const EXIT_LANES = 1;
+/** Water a ship pulling out of its berth keeps clear to turn in, beyond half its length, in tiles. */
+export const ROOM_MARGIN = 1;
+/** Longest a ship pulling out keeps that water to itself, in ticks. */
+export const ROOM_TICKS = 400;
 /** Boats look out this far, in tiles and in ticks ahead, for others on a collision course. */
 export const LOOKOUT_RANGE = 8;
 export const LOOKOUT_TICKS = 90;
