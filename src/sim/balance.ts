@@ -97,6 +97,10 @@ export const VESSELS = {
 } as const;
 /** Share of top speed a boat gains per tick; it sheds way at twice that. */
 export const BOAT_ACCEL = 1 / 60;
+/** How much harder than it gathers way a boat can take way off. */
+export const BOAT_BRAKE = 1.25;
+/** Rows apart that departing boats' lanes out to sea are spread. */
+export const EXIT_LANES = 1;
 /** Boats look out this far, in tiles and in ticks ahead, for others on a collision course. */
 export const LOOKOUT_RANGE = 8;
 export const LOOKOUT_TICKS = 90;

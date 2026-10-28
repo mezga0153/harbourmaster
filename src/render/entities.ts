@@ -38,12 +38,12 @@ interface Entry {
 export const WAKE_BOATS = 12;
 export const WAKE_POINTS = 16;
 /** Seconds a wake takes to settle once the boat stops. */
-const WAKE_LIFE = 3;
+const WAKE_LIFE = 6;
 /** Half the waterline length, as a share of the whole hull. */
 const WATERLINE = 0.45;
 /** How quickly a wake builds up and dies away, per second. */
 const WAKE_RISE = 0.45;
-const WAKE_FALL = 1.2;
+const WAKE_FALL = 0.3;
 
 /** A wake barely shows while a boat is just getting under way. */
 function wakeStrength(way: number): number {
@@ -158,7 +158,8 @@ export class Entities {
         root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
         // The wake builds up slowly as the boat gathers way, over a few
-        // seconds whatever the game speed, and dies away a little quicker.
+        // seconds whatever the game speed, and lingers a while longer still
+        // once it stops.
         const rate = way > (e.way ?? 0) ? WAKE_RISE : WAKE_FALL;
         e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * rate));
         // The wake starts at whichever end is leading: the bow, or the

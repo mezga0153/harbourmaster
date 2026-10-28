@@ -2236,10 +2236,25 @@ export class World {
     if (small) b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
     // Ease off for sharp bends, to stop at the goal, and for other boats,
     // but keep some way on through a bend so it swings round in an arc.
-    let desired = v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
-    desired = Math.min(desired, Math.sqrt(2 * accel * remaining) + 0.004);
+    const bend = (a: number) =>
+      v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(a), Math.PI / 2)) ** 2);
+    let desired = bend(err);
+    // Looking ahead: ease off in good time for the next bend, rather than
+    // braking hard on reaching it…
+    if (b.path.length > 1) {
+      const next = b.path[1];
+      const corner = wrapAngle(
+        Math.atan2(cy(next) - ty, cx(next) - tx) - Math.atan2(ty - b.y, tx - b.x),
+      );
+      const reach = Math.hypot(tx - b.x, ty - b.y);
+      desired = Math.min(desired, Math.sqrt(bend(corner) ** 2 + 2 * accel * reach));
+    }
+    // …and to stop at the goal, unless it is just sailing off the map.
+    if (b.state !== 'leaving')
+      desired = Math.min(desired, Math.sqrt(2 * accel * remaining) + 0.004);
     desired *= way.speed * road.slow;
-    speed += clamp(desired - speed, -accel * 2, accel);
+    // A ship carries its way: it brakes only a little harder than it speeds up.
+    speed += clamp(desired - speed, -accel * B.BOAT_BRAKE, accel);
     speed = Math.max(0, speed);
 
     // A boat with right of way is waiting on this one: go astern to clear
@@ -2247,6 +2262,18 @@ export class World {
     // too long counts as wedged too.
     if (way.makeWay >= 0) {
       b.yieldFor = way.makeWay;
+      // Take the way off first, then go astern: no stopping dead.
+      const coast = Math.max(0, (b.speed ?? 0) - accel * 2);
+      if (coast > 0) {
+        const nx = b.x + Math.cos(b.dir) * coast;
+        const ny = b.y + Math.sin(b.dir) * coast;
+        if (this.navigable(nx, ny, this.boatCostFor(b.draft))) {
+          b.x = nx;
+          b.y = ny;
+          b.speed = coast;
+          return 'moving';
+        }
+      }
       this.goAstern(b);
       if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER) {
         b.squeeze = 200;
@@ -2923,7 +2950,11 @@ export class World {
   private giveWay(b: Boat): { speed: number; makeWay: number } {
     const me = this.hullOf(b);
     const v = B.VESSELS[b.vessel];
-    const look = me.half + 0.6 + ((b.speed ?? 0) / v.speed) * 1.2;
+    // Looks out as far as it takes to stop gently from full speed, so it
+    // eases off early rather than pulling up short.
+    const accel = v.speed * B.BOAT_ACCEL;
+    const stopping = (v.speed * v.speed) / (2 * accel);
+    const look = me.half + 0.6 + stopping;
     let speed = 1;
     /** Id of the boat to back out of the way of, or -1. */
     let makeWay = -1;
@@ -2942,8 +2973,17 @@ export class World {
         // short of touching, while the other one gets out of the way.
         const yields = still || this.outranks(o, b);
         const room = yields ? 0.3 : 0.08;
-        const ease = yields ? look - me.half - room : 0.5;
-        speed = Math.min(speed, clamp((gap - room) / Math.max(0.1, ease), 0, 1));
+        if (yields) {
+          // As fast as still lets it stop in time, braking at its ordinary
+          // rate, plus however fast the other is drawing away.
+          const away = still
+            ? 0
+            : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
+          const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
+          speed = Math.min(speed, clamp(safe / v.speed, 0, 1));
+        } else {
+          speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
+        }
       }
       // Something with right of way is held up, and this boat is in its way;
       // or a boat backing out of the way of one that outranks this one needs
@@ -3057,12 +3097,12 @@ export class World {
     // Out past the red buoys, then off the map level with the last of them.
     const stops = this.buoyStops(b, from, -1);
     const last = stops.at(-1) ?? from;
+    // Each boat keeps to a lane of its own out at sea, a few rows either
+    // side, so departures do not all converge on one point.
+    const lane = this.map.yOf(last) + (((b.id * 7) % 9) - 4) * B.EXIT_LANES;
     const exit = edge.reduce(
       (best, i) =>
-        Math.abs(this.map.yOf(i) - this.map.yOf(last)) <
-        Math.abs(this.map.yOf(best) - this.map.yOf(last))
-          ? i
-          : best,
+        Math.abs(this.map.yOf(i) - lane) < Math.abs(this.map.yOf(best) - lane) ? i : best,
       edge[0],
     );
     b.goal = exit;
