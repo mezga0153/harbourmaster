@@ -189,7 +189,9 @@ export class Entities {
         points.push([p.x, p.z, s, p.way * settle(p.time)]);
       }
       if (points.length < 2 || points.every((p) => p[3] < 0.02)) continue;
-      const reach = (hull.length * 0.5 + 3) * (e.way ?? 0);
+      // Always past the stern, so the wake grows out from behind the boat
+      // as it picks up speed rather than popping out from under the hull.
+      const reach = hull.length + (hull.length * 0.5 + 3) * (e.way ?? 0);
       out.push({ points, beam: hull.beam, length: hull.length, reach });
     }
     const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);

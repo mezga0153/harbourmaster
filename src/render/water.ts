@@ -154,7 +154,7 @@ const fragmentShader = /* glsl */ `
       float halfBeam = hull.x;
       float side = abs(l);
       // The faster the boat, the further back its wake reaches.
-      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.w * 0.5, hull.w, s));
+      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.y, hull.w + 0.5, s));
       if (on < 0.01) continue;
 
       // The arms of the V: a ridge of broken water spreading out at a
