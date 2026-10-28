@@ -91,10 +91,12 @@ export const TRUCK_SPEED = 0.7;
  * ships are slow and need room to turn.
  */
 export const VESSELS = {
-  smack: { length: 1.9, beam: 0.6, speed: 0.15, turn: 0.07 },
-  coaster: { length: 2.7, beam: 0.84, speed: 0.11, turn: 0.045 },
-  feeder: { length: 5.6, beam: 0.96, speed: 0.08, turn: 0.028 },
+  smack: { length: 1.9, beam: 0.6, speed: 0.15, turn: 0.05 },
+  coaster: { length: 2.7, beam: 0.84, speed: 0.11, turn: 0.032 },
+  feeder: { length: 5.6, beam: 0.96, speed: 0.08, turn: 0.02 },
 } as const;
+/** Share of top speed a boat gains per tick; it sheds way at twice that. */
+export const BOAT_ACCEL = 1 / 60;
 /** Ticks a boat can be held up before it looks for another way. */
 export const BOAT_REROUTE_AFTER = 50;
 /** Ticks without getting closer before a boat squeezes past others, so traffic never locks up. */

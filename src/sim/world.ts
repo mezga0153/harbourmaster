@@ -175,6 +175,8 @@ interface Boat extends Agent {
   held?: number;
   /** Going astern to make way for another boat. */
   astern?: boolean;
+  /** Speed going astern, which builds up and comes off gradually too. */
+  sternway?: number;
   /** Closest it has got to its goal, and ticks since it last got closer. */
   best?: number;
   stall?: number;
@@ -1776,7 +1778,7 @@ export class World {
     const cost = this.boatCostFor(b.draft);
     const cx = (i: number) => (i % w) + 0.5;
     const cy = (i: number) => Math.floor(i / w) + 0.5;
-    const accel = v.speed / 30;
+    const accel = v.speed * B.BOAT_ACCEL;
     let speed = b.speed ?? 0;
     if (b.path.length === 0) b.path = [b.goal];
     // Waypoints already passed drop off; the last one is the goal itself.
@@ -1840,8 +1842,9 @@ export class World {
     // swings round in an arc.
     const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
     b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
-    // Ease off for sharp bends, to stop at the goal, and for other boats.
-    let desired = v.speed * Math.max(0.06, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
+    // Ease off for sharp bends, to stop at the goal, and for other boats,
+    // but keep some way on through a bend so it swings round in an arc.
+    let desired = v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
     desired = Math.min(desired, Math.sqrt(2 * accel * remaining) + 0.004);
     desired *= way.speed;
     speed += clamp(desired - speed, -accel * 2, accel);
@@ -1854,6 +1857,19 @@ export class World {
       return 'moving';
     }
     b.astern = false;
+    // Take any sternway off before going ahead again.
+    if ((b.sternway ?? 0) > 0) {
+      const back = Math.max(0, (b.sternway ?? 0) - accel * 2);
+      const sx = b.x - Math.cos(b.dir) * back;
+      const sy = b.y - Math.sin(b.dir) * back;
+      const moved = this.navigable(sx, sy, cost);
+      if (moved) {
+        b.x = sx;
+        b.y = sy;
+      }
+      b.sternway = moved ? back : 0;
+      return 'moving';
+    }
 
     // Never run aground: keep the middle of the hull, and a little ahead of
     // it, in open water. The path already keeps clear of the shore.
@@ -1939,7 +1955,8 @@ export class World {
     const err = wrapAngle(want - b.dir);
     const backed = Math.hypot(b.x - bx, b.y - by);
     if (Math.abs(err) > 1.75 && backed < 2.5) {
-      const back = v.speed * 0.5;
+      // Gathering sternway gradually, like any other way.
+      const back = Math.min(v.speed * 0.5, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL);
       const sx = b.x - Math.cos(b.dir) * back;
       const sy = b.y - Math.sin(b.dir) * back;
       const stern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
@@ -1954,10 +1971,12 @@ export class World {
         // Going astern the stern swings one way and the bow the other.
         b.dir = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
         b.speed = 0;
+        b.sternway = back;
         b.astern = true;
         return true;
       }
     }
+    // Any sternway left comes off gradually in sail().
     b.undock = undefined;
     b.astern = false;
     return false;
@@ -1967,7 +1986,7 @@ export class World {
   private goAstern(b: Boat): void {
     const v = B.VESSELS[b.vessel];
     const cost = this.boatCostFor(b.draft);
-    const back = v.speed * 0.3;
+    const back = Math.min(v.speed * 0.3, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL);
     const sx = b.x - Math.cos(b.dir) * back;
     const sy = b.y - Math.sin(b.dir) * back;
     const sternX = sx - Math.cos(b.dir) * 0.3;
@@ -1983,6 +2002,7 @@ export class World {
       b.y = sy;
     }
     b.speed = 0;
+    b.sternway = moved ? back : 0;
     b.astern = true;
     b.held = (b.held ?? 0) + 1;
   }

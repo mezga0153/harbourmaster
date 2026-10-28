@@ -941,9 +941,14 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    const before = yard.boxes.length;
-    for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
-    expect(yard.boxes.length).toBeLessThan(before);
+    // Feeders keep landing more, so count what the trucks take away.
+    let collected = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 2; k++) {
+      const before = yard.boxes.length;
+      world.step();
+      collected += Math.max(0, before - yard.boxes.length);
+    }
+    expect(collected).toBeGreaterThan(0);
   });
 
   it('sends container trucks into a yard from any side on a public road', () => {
