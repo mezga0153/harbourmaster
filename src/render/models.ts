@@ -1,4 +1,5 @@
-import { Group, type Object3D } from 'three';
+import { Group, type BufferGeometry, type Mesh, type Object3D } from 'three';
+import { hash01 } from '../sim/noise';
 import { BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
 import { coasterShip, feederShip, fishingBoat } from './craft';
 import { C } from './palette';
@@ -18,12 +19,64 @@ export interface Model {
   limbs?: Limbs;
 }
 
-/** A shipping container, lying along X with its base at y=0. */
+/**
+ * Paints a container can come in, as [column, row] of a shaded swatch in
+ * Kenney's colour map: 32 px columns, 128 px rows from the first colour row.
+ */
+const PAINTS: [number, number][] = [
+  [11, 0], // red
+  [13, 0], // blue
+  [5, 0], // green
+  [7, 0], // yellow
+  [9, 0], // orange
+  [15, 0], // sky blue
+  [11, 1], // white
+  [5, 1], // grey
+  [3, 1], // charcoal
+  [13, 1], // rust
+  [15, 1], // brown
+];
+const FALLBACK_PAINTS = [C.funnel, C.sign, C.stripe, C.cabin, C.chassis];
+const painted = new Map<number, BufferGeometry>();
+
+/**
+ * Kenney's red container with its body moved to another swatch of the colour
+ * map. The frame and doors keep their own colour.
+ */
+function paintedBox(source: BufferGeometry, paint: number): BufferGeometry {
+  let geo = painted.get(paint);
+  if (geo) return geo;
+  geo = source.clone();
+  const uv = geo.getAttribute('uv');
+  const [col, row] = PAINTS[paint];
+  for (let i = 0; i < uv.count; i++) {
+    const u = uv.getX(i) * 512;
+    const v = uv.getY(i) * 512;
+    // The body samples the red swatch, x 352–384 px of the first colour row.
+    if (u >= 352 && u < 384 && v >= 256 && v < 384) {
+      uv.setXY(i, (u + (col - 11) * 32) / 512, (v + row * 128) / 512);
+    }
+  }
+  painted.set(paint, geo);
+  return geo;
+}
+
+/** A shipping container, lying along X with its base at y=0, in a random paint. */
 export function container(seed: number, x = 0, y = 0, z = 0): Object3D {
-  const kenney = instance(CONTAINERS[seed % CONTAINERS.length]);
+  const pick = hash01(seed, 7, 13);
+  const kenney = instance(CONTAINERS[0]);
   const g = new Group();
-  if (kenney) g.add(kenney.root);
-  else g.add(box(BOX_LENGTH, BOX_HEIGHT, BOX_WIDTH, [C.funnel, C.sign, C.stripe][seed % 3]));
+  if (kenney) {
+    const paint = Math.floor(pick * PAINTS.length);
+    kenney.root.traverse((o) => {
+      const mesh = o as Mesh;
+      if (mesh.isMesh) mesh.geometry = paintedBox(mesh.geometry, paint);
+    });
+    g.add(kenney.root);
+  } else {
+    const color = FALLBACK_PAINTS[Math.floor(pick * FALLBACK_PAINTS.length)];
+    g.add(box(BOX_LENGTH, BOX_HEIGHT, BOX_WIDTH, color));
+  }
   g.position.set(x, y, z);
   return g;
 }
