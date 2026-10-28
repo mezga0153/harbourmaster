@@ -32,7 +32,7 @@ const up = new Vector3(0, 1, 0);
 
 const TOP: Record<number, number> = {
   [Terrain.Water]: SEABED,
-  [Terrain.Sand]: 0.24,
+  [Terrain.Sand]: 0.3,
   [Terrain.Grass]: 0.3,
   [Terrain.Rock]: 0.3,
 };
