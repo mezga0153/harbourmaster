@@ -1291,6 +1291,46 @@ describe('Container Port tier', () => {
     expect(far.state).not.toBe('toPickup');
   });
 
+  it('has a coaster leaving run out along the dock without touching it', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'coaster',
+        name: 'Test Coasters',
+        color: 0,
+        boatEvery: 0.5,
+        cratesMin: 4,
+        cratesMax: 4,
+        fee: 20,
+      },
+      world.tick + 10,
+      0,
+    );
+    // A forklift to take the pallets off.
+    const depot = world.map.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    const m = world.map;
+    const clips = world['clips'].bind(world);
+    let leaving = 0;
+    let touching = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      for (const b of world.boats) {
+        if (b.vessel !== 'coaster' || b.state !== 'leaving' || b.castOff === undefined) continue;
+        const near = Math.hypot(b.x - m.xOf(b.castOff) - 0.5, b.y - m.yOf(b.castOff) - 0.5);
+        if (near > 4) continue;
+        leaving++;
+        if (clips(b, b.x, b.y, b.dir, []) > 0) touching++;
+      }
+    }
+    expect(leaving).toBeGreaterThan(0);
+    expect(touching).toBe(0);
+  });
+
   it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7);
     world.tier = 2;

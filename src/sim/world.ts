@@ -1907,7 +1907,7 @@ export class World {
   private planRunOut(b: Boat): void {
     b.lineup = b.lineEnd = b.berthing = undefined;
     const v = B.VESSELS[b.vessel];
-    if (v.length < B.CAREFUL_LENGTH) return;
+    if (v.length < B.RUN_OUT_LENGTH) return;
     const m = this.map;
     const ox = m.xOf(b.berth) - m.xOf(b.jetty);
     const oy = m.yOf(b.berth) - m.yOf(b.jetty);
@@ -2594,12 +2594,15 @@ export class World {
       // A long ship gets a tile out, or with no run out along the dock, out
       // as far as it takes to have room to swing.
       const runAlong = b.berthing === 'out' && b.lineEnd === b.castOff;
-      const clear =
-        v.length < B.CAREFUL_LENGTH || runAlong
-          ? 0.3
-          : b.berthing === 'out' || this.openAround(b.x, b.y, v.length / 2)
-            ? 1
-            : 4;
+      const clear = runAlong
+        ? 0.3
+        : b.berthing === 'out'
+          ? 1
+          : v.length < B.CAREFUL_LENGTH
+            ? 0.3
+            : this.openAround(b.x, b.y, v.length / 2)
+              ? 1
+              : 4;
       if (off < clear && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
         b.x += ax * step;
         b.y += ay * step;
