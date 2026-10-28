@@ -101,6 +101,8 @@ interface Dockhand extends Agent {
   fuel: number;
   /** Forklifts: why it is driving to the depot. */
   depotTask: 'refuel' | 'repair' | 'park' | null;
+  /** Machines: why there is no work it can get to, if that is the trouble. */
+  stuck?: string | null;
   /** Ticks spent stuck behind another worker. */
   blocked: number;
   /** Allowed to push into a full tile once, to break a deadlock. */
@@ -330,6 +332,7 @@ export class World {
   private coordinated = new Set<number>();
   private warnedOffice = false;
   private warnedBigTrucks = false;
+  private warnedStuck = false;
   /** Shortest road from the highway to a truck bay; set by capacity(). */
   private roadLen = Infinity;
   private events: SimEvent[] = [];
@@ -1989,7 +1992,11 @@ export class World {
       case 'idle':
       case 'wander': {
         if (isMachine(p) && this.updateForkliftAtRest(p)) return;
-        if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) return;
+        if ((this.tick + p.id) % 5 === 0 && this.assignJob(p)) {
+          p.stuck = null;
+          return;
+        }
+        if (isMachine(p) && (this.tick + p.id) % 100 === 0) this.diagnose(p);
         // Idle forklifts go home to park instead of blocking the quay.
         if (isMachine(p) && p.state === 'idle') {
           p.timer++;
@@ -2066,6 +2073,43 @@ export class World {
     p.path = path;
     p.goal = goal;
     return true;
+  }
+
+  /**
+   * An idle machine works out whether it is cut off: from every truck bay,
+   * or from cargo that is waiting. Forklifts only drive on port roads,
+   * forklift lanes and quays, which is easy to miss.
+   */
+  private diagnose(p: Dockhand): void {
+    const here = this.tileOf(p);
+    const boxy = p.kind === 'stacker';
+    const what = boxy ? 'Reach stackers' : 'Forklifts';
+    const reach = (goal: number) => !!this.pathFor(p, here, goal);
+    const sources: number[] = [];
+    for (const c of this.cranes.values()) {
+      if ((c.kind === 'harbour') === boxy && c.stack.length > 0) sources.push(c.idx);
+    }
+    if (!boxy) {
+      for (const b of this.boats) {
+        // Fishing boats at a jetty are the dockhands' job; pallets are not.
+        if (b.state === 'moored' && b.vessel === 'coaster' && b.crates > 0) {
+          sources.push(...this.pickupSpots(b));
+        }
+      }
+    }
+    let stuck: string | null = null;
+    if (![...this.bays.keys()].some(reach)) {
+      stuck = `Can't reach a truck bay. ${what} only drive on port roads, forklift lanes and quays`;
+    } else if (sources.length > 0 && !sources.some(reach)) {
+      stuck = boxy
+        ? "Can't reach the harbour crane. Connect it with quay or port roads"
+        : "Can't reach the cargo. Forklifts can't drive on wooden jetties or port paths: use quays and port roads";
+    }
+    p.stuck = stuck;
+    if (stuck && !this.warnedStuck) {
+      this.warnedStuck = true;
+      this.message(`${p.name}: ${stuck}.`, 'bad');
+    }
   }
 
   private wander(p: Dockhand): void {
@@ -2544,10 +2588,15 @@ export class World {
         load: p.carrying,
         moving: p.path.length > 0,
         name: p.name,
-        activity: p.blocked > 3 ? 'Waiting for someone to get out of the way' : ACTIVITY[p.state],
+        activity:
+          p.blocked > 3
+            ? 'Waiting for someone to get out of the way'
+            : p.state === 'idle' && p.stuck
+              ? p.stuck
+              : ACTIVITY[p.state],
         variant: 0,
         capacity: p.capacity,
-        alert: p.state === 'broken',
+        alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
       });
       staff.push({
         id: p.id,
@@ -2561,7 +2610,7 @@ export class World {
         wage: p.wage,
         energy: Math.round(p.energy),
         morale: Math.round(p.morale),
-        activity: ACTIVITY[p.state],
+        activity: p.state === 'idle' && p.stuck ? p.stuck : ACTIVITY[p.state],
         thought: thought({
           blocked: p.blocked > 3,
           energy: p.energy,

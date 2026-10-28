@@ -507,6 +507,25 @@ describe('Coastal Wharf tier', () => {
     expect(placementError(m, 'quay', deep) ?? '').not.toMatch(/deep/i);
   });
 
+  it('tells you when a forklift cannot reach the cargo', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const jetty = starterJetty(world);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    const crane = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [crane] });
+    // Pallets, so the dockhands leave them for the forklift.
+    world.cranes.get(crane)!.stack.push(10, 10);
+    world.cranes.get(crane)!.pallets = true;
+    // The bay is only joined to the quay by port paths, which forklifts avoid.
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
+    for (let t = 0; t < 400; t++) world.step();
+    const f = world.people.find((p) => p.kind === 'forklift')!;
+    expect(f.stuck).toMatch(/Can't reach/);
+    expect(world.snapshot().entities.find((e) => e.id === f.id)!.alert).toBe(true);
+  });
+
   it('leaves pallets for forklifts', () => {
     const world = World.create(7);
     world.tier = 1;
