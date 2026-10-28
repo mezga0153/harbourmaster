@@ -436,6 +436,7 @@ export class World {
   /** Boats held up this tick only by a ship pulling out. Not saved. */
   private roomWait = new WeakSet<Boat>();
   private buoyCache: Uint8Array | null = null;
+  private frontCache: Int32Array | null = null;
   private coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
   private dockKey = new Map<number, number>();
@@ -593,6 +594,7 @@ export class World {
     this.dockCache = null;
     this.gateCache = null;
     this.buoyCache = null;
+    this.frontCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -1622,7 +1624,49 @@ export class World {
 
   /** A route for this boat from `from` to `to`, by way of the buoys it should pass. */
   private route(b: Boat, from: number, to: number, cost: CostFn): number[] | null {
-    return this.via(from, this.buoyStops(b, from, to, cost), to, cost);
+    return this.via(from, this.buoyStops(b, from, to, cost), to, this.byDocks(cost, from, to));
+  }
+
+  /**
+   * Routes keep out of the water in front of other docks, where boats come
+   * alongside and pull out: past them further out, not across it. The docks
+   * at either end of the route are free to use.
+   */
+  private byDocks(cost: CostFn, from: number, to: number): CostFn {
+    const front = this.dockFront();
+    const own = [front[from], front[to]];
+    return (i) =>
+      front[i] >= 0 && !own.includes(front[i]) ? cost(i) * B.DOCK_FRONT_COST : cost(i);
+  }
+
+  /**
+   * For water within a few tiles of a jetty or quay, the dock it lies off
+   * (its key, see dockKey); -1 elsewhere. Not saved.
+   */
+  private dockFront(): Int32Array {
+    if (this.frontCache) return this.frontCache;
+    this.docks();
+    const m = this.map;
+    const front = new Int32Array(m.build.length).fill(-1);
+    const near = new Float32Array(m.build.length).fill(Infinity);
+    const r = B.DOCK_FRONT_RANGE;
+    for (const [i, key] of this.dockKey) {
+      const x = m.xOf(i);
+      const y = m.yOf(i);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const d = Math.hypot(dx, dy);
+          if (d > r || !m.inBounds(x + dx, y + dy)) continue;
+          const j = m.idx(x + dx, y + dy);
+          if (m.ocean[j] && d < near[j]) {
+            near[j] = d;
+            front[j] = key;
+          }
+        }
+      }
+    }
+    this.frontCache = front;
+    return front;
   }
 
   /**
@@ -3360,7 +3404,7 @@ export class World {
       edge[0],
     );
     b.goal = exit;
-    b.path = this.via(from, stops, exit, this.seaWay(b)) ?? [];
+    b.path = this.via(from, stops, exit, this.byDocks(this.seaWay(b), from, exit)) ?? [];
     b.best = Infinity;
   }
 

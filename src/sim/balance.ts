@@ -188,5 +188,9 @@ export const BUOY_COST = 150;
 export const BUOY_CLEARANCE = 0.7;
 /** Least room a boat leaves between its side and a buoy of a pair it crosses between. */
 export const GATE_CLEARANCE = 1.2;
+/** Water this close to a jetty or quay, in tiles, is kept for boats coming alongside and pulling out… */
+export const DOCK_FRONT_RANGE = 5;
+/** …so routes past the docks count it this many times over and keep further out. */
+export const DOCK_FRONT_COST = 3;
 /** What sailing over a buoy's tile costs a route, against 1 for open water. */
 export const BUOY_DETOUR = 8;

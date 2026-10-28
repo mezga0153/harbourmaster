@@ -1363,6 +1363,22 @@ describe('Container Port tier', () => {
     expect(touching).toBe(0);
   });
 
+  it('routes boats past the docks well out, not through the water off them', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const row = m.yOf(m.entry);
+    // The tip of the starting jetty.
+    let tip = 0;
+    while (m.build[m.idx(tip + 1, row)] !== Build.None || m.isLand(m.idx(tip + 1, row))) tip++;
+    const boat = { ...world.boats[0], state: 'approaching' as const };
+    const from = m.idx(tip + 3, row - 8);
+    const to = m.idx(tip + 3, row + 8);
+    const path = world['route'](boat, from, to, world['seaWay'](boat))!;
+    expect(path).not.toBeNull();
+    const closest = Math.min(...path.map((i) => Math.hypot(m.xOf(i) - tip, m.yOf(i) - row)));
+    expect(closest).toBeGreaterThan(B.DOCK_FRONT_RANGE - 1);
+  });
+
   it('gives way to a boat pulling out, then to boats leaving, then to the bigger ship', () => {
     const world = World.create(7);
     const template = world.boats[0];
