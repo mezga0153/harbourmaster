@@ -1,23 +1,9 @@
-import {
-  ExtrudeGeometry,
-  Group,
-  Mesh,
-  Shape,
-  type AnimationAction,
-  type AnimationMixer,
-  type Object3D,
-} from 'three';
-import {
-  assetSize,
-  BOX_HEIGHT,
-  BOX_LENGTH,
-  BOX_WIDTH,
-  CONTAINERS,
-  instance,
-  PEOPLE,
-} from './assets';
+import { Group, type Object3D } from 'three';
+import { assetSize, BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
+import { coasterShip, feederShip, fishingBoat } from './craft';
 import { C } from './palette';
-import { box, cyl, mat } from './parts';
+import { box, cyl } from './parts';
+import { worker, type Limbs } from './people';
 
 // Procedural low-poly models. All face +X; the root sits on the ground at y=0.
 
@@ -27,9 +13,8 @@ export interface Model {
   crates: Object3D[];
   /** Parts that bob while walking. */
   body?: Object3D;
-  /** Skinned characters: plays walk/idle animations. */
-  mixer?: AnimationMixer | null;
-  actions?: Map<string, AnimationAction>;
+  /** People: legs and arms that swing as they walk. */
+  limbs?: Limbs;
 }
 
 /** Crate slots in a grid over a deck: `cols` along X, `rows` across, `layers` high. */
@@ -97,170 +82,21 @@ export function crate(size: number, x = 0, y = 0, z = 0): Group {
   return g;
 }
 
-/** A dockhand: one of the Kenney mini characters, with a crate to carry. */
+/** A dock worker, built from their id so everyone looks different. */
 export function person(id = 0): Model {
-  const kenney = instance(PEOPLE[id % PEOPLE.length]);
-  if (kenney) {
-    const root = new Group();
-    root.add(kenney.root);
-    const load = crate(0.2, 0.02, 0.44);
-    load.visible = false;
-    root.add(load);
-    return { root, crates: [load], mixer: kenney.mixer, actions: kenney.actions };
-  }
-  return builtinPerson();
+  const w = worker(id, (size) => crate(size));
+  return { root: w.root, crates: [w.load], body: w.body, limbs: w.limbs };
 }
 
-function builtinPerson(): Model {
-  const root = new Group();
-  const body = new Group();
-  body.add(box(0.07, 0.15, 0.06, C.trousers, 0, 0, -0.04));
-  body.add(box(0.07, 0.15, 0.06, C.trousers, 0, 0, 0.04));
-  body.add(box(0.13, 0.17, 0.17, C.vest, 0, 0.14));
-  body.add(box(0.11, 0.11, 0.11, C.skin, 0, 0.31));
-  body.add(box(0.14, 0.04, 0.14, C.hat, 0, 0.41));
-  const load = crate(0.2, 0, 0.45);
-  load.visible = false;
-  body.add(load);
-  root.add(body);
-  return { root, crates: [load], body };
-}
-
-const hullShape = new Shape();
-hullShape.moveTo(-0.95, -0.32);
-hullShape.lineTo(0.5, -0.32);
-hullShape.lineTo(0.98, 0);
-hullShape.lineTo(0.5, 0.32);
-hullShape.lineTo(-0.95, 0.32);
-hullShape.closePath();
-const hullGeo = new ExtrudeGeometry(hullShape, { depth: 0.32, bevelEnabled: false });
-hullGeo.rotateX(-Math.PI / 2);
-const deckShape = new Shape();
-deckShape.moveTo(-0.9, -0.27);
-deckShape.lineTo(0.48, -0.27);
-deckShape.lineTo(0.88, 0);
-deckShape.lineTo(0.48, 0.27);
-deckShape.lineTo(-0.9, 0.27);
-deckShape.closePath();
-const deckGeo = new ExtrudeGeometry(deckShape, { depth: 0.02, bevelEnabled: false });
-deckGeo.rotateX(-Math.PI / 2);
-
-function hullGeometry(length: number, beam: number, depth: number, bow: number) {
-  const back = -length / 2;
-  const shoulder = length / 2 - bow;
-  const shape = new Shape();
-  shape.moveTo(back, -beam / 2);
-  shape.lineTo(shoulder, -beam / 2);
-  shape.lineTo(length / 2, 0);
-  shape.lineTo(shoulder, beam / 2);
-  shape.lineTo(back, beam / 2);
-  shape.closePath();
-  const geo = new ExtrudeGeometry(shape, { depth, bevelEnabled: false });
-  geo.rotateX(-Math.PI / 2);
-  return geo;
-}
-
-const coasterHull = hullGeometry(2.7, 0.84, 0.4, 0.55);
-const coasterDeck = hullGeometry(2.6, 0.76, 0.02, 0.5);
-
-/** A small cargo coaster from a shipping line, about three tiles long. */
-function coaster(variant: number): Model {
-  const root = new Group();
-  const hull = new Mesh(coasterHull, mat(C.hulls[variant % C.hulls.length]));
-  hull.position.y = -0.15;
-  hull.castShadow = hull.receiveShadow = true;
-  const band = new Mesh(coasterHull, mat(C.funnel));
-  band.scale.set(1.005, 0.2, 1.02);
-  band.position.y = -0.12;
-  const deck = new Mesh(coasterDeck, mat(C.quayTop));
-  deck.position.y = 0.25;
-  deck.receiveShadow = true;
-  root.add(hull, band, deck);
-
-  // Bridge aft, two decks high, with a funnel.
-  root.add(box(0.46, 0.26, 0.66, C.cabin, -1.0, 0.27));
-  root.add(box(0.36, 0.2, 0.56, C.cabin, -1.02, 0.53));
-  root.add(box(0.37, 0.06, 0.57, C.window, -1.02, 0.63));
-  root.add(cyl(0.07, 0.24, C.funnel, -1.14, 0.73));
-  // Hatch coamings and a cargo derrick forward.
-  root.add(box(1.5, 0.05, 0.62, C.quayWall, 0.05, 0.27));
-  root.add(cyl(0.025, 0.75, C.chassis, 0.95, 0.27));
-
-  // Slots fill the hold bottom layer first; a full coaster carries 24.
-  const crates: Object3D[] = [];
-  for (let layer = 0; layer < 2; layer++) {
-    for (const x of [-0.55, -0.32, -0.09, 0.14, 0.37, 0.6]) {
-      for (const z of [-0.2, 0.0, 0.2]) {
-        const c = crate(0.19, x, 0.32 + layer * 0.2, z);
-        c.visible = false;
-        root.add(c);
-        crates.push(c);
-      }
-    }
-  }
-  return { root, crates };
-}
-
-/** Small fishing boat, about two tiles long, or a coaster for shipping lines. */
-export function boat(variant: number, vessel = 'smack'): Model {
-  if (vessel === 'feeder') {
-    const kenney = instance('feeder');
-    const size = assetSize('feeder');
-    if (kenney && size) {
-      const root = new Group();
-      kenney.root.position.y = -size.y * 0.18;
-      root.add(kenney.root);
-      // Up to 36 containers: six along, three abreast, two high.
-      const along = spread(-1.75, 1.45, 6);
-      const across = [-BOX_WIDTH, 0, BOX_WIDTH];
-      const crates = deckBoxes(root, along, across, size.y * 0.18, 2);
-      return { root, crates };
-    }
-  }
-  const name = vessel === 'coaster' ? 'coaster' : 'smack';
-  const kenney = instance(name);
-  const size = assetSize(name);
-  if (kenney && size) {
-    const root = new Group();
-    // Sit a little low so the hull is in the water.
-    kenney.root.position.y = -size.y * 0.18;
-    root.add(kenney.root);
-    const crates =
-      vessel === 'coaster'
-        ? // 24 crates over the open cargo deck, two layers.
-          deckCrates(root, 0.2, spread(-0.75, 0.55, 6), [-0.21, 0, 0.21], size.y * 0.18, 2)
-        : // 16 on the fishing boat's foredeck, two layers.
-          deckCrates(root, 0.17, spread(0.05, 0.62, 4), [-0.11, 0.11], size.y * 0.12, 2);
-    return { root, crates };
-  }
-  if (vessel === 'coaster') return coaster(variant);
-  const root = new Group();
-  const hull = new Mesh(hullGeo, mat(C.hulls[variant % C.hulls.length]));
-  hull.position.y = -0.12;
-  hull.castShadow = hull.receiveShadow = true;
-  const deck = new Mesh(deckGeo, mat(C.path));
-  deck.position.y = 0.2;
-  deck.receiveShadow = true;
-  root.add(hull, deck);
-
-  root.add(box(0.34, 0.26, 0.44, C.cabin, -0.62, 0.22));
-  root.add(box(0.35, 0.06, 0.45, C.window, -0.62, 0.38));
-  root.add(box(0.38, 0.03, 0.48, C.cabin, -0.62, 0.48));
-  root.add(cyl(0.05, 0.16, C.funnel, -0.72, 0.51));
-  root.add(cyl(0.02, 0.55, C.woodDark, 0.62, 0.22));
-
-  const crates: Object3D[] = [];
-  for (let layer = 0; layer < 2; layer++) {
-    for (const x of [-0.28, -0.04, 0.2, 0.44]) {
-      for (const z of [-0.12, 0.12]) {
-        const c = crate(0.21, x, 0.22 + layer * 0.22, z);
-        c.visible = false;
-        root.add(c);
-        crates.push(c);
-      }
-    }
-  }
-  return { root, crates };
+/** A boat or ship of the given kind, in its company's colours, unique to its id. */
+export function boat(variant: number, vessel = 'smack', id = 0): Model {
+  const c =
+    vessel === 'feeder'
+      ? feederShip(id, variant, (k, x, y, z) => container(k, x, y, z))
+      : vessel === 'coaster'
+        ? coasterShip(id, variant, crate)
+        : fishingBoat(id, variant, crate);
+  return { root: c.root, crates: c.slots };
 }
 
 /** Flatbed truck: 6 crates in about 0.9 tiles, or a longer 8-crate rig. */

@@ -39,32 +39,10 @@ interface Fit {
 }
 
 const FIT = {
-  smack: {
-    file: 'watercraft/boat-fishing-small.glb',
-    length: 1.9,
-    yaw: Math.PI / 2,
-    maxBeam: 0.62,
-  },
-  coaster: { file: 'watercraft/ship-cargo-c.glb', length: 2.7, yaw: Math.PI / 2, maxBeam: 0.86 },
-  // A big ship: its berth is seven tiles long.
-  feeder: {
-    file: 'watercraft/ship-cargo-c.glb',
-    length: 5.6,
-    yaw: Math.PI / 2,
-    maxBeam: 0.96,
-  },
   'container-a': { file: 'watercraft/cargo-container-a.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   'container-b': { file: 'watercraft/cargo-container-b.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   'container-c': { file: 'watercraft/cargo-container-c.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   truck: { file: 'cars/truck-flat.glb', length: 0.95, yaw: Math.PI / 2 },
-  ...Object.fromEntries(
-    ['male', 'female'].flatMap((g) =>
-      ['a', 'b', 'c', 'd', 'e', 'f'].map((v) => [
-        `person-${g}-${v}`,
-        { file: `characters/character-${g}-${v}.glb`, height: 0.42, yaw: Math.PI / 2 },
-      ]),
-    ),
-  ),
   ...Object.fromEntries(
     [
       'tree_default',
@@ -90,7 +68,6 @@ const FIT = {
 
 export type AssetName = keyof typeof FIT;
 
-export const PEOPLE = Object.keys(FIT).filter((k) => k.startsWith('person-')) as AssetName[];
 export const TREES = Object.keys(FIT).filter((k) => k.startsWith('tree_')) as AssetName[];
 export const CONTAINERS: AssetName[] = ['container-a', 'container-b', 'container-c'];
 export const ROCKS = Object.keys(FIT).filter((k) => k.startsWith('stone_')) as AssetName[];

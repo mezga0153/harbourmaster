@@ -11,6 +11,7 @@ import {
   truck,
   type Model,
 } from './models';
+import { pose } from './people';
 import { surfaceY } from './terrain';
 
 const SNAPSHOT_MS = 100;
@@ -46,7 +47,7 @@ export class Entities {
               : v.kind === 'stacker'
                 ? stacker()
                 : v.kind === 'boat'
-                  ? boat(v.variant, v.vessel)
+                  ? boat(v.variant, v.vessel, v.id)
                   : truck(v.variant, v.capacity, v.boxes);
         this.group.add(model.root);
         // Only machines show a warning marker; boats at anchor are normal.
@@ -70,25 +71,7 @@ export class Entities {
     }
   }
 
-  private dt = 0;
-  private lastTime = 0;
-
-  /** Cross-fade between walking and standing. */
-  private animate(model: Model, moving: boolean): void {
-    const want = moving ? 'walk' : 'idle';
-    const current = model.root.userData.anim as string | undefined;
-    if (current === want) return;
-    const next = model.actions?.get(want);
-    if (!next) return;
-    const prev = current ? model.actions?.get(current) : undefined;
-    next.reset().play();
-    if (prev) next.crossFadeFrom(prev, 0.2, false);
-    model.root.userData.anim = want;
-  }
-
   update(now: number, time: number): void {
-    this.dt = this.lastTime ? Math.min(0.1, time - this.lastTime) : 0;
-    this.lastTime = time;
     const t = Math.min(1, (now - this.snapTime) / SNAPSHOT_MS);
     for (const [id, e] of this.entries) {
       const cur = e.view;
@@ -111,13 +94,7 @@ export class Entities {
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
       }
-      if (e.model.body && cur.kind === 'dockhand') {
-        e.model.body.position.y = cur.moving ? Math.abs(Math.sin(time * 14 + id)) * 0.03 : 0;
-      }
-      if (e.model.mixer) {
-        this.animate(e.model, cur.moving);
-        e.model.mixer.update(this.dt);
-      }
+      if (cur.kind === 'dockhand') pose(e.model, cur.moving, cur.load > 0, time * 12 + id);
       if (e.alert) {
         e.alert.visible = cur.alert;
         e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);
