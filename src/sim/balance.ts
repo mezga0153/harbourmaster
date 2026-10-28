@@ -97,6 +97,10 @@ export const VESSELS = {
 } as const;
 /** Share of top speed a boat gains per tick; it sheds way at twice that. */
 export const BOAT_ACCEL = 1 / 60;
+/** Ships at least this long mind their whole hull when they turn; see sail(). */
+export const CAREFUL_LENGTH = 4;
+/** Ships at least this long line up along the dock well before a berth; see approachPath(). */
+export const LINE_UP_LENGTH = 4;
 /** Ticks a boat can be held up before it looks for another way. */
 export const BOAT_REROUTE_AFTER = 50;
 /** Ticks without getting closer before a boat squeezes past others, so traffic never locks up. */

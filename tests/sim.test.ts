@@ -1088,6 +1088,46 @@ describe('Container Port tier', () => {
     expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
   });
 
+  it('brings a container ship in and out without its hull touching the docks', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 4,
+        cratesMax: 4,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    const clips = world['clips'].bind(world);
+    let touching = 0;
+    let moored = 0;
+    const phases: string[] = [];
+    const served = world.stats.boats;
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+      world.step();
+      for (const b of world.boats) {
+        if (b.vessel !== 'feeder') continue;
+        if (b.berthing && phases.at(-1) !== b.berthing) phases.push(b.berthing);
+        if (b.state === 'moored') moored++;
+        else if (clips(b, b.x, b.y, b.dir, []) > 0) touching++;
+      }
+    }
+    // It lined up out along the dock before running in to the berth.
+    expect(phases.slice(0, 3)).toEqual(['lead', 'align', 'line']);
+    expect(moored).toBeGreaterThan(0);
+    expect(world.stats.boats).toBeGreaterThan(served);
+    expect(touching).toBe(0);
+  });
+
   it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7);
     world.tier = 2;
@@ -1109,8 +1149,9 @@ describe('Container Port tier', () => {
       world.tick + 10,
       0,
     );
-    // No container trucks yet: the containers wait in the yard.
-    for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
+    // No container trucks yet: the containers wait in the yard. A big ship
+    // takes its time coming alongside.
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) world.step();
     const yard = world.yards.get(t.yard)!;
     expect(yard.boxes.length).toBeGreaterThan(0);
     expect([...world.bays.values()].every((b) => b.boxes.length === 0)).toBe(true);

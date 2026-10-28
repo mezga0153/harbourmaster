@@ -180,6 +180,19 @@ interface Boat extends Agent {
   /** Going astern to make way for another boat. */
   astern?: boolean;
   /**
+   * A long ship's manoeuvre, ahead or astern with the helm over, or swung
+   * round by tugs where it lies, and until when.
+   */
+  plan?: { helm: number; astern: boolean; pivot?: boolean; until: number };
+  /** Where the approach line to its berth starts and ends, see approachPath. */
+  lineup?: number;
+  lineEnd?: number;
+  /**
+   * A long ship coming in to a berth: heading for the start of the approach
+   * line, lining up there, then running in along it.
+   */
+  berthing?: 'lead' | 'align' | 'line';
+  /**
    * The boat whose way it is clearing, at the head of any chain of boats
    * backing out of each other's way.
    */
@@ -1491,11 +1504,41 @@ export class World {
           const i = m.idx(x, y);
           if (this.boatCostFor(boat.draft)(i) !== 1) continue;
           const clear = taken.every((t) => Math.hypot(m.xOf(t.at) - x, m.yOf(t.at) - y) > t.room);
-          if (clear) return i;
+          if (clear && this.swingRoom(boat, x + 0.5, y + 0.5)) return i;
         }
       }
     }
     return centre;
+  }
+
+  /** Open water, nothing built, all within `r` tiles of x, y. */
+  private openAround(x: number, y: number, r: number): boolean {
+    const m = this.map;
+    for (let ty = Math.floor(y - r); ty <= Math.floor(y + r); ty++) {
+      for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
+        if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > r + 0.5 || !m.inBounds(tx, ty)) continue;
+        const i = m.idx(tx, ty);
+        if (m.isLand(i) || m.build[i] !== Build.None) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Whether a long ship can lie at anchor here and swing round it: open
+   * water all round, clear of moored boats.
+   */
+  private swingRoom(boat: Boat, x: number, y: number): boolean {
+    const v = B.VESSELS[boat.vessel];
+    if (v.length < B.CAREFUL_LENGTH) return true;
+    const r = v.length / 2 + 0.5;
+    if (!this.openAround(x, y, r)) return false;
+    return this.boats.every(
+      (o) =>
+        o === boat ||
+        o.state !== 'moored' ||
+        Math.hypot(o.x - x, o.y - y) > r + B.VESSELS[o.vessel].length / 2,
+    );
   }
 
   /** Anchored boats get berths in the order they arrived. */
@@ -1753,11 +1796,15 @@ export class World {
       .filter((c) => this.fairwayFree(boat, c.jetty, c.berth))
       .slice(0, 6);
     for (const c of berths) {
-      const path = findPath(this.map.w, this.map.h, from, c.berth, this.seaWay(boat), true);
+      const path =
+        (B.VESSELS[boat.vessel].length >= B.LINE_UP_LENGTH
+          ? this.approachPath(boat, from, c.berth, c.jetty)
+          : null) ?? findPath(this.map.w, this.map.h, from, c.berth, this.seaWay(boat), true);
       if (!path) continue;
       boat.berth = c.berth;
       boat.jetty = c.jetty;
-      this.takeFairway(boat);
+      // A big ship lining up out at sea takes the lane only once it is there.
+      if (boat.berthing !== 'lead') this.takeFairway(boat);
       boat.best = Infinity;
       boat.path = path;
       boat.goal = c.berth;
@@ -1766,6 +1813,60 @@ export class World {
     }
     boat.state = 'anchored';
     return false;
+  }
+
+  /**
+   * The way in to a berth: out to a line a tile off it, along that line, so
+   * the ship comes up parallel to the dock, then sideways in. The longer the
+   * ship, the further out it lines up: half as far again as its length, or
+   * as much of that as there is open water for. Null when there is no clear
+   * line either way along.
+   */
+  private approachPath(boat: Boat, from: number, berth: number, jetty: number): number[] | null {
+    const m = this.map;
+    const water = this.boatCostFor(boat.draft);
+    const ox = m.xOf(berth) - m.xOf(jetty);
+    const oy = m.yOf(berth) - m.yOf(jetty);
+    const ax = oy !== 0 ? 1 : 0;
+    const ay = oy !== 0 ? 0 : 1;
+    const length = B.VESSELS[boat.vessel].length;
+    const least = Math.ceil(length / 2) + 1;
+    const most = Math.ceil(length * 1.5) + 1;
+    const sea = this.seaWay(boat);
+    let best: number[] | null = null;
+    boat.lineup = boat.lineEnd = boat.berthing = undefined;
+    for (const s of [1, -1]) {
+      // As far out along the dock as the water stays open.
+      let run = 0;
+      while (run < most) {
+        const x = m.xOf(berth) + ox + ax * s * (run + 1);
+        const y = m.yOf(berth) + oy + ay * s * (run + 1);
+        if (!m.inBounds(x, y) || water(m.idx(x, y)) !== 1) break;
+        run++;
+      }
+      // The line starts where there is open water to swing round in.
+      while (run >= least) {
+        const sx = m.xOf(berth) + ox + ax * s * run + 0.5;
+        const sy = m.yOf(berth) + oy + ay * s * run + 0.5;
+        if (this.openAround(sx, sy, length / 2)) break;
+        run--;
+      }
+      if (run < least || water(m.idx(m.xOf(berth) + ox, m.yOf(berth) + oy)) !== 1) continue;
+      const line: number[] = [];
+      for (let k = run; k >= 0; k--) {
+        line.push(m.idx(m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k));
+      }
+      const lead = findPath(m.w, m.h, from, line[0], sea, true);
+      if (!lead) continue;
+      const path = [...lead, ...line.slice(1), berth];
+      if (!best || path.length < best.length) {
+        best = path;
+        boat.lineup = line[0];
+        boat.lineEnd = line[line.length - 1];
+        boat.berthing = 'lead';
+      }
+    }
+    return best;
   }
 
   private updateBoat(b: Boat): void {
@@ -1816,6 +1917,8 @@ export class World {
           // Alongside, it is no longer wedged in anywhere.
           b.squeeze = 0;
           b.held = 0;
+          b.lineup = b.lineEnd = b.berthing = undefined;
+          b.timer = 0;
           const what =
             b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
           const cargo =
@@ -1866,14 +1969,25 @@ export class World {
   private sail(b: Boat, moor: number | null): 'moving' | 'arrived' | 'blocked' {
     const v = B.VESSELS[b.vessel];
     const w = this.map.w;
-    const cost = this.boatCostFor(b.draft);
     const cx = (i: number) => (i % w) + 0.5;
     const cy = (i: number) => Math.floor(i / w) + 0.5;
     const accel = v.speed * B.BOAT_ACCEL;
     let speed = b.speed ?? 0;
     if (b.path.length === 0) b.path = [b.goal];
     // Waypoints already passed drop off; the last one is the goal itself.
-    while (b.path.length > 1 && Math.hypot(cx(b.path[0]) - b.x, cy(b.path[0]) - b.y) < 0.9) {
+    // A long ship also counts one close by as passed once it is beyond it,
+    // heading on towards the next, rather than turning back for it.
+    const passed = (p: number, q: number) => {
+      if (v.length < B.CAREFUL_LENGTH || Math.hypot(cx(p) - b.x, cy(p) - b.y) >= 2) return false;
+      const qx = cx(q) - cx(p);
+      const qy = cy(q) - cy(p);
+      const along = (Math.cos(b.dir) * qx + Math.sin(b.dir) * qy) / Math.hypot(qx, qy);
+      return along > 0.7 && (b.x - cx(p)) * qx + (b.y - cy(p)) * qy > 0;
+    };
+    while (
+      b.path.length > 1 &&
+      (Math.hypot(cx(b.path[0]) - b.x, cy(b.path[0]) - b.y) < 0.9 || passed(b.path[0], b.path[1]))
+    ) {
       b.path.shift();
     }
     const goal = b.path[b.path.length - 1];
@@ -1888,12 +2002,31 @@ export class World {
     if (moor !== null && remaining < 1.6) {
       const flip = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? Math.PI : 0;
       const err = wrapAngle(moor + flip - b.dir);
-      b.dir += clamp(err, -v.turn * 0.6, v.turn * 0.6);
+      // A long ship swings into line only as far as its hull clears the
+      // dock, unless it has been at it a long while.
+      const turned = b.dir + clamp(err, -v.turn * 0.6, v.turn * 0.6);
+      const ships = v.length < B.CAREFUL_LENGTH ? [] : this.stillNear(b);
+      const clear =
+        v.length < B.CAREFUL_LENGTH ||
+        (b.held ?? 0) > 60 ||
+        this.clips(b, b.x, b.y, turned, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+      if (clear) b.dir = turned;
+      if (v.length >= B.CAREFUL_LENGTH) b.held = (b.held ?? 0) + 1;
       speed = Math.min(speed, 0.03 + remaining * 0.1);
-      const step = Math.min(remaining, Math.max(speed, 0.008));
+      let step = Math.min(remaining, Math.max(speed, 0.008));
       if (remaining > 1e-6) {
-        b.x += ((gx - b.x) / remaining) * step;
-        b.y += ((gy - b.y) / remaining) * step;
+        const nx = b.x + ((gx - b.x) / remaining) * step;
+        const ny = b.y + ((gy - b.y) / remaining) * step;
+        // A long ship lines up first and comes in sideways only as its hull
+        // clears the dock.
+        const slide =
+          v.length < B.CAREFUL_LENGTH ||
+          (b.held ?? 0) > 150 ||
+          this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+        if (slide) {
+          b.x = nx;
+          b.y = ny;
+        } else step = 0;
       }
       b.speed = speed;
       if (remaining - step < 0.02 && Math.abs(err) < 0.04) {
@@ -1919,7 +2052,11 @@ export class World {
     const avoid = this.seaWay(b);
     const clear: CostFn = (i) => (avoid(i) === 1 ? 1 : Infinity);
     let ahead = 0;
-    for (let k = 1; k < Math.min(b.path.length, 4); k++) {
+    // Coming in to a berth, keep to the approach line along the dock: never
+    // cut the corner past where it starts.
+    const line = moor !== null && b.berthing === 'lead' ? b.path.indexOf(b.lineup ?? -1) : -1;
+    const most = line >= 0 ? Math.min(line + 1, 4) : 4;
+    for (let k = 1; k < Math.min(b.path.length, most); k++) {
       if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear)) break;
       ahead = k;
     }
@@ -1927,12 +2064,38 @@ export class World {
     const target = b.path[0];
     const want = Math.atan2(cy(target) - b.y, cx(target) - b.x);
     if (b.undock && this.castingOff(b, want)) return 'moving';
+    if (b.berthing && b.lineup !== undefined && b.lineEnd !== undefined && moor !== null) {
+      const sx = cx(b.lineup);
+      const sy = cy(b.lineup);
+      const along = Math.atan2(cy(b.lineEnd) - sy, cx(b.lineEnd) - sx);
+      if (b.berthing === 'lead' && Math.hypot(sx - b.x, sy - b.y) < 1.2) {
+        // Wait out there until the lane in to the berth is clear.
+        if (!this.takeFairway(b)) {
+          b.speed = Math.max(0, (b.speed ?? 0) - accel * 2);
+          return this.afterMove(b, b.speed, true, moor, goal, cx, cy);
+        }
+        b.berthing = 'align';
+        b.timer = 0;
+      }
+      if (b.berthing === 'align') {
+        b.timer++;
+        if (Math.abs(wrapAngle(along - b.dir)) < 0.12 || b.timer > 600) {
+          b.berthing = 'line';
+          b.path = b.path.slice(Math.max(0, b.path.indexOf(b.lineup) + 1));
+        } else {
+          // Out at the start of the line, come round to lie along it: with
+          // tugs where it lies if there is room, otherwise under way.
+          return this.lineUp(b, along, sx, sy, moor, goal, cx, cy);
+        }
+      }
+    }
     const way = this.giveWay(b);
     const err = wrapAngle(want - b.dir);
     // A boat needs way on to turn: it never spins on the spot, it slows and
     // swings round in an arc.
     const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
-    b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
+    const small = v.length < B.CAREFUL_LENGTH;
+    if (small) b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
     // Ease off for sharp bends, to stop at the goal, and for other boats,
     // but keep some way on through a bend so it swings round in an arc.
     let desired = v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
@@ -1956,12 +2119,24 @@ export class World {
     }
     b.yieldFor = undefined;
     b.astern = false;
+    // Small boats nip about; a long ship minds its whole hull.
+    if (small) {
+      const made = this.nip(b, speed, cx(target), cy(target), way.speed);
+      return made === null ? 'moving' : this.afterMove(b, made, false, moor, goal, cx, cy);
+    }
+    // The whole hull keeps clear of the shore, docks and boats lying still.
+    // A boat already touching something may only get clearer.
+    const ships = this.stillNear(b);
+    const now = this.clips(b, b.x, b.y, b.dir, ships);
+    const fits = (x: number, y: number, d: number) => this.clips(b, x, y, d, ships) <= now;
+    // Room is only needed as far as the goal: past a berth lies the dock.
+    const reach = Math.min(v.length / 2 + 1, remaining);
     // Take any sternway off before going ahead again.
-    if ((b.sternway ?? 0) > 0) {
+    if ((b.sternway ?? 0) > 0 && !b.plan?.astern) {
       const back = Math.max(0, (b.sternway ?? 0) - accel * 2);
       const sx = b.x - Math.cos(b.dir) * back;
       const sy = b.y - Math.sin(b.dir) * back;
-      const moved = this.navigable(sx, sy, cost);
+      const moved = fits(sx, sy, b.dir);
       if (moved) {
         b.x = sx;
         b.y = sy;
@@ -1970,8 +2145,165 @@ export class World {
       return 'moving';
     }
 
-    // Never run aground: keep the middle of the hull, and a little ahead of
-    // it, in open water. The path already keeps clear of the shore.
+    // Pick a manoeuvre the whole hull has room for: ahead with the helm
+    // over, or astern swinging the bow round, whichever brings it nearest
+    // to heading for its next waypoint. Kept for a few ticks so it does not
+    // dither between ahead and astern.
+    let plan = b.plan && this.tick < b.plan.until ? b.plan : undefined;
+    const step = (p: { helm: number; astern: boolean; pivot?: boolean }) => {
+      if (p.pivot) {
+        const d = wrapAngle(b.dir + clamp(err, -v.turn * 0.5, v.turn * 0.5));
+        return { d, x: b.x, y: b.y, back: 0 };
+      }
+      const delta =
+        Math.sign(p.helm) === Math.sign(err) && !p.astern
+          ? clamp(err, -Math.abs(p.helm) * turn, Math.abs(p.helm) * turn)
+          : p.helm * turn * (p.astern ? 0.5 : 1);
+      const d = wrapAngle(b.dir + delta);
+      const back = Math.min(v.speed * 0.4, (b.sternway ?? 0) + accel);
+      const dist = p.astern ? -back : speed;
+      return { d, x: b.x + Math.cos(d) * dist, y: b.y + Math.sin(d) * dist, back };
+    };
+    if (plan && !fits(step(plan).x, step(plan).y, step(plan).d)) plan = undefined;
+    if (!plan) {
+      // Aim a ship's length or so along the route, not just at the next
+      // waypoint, so a manoeuvre is judged by where it leaves the ship.
+      // It should get there heading the way the route goes on.
+      let ax = cx(target);
+      let ay = cy(target);
+      let adir = want;
+      let left = Math.max(2, v.length * 0.75) - Math.hypot(ax - b.x, ay - b.y);
+      for (let k = 1; k < b.path.length && left > 0; k++) {
+        const nx = cx(b.path[k]);
+        const ny = cy(b.path[k]);
+        const seg = Math.hypot(nx - ax, ny - ay);
+        const t = Math.min(1, left / Math.max(seg, 1e-6));
+        adir = Math.atan2(ny - ay, nx - ax);
+        ax += (nx - ax) * t;
+        ay += (ny - ay) * t;
+        left -= seg;
+      }
+      if (b.berthing === 'lead' && b.lineup !== undefined && b.path.includes(b.lineup)) {
+        // Heading out to the start of the approach line: just get there.
+        ax = cx(b.lineup);
+        ay = cy(b.lineup);
+        adir = Math.atan2(ay - b.y, ax - b.x);
+      }
+      // The best whose very first step is clear too.
+      const best = this.manoeuvre(b, ax, ay, adir, speed, ships, now, reach).find((o) => {
+        const n = step(o);
+        return fits(n.x, n.y, n.d);
+      });
+      plan = best
+        ? { helm: best.helm, astern: best.astern, pivot: best.pivot, until: this.tick + 8 }
+        : undefined;
+      b.plan = plan;
+    }
+    let backed = false;
+    const next = plan ? step(plan) : null;
+    if (plan && next && !fits(next.x, next.y, next.d)) {
+      // The run looked clear but this step is not: think again next tick.
+      b.plan = undefined;
+      speed = 0;
+    } else if (plan && next && way.speed > 0.05) {
+      b.dir = next.d;
+      b.x = next.x;
+      b.y = next.y;
+      if (plan.astern || plan.pivot) {
+        b.sternway = next.back;
+        speed = 0;
+        backed = true;
+      } else b.sternway = 0;
+    } else if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER / 2 || (b.squeeze ?? 0) > 0) {
+      // Boxed in for a long time: work along the path at a crawl, as a
+      // skipper would with a bit of throttle and rudder.
+      const px = cx(target) - b.x;
+      const py = cy(target) - b.y;
+      const d = Math.hypot(px, py);
+      const crawl = Math.min(d, v.speed * 0.2);
+      speed = 0;
+      if (d > 1e-6 && way.speed > 0.05) {
+        b.x += (px / d) * crawl;
+        b.y += (py / d) * crawl;
+        speed = crawl;
+      }
+    } else speed = 0;
+    return this.afterMove(b, speed, backed, moor, goal, cx, cy);
+  }
+
+  /**
+   * A long ship at the start of its approach line comes round to lie along
+   * it, heading for the berth: swung by tugs where it lies when there is room
+   * for the whole hull, otherwise worked round under way.
+   */
+  private lineUp(
+    b: Boat,
+    along: number,
+    sx: number,
+    sy: number,
+    moor: number,
+    goal: number,
+    cx: (i: number) => number,
+    cy: (i: number) => number,
+  ): 'moving' | 'blocked' {
+    const v = B.VESSELS[b.vessel];
+    const ships = this.stillNear(b);
+    const now = this.clips(b, b.x, b.y, b.dir, ships);
+    const swung = wrapAngle(b.dir + clamp(wrapAngle(along - b.dir), -v.turn, v.turn));
+    if (this.clips(b, b.x, b.y, swung, ships) <= now) {
+      b.dir = swung;
+      b.speed = 0;
+      return this.afterMove(b, 0, true, moor, goal, cx, cy);
+    }
+    // No room to swing here: manoeuvre towards a point along the line.
+    const options = this.manoeuvre(
+      b,
+      sx + Math.cos(along) * 2,
+      sy + Math.sin(along) * 2,
+      along,
+      v.speed * 0.25,
+      ships,
+      now,
+      v.length / 2 + 1,
+    );
+    for (const plan of options) {
+      if (plan.pivot) continue;
+      const step = plan.astern ? -v.speed * 0.25 : v.speed * 0.25;
+      const d = wrapAngle(b.dir + plan.helm * v.turn * (plan.astern ? 0.25 : 0.5));
+      const x = b.x + Math.cos(d) * step;
+      const y = b.y + Math.sin(d) * step;
+      if (this.clips(b, x, y, d, ships) > now) continue;
+      b.dir = d;
+      b.x = x;
+      b.y = y;
+      b.speed = Math.max(0, step);
+      return this.afterMove(b, b.speed, plan.astern, moor, goal, cx, cy);
+    }
+    return this.afterMove(b, 0, false, moor, goal, cx, cy);
+  }
+
+  /**
+   * A small boat's step: go ahead while the middle of the hull and its bow
+   * stay in open water; otherwise work along the path at a crawl, as a
+   * skipper would with a bit of throttle and rudder. Returns the speed made
+   * good, or null while it is still taking sternway off.
+   */
+  private nip(b: Boat, speed: number, tx: number, ty: number, way: number): number | null {
+    const v = B.VESSELS[b.vessel];
+    const cost = this.boatCostFor(b.draft);
+    // Take any sternway off before going ahead again.
+    if ((b.sternway ?? 0) > 0) {
+      const back = Math.max(0, (b.sternway ?? 0) - v.speed * B.BOAT_ACCEL * 2);
+      const sx = b.x - Math.cos(b.dir) * back;
+      const sy = b.y - Math.sin(b.dir) * back;
+      const moved = this.navigable(sx, sy, cost);
+      if (moved) {
+        b.x = sx;
+        b.y = sy;
+      }
+      b.sternway = moved ? back : 0;
+      return null;
+    }
     const nx = b.x + Math.cos(b.dir) * speed;
     const ny = b.y + Math.sin(b.dir) * speed;
     const bowX = nx + Math.cos(b.dir) * 0.3;
@@ -1979,23 +2311,32 @@ export class World {
     if (this.navigable(nx, ny, cost) && this.navigable(bowX, bowY, cost)) {
       b.x = nx;
       b.y = ny;
-    } else {
-      // Too close to the shore or a jetty to turn: work along the path at a
-      // crawl instead, as a skipper would with a bit of throttle and rudder.
-      const px = cx(target) - b.x;
-      const py = cy(target) - b.y;
-      const d = Math.hypot(px, py);
-      const step = Math.min(d, v.speed * 0.2);
-      speed = 0;
-      if (d > 1e-6 && way.speed > 0.05) {
-        b.x += (px / d) * step;
-        b.y += (py / d) * step;
-        speed = step;
-      }
+      return speed;
     }
+    const px = tx - b.x;
+    const py = ty - b.y;
+    const d = Math.hypot(px, py);
+    const step = Math.min(d, v.speed * 0.2);
+    if (d <= 1e-6 || way <= 0.05) return 0;
+    b.x += (px / d) * step;
+    b.y += (py / d) * step;
+    return step;
+  }
+
+  /** Book-keeping after a step: held up, wedged, getting nowhere. */
+  private afterMove(
+    b: Boat,
+    speed: number,
+    backed: boolean,
+    moor: number | null,
+    goal: number,
+    cx: (i: number) => number,
+    cy: (i: number) => number,
+  ): 'moving' | 'blocked' {
+    const v = B.VESSELS[b.vessel];
     b.speed = speed;
 
-    b.held = speed < v.speed * 0.1 ? (b.held ?? 0) + 1 : 0;
+    b.held = speed < v.speed * 0.1 && !backed ? (b.held ?? 0) + 1 : 0;
     // Wedged in for most of a day: squeeze past for a while, as a last
     // resort so the harbour never locks up for good.
     if (b.squeeze) b.squeeze--;
@@ -2005,15 +2346,21 @@ export class World {
       b.stall = 0;
     }
     // Getting no closer, held up or going round in circles: find another way,
-    // round every other boat this time.
-    const straight = Math.hypot(gx - b.x, gy - b.y);
+    // round every other boat this time. Coming in to a berth, closer means
+    // closer to the start of the approach line until the boat is on it.
+    const aim = b.lineup !== undefined && b.path.includes(b.lineup) ? b.lineup : goal;
+    const straight = Math.hypot(cx(aim) - b.x, cy(aim) - b.y);
     if (straight < (b.best ?? Infinity) - 0.05) {
       b.best = straight;
       b.stall = 0;
     } else b.stall = (b.stall ?? 0) + 1;
-    if (b.stall > B.BOAT_REROUTE_AFTER && b.stall % B.BOAT_REROUTE_AFTER === 0) {
+    const steady = b.berthing === 'align' || b.berthing === 'line';
+    if (!steady && b.stall > B.BOAT_REROUTE_AFTER && b.stall % B.BOAT_REROUTE_AFTER === 0) {
       const from = this.tileOf(b);
       const path =
+        (moor !== null && b.state === 'arriving' && v.length >= B.LINE_UP_LENGTH
+          ? this.approachPath(b, from, b.berth, b.jetty)
+          : null) ??
         findPath(this.map.w, this.map.h, from, goal, this.seaWay(b, true), true) ??
         findPath(this.map.w, this.map.h, from, goal, this.seaWay(b), true);
       if (path) b.path = path.length > 0 ? path : [goal];
@@ -2043,7 +2390,9 @@ export class World {
     if (b.undock === 1) {
       const off = (b.x - bx) * ax + (b.y - by) * ay;
       const step = v.speed * 0.2;
-      if (off < 0.3 && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
+      // A long ship gets far enough out for its stern to swing clear.
+      const clear = v.length < B.CAREFUL_LENGTH ? 0.3 : 1;
+      if (off < clear && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
         b.x += ax * step;
         b.y += ay * step;
         b.speed = 0;
@@ -2059,16 +2408,22 @@ export class World {
       const sx = b.x - Math.cos(b.dir) * back;
       const sy = b.y - Math.sin(b.dir) * back;
       const stern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
+      // Going astern the stern swings one way and the bow the other.
+      const swung = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
+      const ships = this.stillNear(b);
+      const roomAstern =
+        v.length < B.CAREFUL_LENGTH
+          ? this.navigable(sx - Math.cos(b.dir) * 0.3, sy - Math.sin(b.dir) * 0.3, cost)
+          : this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
       const clear =
-        this.navigable(sx - Math.cos(b.dir) * 0.3, sy - Math.sin(b.dir) * 0.3, cost) &&
+        roomAstern &&
         this.boats.every(
           (o) => o === b || this.inWay(stern, this.hullOf(o), stern.half + 0.3) === null,
         );
       if (clear) {
         b.x = sx;
         b.y = sy;
-        // Going astern the stern swings one way and the bow the other.
-        b.dir = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
+        b.dir = swung;
         b.speed = 0;
         b.sternway = back;
         b.astern = true;
@@ -2107,6 +2462,134 @@ export class World {
   }
 
   /** Open water here; past the map edge is open sea, where boats come and go. */
+  /**
+   * How many points of the hull, lying at x, y heading dir, are over land
+   * or a dock, or inside one of `ships`. Points along the keel from stern
+   * to bow and along both sides. (Depth is the route's business: a hull's
+   * ends may hang over the shallows, as at a berth.)
+   */
+  private clips(b: Boat, x: number, y: number, dir: number, ships: Boat[]): number {
+    const v = B.VESSELS[b.vessel];
+    const m = this.map;
+    const cost: CostFn = (i) => (m.isLand(i) || m.build[i] !== Build.None ? Infinity : 1);
+    const hx = Math.cos(dir);
+    const hy = Math.sin(dir);
+    const side = (v.beam / 2) * 0.9;
+    const n = Math.max(2, Math.ceil(v.length / 0.45));
+    let hits = 0;
+    const at = (px: number, py: number) => {
+      if (!this.navigable(px, py, cost)) return hits++;
+      for (const o of ships) {
+        const w = B.VESSELS[o.vessel];
+        const ox = Math.cos(o.dir);
+        const oy = Math.sin(o.dir);
+        const rx = px - o.x;
+        const ry = py - o.y;
+        const along = Math.abs(rx * ox + ry * oy);
+        const across = Math.abs(-rx * oy + ry * ox);
+        if (along < w.length / 2 + 0.05 && across < w.beam / 2 + 0.05) return hits++;
+      }
+    };
+    for (let k = 0; k <= n; k++) {
+      const t = -v.length / 2 + (v.length * k) / n;
+      const px = x + hx * t;
+      const py = y + hy * t;
+      at(px, py);
+      // The ends taper to a point.
+      if (k > 0 && k < n) {
+        at(px - hy * side, py + hx * side);
+        at(px + hy * side, py - hx * side);
+      }
+    }
+    return hits;
+  }
+
+  /** Boats lying still near this one, that its hull must keep clear of. */
+  private stillNear(b: Boat): Boat[] {
+    if ((b.squeeze ?? 0) > 0) return [];
+    const v = B.VESSELS[b.vessel];
+    return this.boats.filter(
+      (o) =>
+        o !== b &&
+        o.state === 'moored' &&
+        Math.hypot(o.x - b.x, o.y - b.y) < v.length + B.VESSELS[o.vessel].length / 2 + 2,
+    );
+  }
+
+  /**
+   * The best manoeuvre for a long ship from where it lies: ahead or astern,
+   * helm hard over either way, half or amidships. Each is tried out over a
+   * short run (ahead as far as `reach`, astern a tile and a half) and must
+   * keep the hull clear all the way. Best first: ending nearest the target
+   * and pointing at it. Empty when nothing has room.
+   */
+  private manoeuvre(
+    b: Boat,
+    tx: number,
+    ty: number,
+    tdir: number,
+    speed: number,
+    ships: Boat[],
+    now: number,
+    reach: number,
+  ): { helm: number; astern: boolean; pivot?: boolean }[] {
+    const v = B.VESSELS[b.vessel];
+    // Slow, a ship turns tighter for the distance it covers.
+    const s = Math.max(speed, v.speed * 0.25);
+    const curve = (v.turn * (0.3 + (0.7 * s) / v.speed)) / s;
+    const step = 0.25;
+    const options: { helm: number; astern: boolean; pivot?: boolean; score: number }[] = [];
+    // Last of all, with tugs, swing round where it lies, if there is room.
+    const want = Math.hypot(tx - b.x, ty - b.y) > 1.5 ? Math.atan2(ty - b.y, tx - b.x) : tdir;
+    // Judged by where the swing leaves it, as far round as it has room for.
+    const swing = wrapAngle(want - b.dir);
+    if (Math.abs(swing) > 0.05) {
+      const n = Math.ceil(Math.abs(swing) / 0.15);
+      let ok = true;
+      for (let k = 1; k <= n && ok; k++) {
+        ok = this.clips(b, b.x, b.y, b.dir + (swing * k) / n, ships) <= now;
+      }
+      if (ok) {
+        const off = Math.abs(wrapAngle(want - b.dir - swing));
+        options.push({
+          helm: Math.sign(swing),
+          astern: false,
+          pivot: true,
+          score: Math.hypot(tx - b.x, ty - b.y) + off * 1.5 + 2.5,
+        });
+      }
+    }
+    for (const astern of [false, true]) {
+      const run = astern ? 1.5 : Math.max(step, reach);
+      for (const helm of [0, -0.5, 0.5, -1, 1]) {
+        let x = b.x;
+        let y = b.y;
+        let d = b.dir;
+        let ok = true;
+        // Judged at its best moment along the run: nearest the target and
+        // pointing at it, before it sails past.
+        let score = Infinity;
+        for (let t = step; t <= run + 1e-6; t += step) {
+          // Astern the rudder bites less.
+          d = wrapAngle(d + helm * curve * step * (astern ? 0.5 : 1));
+          x += Math.cos(d) * step * (astern ? -1 : 1);
+          y += Math.sin(d) * step * (astern ? -1 : 1);
+          if (this.clips(b, x, y, d, ships) > now) {
+            ok = false;
+            break;
+          }
+          // Far off, point at the target; close to it, lie the way the
+          // route goes on from there.
+          const near = Math.hypot(tx - x, ty - y);
+          const aim = near > 1.5 ? Math.atan2(ty - y, tx - x) : tdir;
+          score = Math.min(score, near + Math.abs(wrapAngle(aim - d)) * 1.5);
+        }
+        if (ok) options.push({ helm, astern, score: score + (astern ? 1 : 0) });
+      }
+    }
+    return options.sort((p, q) => p.score - q.score);
+  }
+
   private navigable(x: number, y: number, cost: CostFn): boolean {
     const tx = Math.floor(x);
     const ty = Math.floor(y);
