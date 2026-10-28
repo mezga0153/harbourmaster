@@ -203,6 +203,8 @@ export class Input {
       selection.value = { type: 'bay', idx: i };
     } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
       selection.value = { type: 'depot', idx: i };
+    } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {
+      selection.value = { type: 'yard', idx: i };
     } else selection.value = null;
   }
 

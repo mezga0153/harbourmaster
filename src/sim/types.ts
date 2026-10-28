@@ -21,6 +21,7 @@ export const Build = {
   LargeBay: 11,
   HarbourCrane: 12,
   PortRoad: 13,
+  Yard: 14,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -38,7 +39,8 @@ export type BuildKind =
   | 'office'
   | 'largeBay'
   | 'harbourCrane'
-  | 'portRoad';
+  | 'portRoad'
+  | 'containerYard';
 
 export type MachineKind = 'forklift' | 'stacker';
 

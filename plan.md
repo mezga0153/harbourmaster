@@ -312,9 +312,10 @@ concrete quays, jib cranes, forklifts with depots, port roads and forklift-only 
 need a two-wide quay, and a harbour office that coordinates more than two docks. The port is
 separate from public roads: staff stay on port paths, trucks on public roads. M4 (Container Port)
 has its first version: feeder ships, mobile harbour cranes, reach stackers and container
-hauliers, with containers as a second cargo type. Art uses Kenney models (CC0) for boats,
-ships, trucks, people, trees, rocks and containers. Next: a container yard for buffering, and
-then M5 (Bulk). A playthrough bot in `tests/playthrough.test.ts` checks the balance.
+hauliers (one or two boxes a truck), with containers as a second cargo type, and a 2×2
+container yard that buffers containers while the truck bays are full. Feeders are big ships
+with a seven-tile berth. Coasters bring pallets that only forklifts unload. Art uses Kenney
+models (CC0) for boats, ships, trucks, people, trees, rocks and containers. Next: M5 (Bulk). A playthrough bot in `tests/playthrough.test.ts` checks the balance.
 
 ### M0 — Skeleton ✅
 

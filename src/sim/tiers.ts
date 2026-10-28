@@ -73,6 +73,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   jibCrane: 1,
   depot: 1,
   portRoad: 1,
+  containerYard: 2,
   office: 0,
   largeBay: 1,
   harbourCrane: 2,

@@ -624,7 +624,7 @@ describe('Buildings', () => {
     world.command({ type: 'build', kind: 'largeBay', tiles: [spot], facing: f });
     const [a, b] = footprint(m, 'largeBay', spot, f);
     expect([m.build[a], m.build[b]]).toEqual([Build.LargeBay, Build.LargeBay]);
-    expect(m.orient[b]).toBe(f | EXTENSION);
+    expect(m.orient[b] & EXTENSION).toBe(EXTENSION);
     expect(anchorOf(m, b)).toBe(a);
     expect(world.bays.size).toBe(bays + 1);
     world.command({ type: 'bulldoze', tiles: [b] });
@@ -817,5 +817,53 @@ describe('Container Port tier', () => {
       true,
     );
     expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
+  });
+
+  it('stacks containers in a yard while the truck bays are full', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'containerYard', i));
+    world.command({ type: 'build', kind: 'containerYard', tiles: [spot] });
+    expect(world.yards.size).toBe(1);
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 5,
+        cratesMin: 14,
+        cratesMax: 14,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    // No container trucks yet, so the large bay fills and the rest wait.
+    for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
+    const yard = world.yards.get(spot)!;
+    const bay = [...world.bays.values()].find((b) => b.large)!;
+    expect(bay.boxes).toHaveLength(B.LARGE_BAY_BOXES);
+    expect(yard.boxes.length).toBeGreaterThan(0);
+    add(
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: 1,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const before = yard.boxes.length;
+    for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
+    expect(yard.boxes.length).toBeLessThan(before);
   });
 });

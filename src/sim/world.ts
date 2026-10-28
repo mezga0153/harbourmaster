@@ -37,8 +37,8 @@ import {
   bulldozeError,
   bulldozeTiles,
   bulldozeValue,
-  EXTENSION,
   footprint,
+  partOrient,
   FORKLIFT_ONLY,
   forkliftOnly,
   forkliftOnlyError,
@@ -130,6 +130,9 @@ interface Dockhand extends Agent {
   boatId: number;
   /** Crane landing stack being collected from, or -1. */
   craneIdx: number;
+  /** Container yard being collected from, or -1 (missing in older saves). */
+  yardIdx?: number;
+  /** Where the load goes: a truck bay, or for containers a yard. */
   bayIdx: number;
 }
 
@@ -200,6 +203,10 @@ interface Bay {
   truckId: number;
   nextTruckTick: number;
   noAccess: boolean;
+  /** A container yard: no trucks, only a buffer for containers. */
+  yard?: boolean;
+  /** Yards: containers a stacker is on its way to collect. */
+  reserved?: number;
 }
 
 export interface SaveData {
@@ -228,6 +235,7 @@ export interface SaveData {
   boats: Boat[];
   trucks: Truck[];
   bays: Bay[];
+  yards?: Bay[];
 }
 
 function emptyLedger(): Ledger {
@@ -259,6 +267,7 @@ function isMachine(p: { kind: string }): boolean {
 
 /** Room left at a bay for crates, or for containers (large bays only). */
 function bayRoom(b: Bay, boxes: boolean): number {
+  if (b.yard) return boxes ? B.YARD_BOXES - b.boxes.length - b.boxIncoming : 0;
   if (boxes) return b.large ? B.LARGE_BAY_BOXES - b.boxes.length - b.boxIncoming : 0;
   return bayCap(b) - b.crates.length - b.incoming;
 }
@@ -324,6 +333,8 @@ export class World {
   boats: Boat[] = [];
   trucks: Truck[] = [];
   bays = new Map<number, Bay>();
+  /** Container yards, by their main tile. */
+  yards = new Map<number, Bay>();
 
   private anchorageTile = -1;
   /** Ticks today with a full truck bay, for the advisor. Not saved. */
@@ -443,6 +454,7 @@ export class World {
         large: bay.large ?? false,
       });
     }
+    for (const y of s.yards ?? []) world.yards.set(y.idx, { ...y, boxes: [...y.boxes] });
     return world;
   }
 
@@ -473,6 +485,7 @@ export class World {
       boats: this.boats,
       trucks: this.trucks,
       bays: [...this.bays.values()],
+      yards: [...this.yards.values()],
     });
   }
 
@@ -548,11 +561,12 @@ export class World {
         spent += cost;
         footprint(this.map, kind, i, f).forEach((t, k) => {
           this.map.build[t] = def.code;
-          this.map.orient[t] = ROTATABLE.has(kind) ? f | (k > 0 ? EXTENSION : 0) : 0;
+          this.map.orient[t] = ROTATABLE.has(kind) ? partOrient(f, k) : 0;
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
         });
         if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
+        if (kind === 'containerYard') this.addYard(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
       }
@@ -646,6 +660,7 @@ export class World {
         this.map.build[i] = Build.Quay;
       } else if (this.map.build[i] !== Build.None) {
         if (isBay(this.map.build[i])) this.removeBay(i);
+        if (this.map.build[i] === Build.Yard) this.removeYard(i);
         for (const b of bulldozeTiles(this.map, i)) {
           this.map.build[b] = Build.None;
           this.map.orient[b] = 0;
@@ -1034,12 +1049,16 @@ export class World {
     const moving = avg > 0 ? stackers * ((TICKS_PER_DAY * 0.85) / trip) : 0;
     let trucking = 0;
     if (Number.isFinite(this.roadLen)) {
-      const trucks = this.hauliers()
+      // Containers a day per truck; one bay loads one truck at a time, so
+      // only as many trucks as large bays count, the biggest first.
+      const perTruck = this.hauliers()
         .filter((h) => h.terms.cargo === 'container')
-        .reduce((n, h) => n + h.terms.fleet, 0);
-      const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + B.CONTAINER_TRUCK_CAPACITY * 5 + 30;
-      trucking =
-        Math.min(trucks, large.length) * ((B.CONTAINER_TRUCK_CAPACITY * TICKS_PER_DAY) / ticks);
+        .flatMap((h) => {
+          const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + h.terms.capacity * 5 + 30;
+          return Array<number>(h.terms.fleet).fill((h.terms.capacity * TICKS_PER_DAY) / ticks);
+        })
+        .sort((a, b) => b - a);
+      trucking = perTruck.slice(0, large.length).reduce((n, r) => n + r, 0);
     }
     return {
       demand: Math.round(demand),
@@ -1347,20 +1366,25 @@ export class World {
    * Tiles a moored boat covers: its berth plus one tile either way along the
    * jetty, since boats are about two tiles long. Null if it would hit land.
    */
-  private footprint(berth: number, jetty: number): number[] | null {
+  private footprint(berth: number, jetty: number, half = 1): number[] | null {
     const m = this.map;
     const x = m.xOf(berth);
     const y = m.yOf(berth);
     const alongX = m.yOf(jetty) !== y;
-    const ends = alongX
-      ? [
-          [x - 1, y],
-          [x + 1, y],
-        ]
-      : [
-          [x, y - 1],
-          [x, y + 1],
-        ];
+    const ends: number[][] = [];
+    for (let k = 1; k <= half; k++) {
+      ends.push(
+        ...(alongX
+          ? [
+              [x - k, y],
+              [x + k, y],
+            ]
+          : [
+              [x, y - k],
+              [x, y + k],
+            ]),
+      );
+    }
     const out = [berth];
     for (const [ex, ey] of ends) {
       if (!m.inBounds(ex, ey)) return null;
@@ -1371,14 +1395,28 @@ export class World {
     return out;
   }
 
-  /** Two moored boats clash if they share water, unless they lie end to end in one lane. */
+  /**
+   * Two moored boats clash if they share water, unless they lie end to end
+   * in one lane: hulls are a little shorter than their berths, so the end
+   * tiles can be shared.
+   */
   private berthsClash(a: number[], b: number[]): boolean {
     const m = this.map;
-    const sameLane =
-      (m.yOf(a[1]) === m.yOf(a[2]) && m.yOf(b[1]) === m.yOf(b[2]) && m.yOf(a[0]) === m.yOf(b[0])) ||
-      (m.xOf(a[1]) === m.xOf(a[2]) && m.xOf(b[1]) === m.xOf(b[2]) && m.xOf(a[0]) === m.xOf(b[0]));
-    if (sameLane) return b.includes(a[0]) || a.includes(b[0]);
+    const reach = (a.length - 1) / 2 + (b.length - 1) / 2;
+    const ax = m.xOf(a[0]);
+    const ay = m.yOf(a[0]);
+    const bx = m.xOf(b[0]);
+    const by = m.yOf(b[0]);
+    const rowA = m.yOf(a[1]) === m.yOf(a[2]);
+    const rowB = m.yOf(b[1]) === m.yOf(b[2]);
+    if (rowA && rowB && ay === by) return Math.abs(ax - bx) < reach;
+    if (!rowA && !rowB && ax === bx) return Math.abs(ay - by) < reach;
     return a.some((t) => b.includes(t));
+  }
+
+  /** Berth tiles either side of the middle: feeders are long ships. */
+  private boatHalf(feeder: boolean): number {
+    return feeder ? B.FEEDER_HALF_BERTH : 1;
   }
 
   /** How many boats of this draft could moor at once, ignoring current traffic. */
@@ -1472,7 +1510,7 @@ export class World {
         if (water(n) !== 1) continue;
         if (wide && !this.wideQuay(j, n)) continue;
         if (needCrane !== this.harbourCraneReaches(n)) continue;
-        const fp = this.footprint(n, j);
+        const fp = this.footprint(n, j, this.boatHalf(needCrane));
         if (fp && !chosen.some((c) => this.berthsClash(fp, c))) chosen.push(fp);
       }
     }
@@ -1490,7 +1528,9 @@ export class World {
     const m = this.map;
     const taken = this.boats
       .filter((b) => b.berth >= 0)
-      .map((b) => this.footprint(b.berth, b.jetty) ?? [b.berth]);
+      .map(
+        (b) => this.footprint(b.berth, b.jetty, this.boatHalf(b.vessel === 'feeder')) ?? [b.berth],
+      );
     const out: { berth: number; jetty: number; d: number }[] = [];
     for (let j = 0; j < m.build.length; j++) {
       if (!this.dockInUse(j)) continue;
@@ -1499,7 +1539,7 @@ export class World {
         if (wide && !this.wideQuay(j, n)) continue;
         // Berths under a harbour crane are kept for container ships.
         if (needCrane !== this.harbourCraneReaches(n)) continue;
-        const fp = this.footprint(n, j);
+        const fp = this.footprint(n, j, this.boatHalf(needCrane));
         if (!fp || taken.some((t) => this.berthsClash(fp, t))) continue;
         // The harbour master sends boats to the best-equipped free berth:
         // under a crane first, then a quay forklifts can reach.
@@ -2064,7 +2104,7 @@ export class World {
         const fees = this.takeFromSource(p);
         if (fees.length === 0) return this.cancelJob(p);
         // Fewer than planned: hand back the spare room in the bay.
-        const bay = this.bays.get(p.bayIdx);
+        const bay = this.dest(p.bayIdx);
         if (bay) bayIncoming(bay, p.kind === 'stacker', -(p.planned - fees.length));
         p.planned = fees.length;
         p.carrying = fees.length;
@@ -2074,7 +2114,7 @@ export class World {
         return;
       }
       case 'toDrop': {
-        if (!this.bays.has(p.bayIdx)) return this.retargetCrate(p);
+        if (!this.dest(p.bayIdx)) return this.retargetCrate(p);
         const r = this.walk(p);
         if (r === 'blocked') return this.retargetCrate(p);
         if (r === 'arrived') {
@@ -2085,13 +2125,14 @@ export class World {
       }
       case 'dropping': {
         if (--p.timer > 0) return;
-        const bay = this.bays.get(p.bayIdx);
+        const bay = this.dest(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
         const boxy = p.kind === 'stacker';
         (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         bayIncoming(bay, boxy, -p.planned);
-        if (boxy) this.stats.containers += p.carrying;
-        else this.stats.cratesHandled += p.carrying;
+        // Containers count once, when they reach a truck bay.
+        if (!boxy) this.stats.cratesHandled += p.carrying;
+        else if (!bay.yard) this.stats.containers += p.carrying;
         p.carrying = 0;
         p.cargoFees = [];
         p.planned = 0;
@@ -2165,7 +2206,7 @@ export class World {
   private assignJob(p: Dockhand): boolean {
     const here = this.tileOf(p);
     const cost = this.costFor(p);
-    const sources: { tile: number; avail: number; boat?: Boat; crane?: Crane }[] = [];
+    const sources: { tile: number; avail: number; boat?: Boat; crane?: Crane; yard?: Bay }[] = [];
     // Reach stackers handle containers, everyone else crates.
     const boxy = p.kind === 'stacker';
     // Pallets off a coaster need the forks of a forklift.
@@ -2177,6 +2218,13 @@ export class World {
       if (avail > 0) sources.push({ tile: crane.idx, avail, crane });
     }
     const craneCount = sources.length;
+    // Containers waiting in a yard go on to a truck bay when there is room.
+    if (boxy) {
+      for (const yard of this.yards.values()) {
+        const avail = yard.boxes.length - (yard.reserved ?? 0);
+        if (avail > 0) sources.push({ tile: yard.idx, avail, yard });
+      }
+    }
     for (const boat of this.boats) {
       const avail = boat.crates - boat.reserved;
       // Containers only come off a ship by crane.
@@ -2197,12 +2245,17 @@ export class World {
       if (!Number.isFinite(cost(src.tile))) continue;
       // The foreman sends no more than two to the same spot; the rest wait.
       if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
-      const bay = this.bayWithRoom(p, src.tile);
+      // Off a crane, containers go to the yard when the truck bays are full.
+      const bay =
+        this.bayWithRoom(p, src.tile) ??
+        (boxy && src.crane ? this.yardWithRoom(p, src.tile) : null);
       if (!bay) continue;
       if (!this.headTo(p, src.tile)) continue;
       const planned = Math.min(p.capacity, src.avail, bayRoom(bay, boxy));
       if (src.crane) src.crane.reserved += planned;
       if (src.boat) src.boat.reserved += planned;
+      if (src.yard) src.yard.reserved = (src.yard.reserved ?? 0) + planned;
+      p.yardIdx = src.yard ? src.yard.idx : -1;
       bayIncoming(bay, boxy, planned);
       p.planned = planned;
       p.boatId = src.boat ? src.boat.id : -1;
@@ -2216,7 +2269,7 @@ export class World {
 
   /** Dock tiles beside a moored boat's hull. */
   private pickupSpots(b: Boat): number[] {
-    const fp = this.footprint(b.berth, b.jetty) ?? [b.berth];
+    const fp = this.footprint(b.berth, b.jetty, this.boatHalf(b.vessel === 'feeder')) ?? [b.berth];
     const spots = new Set<number>([b.jetty]);
     for (const t of fp) {
       for (const n of this.map.neighbors4(t)) if (isDock(this.map.build[n])) spots.add(n);
@@ -2234,6 +2287,7 @@ export class World {
 
   private sourceValid(p: Dockhand): boolean {
     if (p.craneIdx >= 0) return this.cranes.has(p.craneIdx);
+    if ((p.yardIdx ?? -1) >= 0) return this.yards.has(p.yardIdx!);
     const boat = this.boats.find((b) => b.id === p.boatId);
     return !!boat && boat.state === 'moored';
   }
@@ -2246,6 +2300,13 @@ export class World {
       if (!crane) return [];
       crane.reserved = Math.max(0, crane.reserved - p.planned);
       return crane.stack.splice(0, Math.min(p.planned, crane.stack.length));
+    }
+    if ((p.yardIdx ?? -1) >= 0) {
+      const yard = this.yards.get(p.yardIdx!);
+      p.yardIdx = -1;
+      if (!yard) return [];
+      yard.reserved = Math.max(0, (yard.reserved ?? 0) - p.planned);
+      return yard.boxes.splice(0, Math.min(p.planned, yard.boxes.length));
     }
     const boat = this.boats.find((b) => b.id === p.boatId);
     p.boatId = -1;
@@ -2268,12 +2329,29 @@ export class World {
     return null;
   }
 
+  /** Nearest container yard with room this stacker can reach from `from`. */
+  private yardWithRoom(p: Dockhand, from: number): Bay | null {
+    const yards = [...this.yards.values()]
+      .filter((y) => bayRoom(y, true) > 0)
+      .sort((a, b) => this.dist(from, a.idx) - this.dist(from, b.idx));
+    for (const yard of yards) {
+      if (this.pathFor(p, from, yard.idx)) return yard;
+    }
+    return null;
+  }
+
+  /** The truck bay or container yard a load is going to. */
+  private dest(idx: number): Bay | undefined {
+    return this.bays.get(idx) ?? this.yards.get(idx);
+  }
+
   /** The worker holds crates but their bay is gone or unreachable. */
   private retargetCrate(p: Dockhand): void {
     const boxy = p.kind === 'stacker';
-    const old = this.bays.get(p.bayIdx);
+    const old = this.dest(p.bayIdx);
     if (old) bayIncoming(old, boxy, -p.planned);
-    const bay = this.bayWithRoom(p, this.tileOf(p));
+    const here = this.tileOf(p);
+    const bay = this.bayWithRoom(p, here) ?? (boxy ? this.yardWithRoom(p, here) : null);
     if (bay && this.headTo(p, bay.idx)) {
       bayIncoming(bay, boxy, p.planned);
       p.bayIdx = bay.idx;
@@ -2295,11 +2373,14 @@ export class World {
       if (boat) boat.reserved = Math.max(0, boat.reserved - p.planned);
       const crane = this.cranes.get(p.craneIdx);
       if (crane) crane.reserved = Math.max(0, crane.reserved - p.planned);
+      const yard = this.yards.get(p.yardIdx ?? -1);
+      if (yard) yard.reserved = Math.max(0, (yard.reserved ?? 0) - p.planned);
     }
-    const bay = this.bays.get(p.bayIdx);
+    const bay = this.dest(p.bayIdx);
     if (bay) bayIncoming(bay, p.kind === 'stacker', -p.planned);
     p.boatId = -1;
     p.craneIdx = -1;
+    p.yardIdx = -1;
     p.bayIdx = -1;
     p.hutIdx = -1;
     p.carrying = 0;
@@ -2357,6 +2438,30 @@ export class World {
       nextTruckTick: 0,
       noAccess: false,
     });
+  }
+
+  private addYard(i: number): void {
+    this.yards.set(i, {
+      idx: i,
+      large: false,
+      yard: true,
+      boxes: [],
+      boxIncoming: 0,
+      reserved: 0,
+      crates: [],
+      incoming: 0,
+      truckId: -1,
+      nextTruckTick: 0,
+      noAccess: false,
+    });
+  }
+
+  private removeYard(i: number): void {
+    const yard = this.yards.get(i);
+    if (yard && yard.boxes.length > 0) {
+      this.message(`${yard.boxes.length} containers were lost with the container yard.`, 'bad');
+    }
+    this.yards.delete(i);
   }
 
   private removeBay(i: number): void {
@@ -2748,6 +2853,7 @@ export class World {
       stats: { ...this.stats },
       entities,
       bays,
+      yards: [...this.yards.values()].map((y) => ({ idx: y.idx, boxes: y.boxes.length })),
       contracts,
       capacity: this.capacity(),
       docks: {

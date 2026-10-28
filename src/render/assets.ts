@@ -20,6 +20,11 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 
 const BASE = `${import.meta.env.BASE_URL}models/kenney/`;
 
+/** A container is 0.6 tiles long, 0.3 wide and 0.24 high (the Kenney model's 2.3 : 1.15 : 0.92). */
+export const BOX_LENGTH = 0.6;
+export const BOX_WIDTH = 0.3;
+export const BOX_HEIGHT = 0.24;
+
 /** How to fit a model into the game: size and which way it faces. */
 interface Fit {
   file: string;
@@ -41,15 +46,16 @@ const FIT = {
     maxBeam: 0.62,
   },
   coaster: { file: 'watercraft/ship-cargo-c.glb', length: 2.7, yaw: Math.PI / 2, maxBeam: 0.86 },
+  // A big ship: its berth is seven tiles long.
   feeder: {
     file: 'watercraft/ship-cargo-c.glb',
-    length: 2.95,
+    length: 5.6,
     yaw: Math.PI / 2,
-    maxBeam: 0.9,
+    maxBeam: 0.96,
   },
-  'container-a': { file: 'watercraft/cargo-container-a.glb', length: 0.4, yaw: Math.PI / 2 },
-  'container-b': { file: 'watercraft/cargo-container-b.glb', length: 0.4, yaw: Math.PI / 2 },
-  'container-c': { file: 'watercraft/cargo-container-c.glb', length: 0.4, yaw: Math.PI / 2 },
+  'container-a': { file: 'watercraft/cargo-container-a.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
+  'container-b': { file: 'watercraft/cargo-container-b.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
+  'container-c': { file: 'watercraft/cargo-container-c.glb', length: BOX_LENGTH, yaw: Math.PI / 2 },
   truck: { file: 'cars/truck-flat.glb', length: 0.95, yaw: Math.PI / 2 },
   ...Object.fromEntries(
     ['male', 'female'].flatMap((g) =>

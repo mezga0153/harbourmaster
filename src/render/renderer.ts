@@ -154,6 +154,7 @@ export class Renderer {
     if (!this.layers) return;
     this.layers.entities.push(s.entities, performance.now());
     this.layers.structures.setBays(s.bays);
+    this.layers.structures.setYards(s.yards);
     this.layers.structures.setCranes(s.cranes);
   }
 

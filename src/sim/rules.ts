@@ -82,6 +82,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Tired dockhands rest here, ${B.HUT_SLOTS} at a time`,
     drag: false,
   },
+  containerYard: {
+    code: Build.Yard,
+    label: 'Container yard',
+    cost: 2500,
+    hint: `Stacks up to ${B.YARD_BOXES} containers off the ships until there is room in a large truck bay. Reach stackers move them. 2×2; the gate faces a port road or quay`,
+    drag: false,
+  },
   largeBay: {
     code: Build.LargeBay,
     label: 'Large truck bay',
@@ -102,13 +109,16 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
 export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'truckBay',
   'largeBay',
+  'containerYard',
   'depot',
   'office',
   'breakHut',
 ]);
 
-/** Marks the second tile of a two-tile building in `GameMap.orient`. */
+/** Marks the other tiles of a multi-tile building in `GameMap.orient`. */
 export const EXTENSION = 4;
+/** Which part of a multi-tile building a tile is, in `GameMap.orient` bits 4–5. */
+const PART_SHIFT = 4;
 /** Marks a port road or quay tile that people on foot keep off. */
 export const FORKLIFT_ONLY = 8;
 
@@ -145,22 +155,51 @@ export function frontOf(map: GameMap, i: number, facing: number): number {
 }
 
 /**
- * Tiles a building covers. A large truck bay is two wide along the road:
- * the truck pulls into the first tile and the cargo sits on the second, to
- * the right when looking out of the front.
+ * Parts of multi-tile buildings, as (right, forward) steps from the main
+ * tile when looking out of the front. A large truck bay is two wide along
+ * the road: the truck pulls into the first tile and the cargo sits on the
+ * second. A container yard is 2×2 behind its gate.
  */
-export function footprint(map: GameMap, kind: BuildKind, i: number, facing: number): number[] {
-  if (kind !== 'largeBay') return [i];
+const PARTS: Partial<Record<BuildKind, readonly (readonly [number, number])[]>> = {
+  largeBay: [
+    [0, 0],
+    [1, 0],
+  ],
+  containerYard: [
+    [0, 0],
+    [1, 0],
+    [0, -1],
+    [1, -1],
+  ],
+};
+
+function offset(map: GameMap, i: number, facing: number, right: number, fwd: number): number {
   const [dx, dy] = FACING[facing & 3];
-  return [i, step(map, i, dy, -dx)];
+  return step(map, i, right * dy + fwd * dx, -right * dx + fwd * dy);
+}
+
+/** Tiles a building covers, the main tile first; -1 off the map. */
+export function footprint(map: GameMap, kind: BuildKind, i: number, facing: number): number[] {
+  const parts = PARTS[kind];
+  if (!parts) return [i];
+  return parts.map(([r, f]) => offset(map, i, facing, r, f));
+}
+
+/** `GameMap.orient` for part `k` of a building facing `facing`. */
+export function partOrient(facing: number, k: number): number {
+  return k === 0 ? facing : facing | EXTENSION | (k << PART_SHIFT);
 }
 
 /** The main tile of the building covering `i`. */
 export function anchorOf(map: GameMap, i: number): number {
   const o = map.orient[i];
   if (!(o & EXTENSION)) return i;
-  const [dx, dy] = FACING[o & 3];
-  return step(map, i, -dy, dx);
+  const kind = kindOfCode(map.build[i]);
+  const parts = kind && PARTS[kind];
+  if (!parts) return i;
+  // Saves from before yards marked a large bay's second tile without a part.
+  const [r, f] = parts[(o >> PART_SHIFT) & 3 || 1];
+  return offset(map, i, o, -r, -f);
 }
 
 /** The first way a building can face here, or 0 when none works. */
@@ -260,15 +299,16 @@ export function placementError(
 
   if (t === Terrain.Water) return 'Must be built on land';
   if (t === Terrain.Rock) return 'Rock is in the way';
-  if (kind === 'largeBay') {
-    const side = footprint(map, kind, i, facing)[1];
-    const clear =
-      side >= 0 &&
-      map.build[side] === Build.None &&
-      map.terrain[side] !== Terrain.Water &&
-      map.terrain[side] !== Terrain.Rock &&
-      !pending?.has(side);
-    if (!clear) return 'A large truck bay is two tiles wide: clear the tile beside it';
+  const clear = (n: number) =>
+    n >= 0 &&
+    map.build[n] === Build.None &&
+    map.terrain[n] !== Terrain.Water &&
+    map.terrain[n] !== Terrain.Rock &&
+    !pending?.has(n);
+  if (!footprint(map, kind, i, facing).slice(1).every(clear)) {
+    return kind === 'largeBay'
+      ? 'A large truck bay is two tiles wide: clear the tile beside it'
+      : 'A container yard needs 2×2 clear tiles behind its gate';
   }
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
@@ -278,6 +318,9 @@ export function placementError(
   }
   if (kind === 'depot') {
     return drivable(f) ? null : 'The garage door must face a port road or quay';
+  }
+  if (kind === 'containerYard') {
+    return drivable(f) ? null : 'The gate must face a port road or quay';
   }
   if (kind === 'office') {
     const ok = walkableAt(map, front) || f === Build.Road;
@@ -299,7 +342,8 @@ export function drivable(code: number): boolean {
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
     isBay(code) ||
-    code === Build.Depot
+    code === Build.Depot ||
+    code === Build.Yard
   );
 }
 

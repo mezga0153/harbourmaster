@@ -7,7 +7,15 @@ import {
   type AnimationMixer,
   type Object3D,
 } from 'three';
-import { assetSize, CONTAINERS, instance, PEOPLE } from './assets';
+import {
+  assetSize,
+  BOX_HEIGHT,
+  BOX_LENGTH,
+  BOX_WIDTH,
+  CONTAINERS,
+  instance,
+  PEOPLE,
+} from './assets';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 
@@ -52,7 +60,7 @@ export function container(seed: number, x = 0, y = 0, z = 0): Object3D {
   const kenney = instance(CONTAINERS[seed % CONTAINERS.length]);
   const g = new Group();
   if (kenney) g.add(kenney.root);
-  else g.add(box(0.4, 0.17, 0.17, [C.funnel, C.sign, C.stripe][seed % 3]));
+  else g.add(box(BOX_LENGTH, BOX_HEIGHT, BOX_WIDTH, [C.funnel, C.sign, C.stripe][seed % 3]));
   g.position.set(x, y, z);
   return g;
 }
@@ -64,7 +72,7 @@ function deckBoxes(root: Group, xs: number[], zs: number[], y: number, layers = 
   for (let layer = 0; layer < layers; layer++) {
     for (const x of xs) {
       for (const z of zs) {
-        const c = container(k++, x, y + layer * 0.17, z);
+        const c = container(k++, x, y + layer * BOX_HEIGHT, z);
         c.visible = false;
         root.add(c);
         out.push(c);
@@ -202,8 +210,10 @@ export function boat(variant: number, vessel = 'smack'): Model {
       const root = new Group();
       kenney.root.position.y = -size.y * 0.18;
       root.add(kenney.root);
-      // Ten containers, two abreast, over the open deck.
-      const crates = deckBoxes(root, spread(-0.8, 0.6, 5), [-0.1, 0.1], size.y * 0.18);
+      // Up to 36 containers: six along, three abreast, two high.
+      const along = spread(-1.75, 1.45, 6);
+      const across = [-BOX_WIDTH, 0, BOX_WIDTH];
+      const crates = deckBoxes(root, along, across, size.y * 0.18, 2);
       return { root, crates };
     }
   }
@@ -258,12 +268,13 @@ export function truck(variant: number, capacity: number, boxes = false): Model {
   const kenney = instance('truck');
   const size = assetSize('truck');
   if (kenney && size && boxes) {
-    // Container truck: a long flatbed with containers end to end.
+    // Container truck: a flatbed long enough for its containers end to end.
     const root = new Group();
-    kenney.root.scale.x = 1.35;
+    const len = 0.36 + capacity * (BOX_LENGTH + 0.03);
+    kenney.root.scale.x = len / size.x;
     root.add(kenney.root);
-    const len = size.x * 1.35;
-    const xs = spread(-len / 2 + 0.22, -len / 2 + 0.22 + (capacity - 1) * 0.42, capacity);
+    const first = -len / 2 + BOX_LENGTH / 2 + 0.02;
+    const xs = spread(first, first + (capacity - 1) * (BOX_LENGTH + 0.03), capacity);
     return { root, crates: deckBoxes(root, xs, [0], size.y * 0.42) };
   }
   if (kenney && size) {
@@ -378,7 +389,9 @@ export function stacker(): Model {
   const boom = box(0.7, 0.07, 0.08, C.forklift, 0.12, 0.3, 0.1);
   boom.rotation.z = 0.35;
   body.add(boom);
-  const load = container(1, 0.48, 0.42, 0.04);
+  // The container is held across the front, the way the spreader grips it.
+  const load = container(1, 0.5, 0.42, 0.04);
+  load.rotation.y = Math.PI / 2;
   load.visible = false;
   body.add(load);
   root.add(body);

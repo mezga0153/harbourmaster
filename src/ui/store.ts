@@ -5,7 +5,10 @@ import type { BuildKind, MachineKind } from '../sim/types';
 export type Tool = 'select' | BuildKind | MachineKind | 'bulldoze' | 'forkliftOnly';
 
 export type Selection =
-  { type: 'entity'; id: number } | { type: 'bay'; idx: number } | { type: 'depot'; idx: number };
+  | { type: 'entity'; id: number }
+  | { type: 'bay'; idx: number }
+  | { type: 'depot'; idx: number }
+  | { type: 'yard'; idx: number };
 
 export interface Message {
   id: number;

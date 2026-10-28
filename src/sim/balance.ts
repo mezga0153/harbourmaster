@@ -112,15 +112,19 @@ export const CRANE_STACK = 10;
 
 // Container Port.
 export const FEEDER_DRAFT = 4;
-export const FEEDER_MAX_LOAD = 10; // containers
-export const HARBOUR_CRANE_TICKS = 40; // per container lifted
+export const FEEDER_MAX_LOAD = 24; // containers
+/** A feeder is a big ship: its berth runs 3 tiles either side of the middle. */
+export const FEEDER_HALF_BERTH = 3;
+export const HARBOUR_CRANE_TICKS = 30; // per container lifted
 export const HARBOUR_CRANE_STACK = 4;
 export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;
 export const LARGE_BAY_BOXES = 4; // containers a large truck bay can hold
-export const CONTAINER_TRUCK_CAPACITY = 2;
+export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
+/** Container yard: a 2×2 stacking area that buffers containers for the trucks. */
+export const YARD_BOXES = 24;
 export const TREE_CLEAR_COST = 10;
 /** Painting a port road or quay tile forklift-only, or back. */
 export const FORKLIFT_ONLY_COST = 5;

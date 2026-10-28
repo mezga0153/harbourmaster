@@ -3,6 +3,7 @@ import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, FORKLIFT_ONLY } from '../sim/rules';
 import { Build, isDock } from '../sim/types';
+import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
@@ -76,6 +77,12 @@ export class Structures {
       c.rope.scale.y = drop;
       c.rope.position.y = -drop / 2;
       c.hook.position.y = -drop;
+    }
+  }
+
+  setYards(yards: { idx: number; boxes: number }[]): void {
+    for (const y of yards) {
+      this.stacks.get(y.idx)?.boxes.forEach((c, k) => (c.visible = k < y.boxes));
     }
   }
 
@@ -239,11 +246,11 @@ export class Structures {
         const stack: Object3D[] = [];
         const back = this.landwardOffset(i);
         for (let layer = 0; layer < 2; layer++) {
-          for (const a of [0.27, 0.73]) {
+          for (const off of [0.2, 0.52]) {
             const [cx, cz] = back.alongX
-              ? [a, 0.5 + back.side * 0.34]
-              : [0.5 + back.side * 0.34, a];
-            const c = container(stack.length + 1, cx, y + 0.12 + layer * 0.17, cz);
+              ? [0.5, 0.5 + back.side * off]
+              : [0.5 + back.side * off, 0.5];
+            const c = container(stack.length + 1, cx, y + 0.12 + layer * BOX_HEIGHT, cz);
             if (!back.alongX) c.rotation.y = Math.PI / 2;
             c.visible = false;
             g.add(c);
@@ -361,6 +368,33 @@ export class Structures {
         this.stacks.set(i, { crates, boxes: [] });
         return g;
       }
+      case Build.Yard: {
+        // 2×2 behind a gate at the front (+z): x 0..2, z -1..1. A driving
+        // lane along the gate, then containers three along, four rows deep.
+        g.add(box(2, 0.05, 2, C.quayTop, 1, top, 0));
+        const y = top + 0.05;
+        g.add(box(1.9, 0.008, 0.04, C.stripe, 1, y, 0.62));
+        const boxes: Object3D[] = [];
+        for (let layer = 0; layer < 2; layer++) {
+          for (const z of [0.36, 0.02, -0.32, -0.66]) {
+            for (const x of [0.35, 1, 1.65]) {
+              const c = container(boxes.length * 7 + layer, x, y + layer * BOX_HEIGHT, z);
+              c.visible = false;
+              g.add(c);
+              boxes.push(c);
+            }
+          }
+        }
+        // Floodlight masts at the back corners and a gate sign.
+        for (const x of [0.06, 1.94]) {
+          g.add(cyl(0.02, 0.9, C.chassis, x, y, -0.94));
+          g.add(box(0.14, 0.05, 0.08, C.window, x, y + 0.9, -0.94));
+        }
+        g.add(cyl(0.02, 0.5, C.chassis, 0.06, y, 0.94));
+        g.add(box(0.04, 0.16, 0.22, C.sign, 0.06, y + 0.45, 0.94));
+        this.stacks.set(i, { crates: [], boxes });
+        return g;
+      }
       case Build.LargeBay: {
         // Two tiles: a truck lane (x 0..1) and a covered cargo yard beside it
         // (x 1..2), both opening onto the road at the front (+z).
@@ -368,11 +402,11 @@ export class Structures {
         const y = top + 0.06;
         for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         g.add(box(0.8, 0.01, 0.05, C.marking, 0.5, y, 0.08));
-        // Containers two by two along the back of the yard.
+        // Containers in two rows along the back of the yard, two high.
         const boxes: Object3D[] = [];
         for (let layer = 0; layer < 2; layer++) {
-          for (const x of [1.27, 1.73]) {
-            const c = container(boxes.length, x, y + layer * 0.17, 0.2);
+          for (const z of [0.18, 0.49]) {
+            const c = container(boxes.length, 1.5, y + layer * BOX_HEIGHT, z);
             c.visible = false;
             g.add(c);
             boxes.push(c);
@@ -381,7 +415,7 @@ export class Structures {
         // Crates in front of them: two rows of four, four high.
         const crates: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [0.52, 0.72]) {
+          for (const z of [0.74, 0.91]) {
             for (const x of [1.2, 1.4, 1.6, 1.8]) {
               if (crates.length >= 28) break;
               const c = crate(0.17, x, y + layer * 0.17, z);
@@ -500,6 +534,7 @@ export class Structures {
 
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([
+  Build.Yard,
   Build.TruckBay,
   Build.LargeBay,
   Build.Depot,

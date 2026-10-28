@@ -152,7 +152,7 @@ export function makeOffer(
 
   if (feeder) {
     // Feeders bring few, valuable containers and need a harbour crane.
-    const cratesMin = rng.int(6, 8);
+    const cratesMin = rng.int(12, 16);
     const terms: FisheryTerms = {
       kind: 'fishery',
       vessel: 'feeder',
@@ -160,7 +160,7 @@ export function makeOffer(
       color: rng.int(0, 3),
       boatEvery: Math.round(rng.range(1.2, 2.2) * 20) / 20,
       cratesMin,
-      cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + rng.int(1, 3)),
+      cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + rng.int(2, 6)),
       fee: rng.int(120, 170),
     };
     const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 100) * 100;
@@ -168,14 +168,16 @@ export function makeOffer(
   }
 
   if (boxTrucks) {
-    const fleet = rng.int(1, 2);
+    // A truck takes one or two containers; the one-box firms run more trucks.
+    const capacity = rng.int(1, B.CONTAINER_TRUCK_CAPACITY);
+    const fleet = capacity === 1 ? rng.int(2, 3) : rng.int(1, 2);
     const terms: HaulierTerms = {
       kind,
       name,
       color: rng.int(0, 4),
       fleet,
-      capacity: B.CONTAINER_TRUCK_CAPACITY,
-      dailyFee: fleet * 55,
+      capacity,
+      dailyFee: fleet * (capacity === 1 ? 35 : 55),
       cargo: 'container',
     };
     return { id, terms, signingFee: fleet * 400, expires };
