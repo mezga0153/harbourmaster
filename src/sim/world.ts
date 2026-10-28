@@ -1999,7 +1999,15 @@ export class World {
     }
 
     // Final approach to a berth: line up with it and crab in sideways.
-    if (moor !== null && remaining < 1.6) {
+    // A big ship close by works itself in with tugs: swings into line where
+    // it lies, if there is room, and slides across.
+    const close =
+      v.length >= B.CAREFUL_LENGTH &&
+      b.berthing !== 'lead' &&
+      b.berthing !== 'align' &&
+      Math.hypot(gx - b.x, gy - b.y) < 3;
+    if (moor !== null && (remaining < 1.6 || close)) {
+      const left = Math.min(remaining, Math.hypot(gx - b.x, gy - b.y));
       const flip = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? Math.PI : 0;
       const err = wrapAngle(moor + flip - b.dir);
       // A long ship swings into line only as far as its hull clears the
@@ -2012,11 +2020,11 @@ export class World {
         this.clips(b, b.x, b.y, turned, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
       if (clear) b.dir = turned;
       if (v.length >= B.CAREFUL_LENGTH) b.held = (b.held ?? 0) + 1;
-      speed = Math.min(speed, 0.03 + remaining * 0.1);
-      let step = Math.min(remaining, Math.max(speed, 0.008));
-      if (remaining > 1e-6) {
-        const nx = b.x + ((gx - b.x) / remaining) * step;
-        const ny = b.y + ((gy - b.y) / remaining) * step;
+      speed = Math.min(speed, 0.03 + left * 0.1);
+      let step = Math.min(left, Math.max(speed, 0.008));
+      if (left > 1e-6) {
+        const nx = b.x + ((gx - b.x) / left) * step;
+        const ny = b.y + ((gy - b.y) / left) * step;
         // A long ship lines up first and comes in sideways only as its hull
         // clears the dock.
         const slide =
@@ -2029,7 +2037,7 @@ export class World {
         } else step = 0;
       }
       b.speed = speed;
-      if (remaining - step < 0.02 && Math.abs(err) < 0.04) {
+      if (left - step < 0.02 && Math.abs(err) < 0.04) {
         b.x = gx;
         b.y = gy;
         b.dir = wrapAngle(moor + flip);
@@ -2079,7 +2087,11 @@ export class World {
       }
       if (b.berthing === 'align') {
         b.timer++;
-        if (Math.abs(wrapAngle(along - b.dir)) < 0.12 || b.timer > 600) {
+        if (b.timer > 600) {
+          // Cannot come round here after all: find another way in.
+          b.berthing = undefined;
+          b.stall = B.BOAT_REROUTE_AFTER - 1;
+        } else if (Math.abs(wrapAngle(along - b.dir)) < 0.12) {
           b.berthing = 'line';
           b.path = b.path.slice(Math.max(0, b.path.indexOf(b.lineup) + 1));
         } else {
@@ -2182,6 +2194,10 @@ export class World {
         ax += (nx - ax) * t;
         ay += (ny - ay) * t;
         left -= seg;
+      }
+      if (left > 0 && moor !== null) {
+        // As far as the berth itself: lie the way it will moor.
+        adir = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? wrapAngle(moor + Math.PI) : moor;
       }
       if (b.berthing === 'lead' && b.lineup !== undefined && b.path.includes(b.lineup)) {
         // Heading out to the start of the approach line: just get there.
@@ -2551,11 +2567,12 @@ export class World {
       }
       if (ok) {
         const off = Math.abs(wrapAngle(want - b.dir - swing));
+        // Tugs are a last resort, less so the further it has to come round.
         options.push({
           helm: Math.sign(swing),
           astern: false,
           pivot: true,
-          score: Math.hypot(tx - b.x, ty - b.y) + off * 1.5 + 2.5,
+          score: Math.hypot(tx - b.x, ty - b.y) + off * 1.5 + 2.5 * (1 - Math.abs(swing) / Math.PI),
         });
       }
     }
@@ -2584,7 +2601,10 @@ export class World {
           const aim = near > 1.5 ? Math.atan2(ty - y, tx - x) : tdir;
           score = Math.min(score, near + Math.abs(wrapAngle(aim - d)) * 1.5);
         }
-        if (ok) options.push({ helm, astern, score: score + (astern ? 1 : 0) });
+        // Astern costs a little, and so does changing between ahead and
+        // astern, so it does not dither.
+        const change = b.plan && !b.plan.pivot && b.plan.astern !== astern ? 0.75 : 0;
+        if (ok) options.push({ helm, astern, score: score + (astern ? 1 : 0) + change });
       }
     }
     return options.sort((p, q) => p.score - q.score);
