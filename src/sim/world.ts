@@ -361,7 +361,10 @@ export class World {
       });
     }
     world.refreshCandidates();
-    world.addContract(STARTER_FISHERY, 50, B.STARTER_SIGNING_FEE);
+    const starter = world.addContract(STARTER_FISHERY, 0, B.STARTER_SIGNING_FEE);
+    // The first boat is already coming in when the game starts.
+    world.spawnBoat(starter.id, STARTER_FISHERY, true);
+    starter.nextBoatTick = Math.round(TICKS_PER_DAY * STARTER_FISHERY.boatEvery);
     world.addContract(STARTER_HAULIER, 0, 0);
     world.addOffer('fishery');
     world.addOffer('fishery');
@@ -1166,7 +1169,8 @@ export class World {
     }
   }
 
-  private spawnBoat(contractId: number, terms: FisheryTerms): void {
+  /** A boat sails in from the open sea, or (`close`) from just off the anchorage. */
+  private spawnBoat(contractId: number, terms: FisheryTerms, close = false): void {
     const edge = this.seaEdgeTiles();
     if (edge.length === 0) return;
     const start = this.rng.pick(edge);
@@ -1205,8 +1209,13 @@ export class World {
     const spot = this.anchorSpot(boat);
     const path = findPath(this.map.w, this.map.h, start, spot, this.boatCostFor(boat.draft), true);
     if (path) {
-      boat.path = path;
+      boat.path = close ? path.slice(-3) : path;
       boat.goal = spot;
+      if (close && path.length > 3) {
+        const from = path[path.length - 4];
+        boat.x = this.map.xOf(from) + 0.5;
+        boat.y = this.map.yOf(from) + 0.5;
+      }
     } else {
       boat.state = 'anchored';
     }
