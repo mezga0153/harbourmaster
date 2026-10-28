@@ -589,7 +589,10 @@ export class World {
 
   /** Testing shortcuts. The worker only forwards these on the dev server. */
   debug(cmd: Extract<Command, { type: 'debug' }>): void {
-    if (cmd.cash) this.cash += cmd.cash;
+    if (cmd.cash) {
+      this.cash += cmd.cash;
+      this.message(`Debug: +$${cmd.cash.toLocaleString('en-US')}`, 'good');
+    }
     if (cmd.tier !== undefined) this.tier = cmd.tier;
     if (cmd.containers) {
       const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));

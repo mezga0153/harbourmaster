@@ -148,7 +148,10 @@ export class Input {
     } else if (k === 'delete' || k === 'backspace') tool.value = 'bulldoze';
     else if (k === 'h') togglePanel('staff');
     else if (k === 'c') togglePanel('contracts');
-    else if (k === 'm') togglePanel('finance');
+    else if (k === 'm' && e.shiftKey && import.meta.env.DEV) {
+      // Dev server only: a million for testing.
+      this.send({ type: 'debug', cash: 1_000_000 });
+    } else if (k === 'm') togglePanel('finance');
     else if (k === 'p') togglePanel('port');
     else if (k in TOOL_KEYS) {
       const next = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
