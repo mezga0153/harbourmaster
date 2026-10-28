@@ -867,4 +867,62 @@ describe('Container Port tier', () => {
     for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
     expect(yard.boxes.length).toBeLessThan(before);
   });
+
+  it('sends container trucks into a yard from any side on a public road', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    // Take away the road in front of the yard's main gate tile, with a detour
+    // round it, so trucks can only come in through the other gate tile.
+    const gate = m.idx(m.xOf(t.yard), m.yOf(t.yard) + 1);
+    const detour = [gate - 1, gate - 1 + m.w, gate + m.w, gate + 1 + m.w, gate + 1];
+    world.command({ type: 'bulldoze', tiles: detour.filter((i) => m.build[i] !== Build.Road) });
+    world.command({ type: 'build', kind: 'road', tiles: detour });
+    world.command({ type: 'bulldoze', tiles: [gate] });
+    expect(m.build[gate]).toBe(Build.None);
+    expect(detour.every((i) => m.build[i] === Build.Road)).toBe(true);
+    const yard = world.yards.get(t.yard)!;
+    yard.boxes.push(100, 100);
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 1,
+        capacity: 2,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
+    expect(yard.noAccess).toBe(false);
+    expect(yard.boxes.length).toBe(0);
+  });
+
+  it('collects containers left in a large bay by an older save', () => {
+    const world = World.create(7);
+    const bay = [...world.bays.values()][0];
+    bay.large = true;
+    bay.boxes.push(100, 100);
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 1,
+        capacity: 2,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
+    expect(bay.boxes.length).toBe(0);
+  });
 });

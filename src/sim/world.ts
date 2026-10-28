@@ -328,6 +328,19 @@ const ACTIVITY: Record<DockhandState, string> = {
   refuelling: 'Refuelling',
 };
 
+/** Reach stackers handle containers, and take them to a yard. */
+const STACKER_ACTIVITY: Partial<Record<DockhandState, string>> = {
+  toPickup: 'Heading to the crane',
+  picking: 'Lifting a container',
+  toDrop: 'Taking a container to the yard',
+  dropping: 'Stacking a container',
+};
+
+function activity(p: Dockhand): string {
+  if (p.state === 'idle' && p.stuck) return p.stuck;
+  return (p.kind === 'stacker' && STACKER_ACTIVITY[p.state]) || ACTIVITY[p.state];
+}
+
 /** Authoritative game state. Runs inside the sim worker and in tests. */
 export class World {
   tick = 0;
@@ -947,7 +960,7 @@ export class World {
       const claim = Math.round(b.crates * b.fee * B.LOST_CARGO_SHARE);
       this.penalty(claim, this.tileOf(b));
       this.message(
-        `A ${b.company} boat gave up and left with ${b.crates} crates. They claim $${claim}.`,
+        `A ${b.company} boat gave up and left with ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'}. They claim $${claim}.`,
         'bad',
       );
     }
@@ -2955,9 +2968,15 @@ export class World {
     this.bays.delete(i);
   }
 
-  /** Trucks drive on roads; a truck bay is only enterable as the destination. */
+  /**
+   * Trucks drive on roads; a truck bay or container yard is only enterable
+   * as the destination, from any side of it that touches a road.
+   */
   private truckCost(target: number): CostFn {
-    return (i) => (this.map.build[i] === Build.Road || i === target ? 1 : Infinity);
+    return (i) =>
+      this.map.build[i] === Build.Road || i === target || anchorOf(this.map, i) === target
+        ? 1
+        : Infinity;
   }
 
   private spawnTrucks(): void {
@@ -2965,8 +2984,10 @@ export class World {
     const hauliers = this.hauliers();
     const out = new Map<number, number>();
     for (const t of this.trucks) out.set(t.contractId, (out.get(t.contractId) ?? 0) + 1);
-    // Fullest bays get trucks first. Container trucks collect from the yards.
-    const load = (b: Bay) => (b.yard ? b.boxes.length / B.YARD_BOXES : b.crates.length / bayCap(b));
+    // Fullest bays get trucks first. Container trucks collect from the yards,
+    // and from large bays still holding containers from older saves.
+    const load = (b: Bay) =>
+      b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? B.YARD_BOXES : B.TRUCK_CAPACITY);
     const bays = [...this.bays.values(), ...this.yards.values()]
       .filter(
         (b) =>
@@ -2978,13 +2999,18 @@ export class World {
       if (bay.crates.length >= bayCap(bay)) this.bayFullTicks += 10;
     }
     for (const bay of bays) {
-      // Container trucks load at a yard; big trucks only fit a large bay.
-      const fits = (h: (typeof hauliers)[number]) =>
-        (out.get(h.id) ?? 0) < h.terms.fleet &&
-        (bay.yard
-          ? h.terms.cargo === 'container'
-          : !h.terms.cargo && (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY));
-      const haulier = hauliers.find(fits);
+      // Container trucks collect containers; big trucks only fit a large bay.
+      const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
+      const haulier =
+        (bay.boxes.length > 0
+          ? hauliers.find((h) => free(h) && h.terms.cargo === 'container')
+          : undefined) ??
+        (bay.crates.length > 0
+          ? hauliers.find(
+              (h) =>
+                free(h) && !h.terms.cargo && (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY),
+            )
+          : undefined);
       if (!haulier) {
         const stuck = hauliers.some(
           (h) => h.terms.capacity > B.TRUCK_CAPACITY && (out.get(h.id) ?? 0) < h.terms.fleet,
@@ -3003,7 +3029,12 @@ export class World {
       const path = findPath(m.w, m.h, m.entry, bay.idx, this.truckCost(bay.idx), false);
       if (!path) {
         if (!bay.noAccess) {
-          this.message('A truck bay has no road connection to the highway.', 'bad');
+          this.message(
+            bay.yard
+              ? 'A container yard has no public road to the highway, so no trucks can collect from it.'
+              : 'A truck bay has no road connection to the highway.',
+            'bad',
+          );
         }
         bay.noAccess = true;
         bay.nextTruckTick = this.tick + 100;
@@ -3210,12 +3241,7 @@ export class World {
         load: p.carrying,
         moving: p.path.length > 0,
         name: p.name,
-        activity:
-          p.blocked > 3
-            ? 'Waiting for someone to get out of the way'
-            : p.state === 'idle' && p.stuck
-              ? p.stuck
-              : ACTIVITY[p.state],
+        activity: p.blocked > 3 ? 'Waiting for someone to get out of the way' : activity(p),
         variant: 0,
         capacity: p.capacity,
         alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
@@ -3232,7 +3258,7 @@ export class World {
         wage: p.wage,
         energy: Math.round(p.energy),
         morale: Math.round(p.morale),
-        activity: p.state === 'idle' && p.stuck ? p.stuck : ACTIVITY[p.state],
+        activity: activity(p),
         thought: thought({
           blocked: p.blocked > 3,
           energy: p.energy,
@@ -3335,7 +3361,11 @@ export class World {
       stats: { ...this.stats },
       entities,
       bays,
-      yards: [...this.yards.values()].map((y) => ({ idx: y.idx, boxes: y.boxes.length })),
+      yards: [...this.yards.values()].map((y) => ({
+        idx: y.idx,
+        boxes: y.boxes.length,
+        noAccess: y.noAccess,
+      })),
       contracts,
       capacity: this.capacity(),
       docks: {

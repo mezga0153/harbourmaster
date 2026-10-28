@@ -345,6 +345,12 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
         </dl>
         <Meter value={yard.boxes / B.YARD_BOXES} />
+        {yard.noAccess && (
+          <p class="note bad">
+            No public road to the highway. Container trucks cannot reach this yard: rebuild it with
+            its gate or a side on a public road.
+          </p>
+        )}
       </aside>
     );
   }

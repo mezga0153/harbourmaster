@@ -183,8 +183,8 @@ export interface Snapshot {
   stats: Stats;
   entities: EntityView[];
   bays: BayView[];
-  /** Container yards and how many containers each holds. */
-  yards: { idx: number; boxes: number }[];
+  /** Container yards, how many containers each holds, and whether trucks can reach it. */
+  yards: { idx: number; boxes: number; noAccess: boolean }[];
   contracts: ContractView[];
   offers: OfferView[];
   capacity: Capacity;
