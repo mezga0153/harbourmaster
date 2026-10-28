@@ -1225,6 +1225,30 @@ describe('Container Port tier', () => {
     expect(world.yards.has(spot)).toBe(false);
   });
 
+  it('gives a container to the free stacker nearest the crane', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const depot = world.map.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    const [far, near] = world.people.filter((p) => p.kind === 'stacker');
+    // One has just dropped a load beside the crane, the other waits at home.
+    const m = world.map;
+    const by = m.neighbors4(t.crane).find((n) => drivable(m.build[n]))!;
+    near.x = m.xOf(by) + 0.5;
+    near.y = m.yOf(by) + 0.5;
+    far.x = m.xOf(depot) + 0.5;
+    far.y = m.yOf(depot) + 0.5;
+    world.cranes.get(t.crane)!.stack.push(150);
+    // The one at home, asked first, leaves it to the one at the crane.
+    expect(world['assignJob'](far)).toBe(false);
+    expect(world['assignJob'](near)).toBe(true);
+    expect(near.state).toBe('toPickup');
+    expect(far.state).not.toBe('toPickup');
+  });
+
   it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7);
     world.tier = 2;

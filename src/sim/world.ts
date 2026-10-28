@@ -3393,6 +3393,11 @@ export class World {
         return;
       }
       case 'toDepot': {
+        // Only driving home to park: work comes first.
+        if (p.depotTask === 'park' && (this.tick + p.id) % 5 === 0 && this.assignJob(p)) {
+          p.depotTask = null;
+          return;
+        }
         const r = this.walk(p);
         if (r === 'blocked' || this.map.build[p.home] !== Build.Depot) {
           p.state = 'idle';
@@ -3586,6 +3591,8 @@ export class World {
       if (!Number.isFinite(cost(src.tile))) continue;
       // The foreman sends no more than two to the same spot; the rest wait.
       if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
+      // A machine leaves the job to a free one nearer the pick-up.
+      if (isMachine(p) && this.nearerMachine(p, src.tile)) continue;
       // Containers go to a container yard, crates to a truck bay.
       const bay = boxy ? this.yardWithRoom(p, src.tile) : this.bayWithRoom(p, src.tile);
       if (!bay) continue;
@@ -3602,6 +3609,32 @@ export class World {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Whether another machine of the same kind, free or about to be, is nearer
+   * `tile` and can get there; it will take the job instead.
+   */
+  private nearerMachine(p: Dockhand, tile: number): boolean {
+    const mine = this.dist(this.tileOf(p), tile);
+    let best: Dockhand | null = null;
+    let bestDist = mine;
+    for (const q of this.people) {
+      if (q === p || q.kind !== p.kind || q.needsRepair || q.fuel < B.LOW_FUEL || q.stuck) continue;
+      const free =
+        q.state === 'idle' ||
+        q.state === 'dropping' ||
+        (q.state === 'toDepot' && q.depotTask === 'park');
+      if (!free) continue;
+      const d = this.dist(this.tileOf(q), tile);
+      if (d < bestDist) {
+        best = q;
+        bestDist = d;
+      }
+    }
+    if (!best || !this.pathFor(best, this.tileOf(best), tile)) return false;
+    // And it has somewhere to take the load from there.
+    return p.kind === 'stacker' ? !!this.yardWithRoom(best, tile) : !!this.bayWithRoom(best, tile);
   }
 
   /** Dock tiles beside a moored boat's hull. */
