@@ -2,6 +2,7 @@ import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS } from '../sim/balance';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
+import { TICKS_PER_SECOND } from '../sim/types';
 import {
   alertMarker,
   boat,
@@ -21,27 +22,22 @@ interface Entry {
   view: EntityView;
   model: Model;
   alert: Object3D | null;
-  /** Boats: where they have been, how hard they are going and how far they lean. */
-  trail?: WakePoint[];
+  /** Boats: the wake they are laying, how hard they are going and how far they lean. */
+  track?: Track;
   way?: number;
-  lead?: [number, number];
-  /** The other end of the hull at the waterline, which the wake runs along to. */
-  tail?: [number, number];
   /** Going ahead (the wake starts at the bow) or astern (at the stern). */
   ahead?: boolean;
-  /** The wake left behind before the boat last changed direction, settling. */
-  ghost?: { lead: [number, number]; trail: WakePoint[]; way: number; time: number };
   heel?: number;
 }
 
-/** Most boats whose wakes are drawn, and points kept along each wake. */
-export const WAKE_BOATS = 12;
-export const WAKE_POINTS = 16;
-/** Seconds a wake takes to settle once the boat stops. */
-const WAKE_LIFE = 6;
+/** Most wakes drawn at once, and points along each. */
+export const WAKE_MAX = 32;
+export const WAKE_POINTS = 32;
+/** Game seconds a patch of wake takes to settle. */
+const WAKE_LIFE = 10;
 /** Half the waterline length, as a share of the whole hull. */
 const WATERLINE = 0.45;
-/** How quickly a wake builds up and dies away, per second. */
+/** How quickly a wake builds up and dies away, per game second. */
 const WAKE_RISE = 0.45;
 const WAKE_FALL = 0.3;
 
@@ -51,12 +47,39 @@ function wakeStrength(way: number): number {
   return w * w * (3 - 2 * w);
 }
 
-interface WakePoint {
+/** How much of a patch of wake is left after `age` game seconds: it holds
+ * for a while, then dies away. */
+function settle(age: number): number {
+  const f = Math.min(1, age / WAKE_LIFE);
+  return 1 - f * f;
+}
+
+interface Sample {
   x: number;
   z: number;
-  /** How hard the boat was going when it passed here. */
-  way: number;
+  /** Game time it was laid. */
   time: number;
+  /** How strong the wake was there. */
+  power: number;
+}
+
+/**
+ * A wake laid in the water. Its first two points run along the hull from
+ * the leading end to the trailing one and move with the boat; the rest stay
+ * where the trailing end left them and settle with age. A wake whose boat
+ * has gone, or turned to go the other way, keeps all its points where they
+ * are and settles in place.
+ */
+interface Track {
+  beam: number;
+  /** Waterline length, from the leading end to the trailing one. */
+  length: number;
+  /** Distance between laid points. */
+  spacing: number;
+  head: [Sample, Sample];
+  samples: Sample[];
+  /** Still moving with its boat: the head is as strong as the boat is going. */
+  attached: boolean;
 }
 
 /** A boat's track through the water, newest first, for the sea to churn up. */
@@ -64,9 +87,8 @@ export interface Wake {
   /** x, z, distance back from the leading end, strength. */
   points: [number, number, number, number][];
   beam: number;
+  /** Waterline length: where the hull ends and the open wake begins. */
   length: number;
-  /** How far back the wake reaches, longer the faster the boat goes. */
-  reach: number;
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -78,7 +100,11 @@ export class Entities {
   /** Sim ticks between the last two snapshots, more at higher game speeds. */
   private snapTicks = 1;
   private lastTick = -1;
-  private lastTime = 0;
+  private prevTick = 0;
+  /** Game time, in seconds, as of the last frame. */
+  private sim = 0;
+  /** Wakes left behind by boats that have gone or turned about. */
+  private loose: Track[] = [];
 
   constructor(private map: GameMap) {}
 
@@ -86,6 +112,7 @@ export class Entities {
     this.prev = new Map([...this.entries].map(([id, e]) => [id, e.view]));
     this.snapTime = now;
     this.snapTicks = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
+    this.prevTick = this.lastTick < 0 ? tick : this.lastTick;
     this.lastTick = tick;
     const seen = new Set<number>();
     for (const v of views) {
@@ -111,7 +138,6 @@ export class Entities {
         }
         e = { view: v, model, alert };
         if (v.kind === 'boat') {
-          e.trail = [];
           e.way = 0;
           e.heel = 0;
           model.root.rotation.order = 'YXZ';
@@ -125,6 +151,7 @@ export class Entities {
       if (!seen.has(id)) {
         this.group.remove(e.model.root);
         if (e.alert) this.group.remove(e.alert);
+        if (e.track) this.letGo(e.track);
         this.entries.delete(id);
       }
     }
@@ -132,8 +159,11 @@ export class Entities {
 
   update(now: number, time: number): void {
     const t = Math.min(1, (now - this.snapTime) / SNAPSHOT_MS);
-    const dt = Math.min(0.1, time - this.lastTime);
-    this.lastTime = time;
+    // Wakes keep game time: they hold still while paused and settle over
+    // the same stretch of water whatever the game speed.
+    const sim = (this.prevTick + (this.lastTick - this.prevTick) * t) / TICKS_PER_SECOND;
+    const dt = Math.max(0, Math.min(1, sim - this.sim));
+    this.sim = sim;
     for (const [id, e] of this.entries) {
       const cur = e.view;
       const prev = this.prev.get(id) ?? cur;
@@ -157,9 +187,8 @@ export class Entities {
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
-        // The wake builds up slowly as the boat gathers way, over a few
-        // seconds whatever the game speed, and lingers a while longer still
-        // once it stops.
+        // The wake builds up slowly as the boat gathers way and lingers a
+        // while once it stops.
         const rate = way > (e.way ?? 0) ? WAKE_RISE : WAKE_FALL;
         e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * rate));
         // The wake starts at whichever end is leading: the bow, or the
@@ -170,28 +199,45 @@ export class Entities {
           ((cur.x - prev.x) * Math.cos(dir) + (cur.y - prev.y) * Math.sin(dir)) /
           (hull.speed * this.snapTicks);
         const ahead = along > 0.03 ? true : along < -0.03 ? false : (e.ahead ?? true);
-        if (ahead !== (e.ahead ?? true) && e.lead) {
-          e.ghost = { lead: e.lead, trail: e.trail!, way: e.way, time };
-          e.trail = [];
+        if (ahead !== (e.ahead ?? true) && e.track) {
+          this.letGo(e.track);
+          e.track = undefined;
           // It has only just started back the other way.
           e.way = Math.min(e.way, way);
         }
         e.ahead = ahead;
         // From the stem where it meets the water, a little behind the tip of
-        // the deck, along the hull to the other end.
-        const reach = (ahead ? 1 : -1) * hull.length * WATERLINE;
-        const lx = x + Math.cos(dir) * reach;
-        const lz = y + Math.sin(dir) * reach;
-        e.lead = [lx, lz];
-        e.tail = [x - Math.cos(dir) * reach, y - Math.sin(dir) * reach];
-        const trail = e.trail!;
-        const spacing = (hull.length + 3.5) / (WAKE_POINTS - 2);
-        const last = trail[0];
-        if (!last || Math.hypot(lx - last.x, lz - last.z) > spacing) {
-          if (e.way > 0.05 || last) trail.unshift({ x: lx, z: lz, way: e.way, time });
-          if (trail.length > WAKE_POINTS - 1) trail.pop();
+        // the deck, along the hull to the other end, then on along the way
+        // the trailing end came.
+        const half = (ahead ? 1 : -1) * hull.length * WATERLINE;
+        const power = wakeStrength(e.way);
+        const lead: Sample = {
+          x: x + Math.cos(dir) * half,
+          z: y + Math.sin(dir) * half,
+          time: sim,
+          power,
+        };
+        const tail: Sample = {
+          x: x - Math.cos(dir) * half,
+          z: y - Math.sin(dir) * half,
+          time: sim,
+          power,
+        };
+        const track = (e.track ??= {
+          beam: hull.beam,
+          length: hull.length * WATERLINE * 2,
+          // Enough points to reach back as far as the wake lasts at full speed.
+          spacing: Math.max(0.3, (hull.speed * TICKS_PER_SECOND * WAKE_LIFE) / (WAKE_POINTS - 4)),
+          head: [lead, tail],
+          samples: [],
+          attached: true,
+        });
+        track.head = [lead, tail];
+        const last = track.samples[0];
+        if (last ? Math.hypot(tail.x - last.x, tail.z - last.z) > track.spacing : power > 0.01) {
+          track.samples.unshift(tail);
+          if (track.samples.length > WAKE_POINTS - 2) track.samples.pop();
         }
-        while (trail.length && time - trail[trail.length - 1].time > WAKE_LIFE * 4) trail.pop();
       } else if (cur.kind === 'dockhand' || cur.kind === 'forklift' || cur.kind === 'stacker') {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
@@ -209,50 +255,41 @@ export class Entities {
     }
   }
 
-  /** Wakes of the boats under way, strongest first, for the water to draw. */
-  wakes(time: number): Wake[] {
-    const out: Wake[] = [];
-    const settle = (t: number) => Math.max(0, 1 - (time - t) / WAKE_LIFE);
-    for (const e of this.entries.values()) {
-      if (!e.trail || !e.lead) continue;
-      const hull = VESSELS[(e.view.vessel ?? 'smack') as keyof typeof VESSELS];
-      const add = (
-        lead: [number, number],
-        trail: WakePoint[],
-        way: number,
-        head: number,
-        tail?: [number, number],
-      ) => {
-        const points: Wake['points'] = [[lead[0], lead[1], 0, head]];
-        let s = 0;
-        // Alongside the hull the wake follows the hull itself, turning with
-        // it, rather than the chord back to where the bow was a while ago.
-        let along = trail;
-        if (tail) {
-          s = Math.hypot(tail[0] - lead[0], tail[1] - lead[1]);
-          points.push([tail[0], tail[1], s, head]);
-          along = trail.filter((p) => Math.hypot(p.x - lead[0], p.z - lead[1]) > s);
-        }
-        for (const p of along) {
-          const [px, pz] = points[points.length - 1];
-          s += Math.hypot(p.x - px, p.z - pz);
-          points.push([p.x, p.z, s, wakeStrength(p.way) * settle(p.time)]);
-        }
-        if (points.length < 2 || points.every((p) => p[3] < 0.02)) return false;
-        // Always past the stern, so the wake grows out from behind the boat
-        // as it picks up speed rather than popping out from under the hull.
-        const reach = hull.length + (hull.length * 0.5 + 3) * wakeStrength(way);
-        out.push({ points, beam: hull.beam, length: hull.length, reach });
-        return true;
-      };
-      add(e.lead, e.trail, e.way ?? 0, wakeStrength(e.way ?? 0), e.tail);
-      const g = e.ghost;
-      if (g && !add(g.lead, g.trail, g.way, wakeStrength(g.way) * settle(g.time))) {
-        e.ghost = undefined;
+  /** Leave a wake to settle where it lies. */
+  private letGo(track: Track): void {
+    track.attached = false;
+    for (const p of track.head) p.time = this.sim;
+    this.loose.push(track);
+  }
+
+  /** Wakes still showing, strongest first, for the water to draw. */
+  wakes(): Wake[] {
+    const out: { wake: Wake; strength: number }[] = [];
+    const draw = (track: Track): boolean => {
+      while (track.samples.length && this.sim - track.samples.at(-1)!.time > WAKE_LIFE) {
+        track.samples.pop();
       }
-    }
-    const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);
-    return out.sort((a, b) => strength(b) - strength(a)).slice(0, WAKE_BOATS);
+      const points: Wake['points'] = [];
+      let s = 0;
+      let strength = 0;
+      for (const p of [...track.head, ...track.samples]) {
+        const prev = points.at(-1);
+        if (prev) s += Math.hypot(p.x - prev[0], p.z - prev[1]);
+        const head = track.attached && points.length < 2;
+        const a = p.power * (head ? 1 : settle(this.sim - p.time));
+        points.push([p.x, p.z, s, a]);
+        strength += a;
+      }
+      if (strength < 0.02) return false;
+      out.push({ wake: { points, beam: track.beam, length: track.length }, strength });
+      return true;
+    };
+    for (const e of this.entries.values()) if (e.track) draw(e.track);
+    this.loose = this.loose.filter(draw);
+    return out
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, WAKE_MAX)
+      .map((w) => w.wake);
   }
 
   /** Current world position, for the selection ring and info panel. */

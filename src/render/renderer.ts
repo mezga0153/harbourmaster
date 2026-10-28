@@ -281,7 +281,7 @@ export class Renderer {
         this.viewDir.copy(this.cam.camera.position).sub(this.cam.target).normalize(),
       );
       this.layers.entities.update(now, time);
-      this.layers.water.setWakes(this.layers.entities.wakes(time));
+      this.layers.water.setWakes(this.layers.entities.wakes());
       this.layers.structures.update(dt, time);
       (this.layers.seabed.userData.time as { value: number }).value = time;
       const pos =

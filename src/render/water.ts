@@ -2,6 +2,7 @@ import {
   Color,
   DataTexture,
   DataUtils,
+  FloatType,
   HalfFloatType,
   LinearFilter,
   Mesh,
@@ -14,10 +15,9 @@ import {
   type Texture,
   UnsignedByteType,
   Vector3,
-  Vector4,
 } from 'three';
 import type { GameMap } from '../sim/map';
-import { WAKE_BOATS, WAKE_POINTS, type Wake } from './entities';
+import { WAKE_MAX, WAKE_POINTS, type Wake } from './entities';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 
@@ -51,12 +51,10 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uFoam;
   uniform vec3 uSun;
   uniform vec3 uView;
-  // Boat wakes: points along each track (x, z, distance back from the
-  // leading end, strength), and per boat (half beam, hull length, points,
-  // how far back the wake reaches) and the box the wake fits in.
-  uniform vec4 uWake[WAKE_BOATS * WAKE_POINTS];
-  uniform vec4 uWakeHull[WAKE_BOATS];
-  uniform vec4 uWakeBox[WAKE_BOATS];
+  // Boat wakes, a row each: the box the wake fits in, then (half beam,
+  // waterline length, points), then the points along its track (x, z,
+  // distance back from the leading end, strength).
+  uniform highp sampler2D uWakes;
   uniform int uWakeCount;
   varying vec2 vXZ;
 
@@ -119,11 +117,11 @@ const fragmentShader = /* glsl */ `
     float foam = 0.0;
     float churn = 0.0;
     vec2 tilt = vec2(0.0);
-    for (int b = 0; b < WAKE_BOATS; b++) {
+    for (int b = 0; b < WAKE_MAX; b++) {
       if (b >= uWakeCount) break;
-      vec4 box = uWakeBox[b];
+      vec4 box = texelFetch(uWakes, ivec2(0, b), 0);
       if (p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) continue;
-      vec4 hull = uWakeHull[b];
+      vec4 hull = texelFetch(uWakes, ivec2(1, b), 0);
       int count = int(hull.z);
       // Nearest point on the track: how far back it is (s), how far to the
       // side (l), and which way the track runs there.
@@ -134,8 +132,8 @@ const fragmentShader = /* glsl */ `
       vec2 back = vec2(1.0, 0.0);
       for (int k = 0; k < WAKE_POINTS - 1; k++) {
         if (k >= count - 1) break;
-        vec4 p0 = uWake[b * WAKE_POINTS + k];
-        vec4 p1 = uWake[b * WAKE_POINTS + k + 1];
+        vec4 p0 = texelFetch(uWakes, ivec2(k + 2, b), 0);
+        vec4 p1 = texelFetch(uWakes, ivec2(k + 3, b), 0);
         vec2 seg = p1.xy - p0.xy;
         float len = max(length(seg), 1e-4);
         vec2 dir = seg / len;
@@ -153,9 +151,9 @@ const fragmentShader = /* glsl */ `
       }
       float halfBeam = hull.x;
       float side = abs(l);
-      // The faster the boat, the further back its wake reaches.
-      // Nothing ahead of the stem: the wake starts right at the bow.
-      float on = a * smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(hull.y, hull.w + 0.5, s));
+      // Nothing ahead of the stem: the wake starts right at the bow, and
+      // fades out along the track as the water settles behind the boat.
+      float on = a * smoothstep(0.0, 0.08, s);
       if (on < 0.01) continue;
 
       // The arms of the V: a ridge of broken water spreading out at a
@@ -250,6 +248,14 @@ const fragmentShader = /* glsl */ `
 export class Water {
   readonly mesh: Mesh;
   private readonly material: ShaderMaterial;
+  private readonly wakeData = new Float32Array(WAKE_MAX * (WAKE_POINTS + 2) * 4);
+  private readonly wakeTex = new DataTexture(
+    this.wakeData,
+    WAKE_POINTS + 2,
+    WAKE_MAX,
+    RGBAFormat,
+    FloatType,
+  );
 
   constructor(map: GameMap, sunDir: Vector3) {
     const baked = bakeField(map);
@@ -269,7 +275,7 @@ export class Water {
     }
 
     this.material = new ShaderMaterial({
-      defines: { WAKE_BOATS, WAKE_POINTS, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
+      defines: { WAKE_MAX, WAKE_POINTS, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
       vertexShader,
       fragmentShader,
       transparent: true,
@@ -286,9 +292,7 @@ export class Water {
         uFoam: { value: new Color(C.foam) },
         uSun: { value: sunDir.clone() },
         uView: { value: new Vector3(0, 1, 0) },
-        uWake: { value: Array.from({ length: WAKE_BOATS * WAKE_POINTS }, () => new Vector4()) },
-        uWakeHull: { value: Array.from({ length: WAKE_BOATS }, () => new Vector4()) },
-        uWakeBox: { value: Array.from({ length: WAKE_BOATS }, () => new Vector4()) },
+        uWakes: { value: this.wakeTex },
         uWakeCount: { value: 0 },
       },
     });
@@ -308,10 +312,8 @@ export class Water {
 
   /** Boat tracks for the sea to churn up this frame. */
   setWakes(wakes: Wake[]): void {
-    const u = this.material.uniforms;
-    const pts = u.uWake.value as Vector4[];
-    const hulls = u.uWakeHull.value as Vector4[];
-    const boxes = u.uWakeBox.value as Vector4[];
+    const d = this.wakeData;
+    const row = (WAKE_POINTS + 2) * 4;
     wakes.forEach((w, b) => {
       const n = Math.min(w.points.length, WAKE_POINTS);
       let x0 = Infinity;
@@ -320,7 +322,7 @@ export class Water {
       let z1 = -Infinity;
       for (let k = 0; k < n; k++) {
         const [x, z, s, a] = w.points[k];
-        pts[b * WAKE_POINTS + k].set(x, z, s, a);
+        d.set([x, z, s, a], b * row + (k + 2) * 4);
         // Room for the V to open out to either side.
         const r = w.beam / 2 + s * WAKE_SPREAD + 0.3;
         x0 = Math.min(x0, x - r);
@@ -328,16 +330,17 @@ export class Water {
         x1 = Math.max(x1, x + r);
         z1 = Math.max(z1, z + r);
       }
-      hulls[b].set(w.beam / 2, w.length, n, w.reach);
-      boxes[b].set(x0, z0, x1, z1);
+      d.set([x0, z0, x1, z1, w.beam / 2, w.length, n, 0], b * row);
     });
-    u.uWakeCount.value = wakes.length;
+    this.material.uniforms.uWakeCount.value = wakes.length;
+    this.wakeTex.needsUpdate = true;
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
     (this.material.uniforms.uField.value as DataTexture).dispose();
     (this.material.uniforms.uDist.value as DataTexture).dispose();
+    this.wakeTex.dispose();
     (this.material.uniforms.uNormals.value as Texture).dispose();
     this.material.dispose();
   }

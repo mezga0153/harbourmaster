@@ -47,7 +47,7 @@ export const CATEGORIES: Category[] = [
     tools: [
       { tool: 'road', icon: 'road', label: 'Public road', key: 'R' },
       { tool: 'footpath', icon: 'footpath', label: 'Port path', key: 'F' },
-      { tool: 'portRoad', icon: 'portRoad', label: 'Port road', key: 'W' },
+      { tool: 'portRoad', icon: 'portRoad', label: 'Port road' },
       { tool: 'portGate', icon: 'gate', label: 'Port gate' },
       {
         tool: 'forkliftOnly',
@@ -122,6 +122,9 @@ export const CATEGORIES: Category[] = [
 export function categoryOf(t: Tool): Category | undefined {
   return CATEGORIES.find((c) => c.tools.some((d) => d.tool === t));
 }
+
+/** Keys that move the camera, so never a tool's shortcut. */
+export const CAMERA_KEYS = ['w', 'a', 's', 'd', 'q', 'e'];
 
 /** Lower-case key → tool, for single-letter shortcuts. */
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(
