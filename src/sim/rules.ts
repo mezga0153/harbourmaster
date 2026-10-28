@@ -453,3 +453,89 @@ export function bulldozeValue(map: GameMap, i: number): number {
   if (map.deco[i] === Deco.Tree) return -B.TREE_CLEAR_COST;
   return map.terrain[i] === Terrain.Rock ? -B.ROCK_CLEAR_COST : 0;
 }
+
+/**
+ * Dredging digs the seabed a step deeper, or a shore tile out into sea;
+ * reclaiming fills it a step shallower, until it is dry land. `raise` is
+ * reclaiming. `pending` holds tiles dug out earlier in the same drag, so a
+ * channel can be dug inland from the shore.
+ */
+export function terraformError(
+  map: GameMap,
+  i: number,
+  raise: boolean,
+  pending?: ReadonlySet<number>,
+): string | null {
+  if (map.build[i] !== Build.None) return 'Clear what is built here first';
+  const t = map.terrain[i];
+  if (raise) {
+    if (t !== Terrain.Water) return 'This is dry land already';
+    if (map.xOf(i) >= map.w - 4) return 'Too far out to fill in';
+    return null;
+  }
+  if (t === Terrain.Rock) return 'Rock is in the way: bulldoze it first';
+  if (t !== Terrain.Water) {
+    const sea = map.neighbors4(i).some((n) => map.ocean[n] === 1 || pending?.has(n));
+    return sea ? null : 'Dig out from the water’s edge';
+  }
+  if (map.depth[i] >= B.MAX_DREDGE_DEPTH)
+    return `Already ${B.MAX_DREDGE_DEPTH} m deep, as deep as dredgers go`;
+  return null;
+}
+
+export function terraformCost(map: GameMap, i: number, raise: boolean): number {
+  if (raise) return B.RECLAIM_COST;
+  if (map.terrain[i] === Terrain.Water) return B.DREDGE_COST;
+  return B.DIG_LAND_COST + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
+}
+
+/** Dig out or fill in one step. Call terraformError first; see reflood. */
+export function terraform(map: GameMap, i: number, raise: boolean): void {
+  if (raise) {
+    const depth = Math.round((map.depth[i] - B.TERRAFORM_STEP) * 10) / 10;
+    if (depth < 0.5) {
+      map.terrain[i] = Terrain.Sand;
+      map.depth[i] = 0;
+      map.ocean[i] = 0;
+    } else map.depth[i] = depth;
+    return;
+  }
+  if (map.terrain[i] === Terrain.Water) {
+    map.depth[i] = Math.min(B.MAX_DREDGE_DEPTH, map.depth[i] + B.TERRAFORM_STEP);
+    return;
+  }
+  map.terrain[i] = Terrain.Water;
+  map.depth[i] = B.TERRAFORM_STEP;
+  map.deco[i] = Deco.None;
+}
+
+/**
+ * Work out again which water is open sea, reachable from the sea edge.
+ * Returns the tiles that changed.
+ */
+export function reflood(map: GameMap): number[] {
+  const sea = new Uint8Array(map.build.length);
+  const stack: number[] = [];
+  for (let y = 0; y < map.h; y++) {
+    const i = map.idx(map.w - 1, y);
+    if (!map.isLand(i)) {
+      sea[i] = 1;
+      stack.push(i);
+    }
+  }
+  while (stack.length > 0) {
+    for (const n of map.neighbors4(stack.pop()!)) {
+      if (sea[n] || map.isLand(n)) continue;
+      sea[n] = 1;
+      stack.push(n);
+    }
+  }
+  const changed: number[] = [];
+  for (let i = 0; i < sea.length; i++) {
+    if (map.ocean[i] !== sea[i]) {
+      map.ocean[i] = sea[i];
+      changed.push(i);
+    }
+  }
+  return changed;
+}

@@ -43,6 +43,10 @@ import {
   forkliftOnly,
   forkliftOnlyError,
   drivable,
+  reflood,
+  terraform,
+  terraformCost,
+  terraformError,
   machinePlacementError,
   placementCost,
   placementError,
@@ -563,6 +567,8 @@ export class World {
         return this.bulldoze(cmd.tiles);
       case 'forkliftOnly':
         return this.markForkliftOnly(cmd.tiles, cmd.on);
+      case 'terraform':
+        return this.terraform(cmd.tiles, cmd.raise);
       case 'hire':
         return this.hire(cmd.candidateId);
       case 'fire':
@@ -688,6 +694,62 @@ export class World {
       spent += B.FORKLIFT_ONLY_COST;
       this.map.orient[i] ^= FORKLIFT_ONLY;
       this.dirty.add(i);
+    }
+    if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
+    else if (firstError) this.message(firstError, 'bad');
+  }
+
+  /**
+   * Dredge or reclaim each tile a step. Like docks, a channel dug inland
+   * from the shore fits in one drag, in as many rounds as it takes.
+   */
+  private terraform(tiles: number[], raise: boolean): void {
+    if (this.tier < B.TERRAFORM_TIER) {
+      const what = raise ? 'Land reclamation' : 'Dredging';
+      return this.message(`${what} unlocks at the ${TIERS[B.TERRAFORM_TIER].name}.`, 'bad');
+    }
+    const m = this.map;
+    let spent = 0;
+    let firstError: string | null = null;
+    const done = new Set<number>();
+    let left = tiles.filter((i) => i >= 0 && i < m.build.length);
+    let broke = false;
+    for (let progress = true; progress && !broke && left.length > 0;) {
+      progress = false;
+      firstError = null;
+      const skipped: number[] = [];
+      for (const i of left) {
+        const cx = m.xOf(i) + 0.5;
+        const cy = m.yOf(i) + 0.5;
+        const err =
+          terraformError(m, i, raise, done) ??
+          (this.boats.some((b) => Math.hypot(b.x - cx, b.y - cy) < 1.5)
+            ? 'A boat is in the way'
+            : null);
+        if (err) {
+          firstError ??= err;
+          skipped.push(i);
+          continue;
+        }
+        const cost = terraformCost(m, i, raise);
+        if (cost > this.cash) {
+          firstError = 'Not enough money';
+          broke = true;
+          break;
+        }
+        this.book('construction', -cost);
+        spent += cost;
+        terraform(m, i, raise);
+        done.add(i);
+        this.dirty.add(i);
+        progress = true;
+      }
+      left = skipped;
+    }
+    if (done.size > 0) {
+      for (const i of reflood(m)) this.dirty.add(i);
+      this.dockCache = null;
+      this.capacityCache = null;
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     else if (firstError) this.message(firstError, 'bad');
@@ -3319,6 +3381,8 @@ export class World {
     const out = [...this.dirty].map((i) => ({
       i,
       terrain: this.map.terrain[i],
+      depth: this.map.depth[i],
+      ocean: this.map.ocean[i],
       build: this.map.build[i],
       orient: this.map.orient[i],
       deco: this.map.deco[i],

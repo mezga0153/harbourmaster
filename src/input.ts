@@ -11,6 +11,8 @@ import {
   footprint,
   forkliftOnly,
   forkliftOnlyError,
+  terraformCost,
+  terraformError,
   machinePlacementError,
   placementCost,
   placementError,
@@ -104,6 +106,8 @@ export class Input {
     else if (
       t === 'bulldoze' ||
       t === 'forkliftOnly' ||
+      t === 'dredge' ||
+      t === 'reclaim' ||
       (t in BUILDABLES && BUILDABLES[t as BuildKind].drag)
     ) {
       this.mode = 'drag';
@@ -145,7 +149,9 @@ export class Input {
       if (tiles.length > 0) {
         if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
-        else if (t === 'forkliftOnly') {
+        else if (t === 'dredge' || t === 'reclaim') {
+          this.send({ type: 'terraform', tiles, raise: t === 'reclaim' });
+        } else if (t === 'forkliftOnly') {
           this.send({ type: 'forkliftOnly', tiles, on: this.marking(tiles[0]) });
         } else if (ROTATABLE.has(t as BuildKind)) {
           const kind = t as BuildKind;
@@ -246,6 +252,9 @@ export class Input {
     }
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
+    if (t === 'dredge' || t === 'reclaim') {
+      return this.previewTerraform(map, this.tilesFor(i), t === 'reclaim');
+    }
     // Bulldozing any tile of a building clears all of it, once.
     const tiles =
       t === 'bulldoze'
@@ -314,6 +323,37 @@ export class Input {
       rotatable: false,
       value: -changed * B.FORKLIFT_ONLY_COST,
       error: ok.some(Boolean) ? null : forkliftOnlyError(map, tiles[0]),
+    };
+  }
+
+  /** Same rounds as the sim, so a channel dug inland from the shore fits. */
+  private previewTerraform(map: GameMap, tiles: number[], raise: boolean): void {
+    const ok = tiles.map(() => false);
+    const done = new Set<number>();
+    let value = 0;
+    let error: string | null = null;
+    for (let progress = true; progress;) {
+      progress = false;
+      error = null;
+      tiles.forEach((tile, k) => {
+        if (ok[k]) return;
+        const err = terraformError(map, tile, raise, done);
+        if (err) {
+          error ??= err;
+          return;
+        }
+        ok[k] = progress = true;
+        done.add(tile);
+        value -= terraformCost(map, tile, raise);
+      });
+    }
+    this.renderer.overlay.setGhosts(map, tiles, ok);
+    this.renderer.overlay.setArrow(map, null, 0);
+    preview.value = {
+      count: done.size,
+      rotatable: false,
+      value,
+      error: done.size === 0 ? error : null,
     };
   }
 

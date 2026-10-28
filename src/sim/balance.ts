@@ -157,3 +157,11 @@ export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;
 export const ROCK_CLEAR_COST = 50;
 export const BULLDOZE_REFUND = 0.5;
+
+// Dredging and land reclamation: dear, a tile and a step at a time.
+export const TERRAFORM_STEP = 2; // metres dug out or filled in per go
+export const DREDGE_COST = 400; // per tile, per step deeper
+export const DIG_LAND_COST = 800; // digging a shore tile out into sea
+export const RECLAIM_COST = 500; // per tile, per step shallower
+export const MAX_DREDGE_DEPTH = 12;
+export const TERRAFORM_TIER = 1;

@@ -2,7 +2,8 @@ import { signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { BuildKind, MachineKind } from '../sim/types';
 
-export type Tool = 'select' | BuildKind | MachineKind | 'bulldoze' | 'forkliftOnly';
+export type Tool =
+  'select' | BuildKind | MachineKind | 'bulldoze' | 'forkliftOnly' | 'dredge' | 'reclaim';
 
 export type Selection =
   | { type: 'entity'; id: number }

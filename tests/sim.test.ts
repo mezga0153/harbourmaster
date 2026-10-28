@@ -14,6 +14,7 @@ import {
   frontOf,
   placementCost,
   placementError,
+  terraformError,
   walkable,
   walkableAt,
 } from '../src/sim/rules';
@@ -789,6 +790,97 @@ describe('Port side', () => {
     }
     expect(world.docks()).toHaveLength(3);
     expect(world.docks().filter((d) => d.coordinated)).toHaveLength(B.FREE_DOCKS);
+  });
+});
+
+describe('Dredging and reclaiming', () => {
+  /** A run of open sea tiles along the entry row, and the land behind it. */
+  function shore(world: World): { sea: number[]; land: number[] } {
+    const m = world.map;
+    const y = m.yOf(m.entry) + 6;
+    let x = 0;
+    while (m.isLand(m.idx(x + 1, y))) x++;
+    const land = [3, 2, 1, 0].map((k) => m.idx(x - k, y));
+    const sea = [6, 7, 8].map((k) => m.idx(x + k, y));
+    return { sea, land };
+  }
+
+  it('digs the seabed deeper, a step at a time, and charges for it', () => {
+    const world = World.create(7);
+    world.tier = B.TERRAFORM_TIER;
+    world.cash = 100_000;
+    world.boats.length = 0;
+    const m = world.map;
+    const { sea } = shore(world);
+    const before = sea.map((i) => m.depth[i]);
+    world.command({ type: 'terraform', tiles: sea, raise: false });
+    sea.forEach((i, k) => expect(m.depth[i]).toBeCloseTo(before[k] + B.TERRAFORM_STEP));
+    expect(world.cash).toBe(100_000 - 3 * B.DREDGE_COST);
+    const tiles = world.drainTileChanges();
+    expect(tiles.find((t) => t.i === sea[0])?.depth).toBeCloseTo(before[0] + B.TERRAFORM_STEP);
+  });
+
+  it('digs a channel inland from the shore in one drag, open to the sea', () => {
+    const world = World.create(7);
+    world.tier = B.TERRAFORM_TIER;
+    world.cash = 100_000;
+    world.boats.length = 0;
+    const m = world.map;
+    const { land } = shore(world);
+    world.command({ type: 'bulldoze', tiles: land.filter((i) => m.terrain[i] === Terrain.Rock) });
+    // Dragged from inland out to the shore: it still works.
+    world.command({ type: 'terraform', tiles: land, raise: false });
+    for (const i of land) {
+      expect(m.terrain[i]).toBe(Terrain.Water);
+      expect(m.ocean[i]).toBe(1);
+      expect(m.depth[i]).toBe(B.TERRAFORM_STEP);
+    }
+    // Inland, away from any water, there is nothing to dig from.
+    const inland = m.idx(m.xOf(land[0]) - 3, m.yOf(land[0]) - 3);
+    expect(terraformError(m, inland, false)).not.toBeNull();
+  });
+
+  it('fills the sea in until it is land, and a cut-off pool is no longer sea', () => {
+    const world = World.create(7);
+    world.tier = B.TERRAFORM_TIER;
+    world.cash = 1_000_000;
+    world.boats.length = 0;
+    const m = world.map;
+    const { land } = shore(world);
+    world.command({ type: 'bulldoze', tiles: land.filter((i) => m.terrain[i] === Terrain.Rock) });
+    world.command({ type: 'terraform', tiles: land, raise: false });
+    // Fill the channel's mouth: the rest of it is a pool cut off from the sea.
+    const mouth = land[3];
+    world.command({ type: 'terraform', tiles: [mouth], raise: true });
+    expect(m.isLand(mouth)).toBe(true);
+    expect(m.depth[mouth]).toBe(0);
+    expect(m.ocean[land[0]]).toBe(0);
+    expect(m.isLand(land[0])).toBe(false);
+    // Deep water takes several goes.
+    const { sea } = shore(world);
+    const deep = sea[2];
+    const steps = Math.ceil((m.depth[deep] - 0.5) / B.TERRAFORM_STEP);
+    for (let k = 0; k < steps; k++)
+      world.command({ type: 'terraform', tiles: [deep], raise: true });
+    expect(m.isLand(deep)).toBe(true);
+  });
+
+  it('leaves built tiles and boats alone, and waits for the Coastal Wharf', () => {
+    const world = World.create(7);
+    world.cash = 100_000;
+    const m = world.map;
+    const { sea } = shore(world);
+    const depth = m.depth[sea[0]];
+    world.command({ type: 'terraform', tiles: [sea[0]], raise: false });
+    expect(m.depth[sea[0]]).toBe(depth);
+    world.tier = B.TERRAFORM_TIER;
+    const jetty = m.build.findIndex((b) => b === Build.Jetty);
+    expect(terraformError(m, jetty, false)).not.toBeNull();
+    const boat = world.boats[0];
+    const under = m.idx(Math.floor(boat.x), Math.floor(boat.y));
+    const was = m.depth[under];
+    world.command({ type: 'terraform', tiles: [under], raise: true });
+    expect(m.depth[under]).toBe(was);
   });
 });
 

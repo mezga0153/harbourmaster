@@ -80,15 +80,19 @@ function handle(msg: WorkerMessage): void {
   if (!map) return;
   let treesChanged = false;
   let terrainChanged = false;
+  let seaChanged = false;
   for (const c of msg.tiles) {
     if (map.deco[c.i] !== c.deco) treesChanged = true;
     if (map.terrain[c.i] !== c.terrain) terrainChanged = true;
+    if (map.depth[c.i] !== c.depth || map.ocean[c.i] !== c.ocean) seaChanged = true;
     map.terrain[c.i] = c.terrain;
+    map.depth[c.i] = c.depth;
+    map.ocean[c.i] = c.ocean;
     map.build[c.i] = c.build;
     map.orient[c.i] = c.orient;
     map.deco[c.i] = c.deco;
   }
-  renderer.applyTiles(msg.tiles, treesChanged, terrainChanged);
+  renderer.applyTiles(msg.tiles, treesChanged, terrainChanged, seaChanged);
   if (msg.tiles.length > 0) showReach();
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;

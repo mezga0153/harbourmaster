@@ -105,6 +105,18 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M5 20v-7h6v7M13 20v-7h6v7" />
     </>
   ),
+  dredge: (
+    <>
+      <path d="M2 18c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" />
+      <path d="M12 3v10M8 9l4 4 4-4" />
+    </>
+  ),
+  reclaim: (
+    <>
+      <path d="M2 18c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0" />
+      <path d="M12 14V4M8 8l4-4 4 4" />
+    </>
+  ),
   gate: (
     <>
       <rect x="3" y="8" width="5" height="12" />

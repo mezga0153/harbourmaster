@@ -11,6 +11,8 @@ export type Command =
   | { type: 'bulldoze'; tiles: number[] }
   /** Mark port road and quay tiles forklift-only, or clear the mark. */
   | { type: 'forkliftOnly'; tiles: number[]; on: boolean }
+  /** Dredge (dig the seabed deeper, or the shore out into sea) or reclaim (fill it in). */
+  | { type: 'terraform'; tiles: number[]; raise: boolean }
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }
@@ -206,6 +208,8 @@ export type SimEvent =
 export interface TileChange {
   i: number;
   terrain: number;
+  depth: number;
+  ocean: number;
   build: number;
   orient: number;
   deco: number;

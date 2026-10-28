@@ -44,6 +44,7 @@ interface MapLayers {
   entities: Entities;
   scenery: Group;
   seabed: Mesh;
+  seabedDetail: Object3D;
   land: Mesh;
   rocks: Object3D;
   trees: Group;
@@ -112,11 +113,24 @@ export class Renderer {
     const land = buildLand(map);
     const rocks = buildRocks(map);
     const seabed = buildSeabed(map);
-    scenery.add(seabed, buildSeabedDetail(map), land, rocks, trees);
+    const seabedDetail = buildSeabedDetail(map);
+    scenery.add(seabed, seabedDetail, land, rocks, trees);
     const root = new Group();
     root.add(water.mesh, scenery, structures.group, entities.group);
     this.scene.add(root);
-    this.layers = { map, root, water, structures, entities, scenery, seabed, land, rocks, trees };
+    this.layers = {
+      map,
+      root,
+      water,
+      structures,
+      entities,
+      scenery,
+      seabed,
+      seabedDetail,
+      land,
+      rocks,
+      trees,
+    };
 
     this.cam.setBounds(map.w, map.h);
     const entry = map.yOf(map.entry);
@@ -127,11 +141,31 @@ export class Renderer {
   }
 
   /** Call after the changes are applied to the map. */
-  applyTiles(changes: TileChange[], treesChanged: boolean, terrainChanged: boolean): void {
+  applyTiles(
+    changes: TileChange[],
+    treesChanged: boolean,
+    terrainChanged: boolean,
+    seaChanged = false,
+  ): void {
     if (!this.layers || changes.length === 0) return;
     this.layers.structures.apply(changes);
     if (treesChanged) this.refreshTrees();
-    if (terrainChanged) this.refreshTerrain();
+    if (terrainChanged || seaChanged) this.refreshTerrain();
+    if (seaChanged) this.refreshSea();
+  }
+
+  /** After dredging or reclaiming: the seabed and the water over it. */
+  private refreshSea(): void {
+    const l = this.layers!;
+    l.scenery.remove(l.seabed, l.seabedDetail);
+    l.seabed.geometry.dispose();
+    l.seabed = buildSeabed(l.map);
+    l.seabedDetail = buildSeabedDetail(l.map);
+    l.scenery.add(l.seabed, l.seabedDetail);
+    l.root.remove(l.water.mesh);
+    l.water.dispose();
+    l.water = new Water(l.map, SUN_DIR);
+    l.root.add(l.water.mesh);
   }
 
   private refreshTerrain(): void {

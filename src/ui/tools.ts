@@ -68,6 +68,22 @@ export const CATEGORIES: Category[] = [
       { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J' },
       { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
       { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O' },
+      {
+        tool: 'dredge',
+        icon: 'dredge',
+        label: 'Dredge',
+        note: `${money(B.DREDGE_COST)}/tile`,
+        hint: `Dig the seabed ${B.TERRAFORM_STEP} m deeper (up to ${B.MAX_DREDGE_DEPTH} m), so bigger ships can come in, or dig the shore out into sea (${money(B.DIG_LAND_COST)}). Drag inland from the water's edge to cut a channel. Expensive`,
+        tier: B.TERRAFORM_TIER,
+      },
+      {
+        tool: 'reclaim',
+        icon: 'reclaim',
+        label: 'Reclaim',
+        note: `${money(B.RECLAIM_COST)}/tile`,
+        hint: `Fill the seabed in ${B.TERRAFORM_STEP} m at a time, until it is dry land you can build on, or shallow enough for a jetty or quay. Expensive`,
+        tier: B.TERRAFORM_TIER,
+      },
     ],
   },
   {
