@@ -118,7 +118,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
       t.vessel === 'feeder'
         ? `Harbour crane, ${B.FEEDER_DRAFT} m`
         : t.vessel === 'coaster'
-          ? `2-wide quay, ${B.COASTER_DRAFT} m`
+          ? `2-wide quay, ${B.COASTER_DRAFT} m, forklifts`
           : 'Any berth',
     ],
   ];
@@ -385,6 +385,15 @@ function OfferCard({
           {ok
             ? `${cap.deepBerths} coaster berth${cap.deepBerths === 1 ? '' : 's'} (${B.COASTER_DRAFT} m deep, 2-wide quay)`
             : `No coaster berth yet: needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water`}
+        </Check>,
+      );
+      const pallets = cap.pallets.demand + Math.round(fisheryDailyCrates(t));
+      const forks = cap.pallets.unloading;
+      checks.push(
+        <Check ok={forks >= pallets} warn={forks > 0 && forks < pallets}>
+          {forks > 0
+            ? `Pallets: ${pallets} crates a day, forklifts move ${forks}`
+            : 'Crates come on pallets: only forklifts can unload them'}
         </Check>,
       );
     }

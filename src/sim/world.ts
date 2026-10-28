@@ -134,6 +134,8 @@ interface Crane {
   kind: 'jib' | 'harbour';
   /** Fees of the crates on the landing stack. */
   stack: number[];
+  /** The stack holds a coaster's pallets, which only forklifts can move. */
+  pallets?: boolean;
   reserved: number;
   timer: number;
   angle: number;
@@ -923,6 +925,7 @@ export class World {
     // Share of the day spent working rather than resting.
     const uptime = hasHut ? 0.88 : 0.72;
     let unloading = 0;
+    let forklifting = 0;
     if (bays.length && jetties.length) {
       for (const p of this.people) {
         if (p.kind === 'stacker') continue;
@@ -932,7 +935,7 @@ export class World {
           if (!jetties.some((j) => m.build[j] !== Build.Jetty)) continue;
           const ticks =
             (2 * avgWalk * 1.2) / B.FORKLIFT_SPEED + (B.PICK_TICKS + B.DROP_TICKS) * 1.5;
-          unloading += ((TICKS_PER_DAY * 0.9) / ticks) * p.capacity;
+          forklifting += ((TICKS_PER_DAY * 0.9) / ticks) * p.capacity;
           continue;
         }
         const handling = (B.PICK_TICKS + B.DROP_TICKS) * traitDef(p.trait).handling;
@@ -952,13 +955,20 @@ export class World {
         )
       : Infinity;
     // Time lost in queues on narrow walkways comes straight off the top.
-    unloading *= 1 - this.congestion;
+    unloading = (unloading + forklifting) * (1 - this.congestion);
+    const palletDemand = this.fisheries()
+      .filter((c) => c.terms.vessel === 'coaster')
+      .reduce((n, c) => n + fisheryDailyCrates(c.terms), 0);
     this.capacityCache = {
       congestion: this.congestion,
       demand: Math.round(demand),
       unloading: Math.round(unloading),
       trucking: this.truckingWith(null),
       deepBerths: this.berthCount(B.COASTER_DRAFT, true),
+      pallets: {
+        demand: Math.round(palletDemand),
+        unloading: Math.round(forklifting * (1 - this.congestion)),
+      },
       boxes: this.containerCapacity(),
     };
     return this.capacityCache;
@@ -1522,8 +1532,16 @@ export class World {
           b.dir = alongX ? 0 : Math.PI / 2;
           const what =
             b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
-          const cargo = b.vessel === 'feeder' ? 'containers' : 'crates';
+          const cargo =
+            b.vessel === 'feeder'
+              ? 'containers'
+              : b.vessel === 'coaster'
+                ? 'crates on pallets'
+                : 'crates';
           this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
+          if (b.vessel === 'coaster' && !this.people.some((p) => p.kind === 'forklift')) {
+            this.message('Pallets can only be unloaded by forklifts. Buy one at a depot.', 'bad');
+          }
         }
         return;
       }
@@ -2062,8 +2080,11 @@ export class World {
     const sources: { tile: number; avail: number; boat?: Boat; crane?: Crane }[] = [];
     // Reach stackers handle containers, everyone else crates.
     const boxy = p.kind === 'stacker';
+    // Pallets off a coaster need the forks of a forklift.
+    const forks = p.kind === 'forklift';
     for (const crane of this.cranes.values()) {
       if ((crane.kind === 'harbour') !== boxy) continue;
+      if (crane.pallets && crane.stack.length > 0 && !forks) continue;
       const avail = crane.stack.length - crane.reserved;
       if (avail > 0) sources.push({ tile: crane.idx, avail, crane });
     }
@@ -2072,6 +2093,7 @@ export class World {
       const avail = boat.crates - boat.reserved;
       // Containers only come off a ship by crane.
       if (boxy || boat.vessel === 'feeder') continue;
+      if (boat.vessel === 'coaster' && !forks) continue;
       if (boat.state !== 'moored' || avail <= 0) continue;
       // Workers can load from any dock tile alongside the boat.
       for (const tile of this.pickupSpots(boat)) sources.push({ tile, avail, boat });
@@ -2215,6 +2237,8 @@ export class World {
       (b) =>
         b.state === 'moored' &&
         (b.vessel === 'feeder') === harbour &&
+        // One kind on the landing stack at a time: crates or pallets.
+        (c.stack.length === 0 || (b.vessel === 'coaster') === !!c.pallets) &&
         b.crates - b.reserved > 0 &&
         Math.max(
           Math.abs(m.xOf(b.berth) - m.xOf(c.idx)),
@@ -2227,6 +2251,7 @@ export class World {
     if (++c.timer < (harbour ? B.HARBOUR_CRANE_TICKS : B.CRANE_TICKS)) return;
     c.timer = 0;
     boat.crates--;
+    c.pallets = boat.vessel === 'coaster';
     c.stack.push(boat.fee);
   }
 

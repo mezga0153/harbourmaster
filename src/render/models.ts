@@ -344,15 +344,17 @@ export function forklift(): Model {
   body.add(box(0.03, 0.42, 0.03, C.chassis, 0.16, 0.06, 0.09));
   body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, -0.07));
   body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, 0.07));
+  // Crates ride on a pallet, which shows with the first of them.
   const crates: Object3D[] = [];
   for (let layer = 0; layer < 2; layer++) {
     for (const z of [-0.08, 0.08]) {
-      const c = crate(0.15, 0.3, 0.08 + layer * 0.15, z);
+      const c = crate(0.15, 0.3, 0.1 + layer * 0.15, z);
       c.visible = false;
       body.add(c);
       crates.push(c);
     }
   }
+  crates[0].add(box(0.2, 0.025, 0.34, C.wood, 0, -0.025, 0.08));
   root.add(body);
   return { root, crates, body };
 }

@@ -131,6 +131,8 @@ export interface Capacity {
   trucking: number;
   /** Berths deep enough for a coaster. */
   deepBerths: number;
+  /** Coasters' crates come on pallets, which only forklifts unload. */
+  pallets: { demand: number; unloading: number };
   /** Share of worker travel time lost waiting for each other yesterday. */
   congestion: number;
   /** Containers per day, once the port handles them. */

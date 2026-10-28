@@ -507,6 +507,28 @@ describe('Coastal Wharf tier', () => {
     expect(placementError(m, 'quay', deep) ?? '').not.toMatch(/deep/i);
   });
 
+  it('leaves pallets for forklifts', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const m = world.map;
+    const jetty = starterJetty(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    const paths = [...m.build.keys()].filter((i) => m.build[i] === Build.Footpath);
+    world.command({ type: 'build', kind: 'portRoad', tiles: paths });
+    buildOffice(world);
+    const crane = world.cranes.get(tip)!;
+    crane.stack.push(10, 10, 10, 10);
+    crane.pallets = true;
+    for (let t = 0; t < 300; t++) world.step();
+    expect(crane.stack).toHaveLength(4);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
+    for (let t = 0; t < TICKS_PER_DAY && crane.stack.length > 0; t++) world.step();
+    expect(crane.stack).toHaveLength(0);
+  });
+
   it('runs a jib crane and forklifts off a quay', () => {
     const world = World.create(7);
     world.tier = 1;
