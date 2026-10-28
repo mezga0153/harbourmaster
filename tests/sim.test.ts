@@ -975,6 +975,9 @@ describe('Buoys', () => {
       );
     };
     const crossed = new Map<number, { in: number[]; out: number[] }>();
+    const side = world['gateSide'].bind(world);
+    // Where each boat came in from: out beyond the outermost green pair.
+    const beyond: boolean[] = [];
     const last = new Map<number, number[]>();
     let closest = Infinity;
     const buoys = [...ins.flat(), ...outs.flat()].map(at);
@@ -984,6 +987,7 @@ describe('Buoys', () => {
       for (const b of world.boats) {
         const here = [b.x, b.y];
         const was = last.get(b.id);
+        if (!was) beyond.push(side(ins[0][0], ins[0][1], b.x, b.y) > 0);
         last.set(b.id, here);
         const seen = crossed.get(b.id) ?? { in: [], out: [] };
         crossed.set(b.id, seen);
@@ -1011,6 +1015,7 @@ describe('Buoys', () => {
     }
     expect(routes.filter((r) => r.in.join() === '0,1').length).toBeGreaterThan(2);
     expect(routes.filter((r) => r.out.join() === '0,1').length).toBeGreaterThan(2);
+    expect(beyond.filter((b) => !b)).toEqual([]);
     // Never close enough to touch a buoy.
     expect(closest).toBeGreaterThan(B.VESSELS.smack.beam / 2 + 0.5);
   });

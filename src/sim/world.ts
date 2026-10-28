@@ -1408,7 +1408,14 @@ export class World {
   private spawnBoat(contractId: number, terms: FisheryTerms, close = false): void {
     const edge = this.seaEdgeTiles();
     if (edge.length === 0) return;
-    const start = this.rng.pick(edge);
+    // Boats come in from out beyond the outermost pair of green buoys, if
+    // any of the open sea lies out there.
+    const gate = buoyGates(this.map, false).find((g) => g.b >= 0);
+    const m = this.map;
+    const beyond = gate
+      ? edge.filter((i) => this.gateSide(gate.a, gate.b, m.xOf(i) + 0.5, m.yOf(i) + 0.5) > 0)
+      : [];
+    const start = this.rng.pick(beyond.length > 0 ? beyond : edge);
     const boat: Boat = {
       id: this.nextId++,
       contractId,
@@ -1443,7 +1450,6 @@ export class World {
     // The first boat of the game is already coming in, a few tiles off the
     // jetty, and heads straight for a berth.
     if (close) {
-      const m = this.map;
       const row = m.yOf(m.entry);
       let x = 0;
       while (x < m.w - 1 && this.boatCost(m.idx(x, row)) !== 1) x++;
@@ -1485,12 +1491,36 @@ export class World {
     const here = d(from);
     const there = to >= 0 ? d(to) : 0;
     const stops: number[] = [];
+    let at = from;
     for (const g of buoyGates(m, out)) {
       const far = g.b < 0 ? d(g.a) : (d(g.a) + d(g.b)) / 2;
       if (out ? far <= here + 0.5 : far >= here - 0.5 || far <= there + 0.5) continue;
-      stops.push(...(g.b < 0 ? [g.a] : this.crossing(b, g.a, g.b, out, cost)));
+      // A pair is crossed one way only, in from the sea or out to it. A
+      // boat already on the far side has nothing to cross, rather than
+      // going all the way round to come at it the right way.
+      const side = g.b < 0 ? 0 : this.gateSide(g.a, g.b, m.xOf(at) + 0.5, m.yOf(at) + 0.5);
+      if (out ? side > 0 : side < 0) continue;
+      const way = g.b < 0 ? [g.a] : this.crossing(b, g.a, g.b, out, cost);
+      stops.push(...way);
+      at = way.at(-1) ?? at;
     }
     return stops;
+  }
+
+  /**
+   * Which side of the line between buoys `a` and `b` x, y lies on: above
+   * zero on the side away from the docks, below on the side towards them.
+   */
+  private gateSide(a: number, b: number, x: number, y: number): number {
+    const m = this.map;
+    const c = harbourCentre(m);
+    const ax = m.xOf(a) + 0.5;
+    const ay = m.yOf(a) + 0.5;
+    const ux = m.xOf(b) + 0.5 - ax;
+    const uy = m.yOf(b) + 0.5 - ay;
+    const side = (px: number, py: number) => -uy * (px - ax) + ux * (py - ay);
+    const docks = side(c.x, c.y);
+    return docks === 0 ? 0 : -Math.sign(docks) * side(x, y);
   }
 
   /**

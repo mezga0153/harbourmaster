@@ -116,14 +116,14 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.BuoyIn,
     label: 'Buoy: way in',
     cost: B.BUOY_COST,
-    hint: 'Green buoys mark the way into the port. Place them in pairs: boats coming in cross between each pair in turn, from the pair furthest out to the one nearest the docks, well clear of the buoys. An odd one out they sail close past',
+    hint: 'Green buoys mark the way into the port. Place them in pairs: boats come in from the sea beyond the outermost pair and cross between each pair in turn, towards the docks, well clear of the buoys. An odd one out they sail close past',
     drag: true,
   },
   buoyOut: {
     code: Build.BuoyOut,
     label: 'Buoy: way out',
     cost: B.BUOY_COST,
-    hint: 'Red buoys mark the way out to sea. Place them in pairs: boats leaving cross between each pair in turn, from the pair nearest the docks outwards, well clear of the buoys, so they keep clear of boats coming in. An odd one out they sail close past',
+    hint: 'Red buoys mark the way out to sea. Place them in pairs: boats leaving cross between each pair in turn, away from the docks, well clear of the buoys, so they keep clear of boats coming in. An odd one out they sail close past',
     drag: true,
   },
   largeBay: {
