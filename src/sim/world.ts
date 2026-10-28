@@ -594,6 +594,7 @@ export class World {
     this.dockCache = null;
     this.gateCache = null;
     this.buoyCache = null;
+    this.anchorageTile = -1;
     this.frontCache = null;
     switch (cmd.type) {
       case 'build':
@@ -1680,7 +1681,12 @@ export class World {
     const row = m.yOf(m.entry);
     let x = 0;
     while (x < m.w - 1 && this.boatCost(m.idx(x, row)) !== 1) x++;
-    x = Math.min(x + 9, m.w - 8);
+    x += 9;
+    // Out beyond the water off the furthest dock, too.
+    for (let i = 0; i < m.build.length; i++) {
+      if (isDock(m.build[i])) x = Math.max(x, m.xOf(i) + B.DOCK_FRONT_RANGE + 2);
+    }
+    x = Math.min(x, m.w - 8);
     // North or south of the fairway, whichever side has more open sea.
     const open = (cy: number) => {
       let n = 0;
@@ -1713,20 +1719,28 @@ export class World {
         at: b.goal,
         room: (B.VESSELS[b.vessel].length + B.VESSELS[boat.vessel].length) / 2 + 1.5,
       }));
+    const front = this.dockFront();
+    // A long ship needs open water to come round in when it is called in,
+    // so it anchors out to sea of the anchorage, furthest out first, never
+    // in towards the docks.
+    const seaward = B.VESSELS[boat.vessel].length >= B.CAREFUL_LENGTH;
     for (let r = 0; r < 14; r++) {
+      const ring: [number, number][] = [];
       for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const x = cx + dx * 2;
-          const y = cy + dy;
-          if (!m.inBounds(x, y)) continue;
-          // Stay out of the fairway in front of the harbour.
-          if (Math.abs(y - row) < 6) continue;
-          const i = m.idx(x, y);
-          if (this.boatCostFor(boat.draft)(i) !== 1) continue;
-          const clear = taken.every((t) => Math.hypot(m.xOf(t.at) - x, m.yOf(t.at) - y) > t.room);
-          if (clear && this.swingRoom(boat, x + 0.5, y + 0.5)) return i;
+        for (let dx = seaward ? -1 : -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([cx + dx * 2, cy + dy]);
         }
+      }
+      if (seaward) ring.sort((p, q) => q[0] - p[0]);
+      for (const [x, y] of ring) {
+        if (!m.inBounds(x, y)) continue;
+        // Stay out of the fairway in front of the harbour, and out of the
+        // water off the docks that ships manoeuvre in.
+        if (Math.abs(y - row) < 6) continue;
+        const i = m.idx(x, y);
+        if (this.boatCostFor(boat.draft)(i) !== 1 || front[i] >= 0) continue;
+        const clear = taken.every((t) => Math.hypot(m.xOf(t.at) - x, m.yOf(t.at) - y) > t.room);
+        if (clear && this.swingRoom(boat, x + 0.5, y + 0.5)) return i;
       }
     }
     return centre;
@@ -1746,13 +1760,14 @@ export class World {
   }
 
   /**
-   * Whether a long ship can lie at anchor here and swing round it: open
-   * water all round, clear of moored boats.
+   * Whether a long ship can lie at anchor here, swing round it and come
+   * round under way to head off anywhere: open water all round, a whole
+   * ship's length each way, clear of moored boats.
    */
   private swingRoom(boat: Boat, x: number, y: number): boolean {
     const v = B.VESSELS[boat.vessel];
     if (v.length < B.CAREFUL_LENGTH) return true;
-    const r = v.length / 2 + 0.5;
+    const r = v.length;
     if (!this.openAround(x, y, r)) return false;
     return this.boats.every(
       (o) =>

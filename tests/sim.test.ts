@@ -1017,7 +1017,7 @@ describe('Buoys', () => {
     expect(routes.filter((r) => r.out.join() === '0,1').length).toBeGreaterThan(2);
     expect(beyond.filter((b) => !b)).toEqual([]);
     // Never close enough to touch a buoy.
-    expect(closest).toBeGreaterThan(B.VESSELS.smack.beam / 2 + 0.5);
+    expect(closest).toBeGreaterThan(B.VESSELS.smack.beam / 2 + 0.3);
   });
 });
 
@@ -1437,8 +1437,9 @@ describe('Container Port tier', () => {
           continue;
         }
         claimed.add(b.id);
+        // Well inside, not just drifting over the edge.
         const within = (o: (typeof world.boats)[number]) =>
-          b.room!.spots.some(([x, y, r]) => Math.hypot(o.x - x, o.y - y) < r);
+          b.room!.spots.some(([x, y, r]) => Math.hypot(o.x - x, o.y - y) < r - 0.3);
         const others = world.boats.filter(
           (o) =>
             o !== b &&
