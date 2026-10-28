@@ -404,13 +404,15 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
     ? BUILD_TIER[t.tool as BuildKind]
     : isMachineKind(t.tool)
       ? MACHINE_TIER[t.tool]
-      : 0;
+      : (t.tier ?? 0);
   const locked = needTier > (snapshot.value?.progress.tier ?? 0);
   const hint = def
     ? `${def.label}: ${def.hint}`
     : machine
       ? `${machine.label}: ${machine.hint}. Click a depot to buy one there. Operator ${money(machine.wage)}/day`
-      : t.label;
+      : t.hint
+        ? `${t.label}: ${t.hint}`
+        : t.label;
   const title = locked
     ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
     : [hint, t.key && `(${t.key})`].filter(Boolean).join(' ');

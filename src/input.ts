@@ -9,11 +9,14 @@ import {
   bulldozeTiles,
   bulldozeValue,
   footprint,
+  forkliftOnly,
+  forkliftOnlyError,
   machinePlacementError,
   placementCost,
   placementError,
   ROTATABLE,
 } from './sim/rules';
+import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
 import type { BuildKind } from './sim/types';
 import {
@@ -98,7 +101,11 @@ export class Input {
     }
     const t = tool.value;
     if (t === 'select') this.mode = 'select';
-    else if (t === 'bulldoze' || (t in BUILDABLES && BUILDABLES[t as BuildKind].drag)) {
+    else if (
+      t === 'bulldoze' ||
+      t === 'forkliftOnly' ||
+      (t in BUILDABLES && BUILDABLES[t as BuildKind].drag)
+    ) {
       this.mode = 'drag';
       this.dragStart = this.renderer.pickTile(e.clientX, e.clientY);
     } else this.mode = 'place';
@@ -138,10 +145,12 @@ export class Input {
       if (tiles.length > 0) {
         if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
-        else if (ROTATABLE.has(t as BuildKind)) {
+        else if (t === 'forkliftOnly') {
+          this.send({ type: 'forkliftOnly', tiles, on: this.marking(tiles[0]) });
+        } else if (ROTATABLE.has(t as BuildKind)) {
           const kind = t as BuildKind;
           this.send({ type: 'build', kind, tiles: [tiles[0]], facing: this.facing });
-        } else if (t !== 'select') this.send({ type: 'build', kind: t, tiles });
+        } else if (t !== 'select') this.send({ type: 'build', kind: t as BuildKind, tiles });
       }
     }
     this.dragStart = null;
@@ -234,6 +243,7 @@ export class Input {
       return;
     }
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
+    if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
     // Bulldozing any tile of a building clears all of it, once.
     const tiles =
       t === 'bulldoze'
@@ -255,7 +265,7 @@ export class Input {
             ? bulldozeError(map, tile)
             : isMachineKind(t)
               ? machinePlacementError(map, tile)
-              : placementError(map, t, tile, pending);
+              : placementError(map, t as BuildKind, tile, pending);
         if (err) {
           error ??= err;
           return;
@@ -269,7 +279,7 @@ export class Input {
               : 0
             : isMachineKind(t)
               ? -MACHINES[t].price
-              : -placementCost(map, t, tile);
+              : -placementCost(map, t as BuildKind, tile);
       });
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);
@@ -279,6 +289,29 @@ export class Input {
       rotatable: false,
       value,
       error: pending.size === 0 ? error : null,
+    };
+  }
+
+  /**
+   * A drag that starts on an unmarked tile marks forklift-only; one that
+   * starts on a marked tile clears the mark.
+   */
+  private marking(first: number): boolean {
+    const map = this.getMap();
+    return !map || !forkliftOnly(map, this.dragStart ?? first);
+  }
+
+  private previewMarking(map: GameMap, tiles: number[]): void {
+    const on = this.marking(tiles[0]);
+    const ok = tiles.map((t) => !forkliftOnlyError(map, t));
+    const changed = tiles.filter((t, k) => ok[k] && forkliftOnly(map, t) !== on).length;
+    this.renderer.overlay.setGhosts(map, tiles, ok);
+    this.renderer.overlay.setArrow(map, null, 0);
+    preview.value = {
+      count: changed,
+      rotatable: false,
+      value: -changed * B.FORKLIFT_ONLY_COST,
+      error: ok.some(Boolean) ? null : forkliftOnlyError(map, tiles[0]),
     };
   }
 

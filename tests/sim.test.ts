@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
+import { GameMap } from '../src/sim/map';
 import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
 import {
@@ -8,10 +9,12 @@ import {
   drivable,
   EXTENSION,
   footprint,
+  forkliftOnly,
   frontOf,
   placementCost,
   placementError,
   walkable,
+  walkableAt,
 } from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
@@ -357,7 +360,32 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'portRoad', tiles: [path] });
     expect(m.build[path]).toBe(Build.PortRoad);
     expect(walkable(Build.PortRoad) && drivable(Build.PortRoad)).toBe(true);
-    expect(walkable(Build.ForkliftLane)).toBe(false);
+  });
+
+  it('marks port roads and quays forklift-only, and clears the mark', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 50_000;
+    const m = world.map;
+    const path = m.build.findIndex((b) => b === Build.Footpath);
+    world.command({ type: 'forkliftOnly', tiles: [path], on: true });
+    expect(forkliftOnly(m, path)).toBe(false); // a port path cannot be marked
+    world.command({ type: 'build', kind: 'portRoad', tiles: [path] });
+    const cash = world.cash;
+    world.command({ type: 'forkliftOnly', tiles: [path], on: true });
+    expect(forkliftOnly(m, path)).toBe(true);
+    expect(walkableAt(m, path)).toBe(false);
+    expect(world.cash).toBe(cash - B.FORKLIFT_ONLY_COST);
+    world.command({ type: 'forkliftOnly', tiles: [path], on: false });
+    expect(walkableAt(m, path)).toBe(true);
+  });
+
+  it('turns old forklift lanes into forklift-only port roads', () => {
+    const data = World.create(7).map.toData();
+    data.build[0] = Build.ForkliftLane;
+    const m = GameMap.fromData(data);
+    expect(m.build[0]).toBe(Build.PortRoad);
+    expect(forkliftOnly(m, 0)).toBe(true);
   });
 
   it('locks quays, cranes and forklifts until the upgrade', () => {

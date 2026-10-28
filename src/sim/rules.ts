@@ -33,13 +33,6 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: 'Paved road for forklifts and dockhands alike. Build over a port path to upgrade it',
     drag: true,
   },
-  forkliftLane: {
-    code: Build.ForkliftLane,
-    label: 'Forklift lane',
-    cost: 10,
-    hint: 'Paved lane for forklifts and stackers only, so they do not queue behind people on foot',
-    drag: true,
-  },
   jetty: {
     code: Build.Jetty,
     label: 'Jetty',
@@ -116,6 +109,20 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
 
 /** Marks the second tile of a two-tile building in `GameMap.orient`. */
 export const EXTENSION = 4;
+/** Marks a port road or quay tile that people on foot keep off. */
+export const FORKLIFT_ONLY = 8;
+
+export function forkliftOnly(map: GameMap, i: number): boolean {
+  return (map.orient[i] & FORKLIFT_ONLY) !== 0;
+}
+
+/** Only port roads and plain quay can be marked forklift-only. */
+export function forkliftOnlyError(map: GameMap, i: number): string | null {
+  const b = map.build[i];
+  return b === Build.PortRoad || b === Build.Quay
+    ? null
+    : 'Only port roads and quays can be forklift-only';
+}
 
 /** Step towards the front for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
 export const FACING: readonly (readonly [number, number])[] = [
@@ -273,26 +280,32 @@ export function placementError(
     return drivable(f) ? null : 'The garage door must face a port road or quay';
   }
   if (kind === 'office') {
-    return walkable(f) || f === Build.Road ? null : 'The door must face a port path or road';
+    const ok = walkableAt(map, front) || f === Build.Road;
+    return ok ? null : 'The door must face a port path or road';
   }
-  return walkable(f) ? null : 'The door must face a port path, quay or truck bay';
+  return walkableAt(map, front) ? null : 'The door must face a port path, quay or truck bay';
 }
 
 /**
- * Port surfaces forklifts can drive on: port roads and quays. Not port paths
+ * Port surfaces forklifts can drive on: port roads and quays, including
+ * those marked forklift-only. Not port paths
  * (those are for people on foot), public roads (for the hauliers) or wooden
  * jetties (they cannot take the weight).
  */
 export function drivable(code: number): boolean {
   return (
     code === Build.PortRoad ||
-    code === Build.ForkliftLane ||
     code === Build.Quay ||
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
     isBay(code) ||
     code === Build.Depot
   );
+}
+
+/** Walkable here, and not marked forklift-only. */
+export function walkableAt(map: GameMap, i: number): boolean {
+  return i >= 0 && walkable(map.build[i]) && !forkliftOnly(map, i);
 }
 
 /** Every tile a machine at `start` can drive to. */

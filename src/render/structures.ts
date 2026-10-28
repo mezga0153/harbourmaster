@@ -1,7 +1,7 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING } from '../sim/rules';
+import { EXTENSION, FACING, FORKLIFT_ONLY } from '../sim/rules';
 import { Build, isDock } from '../sim/types';
 import { container, crate } from './models';
 import { C } from './palette';
@@ -144,22 +144,14 @@ export class Structures {
         g.add(box(0.16, 0.22, 0.02, C.woodDark, 0.5, y, 0.82));
         return g;
       }
-      case Build.ForkliftLane: {
-        // Dark asphalt with yellow edge lines and a forklift marking.
-        g.add(box(1, 0.03, 1, C.asphalt, 0.5, top, 0.5));
-        const along = this.is(i, 1, 0, Build.ForkliftLane) || this.is(i, -1, 0, Build.ForkliftLane);
-        for (const o of [0.08, 0.92]) {
-          const [x, z, w, d] = along ? [0.5, o, 1, 0.04] : [o, 0.5, 0.04, 1];
-          g.add(box(w, 0.006, d, C.stripe, x, top + 0.03, z));
-        }
-        g.add(box(0.22, 0.006, 0.12, C.stripe, 0.46, top + 0.03, 0.5));
-        g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, top + 0.03, 0.5));
-        return g;
-      }
       case Build.PortRoad: {
         // Concrete paving with a dashed white centre line.
         g.add(box(1, 0.03, 1, C.concrete, 0.5, top, 0.5));
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
+        if (this.map.orient[i] & FORKLIFT_ONLY) {
+          this.forkliftMarking(g, along, top + 0.03);
+          return g;
+        }
         for (const o of [0.15, 0.6]) {
           const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
           g.add(box(w, 0.006, d, C.marking, x, top + 0.03, z));
@@ -195,9 +187,14 @@ export class Structures {
         }
         return g;
       }
-      case Build.Quay:
+      case Build.Quay: {
         this.quay(g, i);
+        if (this.map.orient[i] & FORKLIFT_ONLY) {
+          const along = this.is(i, 1, 0, Build.Quay) || this.is(i, -1, 0, Build.Quay);
+          this.forkliftMarking(g, along, QUAY_Y);
+        }
         return g;
+      }
       case Build.HarbourCrane: {
         // Mobile harbour crane: a wheeled base with outriggers, a tall tower
         // and a long boom that slews out over the ship.
@@ -372,6 +369,16 @@ export class Structures {
       }
     }
     return null;
+  }
+
+  /** Yellow edge lines and a forklift sign painted on forklift-only paving. */
+  private forkliftMarking(g: Group, along: boolean, y: number): void {
+    for (const o of [0.1, 0.9]) {
+      const [x, z, w, d] = along ? [0.5, o, 1, 0.04] : [o, 0.5, 0.04, 1];
+      g.add(box(w, 0.006, d, C.stripe, x, y, z));
+    }
+    g.add(box(0.22, 0.006, 0.12, C.stripe, 0.46, y, 0.5));
+    g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, y, 0.5));
   }
 
   /** Concrete slab (on the shore) or block (in the water) with edge details. */

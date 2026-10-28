@@ -15,6 +15,7 @@ export const Build = {
   Quay: 6,
   JibCrane: 7,
   Depot: 8,
+  /** Old saves only: now a port road tagged forklift-only. */
   ForkliftLane: 9,
   Office: 10,
   LargeBay: 11,
@@ -34,7 +35,6 @@ export type BuildKind =
   | 'quay'
   | 'jibCrane'
   | 'depot'
-  | 'forkliftLane'
   | 'office'
   | 'largeBay'
   | 'harbourCrane'

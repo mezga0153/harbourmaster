@@ -8,6 +8,8 @@ import type { BuildKind, MachineKind } from './sim/types';
 export type Command =
   | { type: 'build'; kind: BuildKind; tiles: number[]; facing?: number }
   | { type: 'bulldoze'; tiles: number[] }
+  /** Mark port road and quay tiles forklift-only, or clear the mark. */
+  | { type: 'forkliftOnly'; tiles: number[]; on: boolean }
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }

@@ -1,3 +1,4 @@
+import { FORKLIFT_ONLY } from './rules';
 import { Build, Terrain } from './types';
 
 export interface MapData {
@@ -110,6 +111,13 @@ export class GameMap {
     m.deco.set(d.deco);
     m.build.set(d.build);
     m.orient.set(d.orient);
+    // Old forklift lanes are port roads marked forklift-only.
+    for (let i = 0; i < m.build.length; i++) {
+      if (m.build[i] === Build.ForkliftLane) {
+        m.build[i] = Build.PortRoad;
+        m.orient[i] = FORKLIFT_ONLY;
+      }
+    }
     m.entry = d.entry;
     return m;
   }

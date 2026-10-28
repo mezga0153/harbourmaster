@@ -39,12 +39,15 @@ import {
   bulldozeValue,
   EXTENSION,
   footprint,
+  FORKLIFT_ONLY,
+  forkliftOnly,
+  forkliftOnlyError,
   drivable,
-  walkable,
   machinePlacementError,
   placementCost,
   placementError,
   ROTATABLE,
+  walkableAt,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -484,6 +487,8 @@ export class World {
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
       case 'bulldoze':
         return this.bulldoze(cmd.tiles);
+      case 'forkliftOnly':
+        return this.markForkliftOnly(cmd.tiles, cmd.on);
       case 'hire':
         return this.hire(cmd.candidateId);
       case 'fire':
@@ -581,6 +586,36 @@ export class World {
     if (kind !== 'jetty') return null;
     const blocked = this.boats.some((b) => b.berth === i || this.tileOf(b) === i);
     return blocked ? 'A boat is in the way' : null;
+  }
+
+  private markForkliftOnly(tiles: number[], on: boolean): void {
+    if (this.tier < B.FORKLIFT_ONLY_TIER) {
+      return this.message(
+        `Forklift-only roads unlock at the ${TIERS[B.FORKLIFT_ONLY_TIER].name}.`,
+        'bad',
+      );
+    }
+    let spent = 0;
+    let firstError: string | null = null;
+    for (const i of tiles) {
+      if (i < 0 || i >= this.map.build.length) continue;
+      const err = forkliftOnlyError(this.map, i);
+      if (err) {
+        firstError ??= err;
+        continue;
+      }
+      if (forkliftOnly(this.map, i) === on) continue;
+      if (this.cash < B.FORKLIFT_ONLY_COST) {
+        firstError = 'Not enough money';
+        break;
+      }
+      this.book('construction', -B.FORKLIFT_ONLY_COST);
+      spent += B.FORKLIFT_ONLY_COST;
+      this.map.orient[i] ^= FORKLIFT_ONLY;
+      this.dirty.add(i);
+    }
+    if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
+    else if (firstError) this.message(firstError, 'bad');
   }
 
   private bulldoze(tiles: number[]): void {
@@ -1716,7 +1751,7 @@ export class World {
   }
 
   /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
-  private walkCost: CostFn = (i) => (walkable(this.map.build[i]) ? 1 : Infinity);
+  private walkCost: CostFn = (i) => (walkableAt(this.map, i) ? 1 : Infinity);
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
   private driveCost: CostFn = (i) => (drivable(this.map.build[i]) ? 1 : Infinity);
@@ -1731,7 +1766,7 @@ export class World {
   private muster(): number {
     const bay = [...this.bays.keys()].find((b) => isBay(this.map.build[b]));
     if (bay !== undefined) return bay;
-    for (let i = 0; i < this.map.build.length; i++) if (walkable(this.map.build[i])) return i;
+    for (let i = 0; i < this.map.build.length; i++) if (walkableAt(this.map, i)) return i;
     return this.map.entry;
   }
 

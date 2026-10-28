@@ -1,4 +1,6 @@
+import * as B from '../sim/balance';
 import type { IconName } from './icons';
+import { money } from './format';
 import type { Tool } from './store';
 
 export interface ToolDef {
@@ -8,6 +10,9 @@ export interface ToolDef {
   /** Keyboard shortcut, shown on the button. */
   key?: string;
   note?: string;
+  /** For tools that are not buildings or machines. */
+  hint?: string;
+  tier?: number;
 }
 
 /** A group of tools behind one button in the bar, Cities: Skylines style. */
@@ -43,7 +48,15 @@ export const CATEGORIES: Category[] = [
       { tool: 'road', icon: 'road', label: 'Public road', key: 'R' },
       { tool: 'footpath', icon: 'footpath', label: 'Port path', key: 'F' },
       { tool: 'portRoad', icon: 'portRoad', label: 'Port road', key: 'W' },
-      { tool: 'forkliftLane', icon: 'lane', label: 'Forklift lane', key: 'Y' },
+      {
+        tool: 'forkliftOnly',
+        icon: 'lane',
+        label: 'Forklift only',
+        key: 'Y',
+        note: `${money(B.FORKLIFT_ONLY_COST)}/tile`,
+        hint: 'Drag over port roads or quays to keep people on foot off them, so forklifts do not queue behind dockhands. Drag over marked tiles to clear the mark',
+        tier: B.FORKLIFT_ONLY_TIER,
+      },
     ],
   },
   {

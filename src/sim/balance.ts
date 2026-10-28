@@ -122,5 +122,8 @@ export const STACKER_SPEED = 0.32;
 export const LARGE_BAY_BOXES = 4; // containers a large truck bay can hold
 export const CONTAINER_TRUCK_CAPACITY = 2;
 export const TREE_CLEAR_COST = 10;
+/** Painting a port road or quay tile forklift-only, or back. */
+export const FORKLIFT_ONLY_COST = 5;
+export const FORKLIFT_ONLY_TIER = 1;
 export const ROCK_CLEAR_COST = 50;
 export const BULLDOZE_REFUND = 0.5;
