@@ -36,7 +36,7 @@ function playDay(w: World): string[] {
   const busyDays = cap.congestion > 0.15 ? (jamDays.get(w) ?? 0) + 1 : 0;
   jamDays.set(w, busyDays);
   const jammed = busyDays >= 2;
-  if ((jammed || waiting > 1) && w.cash > 900 && newJetty(w)) {
+  if ((jammed || waiting > 1) && w.cash > 2500 && newJetty(w)) {
     did.push('new jetty');
     // Give the new jetty a few days to take the pressure off.
     jamDays.set(w, -3);
@@ -80,8 +80,11 @@ function playDay(w: World): string[] {
   // Boats queueing for a berth.
   if (waiting > 1 && w.cash > 800 && extendJetty(w)) did.push('jetty');
 
-  // Spare capacity and money: take on another fishery, making room first.
-  if (waiting === 0 && w.cash > 1800) {
+  // Spare capacity and money, and no demurrage lately: take on another
+  // fishery, making room first.
+  const fined = w.stats.penalties > (lastPenalties.get(w) ?? 0);
+  lastPenalties.set(w, w.stats.penalties);
+  if (waiting === 0 && w.cash > 1800 && !fined) {
     const offer = nextOffer;
     if (offer) {
       const need = cap.demand + fisheryDailyCrates(offer.terms as FisheryTerms);
@@ -103,6 +106,9 @@ function playDay(w: World): string[] {
   }
   return did;
 }
+
+/** Penalties paid up to yesterday, to notice new ones. */
+const lastPenalties = new WeakMap<World, number>();
 
 /** Days in a row each port has had queues on its walkways. */
 const jamDays = new WeakMap<World, number>();

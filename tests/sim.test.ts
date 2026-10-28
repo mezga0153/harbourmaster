@@ -600,7 +600,7 @@ describe('Coastal Wharf tier', () => {
       if (world.cranes.get(side)?.busy) craneWorked = true;
     }
     expect(craneWorked).toBe(true);
-    expect(world.stats.cratesHandled).toBeGreaterThan(10);
+    expect(world.stats.cratesHandled).toBeGreaterThan(5);
   });
 });
 

@@ -90,7 +90,7 @@ export const VESSELS = {
 /** Ticks a boat can be held up before it looks for another way. */
 export const BOAT_REROUTE_AFTER = 50;
 /** Ticks without getting closer before a boat squeezes past others, so traffic never locks up. */
-export const BOAT_WEDGED_AFTER = 400;
+export const BOAT_WEDGED_AFTER = 150;
 
 export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;

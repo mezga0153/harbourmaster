@@ -185,6 +185,12 @@ interface Boat extends Agent {
   fairway?: number;
   /** Where a leaving boat cast off, to tell when it is clear of the dock. */
   castOff?: number;
+  /** The dock it cast off from. */
+  castDock?: number;
+  /** Casting off: 1 easing sideways off the dock, 2 backing out. */
+  undock?: number;
+  /** Ticks left squeezing past other boats after being wedged in. */
+  squeeze?: number;
 }
 
 interface Truck extends Agent {
@@ -1637,10 +1643,14 @@ export class World {
       0,
       6,
     )) {
+      // One boat at a time comes alongside or pulls out on each side of a
+      // dock; the rest wait at the anchorage, out of the way.
+      if (!this.fairwayFree(boat, c.jetty, c.berth)) continue;
       const path = findPath(this.map.w, this.map.h, from, c.berth, this.seaWay(boat), true);
       if (!path) continue;
       boat.berth = c.berth;
       boat.jetty = c.jetty;
+      this.takeFairway(boat);
       boat.best = Infinity;
       boat.path = path;
       boat.goal = c.berth;
@@ -1674,20 +1684,6 @@ export class World {
         if (this.tick % 10 === 0 && this.nextInQueue() === b) this.tryBerth(b);
         return;
       case 'arriving': {
-        // Near the dock, wait outside until its fairway is free: one boat
-        // at a time comes alongside or pulls out.
-        if (b.fairway === undefined) {
-          const m = this.map;
-          const near = Math.hypot(b.x - m.xOf(b.berth) - 0.5, b.y - m.yOf(b.berth) - 0.5) < 7;
-          if (near && !this.takeFairway(b)) {
-            // Hold position, backing off if a boat coming out needs the room.
-            if (this.giveWay(b).makeWay) return this.goAstern(b);
-            b.astern = false;
-            b.speed = Math.max(0, (b.speed ?? 0) - B.VESSELS[b.vessel].speed / 20);
-            b.held = (b.held ?? 0) + 1;
-            return;
-          }
-        }
         // Come alongside: lie along the berth, parallel to the dock edge.
         const alongX = this.map.yOf(b.jetty) !== this.map.yOf(b.berth);
         const r = this.sail(b, alongX ? 0 : Math.PI / 2);
@@ -1726,7 +1722,7 @@ export class World {
         // Clear of the dock: the next boat may use its fairway.
         if (b.fairway !== undefined && b.castOff !== undefined) {
           const m = this.map;
-          if (Math.hypot(b.x - m.xOf(b.castOff) - 0.5, b.y - m.yOf(b.castOff) - 0.5) > 5) {
+          if (Math.hypot(b.x - m.xOf(b.castOff) - 0.5, b.y - m.yOf(b.castOff) - 0.5) > 3) {
             this.freeFairway(b);
           }
         }
@@ -1753,7 +1749,7 @@ export class World {
     const cost = this.boatCostFor(b.draft);
     const cx = (i: number) => (i % w) + 0.5;
     const cy = (i: number) => Math.floor(i / w) + 0.5;
-    const accel = v.speed / 45;
+    const accel = v.speed / 30;
     let speed = b.speed ?? 0;
     if (b.path.length === 0) b.path = [b.goal];
     // Waypoints already passed drop off; the last one is the goal itself.
@@ -1773,7 +1769,7 @@ export class World {
       const flip = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? Math.PI : 0;
       const err = wrapAngle(moor + flip - b.dir);
       b.dir += clamp(err, -v.turn * 0.6, v.turn * 0.6);
-      speed = Math.min(speed, 0.012 + remaining * 0.06);
+      speed = Math.min(speed, 0.03 + remaining * 0.1);
       const step = Math.min(remaining, Math.max(speed, 0.008));
       if (remaining > 1e-6) {
         b.x += ((gx - b.x) / remaining) * step;
@@ -1810,10 +1806,12 @@ export class World {
     b.path.splice(0, ahead);
     const target = b.path[0];
     const want = Math.atan2(cy(target) - b.y, cx(target) - b.x);
+    if (b.undock && this.castingOff(b, want)) return 'moving';
     const way = this.giveWay(b);
     const err = wrapAngle(want - b.dir);
-    // Turning is slower at a crawl, but slowing right down tightens the turn.
-    const turn = v.turn * (0.6 + (0.4 * speed) / v.speed);
+    // A boat needs way on to turn: it never spins on the spot, it slows and
+    // swings round in an arc.
+    const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
     b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
     // Ease off for sharp bends, to stop at the goal, and for other boats.
     let desired = v.speed * Math.max(0.06, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
@@ -1856,6 +1854,14 @@ export class World {
     b.speed = speed;
 
     b.held = speed < v.speed * 0.1 ? (b.held ?? 0) + 1 : 0;
+    // Wedged in for most of a day: squeeze past for a while, as a last
+    // resort so the harbour never locks up for good.
+    if (b.squeeze) b.squeeze--;
+    else if (b.held > B.BOAT_WEDGED_AFTER || (b.stall ?? 0) > B.BOAT_WEDGED_AFTER * 2) {
+      b.squeeze = 200;
+      b.held = 0;
+      b.stall = 0;
+    }
     // Getting no closer, held up or going round in circles: find another way,
     // round every other boat this time.
     const straight = Math.hypot(gx - b.x, gy - b.y);
@@ -1872,6 +1878,62 @@ export class World {
       else if (b.stall > B.BOAT_REROUTE_AFTER * 8) return 'blocked';
     }
     return 'moving';
+  }
+
+  /**
+   * Leaving a berth like a boat: ease sideways off the dock first, then, if
+   * the way out lies astern, back out, swinging the bow round, until there
+   * is room to turn under way. Returns true while still casting off.
+   */
+  private castingOff(b: Boat, want: number): boolean {
+    const m = this.map;
+    const v = B.VESSELS[b.vessel];
+    const cost = this.boatCostFor(b.draft);
+    if (b.castOff === undefined || b.castDock === undefined) {
+      b.undock = undefined;
+      return false;
+    }
+    const bx = m.xOf(b.castOff) + 0.5;
+    const by = m.yOf(b.castOff) + 0.5;
+    // Unit step away from the dock.
+    const ax = m.xOf(b.castOff) - m.xOf(b.castDock);
+    const ay = m.yOf(b.castOff) - m.yOf(b.castDock);
+    if (b.undock === 1) {
+      const off = (b.x - bx) * ax + (b.y - by) * ay;
+      const step = v.speed * 0.2;
+      if (off < 0.3 && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
+        b.x += ax * step;
+        b.y += ay * step;
+        b.speed = 0;
+        return true;
+      }
+      b.undock = 2;
+    }
+    const err = wrapAngle(want - b.dir);
+    const backed = Math.hypot(b.x - bx, b.y - by);
+    if (Math.abs(err) > 1.75 && backed < 2.5) {
+      const back = v.speed * 0.5;
+      const sx = b.x - Math.cos(b.dir) * back;
+      const sy = b.y - Math.sin(b.dir) * back;
+      const stern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
+      const clear =
+        this.navigable(sx - Math.cos(b.dir) * 0.3, sy - Math.sin(b.dir) * 0.3, cost) &&
+        this.boats.every(
+          (o) => o === b || this.inWay(stern, this.hullOf(o), stern.half + 0.3) === null,
+        );
+      if (clear) {
+        b.x = sx;
+        b.y = sy;
+        // Going astern the stern swings one way and the bow the other.
+        b.dir = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
+        b.speed = 0;
+        b.astern = true;
+        return true;
+      }
+    }
+    b.undock = undefined;
+    b.astern = false;
+    return false;
   }
 
   /** Back off slowly to clear the way for another boat, if nothing is astern. */
@@ -1895,7 +1957,7 @@ export class World {
     }
     b.speed = 0;
     b.astern = true;
-    b.held = moved ? 0 : (b.held ?? 0) + 1;
+    b.held = (b.held ?? 0) + 1;
   }
 
   /** Open water here; past the map edge is open sea, where boats come and go. */
@@ -1969,7 +2031,7 @@ export class World {
     let makeWay = false;
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
-    const wedged = (b.stall ?? 0) > B.BOAT_WEDGED_AFTER;
+    const wedged = (b.squeeze ?? 0) > 0;
     for (const o of this.boats) {
       if (o === b) continue;
       const other = this.hullOf(o);
@@ -2062,23 +2124,31 @@ export class World {
     return key * 4 + side;
   }
 
+  private fairwayFree(b: Boat, jetty: number, berth: number): boolean {
+    const key = this.fairwayOf(jetty, berth);
+    return key === undefined || !this.boats.some((o) => o !== b && o.fairway === key);
+  }
+
   /** Take the fairway to this boat's berth if no other boat holds it. */
   private takeFairway(b: Boat): boolean {
-    const key = this.fairwayOf(b.jetty, b.berth);
-    if (key !== undefined && this.boats.some((o) => o !== b && o.fairway === key)) return false;
-    b.fairway = key;
+    if (!this.fairwayFree(b, b.jetty, b.berth)) return false;
+    b.fairway = this.fairwayOf(b.jetty, b.berth);
     return true;
   }
 
   private freeFairway(b: Boat): void {
     b.fairway = undefined;
     b.castOff = undefined;
+    b.castDock = undefined;
   }
 
   private depart(b: Boat, gaveUp: boolean): void {
     this.judgeVisit(b, gaveUp);
-    if (b.state === 'moored') b.castOff = b.berth;
-    else this.freeFairway(b);
+    if (b.state === 'moored') {
+      b.castOff = b.berth;
+      b.castDock = b.jetty;
+      b.undock = 1;
+    } else this.freeFairway(b);
     b.state = 'leaving';
     b.berth = b.jetty = -1;
     const edge = this.seaEdgeTiles();
