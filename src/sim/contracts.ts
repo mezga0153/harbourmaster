@@ -83,6 +83,38 @@ const CONTAINER_LINES = [
 
 const CONTAINER_HAULIERS = ['Box Haul Ltd', 'Twenty Foot Transport', 'Steel Box Logistics'];
 
+/**
+ * Once every name in a list is taken, firms are named after a place and
+ * their trade, so offers never dry up in a big port.
+ */
+const PLACES = [
+  'Ashby',
+  'Brigg',
+  'Carrick',
+  'Dunmore',
+  'Fenwick',
+  'Gorse Bay',
+  'Holt',
+  'Kestrel',
+  'Larchmont',
+  'Morwen',
+  'Ness Point',
+  'Oldhaven',
+  'Penrith',
+  'Redcliff',
+  'Stanmore',
+  'Thornby',
+  'Wexham',
+  'Yarrow',
+];
+const TRADES = {
+  fishery: ['Fishing Co.', 'Trawlers', 'Fisheries', 'Fleet'],
+  coaster: ['Shipping', 'Coasters', 'Short Sea Line'],
+  feeder: ['Container Line', 'Box Lines', 'Feeder Services'],
+  haulier: ['Haulage', 'Freight', 'Transport', 'Logistics'],
+  boxHaulier: ['Box Haulage', 'Container Transport'],
+};
+
 const HAULIERS = [
   'Bramble Transport',
   'Quick Lorry Ltd',
@@ -124,6 +156,15 @@ export function fisheryDailyValue(t: FisheryTerms): number {
   return (((t.cratesMin + t.cratesMax) / 2) * t.fee) / t.boatEvery;
 }
 
+/** How much bigger container ships get with the containers a port has handled. */
+export function feederGrowth(containersHandled: number): number {
+  return 1 + Math.min(B.FEEDER_GROWTH_MAX - 1, containersHandled / B.FEEDER_GROWTH_CONTAINERS);
+}
+
+/**
+ * A new offer. `containersHandled` is the port's record with containers:
+ * the lines offer bigger and bigger loads as it grows.
+ */
 export function makeOffer(
   rng: Rng,
   id: number,
@@ -131,6 +172,7 @@ export function makeOffer(
   kind: Terms['kind'],
   takenNames: Set<string>,
   tier = 0,
+  containersHandled = 0,
 ): Offer | null {
   const roll = rng.next();
   const feeder = kind === 'fishery' && tier >= 2 && roll < 0.4;
@@ -145,14 +187,20 @@ export function makeOffer(
         : kind === 'fishery'
           ? FISHERIES
           : HAULIERS;
-  const names = pool.filter((n) => !takenNames.has(n));
+  let names = pool.filter((n) => !takenNames.has(n));
+  if (names.length === 0) {
+    const trade = TRADES[feeder ? 'feeder' : coaster ? 'coaster' : boxTrucks ? 'boxHaulier' : kind];
+    names = PLACES.flatMap((p) => trade.map((t) => `${p} ${t}`)).filter((n) => !takenNames.has(n));
+  }
   if (names.length === 0) return null;
   const name = rng.pick(names);
   const expires = tick + Math.round(rng.range(4, 8) * 600);
 
   if (feeder) {
-    // Feeders bring few, valuable containers and need a harbour crane.
-    const cratesMin = rng.int(12, 16);
+    // Feeders bring few, valuable containers and need a harbour crane. The
+    // more containers the port has handled, the bigger the loads on offer.
+    const grow = feederGrowth(containersHandled);
+    const cratesMin = Math.min(B.FEEDER_MAX_LOAD - 4, Math.round(rng.int(12, 16) * grow));
     const terms: FisheryTerms = {
       kind: 'fishery',
       vessel: 'feeder',
@@ -160,7 +208,7 @@ export function makeOffer(
       color: rng.int(0, 3),
       boatEvery: Math.round(rng.range(1.2, 2.2) * 20) / 20,
       cratesMin,
-      cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + rng.int(2, 6)),
+      cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + Math.round(rng.int(2, 6) * grow)),
       fee: rng.int(120, 170),
     };
     const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 100) * 100;

@@ -882,7 +882,15 @@ export class World {
 
   private addOffer(kind: Terms['kind']): void {
     const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
-    const offer = makeOffer(this.rng, this.nextId++, this.tick, kind, taken, this.tier);
+    const offer = makeOffer(
+      this.rng,
+      this.nextId++,
+      this.tick,
+      kind,
+      taken,
+      this.tier,
+      this.stats.containers,
+    );
     if (offer) this.offers.push(offer);
   }
 
@@ -904,6 +912,8 @@ export class World {
             : 'haulier';
       const before = this.offers.length;
       this.addOffer(kind);
+      // Nobody of that kind wants to deal: maybe the other kind does.
+      if (this.offers.length === before) this.addOffer(kind === 'haulier' ? 'fishery' : 'haulier');
       if (this.offers.length > before) {
         this.message(`New contract offer from ${this.offers.at(-1)!.terms.name}.`, 'info');
       }
@@ -1698,7 +1708,9 @@ export class World {
 
   private updateBoat(b: Boat): void {
     if (b.state === 'anchored' || b.state === 'moored') {
-      if (b.anchorTicks + b.mooredTicks > B.BOAT_GIVE_UP_TICKS && b.crates > 0) {
+      // A container ship takes long to work, and allows for that.
+      const patience = B.BOAT_GIVE_UP_TICKS + (b.vessel === 'feeder' ? b.grace : 0);
+      if (b.anchorTicks + b.mooredTicks > patience && b.crates > 0) {
         // The claim message in judgeVisit explains what happened.
         return this.depart(b, true);
       }
@@ -3379,7 +3391,12 @@ export class World {
                   ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
                   : 'Heading back out to sea',
         variant: b.variant,
-        capacity: b.vessel === 'coaster' ? B.COASTER_MAX_LOAD : B.BOAT_MAX_LOAD,
+        capacity:
+          b.vessel === 'feeder'
+            ? B.FEEDER_MAX_LOAD
+            : b.vessel === 'coaster'
+              ? B.COASTER_MAX_LOAD
+              : B.BOAT_MAX_LOAD,
         alert: b.state === 'anchored',
         vessel: b.vessel,
         boxes: b.vessel === 'feeder',

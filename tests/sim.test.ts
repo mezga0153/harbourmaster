@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { GameMap } from '../src/sim/map';
+import { makeOffer } from '../src/sim/contracts';
 import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
 import {
@@ -18,6 +19,7 @@ import {
 } from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
+import { Rng } from '../src/sim/rng';
 import { World } from '../src/sim/world';
 
 describe('findPath', () => {
@@ -141,6 +143,47 @@ describe('Bulldozing', () => {
 });
 
 describe('Contracts', () => {
+  it('keeps making offers once every firm in the lists has a contract', () => {
+    const world = World.create(7);
+    const taken = new Set<string>();
+    // Sign up everyone who offers, until well past the named firms.
+    for (let k = 0; k < 60; k++) {
+      for (const kind of ['fishery', 'haulier'] as const) {
+        const o = makeOffer(new Rng(k), k, 0, kind, taken, 2);
+        expect(o).not.toBeNull();
+        expect(taken.has(o!.terms.name)).toBe(false);
+        taken.add(o!.terms.name);
+      }
+    }
+    // A port whose hauliers are all signed still gets offers.
+    for (const name of taken) {
+      world.contracts.push({ ...world.contracts[1], terms: { ...world.contracts[1].terms, name } });
+    }
+    world.offers.length = 0;
+    for (let d = 0; d < 10; d++) world['refreshOffers']();
+    expect(world.offers.length).toBeGreaterThan(0);
+  });
+
+  it('offers bigger container ships as the port handles more containers', () => {
+    const load = (handled: number) => {
+      let total = 0;
+      let n = 0;
+      for (let k = 0; n < 40; k++) {
+        const o = makeOffer(new Rng(k), k, 0, 'fishery', new Set(), 2, handled);
+        if (o?.terms.kind === 'fishery' && o.terms.vessel === 'feeder') {
+          expect(o.terms.cratesMax).toBeLessThanOrEqual(B.FEEDER_MAX_LOAD);
+          total += o.terms.cratesMin;
+          n++;
+        }
+      }
+      return total / n;
+    };
+    const first = load(0);
+    expect(load(1000)).toBeGreaterThan(first * 1.6);
+    expect(load(5000)).toBeGreaterThan(first * 2.4);
+    expect(load(50000)).toBe(load(5000));
+  });
+
   it('signs an offer for its fee and starts sending boats', () => {
     const world = World.create(7);
     const offer = world.offers.find((o) => o.terms.kind === 'fishery')!;

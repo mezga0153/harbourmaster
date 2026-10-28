@@ -405,16 +405,17 @@ export function feederShip(seed: number, company: number, container: Box): Craft
   const midBridge = rng.next() < 0.3;
   const bx = midBridge ? 1.95 : -2.3;
   let y = deck;
-  for (let k = 0; k < 4; k++) {
+  // Six decks, so the bridge looks out over containers stacked four high.
+  for (let k = 0; k < 6; k++) {
     cabin(
       root,
       bx,
       y,
-      0.5 - k * 0.04,
-      beam * (0.86 - k * 0.04),
+      0.5 - k * 0.03,
+      beam * (0.86 - k * 0.03),
       0.17,
       white,
-      k === 3 ? accent : white,
+      k === 5 ? accent : white,
     );
     y += 0.19;
   }
@@ -422,11 +423,13 @@ export function feederShip(seed: number, company: number, container: Box): Craft
   root.add(box(0.14, 0.025, beam + 0.06, white, bx + 0.12, y - 0.05, 0));
   // Funnel: company colour with a black top and a white band.
   const fx = midBridge ? -2.45 : bx - 0.3;
-  root.add(box(0.2, 0.34, 0.22, accent, fx, deck + (midBridge ? 0 : 0.42), 0));
-  root.add(box(0.205, 0.05, 0.225, C.cabin, fx, deck + (midBridge ? 0.18 : 0.6), 0));
-  root.add(box(0.205, 0.05, 0.225, C.chassis, fx, deck + (midBridge ? 0.34 : 0.76), 0));
+  const fy = deck + (midBridge ? 0 : 0.8);
+  root.add(box(0.2, 0.34, 0.22, accent, fx, fy, 0));
+  root.add(box(0.205, 0.05, 0.225, C.cabin, fx, fy + 0.18, 0));
+  root.add(box(0.205, 0.05, 0.225, C.chassis, fx, fy + 0.34, 0));
   root.add(cyl(0.012, 0.4, C.chassis, bx, y));
-  // Containers: six bays along, three abreast, two high, clear of the bridge.
+  // Containers: six bays along, three abreast, up to four high, clear of
+  // the bridge. They fill a tier at a time, so a light load sits low.
   const along = midBridge ? spread(-1.95, 1.3, 6) : spread(-1.75, 1.45, 6);
   const slots = slotGrid(
     root,
@@ -434,7 +437,7 @@ export function feederShip(seed: number, company: number, container: Box): Craft
     along,
     [-BOX_WIDTH, 0, BOX_WIDTH],
     deck,
-    2,
+    4,
     0.24,
   );
   return { root, slots };
