@@ -99,6 +99,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M12 4v3M12 11v3M12 18v2" />
     </>
   ),
+  gate: (
+    <>
+      <rect x="3" y="8" width="5" height="12" />
+      <path d="M8 12h13M12 12v8M3 20h18" />
+    </>
+  ),
   lane: (
     <>
       <path d="M5 3v18M19 3v18" />

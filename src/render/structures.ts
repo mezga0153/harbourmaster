@@ -20,6 +20,13 @@ interface BayStack {
   boxes: Object3D[];
 }
 
+interface GateParts {
+  /** The barrier arm, pivoting up about its post. */
+  boom: Object3D;
+  open: boolean;
+  angle: number;
+}
+
 interface CraneParts {
   /** Rotates about Y to point the jib at the boat being unloaded. */
   slew: Object3D;
@@ -41,6 +48,7 @@ export class Structures {
   private tiles = new Map<number, Object3D>();
   private stacks = new Map<number, BayStack>();
   private cranes = new Map<number, CraneParts>();
+  private gates = new Map<number, GateParts>();
 
   constructor(private map: GameMap) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
@@ -71,8 +79,21 @@ export class Structures {
     }
   }
 
-  /** Per-frame animation: slew cranes towards their boats, bob the hooks. */
+  /** Port gates lift their barrier while a truck is passing through. */
+  setGates(trucks: { x: number; y: number }[]): void {
+    for (const [i, g] of this.gates) {
+      const cx = this.map.xOf(i) + 0.5;
+      const cy = this.map.yOf(i) + 0.5;
+      g.open = trucks.some((t) => Math.hypot(t.x - cx, t.y - cy) < 1.6);
+    }
+  }
+
+  /** Per-frame animation: slew cranes towards their boats, bob the hooks, lift barriers. */
   update(dt: number, time: number): void {
+    for (const g of this.gates.values()) {
+      g.angle += ((g.open ? 1.4 : 0) - g.angle) * Math.min(1, dt * 5);
+      g.boom.rotation.z = -g.angle;
+    }
     for (const c of this.cranes.values()) {
       let d = c.target - c.angle;
       while (d > Math.PI) d -= Math.PI * 2;
@@ -108,6 +129,7 @@ export class Structures {
       this.tiles.delete(i);
       this.stacks.delete(i);
       this.cranes.delete(i);
+      this.gates.delete(i);
     }
     let obj = this.make(i);
     if (!obj) return;
@@ -177,6 +199,28 @@ export class Structures {
           const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
           g.add(box(w, 0.006, d, C.marking, x, QUAY_Y, z));
         }
+        return g;
+      }
+      case Build.Gate: {
+        // Port paving with a gatehouse to one side and a striped barrier
+        // across the lane, the public road in front (+z).
+        g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
+        const y = QUAY_Y;
+        g.add(box(0.6, 0.006, 0.04, C.marking, 0.42, y, 0.8));
+        g.add(box(0.2, 0.26, 0.3, C.cabin, 0.88, y, 0.42));
+        g.add(box(0.205, 0.08, 0.305, C.window, 0.88, y + 0.13, 0.42));
+        g.add(box(0.26, 0.03, 0.36, C.sign, 0.88, y + 0.26, 0.42));
+        g.add(box(0.06, 0.12, 0.06, C.chassis, 0.74, y, 0.68));
+        g.add(box(0.035, 0.08, 0.035, C.chassis, 0.08, y, 0.68));
+        const boom = new Group();
+        boom.position.set(0.74, y + 0.11, 0.68);
+        for (let k = 0; k < 6; k++) {
+          boom.add(
+            box(0.11, 0.03, 0.03, k % 2 ? C.marking : C.funnel, -0.06 - k * 0.11, -0.015, 0),
+          );
+        }
+        g.add(boom);
+        this.gates.set(i, { boom, open: false, angle: 0 });
         return g;
       }
       case Build.Footpath:
@@ -610,6 +654,7 @@ const DIRS = [
 
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([
+  Build.Gate,
   Build.Yard,
   Build.TruckBay,
   Build.LargeBay,

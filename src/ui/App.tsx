@@ -323,7 +323,12 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
         </dl>
         <Meter value={bay.stock / bay.capacity} />
-        {bay.noAccess && <p class="note bad">No road connection. Trucks cannot reach this bay.</p>}
+        {bay.noAccess && (
+          <p class="note bad">
+            Trucks cannot reach this bay. It needs a public road to the highway, or port roads from
+            a port gate.
+          </p>
+        )}
       </aside>
     );
   }
@@ -347,8 +352,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <Meter value={yard.boxes / B.YARD_BOXES} />
         {yard.noAccess && (
           <p class="note bad">
-            No public road to the highway. Container trucks cannot reach this yard: rebuild it with
-            its gate or a side on a public road.
+            Container trucks cannot reach this yard. It needs a public road to the highway, or port
+            roads from a port gate.
           </p>
         )}
       </aside>

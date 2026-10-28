@@ -86,21 +86,28 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Yard,
     label: 'Container yard',
     cost: 2500,
-    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2; the gate faces a public road, and a side or back touches a port road or quay`,
+    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2; the gate faces a public road or a port road trucks reach through a port gate, and the stackers need a port road or quay alongside`,
+    drag: false,
+  },
+  portGate: {
+    code: Build.Gate,
+    label: 'Port gate',
+    cost: 400,
+    hint: 'Lets the hauliers’ trucks into the port: they turn in off the public road at the front and drive on port roads to truck bays and container yards inside. Staff never leave through it',
     drag: false,
   },
   largeBay: {
     code: Build.LargeBay,
     label: 'Large truck bay',
     cost: 900,
-    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Two tiles wide; the entrance faces a public road`,
+    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Two tiles wide; the entrance faces a public road, or a port road behind a port gate`,
     drag: false,
   },
   truckBay: {
     code: Build.TruckBay,
     label: 'Truck bay',
     cost: 300,
-    hint: 'Crates are stacked here for trucks. The entrance faces a public road',
+    hint: 'Crates are stacked here for trucks. The entrance faces a public road, or a port road behind a port gate',
     drag: false,
   },
 };
@@ -110,6 +117,7 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'truckBay',
   'largeBay',
   'containerYard',
+  'portGate',
   'depot',
   'office',
   'breakHut',
@@ -313,20 +321,25 @@ export function placementError(
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
   const f = front >= 0 ? map.build[front] : Build.None;
+  // Trucks come in off a public road, or along port roads from a port gate.
+  const truckable = f === Build.Road || (f === Build.PortRoad && !forkliftOnly(map, front));
+  if (kind === 'portGate') {
+    return f === Build.Road ? null : 'The gate must face a public road, where the trucks turn in';
+  }
   if (kind === 'truckBay' || kind === 'largeBay') {
-    return f === Build.Road ? null : 'The entrance must face a public road';
+    return truckable ? null : 'The entrance must face a public road or a port road';
   }
   if (kind === 'depot') {
     return drivable(f) ? null : 'The garage door must face a port road or quay';
   }
   if (kind === 'containerYard') {
-    if (f !== Build.Road) return 'The gate must face a public road, for the trucks';
+    if (!truckable) return 'The gate must face a public road or a port road, for the trucks';
     // The stackers come in from the port side.
     const tiles = footprint(map, kind, i, facing);
     const port = tiles.some((t) =>
-      map.neighbors4(t).some((n) => n !== front && !tiles.includes(n) && drivable(map.build[n])),
+      map.neighbors4(t).some((n) => !tiles.includes(n) && drivable(map.build[n])),
     );
-    return port ? null : 'A side or the back must touch a port road or quay, for the stackers';
+    return port ? null : 'It must touch a port road or quay, for the stackers';
   }
   if (kind === 'office') {
     const ok = walkableAt(map, front) || f === Build.Road;

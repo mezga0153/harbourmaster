@@ -635,6 +635,52 @@ describe('Buildings', () => {
     expect([m.build[a], m.build[b]]).toEqual([Build.None, Build.None]);
     expect(world.bays.size).toBe(bays);
   });
+
+  it('lets trucks into the port only through a port gate', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    // A gate off the public road, a port road behind it and a truck bay at
+    // the end facing the port road, away from the public road.
+    const r = m.yOf(m.entry);
+    const grass = (x: number, y: number) =>
+      m.inBounds(x, y) && m.terrain[m.idx(x, y)] === Terrain.Grass;
+    const x = [...Array(m.w).keys()].find(
+      (x) =>
+        m.build[m.idx(x, r)] === Build.Road &&
+        [1, 2, 3].every((d) => grass(x, r + d) && grass(x + 1, r + d)),
+    )!;
+    expect(x).toBeDefined();
+    const [gate, road1, road2, bay] = [
+      m.idx(x, r + 1),
+      m.idx(x, r + 2),
+      m.idx(x, r + 3),
+      m.idx(x + 1, r + 3),
+    ];
+    world.command({ type: 'bulldoze', tiles: [gate, road1, road2, bay, m.idx(x + 1, r + 2)] });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [road1, road2] });
+    world.command({ type: 'build', kind: 'truckBay', tiles: [bay], facing: 2 });
+    expect(m.build[bay]).toBe(Build.TruckBay);
+    // Not without a gate, and not by a port road straight off the highway.
+    world.command({ type: 'build', kind: 'portRoad', tiles: [gate] });
+    const goods = world.bays.get(bay)!;
+    goods.crates.push(20, 20, 20, 20);
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(goods.noAccess).toBe(true);
+    expect(goods.crates.length).toBe(4);
+    world.command({ type: 'bulldoze', tiles: [gate] });
+    expect(placementError(m, 'portGate', gate, undefined, 3)).toBeNull();
+    expect(placementError(m, 'portGate', gate, undefined, 1)).not.toBeNull();
+    world.command({ type: 'build', kind: 'portGate', tiles: [gate] });
+    expect(m.build[gate]).toBe(Build.Gate);
+    expect(m.orient[gate]).toBe(3);
+    // Staff never use the gate.
+    expect(drivable(Build.Gate) || walkable(Build.Gate)).toBe(false);
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(goods.noAccess).toBe(false);
+    expect(goods.crates.length).toBeLessThan(4);
+  });
 });
 
 describe('Port side', () => {

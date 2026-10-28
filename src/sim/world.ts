@@ -853,7 +853,8 @@ export class World {
   private addContract(terms: Terms, firstBoatTick: number, signingFee: number): Contract {
     const c: Contract = {
       id: this.nextId++,
-      terms,
+      // A copy: the starter terms are shared by every new game.
+      terms: { ...terms },
       signingFee,
       satisfaction: B.START_SATISFACTION,
       nextBoatTick: firstBoatTick,
@@ -2969,14 +2970,28 @@ export class World {
   }
 
   /**
-   * Trucks drive on roads; a truck bay or container yard is only enterable
-   * as the destination, from any side of it that touches a road.
+   * Trucks drive on public roads, and on port roads once they are through a
+   * port gate: never straight from one to the other. A truck bay or container
+   * yard is only enterable as the destination, or the one being left, from
+   * any side of it that touches a road.
    */
-  private truckCost(target: number): CostFn {
-    return (i) =>
-      this.map.build[i] === Build.Road || i === target || anchorOf(this.map, i) === target
-        ? 1
-        : Infinity;
+  private truckCost(target: number, home = -1): CostFn {
+    const m = this.map;
+    const way = (i: number): 'road' | 'port' | 'gate' | null => {
+      const b = m.build[i];
+      if (b === Build.Road) return 'road';
+      if (b === Build.PortRoad) return forkliftOnly(m, i) ? null : 'port';
+      if (b === Build.Gate) return 'gate';
+      const a = anchorOf(m, i);
+      return a === target || a === home ? 'gate' : null;
+    };
+    return (i, from) => {
+      const here = way(i);
+      if (!here) return Infinity;
+      const there = from === undefined || from < 0 ? null : way(from);
+      const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
+      return jump ? Infinity : 1;
+    };
   }
 
   private spawnTrucks(): void {
@@ -3030,9 +3045,7 @@ export class World {
       if (!path) {
         if (!bay.noAccess) {
           this.message(
-            bay.yard
-              ? 'A container yard has no public road to the highway, so no trucks can collect from it.'
-              : 'A truck bay has no road connection to the highway.',
+            `Trucks cannot reach a ${bay.yard ? 'container yard' : 'truck bay'}: it needs a public road to the highway, or port roads from a port gate.`,
             'bad',
           );
         }
@@ -3096,7 +3109,8 @@ export class World {
         return;
       }
       case 'leaving':
-        if (this.move(t, this.truckCost(this.map.entry), false, () => B.TRUCK_SPEED) !== 'moving') {
+        const cost = this.truckCost(this.map.entry, t.bayIdx);
+        if (this.move(t, cost, false, () => B.TRUCK_SPEED) !== 'moving') {
           this.removeTruck(t);
         }
         return;
@@ -3123,7 +3137,7 @@ export class World {
       this.map.h,
       this.tileOf(t),
       this.map.entry,
-      this.truckCost(this.map.entry),
+      this.truckCost(this.map.entry, t.bayIdx),
       false,
     );
     if (path) t.path = path;
@@ -3151,7 +3165,7 @@ export class World {
       const next = a.path[0];
       // Hold back at the edge of a tile someone else is standing on.
       if (canEnter && next !== this.tileOf(a) && !canEnter(next)) return 'waiting';
-      if (!Number.isFinite(cost(next))) {
+      if (!Number.isFinite(cost(next, this.tileOf(a)))) {
         const p =
           repaths++ < 1 ? findPath(w, this.map.h, this.tileOf(a), a.goal, cost, diagonal) : null;
         if (!p) {

@@ -156,6 +156,7 @@ export class Renderer {
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
     this.layers.structures.setCranes(s.cranes);
+    this.layers.structures.setGates(s.entities.filter((e) => e.kind === 'truck'));
   }
 
   select(id: number | null): void {

@@ -1,5 +1,8 @@
-/** Cost of entering a tile. Infinity means blocked. */
-export type CostFn = (i: number) => number;
+/**
+ * Cost of entering tile `i`, from the neighbouring tile `from` when that is
+ * known. Infinity means blocked.
+ */
+export type CostFn = (i: number, from?: number) => number;
 
 const DIRS4 = [
   [1, 0],
@@ -54,7 +57,7 @@ export function findPath(
       if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
       const ni = ny * w + nx;
       if (closed[ni]) continue;
-      const c = cost(ni);
+      const c = cost(ni, cur);
       if (!Number.isFinite(c)) continue;
       let step = c;
       if (dx !== 0 && dy !== 0) {
