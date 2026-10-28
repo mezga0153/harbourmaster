@@ -2,6 +2,7 @@
 
 import type { Terms } from './sim/contracts';
 import type { MapData } from './sim/map';
+import type { SaveData } from './sim/world';
 import type { Candidate, Trait } from './sim/staff';
 import type { BuildKind, MachineKind } from './sim/types';
 
@@ -22,7 +23,9 @@ export type Command =
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
   /** Dev server only: jump ahead for testing. */
-  | { type: 'debug'; cash?: number; tier?: number; coaster?: boolean; containers?: boolean };
+  | { type: 'debug'; cash?: number; tier?: number; coaster?: boolean; containers?: boolean }
+  /** Dev server only: post the whole game state back, for the debug bridge. */
+  | { type: 'dumpSave' };
 
 export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'boat' | 'truck';
 
@@ -210,4 +213,6 @@ export interface TileChange {
 
 export type WorkerMessage =
   | { type: 'init'; map: MapData; seed: number }
-  | { type: 'frame'; snapshot: Snapshot; tiles: TileChange[]; events: SimEvent[] };
+  | { type: 'frame'; snapshot: Snapshot; tiles: TileChange[]; events: SimEvent[] }
+  /** Dev server only: the game as a save, for the debug bridge. */
+  | { type: 'dump'; save: SaveData };

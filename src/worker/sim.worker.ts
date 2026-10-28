@@ -46,6 +46,8 @@ function handle(cmd: Command): void {
     save(true);
   } else if (cmd.type === 'debug') {
     if (import.meta.env.DEV) world.debug(cmd);
+  } else if (cmd.type === 'dumpSave') {
+    if (import.meta.env.DEV) ctx.postMessage({ type: 'dump', save: world.toSave() });
   } else {
     world.command(cmd);
   }

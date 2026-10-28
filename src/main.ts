@@ -69,6 +69,7 @@ worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
 };
 
 function handle(msg: WorkerMessage): void {
+  if (msg.type === 'dump') return;
   if (msg.type === 'init') {
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;
@@ -100,4 +101,8 @@ function handle(msg: WorkerMessage): void {
 if (import.meta.env.DEV) {
   // Handle for poking at the game from the console or a test driver.
   Object.assign(window, { __hm: { renderer, send, map: () => map, snapshot, selection } });
+  // Mirror the game into .debug/ for tools outside the browser.
+  void import('./debug/bridge').then((b) =>
+    b.startBridge({ worker, send, renderer, map: () => map }),
+  );
 }
