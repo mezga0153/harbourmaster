@@ -2,6 +2,7 @@ import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, FORKLIFT_ONLY } from '../sim/rules';
+import { hash01 } from '../sim/noise';
 import { Build, isDock } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
@@ -49,8 +50,13 @@ export class Structures {
   apply(changes: TileChange[]): void {
     const touched = new Set<number>();
     for (const c of changes) {
-      touched.add(c.i);
-      for (const n of this.map.neighbors4(c.i)) touched.add(n);
+      // Diagonals too: a quay's safety line looks one tile round the corner.
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const n = this.offset(c.i, dx, dy);
+          if (n >= 0) touched.add(n);
+        }
+      }
     }
     for (const i of touched) this.rebuild(i);
   }
@@ -160,22 +166,21 @@ export class Structures {
         return g;
       }
       case Build.PortRoad: {
-        // Concrete paving with a dashed white centre line.
-        g.add(box(1, 0.03, 1, C.concrete, 0.5, top, 0.5));
+        // Same paving as the quays and flush with them, with a dashed white centre line.
+        g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
         if (this.map.orient[i] & FORKLIFT_ONLY) {
-          this.forkliftMarking(g, along, top + 0.03);
+          this.forkliftMarking(g, along, QUAY_Y);
           return g;
         }
         for (const o of [0.15, 0.6]) {
           const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
-          g.add(box(w, 0.006, d, C.marking, x, top + 0.03, z));
+          g.add(box(w, 0.006, d, C.marking, x, QUAY_Y, z));
         }
         return g;
       }
       case Build.Footpath:
-        g.add(box(1, 0.03, 1, C.pathEdge, 0.5, top, 0.5));
-        g.add(box(0.9, 0.025, 0.9, C.path, 0.5, top + 0.03, 0.5));
+        this.footpath(g, i, top);
         return g;
       case Build.Jetty: {
         const onBeach = this.map.isLand(i);
@@ -440,28 +445,88 @@ export class Structures {
     g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, y, 0.5));
   }
 
+  /**
+   * A worn path: a dirt track with stepping stones down it and trampled grass
+   * along its edges, running out to each side that leads somewhere so a run
+   * of tiles reads as one winding path.
+   */
+  private footpath(g: Group, i: number, top: number): void {
+    const arms = DIRS.filter(([dx, dy]) => this.leadsTo(i, dx, dy));
+    for (const [w, h, color] of [
+      [0.64, 0.012, C.verge],
+      [0.42, 0.02, C.dirt],
+    ] as const) {
+      g.add(cyl(w / 2, h, color, 0.5, top, 0.5, 8));
+      for (const [dx, dy] of arms) {
+        const [x, z, bw, bd] = dx ? [0.5 + dx / 4, 0.5, 0.5, w] : [0.5, 0.5 + dy / 4, w, 0.5];
+        g.add(box(bw, h, bd, color, x, top, z));
+      }
+    }
+    // Flat stones every quarter tile, nudged and turned a little so the line wanders.
+    const spots: [number, number][] = [
+      [0.5, 0.5],
+      ...arms.map(([dx, dy]) => [0.5 + dx / 4, 0.5 + dy / 4] as [number, number]),
+    ];
+    spots.forEach(([x, z], k) => {
+      const jx = (hash01(i, k, 1) - 0.5) * 0.08;
+      const jz = (hash01(i, k, 2) - 0.5) * 0.08;
+      const s = 0.13 + hash01(i, k, 3) * 0.05;
+      const stone = box(s, 0.012, s * 0.8, C.flagstone, x + jx, top + 0.02, z + jz);
+      stone.rotation.y = (hash01(i, k, 4) - 0.5) * 1.2;
+      g.add(stone);
+    });
+  }
+
+  /** Whether a path on tile `i` should run out to the neighbour at dx, dy. */
+  private leadsTo(i: number, dx: number, dy: number): boolean {
+    const x = this.map.xOf(i) + dx;
+    const y = this.map.yOf(i) + dy;
+    if (!this.map.inBounds(x, y)) return i === this.map.entry;
+    return this.map.build[this.map.idx(x, y)] !== Build.None;
+  }
+
   /** Concrete slab (on the shore) or block (in the water) with edge details. */
   private quay(g: Group, i: number): void {
     const onLand = this.map.isLand(i);
     const base = onLand ? landTop(this.map.terrain[i]) : SEABED;
+    // Full-tile top so neighbouring quays and port roads join without a seam.
     g.add(box(1, QUAY_Y - 0.03 - base, 1, C.quayWall, 0.5, base, 0.5));
-    g.add(box(0.98, 0.03, 0.98, C.quayTop, 0.5, QUAY_Y - 0.03, 0.5));
+    g.add(box(1, 0.03, 1, C.quayTop, 0.5, QUAY_Y - 0.03, 0.5));
     // Safety line, bollards and tyre fenders along open-water edges.
     const sides = [
-      { dx: 1, dy: 0, x: 0.95, z: 0.5, w: 0.04, d: 0.9 },
-      { dx: -1, dy: 0, x: 0.05, z: 0.5, w: 0.04, d: 0.9 },
-      { dx: 0, dy: 1, x: 0.5, z: 0.95, w: 0.9, d: 0.04 },
-      { dx: 0, dy: -1, x: 0.5, z: 0.05, w: 0.9, d: 0.04 },
+      { dx: 1, dy: 0, x: 0.95, z: 0.5, w: 0.04, d: 1 },
+      { dx: -1, dy: 0, x: 0.05, z: 0.5, w: 0.04, d: 1 },
+      { dx: 0, dy: 1, x: 0.5, z: 0.95, w: 1, d: 0.04 },
+      { dx: 0, dy: -1, x: 0.5, z: 0.05, w: 1, d: 0.04 },
     ];
     for (const s of sides) {
-      const nx = this.map.xOf(i) + s.dx;
-      const ny = this.map.yOf(i) + s.dy;
-      if (!this.map.inBounds(nx, ny)) continue;
-      const n = this.map.idx(nx, ny);
-      if (this.map.isLand(n) || isDock(this.map.build[n])) continue;
+      if (!this.openWater(i, s.dx, s.dy)) continue;
       const inX = s.dx !== 0 ? s.x - s.dx * 0.07 : s.x;
       const inZ = s.dy !== 0 ? s.z - s.dy * 0.07 : s.z;
-      g.add(box(s.w, 0.005, s.d, C.stripe, inX, QUAY_Y, inZ));
+      // The line runs on into the next quay along this edge, and stops at
+      // the corner where the edge turns.
+      const [ax, ay] = s.dx ? [0, 1] : [1, 0];
+      let from = 0;
+      let to = 1;
+      for (const e of [-1, 1]) {
+        const n = this.offset(i, ax * e, ay * e);
+        const runsOn = n >= 0 && isDock(this.map.build[n]) && this.openWater(n, s.dx, s.dy);
+        if (!runsOn && e < 0) from = 0.12;
+        if (!runsOn && e > 0) to = 0.88;
+      }
+      const mid = (from + to) / 2;
+      const len = to - from;
+      g.add(
+        box(
+          s.dx ? s.w : len,
+          0.005,
+          s.dy ? s.d : len,
+          C.stripe,
+          s.dx ? inX : mid,
+          QUAY_Y,
+          s.dy ? inZ : mid,
+        ),
+      );
       g.add(
         cyl(
           0.04,
@@ -503,6 +568,19 @@ export class Structures {
     return { alongX: false, side: -1 };
   }
 
+  /** Index of the tile at dx, dy from `i`, or -1 off the map. */
+  private offset(i: number, dx: number, dy: number): number {
+    const x = this.map.xOf(i) + dx;
+    const y = this.map.yOf(i) + dy;
+    return this.map.inBounds(x, y) ? this.map.idx(x, y) : -1;
+  }
+
+  /** Whether the side of `i` towards dx, dy faces water a boat could lie in. */
+  private openWater(i: number, dx: number, dy: number): boolean {
+    const n = this.offset(i, dx, dy);
+    return n >= 0 && !this.map.isLand(n) && !isDock(this.map.build[n]);
+  }
+
   private landAt(i: number, dx: number, dy: number): boolean {
     const x = this.map.xOf(i) + dx;
     const y = this.map.yOf(i) + dy;
@@ -522,6 +600,13 @@ export class Structures {
     return g;
   }
 }
+
+const DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
 
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([

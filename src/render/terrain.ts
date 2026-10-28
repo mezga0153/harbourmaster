@@ -67,10 +67,17 @@ export function surfaceY(map: GameMap, x: number, y: number): number {
   const i = map.idx(tx, ty);
   const b = map.build[i];
   if (b === Build.Jetty) return DECK_Y;
-  if (b === Build.Quay || b === Build.JibCrane || b === Build.HarbourCrane) return QUAY_Y;
+  if (
+    b === Build.Quay ||
+    b === Build.JibCrane ||
+    b === Build.HarbourCrane ||
+    b === Build.PortRoad
+  ) {
+    return QUAY_Y;
+  }
   const t = map.terrain[i];
   if (t === Terrain.Water) return 0;
-  return TOP[t] + (b === Build.None ? 0 : 0.05);
+  return TOP[t] + (b === Build.None ? 0 : b === Build.Footpath ? 0.03 : 0.05);
 }
 
 export function landTop(t: number): number {
