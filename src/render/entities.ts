@@ -1,13 +1,4 @@
-import {
-  BufferGeometry,
-  DoubleSide,
-  Float32BufferAttribute,
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  Vector3,
-  type Object3D,
-} from 'three';
+import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS } from '../sim/balance';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
@@ -30,55 +21,33 @@ interface Entry {
   view: EntityView;
   model: Model;
   alert: Object3D | null;
-  /** Boats: the foam they leave behind, and how far they lean in a turn. */
-  wake?: Mesh;
+  /** Boats: where they have been, how hard they are going and how far they lean. */
+  trail?: WakePoint[];
+  way?: number;
+  lead?: [number, number];
   heel?: number;
 }
 
-const wakeMaterial = new MeshBasicMaterial({
-  color: 0xffffff,
-  vertexColors: true,
-  transparent: true,
-  depthWrite: false,
-  side: DoubleSide,
-});
+/** Most boats whose wakes are drawn, and points kept along each wake. */
+export const WAKE_BOATS = 12;
+export const WAKE_POINTS = 16;
+/** Seconds a wake takes to settle once the boat stops. */
+const WAKE_LIFE = 3;
 
-/**
- * Foam around a hull: a bow wave either side of the stem and a widening
- * wake behind the stern, fading out. Faces +X like the boats.
- */
-function wakeMesh(length: number, beam: number): Mesh {
-  const bow = length / 2;
-  const stern = -length / 2;
-  const tail = stern - length * 1.1;
-  const spread = beam * 1.2;
-  const v = (x: number, z: number) => [x, 0, z];
-  const pos = [
-    // Bow wave: two thin wedges along the bow.
-    ...v(bow, 0),
-    ...v(bow - 0.35, beam * 0.62),
-    ...v(bow - 0.25, beam * 0.5),
-    ...v(bow, 0),
-    ...v(bow - 0.25, -beam * 0.5),
-    ...v(bow - 0.35, -beam * 0.62),
-    // Wake: a fan behind the stern.
-    ...v(stern, beam * 0.45),
-    ...v(tail, spread),
-    ...v(tail, -spread),
-    ...v(stern, beam * 0.45),
-    ...v(tail, -spread),
-    ...v(stern, -beam * 0.45),
-  ];
-  const a = (x: number) => (x === tail ? 0 : x <= stern ? 0.32 : x === bow ? 0.7 : 0.2);
-  const col: number[] = [];
-  for (let k = 0; k < pos.length; k += 3) col.push(1, 1, 1, a(pos[k]));
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new Float32BufferAttribute(col, 4));
-  const m = new Mesh(geo, wakeMaterial.clone());
-  m.position.y = 0.01;
-  m.renderOrder = 1;
-  return m;
+interface WakePoint {
+  x: number;
+  z: number;
+  /** How hard the boat was going when it passed here. */
+  way: number;
+  time: number;
+}
+
+/** A boat's track through the water, newest first, for the sea to churn up. */
+export interface Wake {
+  /** x, z, distance back from the leading end, strength. */
+  points: [number, number, number, number][];
+  beam: number;
+  length: number;
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -117,10 +86,9 @@ export class Entities {
         }
         e = { view: v, model, alert };
         if (v.kind === 'boat') {
-          const hull = VESSELS[(v.vessel ?? 'smack') as keyof typeof VESSELS];
-          e.wake = wakeMesh(hull.length, hull.beam);
+          e.trail = [];
+          e.way = 0;
           e.heel = 0;
-          model.root.add(e.wake);
           model.root.rotation.order = 'YXZ';
         }
         this.entries.set(v.id, e);
@@ -159,11 +127,22 @@ export class Entities {
         root.position.set(x, Math.sin(time * 1.6 + id) * 0.025, y);
         root.rotation.x = e.heel + Math.sin(time * 0.9 + id * 2) * 0.02;
         root.rotation.z = Math.sin(time * 1.1 + id) * 0.02 + way * 0.025;
-        if (e.wake) {
-          const mat = e.wake.material as MeshBasicMaterial;
-          mat.opacity += (way - mat.opacity) * 0.1;
-          e.wake.visible = mat.opacity > 0.02;
+        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * 0.1;
+        // The wake starts at whichever end is leading: the bow, or the
+        // stern while going astern.
+        const ahead = (cur.x - prev.x) * Math.cos(dir) + (cur.y - prev.y) * Math.sin(dir) >= 0;
+        const reach = ((ahead ? 1 : -1) * hull.length) / 2;
+        const lx = x + Math.cos(dir) * reach;
+        const lz = y + Math.sin(dir) * reach;
+        e.lead = [lx, lz];
+        const trail = e.trail!;
+        const spacing = (hull.length + 3.5) / (WAKE_POINTS - 2);
+        const last = trail[0];
+        if (!last || Math.hypot(lx - last.x, lz - last.z) > spacing) {
+          if (e.way > 0.05 || last) trail.unshift({ x: lx, z: lz, way: e.way, time });
+          if (trail.length > WAKE_POINTS - 1) trail.pop();
         }
+        while (trail.length && time - trail[trail.length - 1].time > WAKE_LIFE * 4) trail.pop();
       } else if (cur.kind === 'dockhand' || cur.kind === 'forklift' || cur.kind === 'stacker') {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
@@ -179,6 +158,27 @@ export class Entities {
         e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);
       }
     }
+  }
+
+  /** Wakes of the boats under way, strongest first, for the water to draw. */
+  wakes(time: number): Wake[] {
+    const out: Wake[] = [];
+    for (const e of this.entries.values()) {
+      if (!e.trail || !e.lead) continue;
+      const hull = VESSELS[(e.view.vessel ?? 'smack') as keyof typeof VESSELS];
+      const settle = (t: number) => Math.max(0, 1 - (time - t) / WAKE_LIFE);
+      const points: Wake['points'] = [[e.lead[0], e.lead[1], 0, e.way ?? 0]];
+      let s = 0;
+      for (const p of e.trail) {
+        const [px, pz] = points[points.length - 1];
+        s += Math.hypot(p.x - px, p.z - pz);
+        points.push([p.x, p.z, s, p.way * settle(p.time)]);
+      }
+      if (points.length < 2 || points.every((p) => p[3] < 0.02)) continue;
+      out.push({ points, beam: hull.beam, length: hull.length });
+    }
+    const strength = (w: Wake) => w.points.reduce((a, p) => a + p[3], 0);
+    return out.sort((a, b) => strength(b) - strength(a)).slice(0, WAKE_BOATS);
   }
 
   /** Current world position, for the selection ring and info panel. */

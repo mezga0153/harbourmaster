@@ -14,8 +14,10 @@ import {
   type Texture,
   UnsignedByteType,
   Vector3,
+  Vector4,
 } from 'three';
 import type { GameMap } from '../sim/map';
+import { WAKE_BOATS, WAKE_POINTS, type Wake } from './entities';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 
@@ -47,6 +49,13 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uFoam;
   uniform vec3 uSun;
   uniform vec3 uView;
+  // Boat wakes: points along each track (x, z, distance back from the
+  // leading end, strength), and per boat (half beam, length, points) and
+  // the box the wake fits in.
+  uniform vec4 uWake[WAKE_BOATS * WAKE_POINTS];
+  uniform vec4 uWakeHull[WAKE_BOATS];
+  uniform vec4 uWakeBox[WAKE_BOATS];
+  uniform int uWakeCount;
   varying vec2 vXZ;
 
   // Slow swell that follows the coastline; only drives the surf.
@@ -99,6 +108,87 @@ const fragmentShader = /* glsl */ `
     return normalize(n.xzy * vec3(1.5, 1.0, 1.5));
   }
 
+  // How boats stir the water at p: tilts the surface normal with the
+  // ripples a hull pushes out, and returns how much foam it whips up (x)
+  // and how churned and aerated the water is (y). Each
+  // wake is a Kelvin V opening from the leading end of the hull along the
+  // track it took, with churned propeller wash down the middle.
+  vec2 wake(vec2 p, inout vec3 n) {
+    float foam = 0.0;
+    float churn = 0.0;
+    vec2 tilt = vec2(0.0);
+    for (int b = 0; b < WAKE_BOATS; b++) {
+      if (b >= uWakeCount) break;
+      vec4 box = uWakeBox[b];
+      if (p.x < box.x || p.y < box.y || p.x > box.z || p.y > box.w) continue;
+      vec4 hull = uWakeHull[b];
+      int count = int(hull.z);
+      // Nearest point on the track: how far back it is (s), how far to the
+      // side (l), and which way the track runs there.
+      float best = 1e9;
+      float s = 0.0;
+      float l = 0.0;
+      float a = 0.0;
+      vec2 back = vec2(1.0, 0.0);
+      for (int k = 0; k < WAKE_POINTS - 1; k++) {
+        if (k >= count - 1) break;
+        vec4 p0 = uWake[b * WAKE_POINTS + k];
+        vec4 p1 = uWake[b * WAKE_POINTS + k + 1];
+        vec2 seg = p1.xy - p0.xy;
+        float len = max(length(seg), 1e-4);
+        vec2 dir = seg / len;
+        float along = dot(p - p0.xy, dir);
+        // Ahead of the boat the distance goes negative, so nothing shows.
+        float t = k == 0 ? min(along, len) : clamp(along, 0.0, len);
+        float d = distance(p, p0.xy + dir * t);
+        if (d < best) {
+          best = d;
+          s = p0.z + t;
+          a = mix(p0.w, p1.w, clamp(t / len, 0.0, 1.0));
+          back = dir;
+          l = dot(p - p0.xy, vec2(-dir.y, dir.x));
+        }
+      }
+      float halfBeam = hull.x;
+      float side = abs(l);
+      float on = a * smoothstep(-0.1, 0.05, s) * (1.0 - smoothstep(hull.y + 1.5, hull.y + 3.5, s));
+      if (on < 0.01) continue;
+
+      // The arms of the V: a ridge of broken water spreading out at about
+      // 19 degrees, with smaller crests trailing inside it.
+      float halfW = halfBeam + s * 0.34;
+      float ridge = 0.05 + s * 0.04;
+      // Ragged, so the ridge breaks up rather than ruling a line.
+      float beyond = side - halfW + (noise(p * 5.0 + uTime * 0.5) - 0.5) * ridge * 1.6;
+      float arm = (1.0 - smoothstep(0.0, ridge, abs(beyond))) * on;
+      float inside = (1.0 - smoothstep(-ridge, ridge, beyond)) * on;
+      float behind = max(s - hull.y, 0.0);
+      // Propeller wash: churned, aerated water straight behind the stern.
+      float washW = halfBeam * 0.7 + behind * 0.12;
+      float wash = smoothstep(hull.y * 0.8, hull.y, s) * (1.0 - smoothstep(washW * 0.4, washW, side));
+      wash *= on * exp(-behind * 0.45);
+
+      // Ripples: crests parallel to the arms, and transverse ones across the
+      // track that keep pace with the boat.
+      float div = -beyond;
+      float diverging = cos(div * 26.0) * exp(-div * 2.5) * inside;
+      float transverse = cos(s * 9.0) * inside * exp(-s * 0.25) * 0.5;
+      vec2 across = vec2(-back.y, back.x) * sign(l);
+      tilt += across * diverging * 0.9 + back * transverse * 0.7;
+      // The arm itself is a heaped-up crest, steepest on its outer face.
+      tilt += across * sign(beyond) * arm * 0.6;
+      vec2 boil = vec2(noise(p * 9.0 + uTime * 2.0), noise(p * 9.0 - uTime * 2.0 + 7.0)) - 0.5;
+      tilt += boil * wash * 2.0;
+
+      float grain = noise(p * 7.0 + vec2(uTime * 0.7, -uTime * 0.5)) * 0.6 + noise(p * 17.0 - uTime * 1.3) * 0.4;
+      foam = max(foam, arm * smoothstep(0.45, 0.8, grain));
+      foam = max(foam, wash * smoothstep(0.35, 0.75, grain) * 0.9);
+      churn = max(churn, max(arm * 0.7, wash) + max(diverging, 0.0) * 0.25);
+    }
+    n = normalize(n + vec3(tilt.x, 0.0, tilt.y));
+    return vec2(foam, min(churn, 1.0));
+  }
+
   void main() {
     vec4 field = texture2D(uField, vXZ / uSize);
     float depth = field.r;
@@ -109,6 +199,9 @@ const fragmentShader = /* glsl */ `
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
     vec3 n = waterNormal(vXZ);
+    vec2 stirred = wake(vXZ, n);
+    // Churned water is full of bubbles, so it goes a paler, milkier blue.
+    col = mix(col, uShallow * 1.2 + 0.08, stirred.y * 0.45);
     col *= 0.78 + 0.34 * max(dot(n, uSun), 0.0);
     // Soft sheen from the sun, and tight bright glints that flicker as the
     // wave layers drift past each other. The glint light sits a little off
@@ -132,6 +225,7 @@ const fragmentShader = /* glsl */ `
     // …and the backwash leaves a fainter line as it bounces back out.
     float backwash = smoothstep(0.85, 1.0, swellBack(d)) * (1.0 - smoothstep(0.15, 0.9, d)) * 0.45;
     foam = max(foam, max(breaking * 0.9, backwash));
+    foam = max(foam, stirred.x);
 
     col = mix(col, uFoam, foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
@@ -169,6 +263,7 @@ export class Water {
     }
 
     this.material = new ShaderMaterial({
+      defines: { WAKE_BOATS, WAKE_POINTS },
       vertexShader,
       fragmentShader,
       transparent: true,
@@ -185,6 +280,10 @@ export class Water {
         uFoam: { value: new Color(C.foam) },
         uSun: { value: sunDir.clone() },
         uView: { value: new Vector3(0, 1, 0) },
+        uWake: { value: Array.from({ length: WAKE_BOATS * WAKE_POINTS }, () => new Vector4()) },
+        uWakeHull: { value: Array.from({ length: WAKE_BOATS }, () => new Vector4()) },
+        uWakeBox: { value: Array.from({ length: WAKE_BOATS }, () => new Vector4()) },
+        uWakeCount: { value: 0 },
       },
     });
 
@@ -199,6 +298,34 @@ export class Water {
   update(time: number, view: Vector3): void {
     this.material.uniforms.uTime.value = time;
     (this.material.uniforms.uView.value as Vector3).copy(view);
+  }
+
+  /** Boat tracks for the sea to churn up this frame. */
+  setWakes(wakes: Wake[]): void {
+    const u = this.material.uniforms;
+    const pts = u.uWake.value as Vector4[];
+    const hulls = u.uWakeHull.value as Vector4[];
+    const boxes = u.uWakeBox.value as Vector4[];
+    wakes.forEach((w, b) => {
+      const n = Math.min(w.points.length, WAKE_POINTS);
+      let x0 = Infinity;
+      let z0 = Infinity;
+      let x1 = -Infinity;
+      let z1 = -Infinity;
+      for (let k = 0; k < n; k++) {
+        const [x, z, s, a] = w.points[k];
+        pts[b * WAKE_POINTS + k].set(x, z, s, a);
+        // Room for the V to open out to either side.
+        const r = w.beam / 2 + s * 0.34 + 0.3;
+        x0 = Math.min(x0, x - r);
+        z0 = Math.min(z0, z - r);
+        x1 = Math.max(x1, x + r);
+        z1 = Math.max(z1, z + r);
+      }
+      hulls[b].set(w.beam / 2, w.length, n, 0);
+      boxes[b].set(x0, z0, x1, z1);
+    });
+    u.uWakeCount.value = wakes.length;
   }
 
   dispose(): void {
