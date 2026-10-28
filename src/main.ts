@@ -55,6 +55,7 @@ function handle(msg: WorkerMessage): void {
     if (map.terrain[c.i] !== c.terrain) terrainChanged = true;
     map.terrain[c.i] = c.terrain;
     map.build[c.i] = c.build;
+    map.orient[c.i] = c.orient;
     map.deco[c.i] = c.deco;
   }
   renderer.applyTiles(msg.tiles, treesChanged, terrainChanged);

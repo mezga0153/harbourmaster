@@ -6,7 +6,7 @@ import type { Candidate, Trait } from './sim/staff';
 import type { BuildKind, MachineKind } from './sim/types';
 
 export type Command =
-  | { type: 'build'; kind: BuildKind; tiles: number[] }
+  | { type: 'build'; kind: BuildKind; tiles: number[]; facing?: number }
   | { type: 'bulldoze'; tiles: number[] }
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
@@ -197,6 +197,7 @@ export interface TileChange {
   i: number;
   terrain: number;
   build: number;
+  orient: number;
   deco: number;
 }
 

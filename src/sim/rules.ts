@@ -65,14 +65,14 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Depot,
     label: 'Forklift depot',
     cost: 1200,
-    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. Must touch a port road or quay`,
+    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. The door faces a port road or quay`,
     drag: false,
   },
   office: {
     code: Build.Office,
     label: 'Harbour office',
     cost: 1500,
-    hint: `Coordinates berths. Needed for more than ${B.FREE_DOCKS} jetties or any quay; each office handles ${B.DOCKS_PER_OFFICE} docks. Must touch a port path or road`,
+    hint: `Coordinates berths. Needed for more than ${B.FREE_DOCKS} jetties or any quay; each office handles ${B.DOCKS_PER_OFFICE} docks. The door faces a port path or road`,
     drag: false,
   },
   harbourCrane: {
@@ -93,17 +93,80 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.LargeBay,
     label: 'Large truck bay',
     cost: 900,
-    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Must touch a public road`,
+    hint: `Holds ${B.LARGE_BAY_CAPACITY} crates and takes the big 8-crate trucks. Two tiles wide; the entrance faces a public road`,
     drag: false,
   },
   truckBay: {
     code: Build.TruckBay,
     label: 'Truck bay',
     cost: 300,
-    hint: 'Crates are stacked here for trucks. Must touch a road',
+    hint: 'Crates are stacked here for trucks. The entrance faces a public road',
     drag: false,
   },
 };
+
+/** Buildings with a front door, placed facing one of four ways. */
+export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
+  'truckBay',
+  'largeBay',
+  'depot',
+  'office',
+  'breakHut',
+]);
+
+/** Marks the second tile of a two-tile building in `GameMap.orient`. */
+export const EXTENSION = 4;
+
+/** Step towards the front for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
+export const FACING: readonly (readonly [number, number])[] = [
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+  [0, -1],
+];
+
+function step(map: GameMap, i: number, dx: number, dy: number): number {
+  const x = map.xOf(i) + dx;
+  const y = map.yOf(i) + dy;
+  return map.inBounds(x, y) ? map.idx(x, y) : -1;
+}
+
+/** The tile a building at `i` faces. */
+export function frontOf(map: GameMap, i: number, facing: number): number {
+  const [dx, dy] = FACING[facing & 3];
+  return step(map, i, dx, dy);
+}
+
+/**
+ * Tiles a building covers. A large truck bay is two wide along the road:
+ * the truck pulls into the first tile and the cargo sits on the second, to
+ * the right when looking out of the front.
+ */
+export function footprint(map: GameMap, kind: BuildKind, i: number, facing: number): number[] {
+  if (kind !== 'largeBay') return [i];
+  const [dx, dy] = FACING[facing & 3];
+  return [i, step(map, i, dy, -dx)];
+}
+
+/** The main tile of the building covering `i`. */
+export function anchorOf(map: GameMap, i: number): number {
+  const o = map.orient[i];
+  if (!(o & EXTENSION)) return i;
+  const [dx, dy] = FACING[o & 3];
+  return step(map, i, -dy, dx);
+}
+
+/** The first way a building can face here, or 0 when none works. */
+export function bestFacing(
+  map: GameMap,
+  kind: BuildKind,
+  i: number,
+  pending?: ReadonlySet<number>,
+): number {
+  if (!ROTATABLE.has(kind)) return 0;
+  for (let f = 0; f < 4; f++) if (!placementError(map, kind, i, pending, f)) return f;
+  return 0;
+}
 
 export function kindOfCode(code: number): BuildKind | null {
   for (const [kind, def] of Object.entries(BUILDABLES)) {
@@ -115,12 +178,14 @@ export function kindOfCode(code: number): BuildKind | null {
 /**
  * Static placement check. `pending` holds tiles of the same kind already
  * queued in the same drag, so a jetty can be dragged out from the shore.
+ * Buildings face `facing`; left out, any way that works will do.
  */
 export function placementError(
   map: GameMap,
   kind: BuildKind,
   i: number,
   pending?: ReadonlySet<number>,
+  facing: number = bestFacing(map, kind, i, pending),
 ): string | null {
   const t = map.terrain[i];
   if (kind === 'harbourCrane') {
@@ -188,25 +253,29 @@ export function placementError(
 
   if (t === Terrain.Water) return 'Must be built on land';
   if (t === Terrain.Rock) return 'Rock is in the way';
-  if (
-    (kind === 'truckBay' || kind === 'largeBay') &&
-    !map.neighbors4(i).some((n) => map.build[n] === Build.Road)
-  ) {
-    return 'A truck bay must touch a public road';
+  if (kind === 'largeBay') {
+    const side = footprint(map, kind, i, facing)[1];
+    const clear =
+      side >= 0 &&
+      map.build[side] === Build.None &&
+      map.terrain[side] !== Terrain.Water &&
+      map.terrain[side] !== Terrain.Rock &&
+      !pending?.has(side);
+    if (!clear) return 'A large truck bay is two tiles wide: clear the tile beside it';
   }
-  if (kind === 'depot' && !map.neighbors4(i).some((n) => drivable(map.build[n]))) {
-    return 'A forklift depot must touch a port road or quay';
+  if (!ROTATABLE.has(kind)) return null;
+  const front = frontOf(map, i, facing);
+  const f = front >= 0 ? map.build[front] : Build.None;
+  if (kind === 'truckBay' || kind === 'largeBay') {
+    return f === Build.Road ? null : 'The entrance must face a public road';
   }
-  if (
-    kind === 'office' &&
-    !map.neighbors4(i).some((n) => walkable(map.build[n]) || map.build[n] === Build.Road)
-  ) {
-    return 'A harbour office must touch a port path or road';
+  if (kind === 'depot') {
+    return drivable(f) ? null : 'The garage door must face a port road or quay';
   }
-  if (kind === 'breakHut' && !map.neighbors4(i).some((n) => walkable(map.build[n]))) {
-    return 'A break hut must touch a port path, quay or truck bay';
+  if (kind === 'office') {
+    return walkable(f) || f === Build.Road ? null : 'The door must face a port path or road';
   }
-  return null;
+  return walkable(f) ? null : 'The door must face a port path, quay or truck bay';
 }
 
 /**
@@ -255,6 +324,14 @@ export function placementCost(map: GameMap, kind: BuildKind, i: number): number 
       ? Math.floor(BUILDABLES[old].cost * B.BULLDOZE_REFUND)
       : 0;
   return base - credit + (map.deco[i] === Deco.Tree ? B.TREE_CLEAR_COST : 0);
+}
+
+/** Tiles cleared by bulldozing `i`: the whole building it is part of. */
+export function bulldozeTiles(map: GameMap, i: number): number[] {
+  const kind = kindOfCode(map.build[i]);
+  if (!kind || !ROTATABLE.has(kind)) return [i];
+  const a = anchorOf(map, i);
+  return footprint(map, kind, a, map.orient[a]);
 }
 
 export function bulldozeError(map: GameMap, i: number): string | null {

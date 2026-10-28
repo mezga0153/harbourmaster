@@ -31,14 +31,20 @@ import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trai
 import { findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import {
+  anchorOf,
+  bestFacing,
   BUILDABLES,
   bulldozeError,
+  bulldozeTiles,
   bulldozeValue,
+  EXTENSION,
+  footprint,
   drivable,
   walkable,
   machinePlacementError,
   placementCost,
   placementError,
+  ROTATABLE,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -53,7 +59,7 @@ import {
   type MachineKind,
 } from './types';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 interface Agent {
@@ -341,7 +347,7 @@ export class World {
     const { map, spawn } = generateMap(seed);
     const world = new World(seed, map, new Rng(seed));
     for (let i = 0; i < map.build.length; i++) {
-      if (isBay(map.build[i])) world.addBay(i);
+      if (isBay(map.build[i]) && anchorOf(map, i) === i) world.addBay(i);
     }
     for (let k = 0; k < B.START_DOCKHANDS; k++) {
       world.spawnDockhand(spawn, {
@@ -467,7 +473,7 @@ export class World {
     this.dockCache = null;
     switch (cmd.type) {
       case 'build':
-        return this.build(cmd.kind, cmd.tiles);
+        return this.build(cmd.kind, cmd.tiles, cmd.facing);
       case 'bulldoze':
         return this.bulldoze(cmd.tiles);
       case 'hire':
@@ -496,7 +502,7 @@ export class World {
     }
   }
 
-  private build(kind: BuildKind, tiles: number[]): void {
+  private build(kind: BuildKind, tiles: number[], facing?: number): void {
     const def = BUILDABLES[kind];
     if (BUILD_TIER[kind] > this.tier) {
       return this.message(`${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
@@ -512,7 +518,8 @@ export class World {
       firstError = null;
       const skipped: number[] = [];
       for (const i of left) {
-        const err = placementError(this.map, kind, i) ?? this.boatInTheWay(kind, i);
+        const f = facing ?? bestFacing(this.map, kind, i);
+        const err = placementError(this.map, kind, i, undefined, f) ?? this.boatInTheWay(kind, i);
         if (err) {
           firstError ??= err;
           skipped.push(i);
@@ -526,9 +533,12 @@ export class World {
         }
         this.book('construction', -cost);
         spent += cost;
-        this.map.build[i] = def.code;
-        this.map.deco[i] = Deco.None;
-        this.dirty.add(i);
+        footprint(this.map, kind, i, f).forEach((t, k) => {
+          this.map.build[t] = def.code;
+          this.map.orient[t] = ROTATABLE.has(kind) ? f | (k > 0 ? EXTENSION : 0) : 0;
+          this.map.deco[t] = Deco.None;
+          this.dirty.add(t);
+        });
         if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
@@ -568,8 +578,10 @@ export class World {
   private bulldoze(tiles: number[]): void {
     let net = 0;
     let lastError: string | null = null;
-    for (const i of tiles) {
-      if (i < 0 || i >= this.map.build.length) continue;
+    for (const t of tiles) {
+      if (t < 0 || t >= this.map.build.length) continue;
+      // A click anywhere on a building takes all of it down.
+      const i = anchorOf(this.map, t);
       let err = bulldozeError(this.map, i);
       if (!err && isDock(this.map.build[i]) && this.boats.some((b) => b.jetty === i)) {
         err = 'A boat is moored here';
@@ -591,7 +603,11 @@ export class World {
         this.map.build[i] = Build.Quay;
       } else if (this.map.build[i] !== Build.None) {
         if (isBay(this.map.build[i])) this.removeBay(i);
-        this.map.build[i] = Build.None;
+        for (const b of bulldozeTiles(this.map, i)) {
+          this.map.build[b] = Build.None;
+          this.map.orient[b] = 0;
+          this.dirty.add(b);
+        }
       } else if (this.map.deco[i] !== Deco.None) {
         this.map.deco[i] = Deco.None;
       } else {
@@ -2474,6 +2490,7 @@ export class World {
       i,
       terrain: this.map.terrain[i],
       build: this.map.build[i],
+      orient: this.map.orient[i],
       deco: this.map.deco[i],
     }));
     this.dirty.clear();

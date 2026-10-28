@@ -14,6 +14,7 @@ import {
   type Vector3,
 } from 'three';
 import type { GameMap } from '../sim/map';
+import { FACING } from '../sim/rules';
 import { surfaceY } from './terrain';
 
 const MAX_GHOSTS = 4096;
@@ -26,6 +27,7 @@ export class Overlay {
   private hover: LineLoop;
   private ghosts: InstancedMesh;
   private ring: Mesh;
+  private arrow: Mesh;
 
   constructor() {
     const square = new BufferGeometry();
@@ -64,7 +66,32 @@ export class Overlay {
     this.ring.renderOrder = 10;
     this.ring.visible = false;
 
-    this.group.add(this.hover, this.ghosts, this.ring);
+    // Points out of a building's front while it is being placed.
+    const tri = new BufferGeometry();
+    tri.setAttribute(
+      'position',
+      new Float32BufferAttribute([-0.2, 0, 0.12, 0.2, 0, 0.12, 0, 0, 0.42], 3),
+    );
+    this.arrow = new Mesh(
+      tri,
+      new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    this.arrow.renderOrder = 10;
+    this.arrow.visible = false;
+
+    this.group.add(this.hover, this.ghosts, this.ring, this.arrow);
+  }
+
+  /** Arrow on tile `i` pointing the way a building faces (0 +x, 1 +y, …). */
+  setArrow(map: GameMap, i: number | null, facing: number): void {
+    this.arrow.visible = i !== null;
+    if (i === null) return;
+    const x = map.xOf(i);
+    const y = map.yOf(i);
+    this.arrow.position.set(x + 0.5, surfaceY(map, x, y) + 0.06, y + 0.5);
+    // The triangle points along +z (facing 1); turn it like the buildings.
+    const [dx, dy] = FACING[facing & 3];
+    this.arrow.rotation.y = Math.atan2(dx, dy);
   }
 
   setHover(map: GameMap, i: number | null): void {

@@ -23,6 +23,8 @@ export interface HoverInfo {
 
 export interface Preview {
   count: number;
+  /** The tool places a building that can be turned. */
+  rotatable: boolean;
   /** Money spent (negative) or refunded (positive). */
   value: number;
   error: string | null;
@@ -35,6 +37,8 @@ export const selection = signal<Selection | null>(null);
 export const messages = signal<Message[]>([]);
 export const hover = signal<HoverInfo | null>(null);
 export const preview = signal<Preview | null>(null);
+/** Which way the next building faces; null picks a way that fits. */
+export const rotation = signal<number | null>(null);
 export const newGameOpen = signal(false);
 /** The build category whose tools are showing above the bar. */
 export const openCategory = signal<string | null>(null);

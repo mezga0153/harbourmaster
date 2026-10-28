@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { generateMap } from '../src/sim/mapgen';
 import { findPath } from '../src/sim/path';
-import { drivable, placementCost, placementError, walkable } from '../src/sim/rules';
+import {
+  anchorOf,
+  bestFacing,
+  drivable,
+  EXTENSION,
+  footprint,
+  frontOf,
+  placementCost,
+  placementError,
+  walkable,
+} from '../src/sim/rules';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -521,6 +531,39 @@ describe('Coastal Wharf tier', () => {
   });
 });
 
+describe('Buildings', () => {
+  it('face the way they are placed, entrance to the road', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'truckBay', i));
+    const f = bestFacing(m, 'truckBay', spot);
+    expect(m.build[frontOf(m, spot, f)]).toBe(Build.Road);
+    expect(placementError(m, 'truckBay', spot, undefined, (f + 2) % 4)).not.toBeNull();
+    world.command({ type: 'build', kind: 'truckBay', tiles: [spot], facing: f });
+    expect(m.build[spot]).toBe(Build.TruckBay);
+    expect(m.orient[spot]).toBe(f);
+  });
+
+  it('builds a large truck bay two tiles wide and bulldozes it whole', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const spot = m.build.findIndex((_, i) => !placementError(m, 'largeBay', i));
+    const f = bestFacing(m, 'largeBay', spot);
+    const bays = world.bays.size;
+    world.command({ type: 'build', kind: 'largeBay', tiles: [spot], facing: f });
+    const [a, b] = footprint(m, 'largeBay', spot, f);
+    expect([m.build[a], m.build[b]]).toEqual([Build.LargeBay, Build.LargeBay]);
+    expect(m.orient[b]).toBe(f | EXTENSION);
+    expect(anchorOf(m, b)).toBe(a);
+    expect(world.bays.size).toBe(bays + 1);
+    world.command({ type: 'bulldoze', tiles: [b] });
+    expect([m.build[a], m.build[b]]).toEqual([Build.None, Build.None]);
+    expect(world.bays.size).toBe(bays);
+  });
+});
+
 describe('Port side', () => {
   it('keeps dockhands off grass and public roads', () => {
     const world = World.create(7);
@@ -647,8 +690,9 @@ describe('Container Port tier', () => {
     }
     const crane = m.idx(end, r - 2);
     world.command({ type: 'build', kind: 'harbourCrane', tiles: [crane] });
-    const bay = m.idx(start - 1, r - 1);
-    world.command({ type: 'bulldoze', tiles: [bay] });
+    // Two tiles wide, facing the road: the truck lane, then the yard by the path.
+    const bay = m.idx(start - 2, r - 1);
+    world.command({ type: 'bulldoze', tiles: [bay, bay + 1] });
     world.command({ type: 'build', kind: 'largeBay', tiles: [bay] });
     const depot = m.idx(start - 1, r - 2);
     world.command({ type: 'bulldoze', tiles: [depot] });

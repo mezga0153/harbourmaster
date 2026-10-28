@@ -134,6 +134,7 @@ function layoutStart(map: GameMap): number {
 
   for (let x = 0; x <= shoreX - 5; x++) map.build[map.idx(x, row)] = Build.Road;
   map.build[map.idx(shoreX - 4, row)] = Build.TruckBay;
+  map.orient[map.idx(shoreX - 4, row)] = 2; // entrance towards the road, -x
   for (let x = shoreX - 3; x <= shoreX; x++) map.build[map.idx(x, row)] = Build.Footpath;
   for (let x = shoreX + 1; x <= shoreX + 3; x++) {
     const i = map.idx(x, row);

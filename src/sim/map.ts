@@ -8,6 +8,7 @@ export interface MapData {
   ocean: number[];
   deco: number[];
   build: number[];
+  orient: number[];
   entry: number;
 }
 
@@ -23,6 +24,11 @@ export class GameMap {
   readonly ocean: Uint8Array;
   readonly deco: Uint8Array;
   readonly build: Uint8Array;
+  /**
+   * Which way a building faces (0 +x, 1 +y, 2 -x, 3 -y), plus EXTENSION on
+   * the second tile of a two-tile building.
+   */
+  readonly orient: Uint8Array;
   /** Road tile on the map edge where trucks enter and leave. */
   entry = 0;
 
@@ -36,6 +42,7 @@ export class GameMap {
     this.ocean = new Uint8Array(n);
     this.deco = new Uint8Array(n);
     this.build = new Uint8Array(n);
+    this.orient = new Uint8Array(n);
   }
 
   idx(x: number, y: number): number {
@@ -90,6 +97,7 @@ export class GameMap {
       ocean: Array.from(this.ocean),
       deco: Array.from(this.deco),
       build: Array.from(this.build),
+      orient: Array.from(this.orient),
       entry: this.entry,
     };
   }
@@ -101,6 +109,7 @@ export class GameMap {
     m.ocean.set(d.ocean);
     m.deco.set(d.deco);
     m.build.set(d.build);
+    m.orient.set(d.orient);
     m.entry = d.entry;
     return m;
   }

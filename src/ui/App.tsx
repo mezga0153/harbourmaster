@@ -369,14 +369,16 @@ function PreviewTip() {
       <div class={`tip preview bad ${openCategory.value ? 'raised' : ''}`}>
         <Icon name="alert" />
         {p.error}
+        {p.rotatable && <span class="muted">Right-click to rotate</span>}
       </div>
     );
   }
   if (p.count === 0) return null;
   return (
     <div class={`tip preview ${openCategory.value ? 'raised' : ''}`}>
-      <span class="muted">{p.count === 1 ? '1 tile' : `${p.count} tiles`}</span>
+      {!p.rotatable && <span class="muted">{p.count === 1 ? '1 tile' : `${p.count} tiles`}</span>}
       <strong class={p.value < 0 ? 'neg' : 'pos'}>{money(p.value)}</strong>
+      {p.rotatable && <span class="muted">Right-click to rotate</span>}
     </div>
   );
 }

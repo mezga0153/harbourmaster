@@ -1,7 +1,8 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { Build, isBay, isDock } from '../sim/types';
+import { EXTENSION, FACING } from '../sim/rules';
+import { Build, isDock } from '../sim/types';
 import { container, crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
@@ -87,8 +88,9 @@ export class Structures {
       this.stacks.delete(i);
       this.cranes.delete(i);
     }
-    const obj = this.make(i);
+    let obj = this.make(i);
     if (!obj) return;
+    if (FACES.has(this.map.build[i])) obj = turn(obj, this.map.orient[i]);
     obj.position.set(this.map.xOf(i), 0, this.map.yOf(i));
     this.group.add(obj);
     this.tiles.set(i, obj);
@@ -104,6 +106,8 @@ export class Structures {
   private make(i: number): Object3D | null {
     const code = this.map.build[i];
     if (code === Build.None) return null;
+    // The second tile of a large bay is drawn with its first.
+    if (this.map.orient[i] & EXTENSION) return null;
     const g = new Group();
     const top = landTop(this.map.terrain[i]);
 
@@ -136,6 +140,8 @@ export class Structures {
         g.add(cyl(0.012, 0.42, C.chassis, 0.62, y + 0.62, 0.62));
         g.add(cyl(0.012, 0.5, C.chassis, 0.16, y, 0.84));
         g.add(box(0.012, 0.1, 0.14, C.funnel, 0.16, y + 0.4, 0.91));
+        // Front door, towards +z like every building before it is turned.
+        g.add(box(0.16, 0.22, 0.02, C.woodDark, 0.5, y, 0.82));
         return g;
       }
       case Build.ForkliftLane: {
@@ -276,28 +282,19 @@ export class Structures {
         return g;
       }
       case Build.Depot: {
-        // Concrete apron, a garage with its door towards the road, a pump.
+        // Concrete apron, a garage with its door at the front (+z), a pump.
         g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.05;
-        const door = this.drivableSide(i);
-        const alongX = door.dx === 0;
-        const back = 0.5 - (alongX ? door.dy : door.dx) * 0.18;
-        const [gx, gz] = alongX ? [0.5, back] : [back, 0.5];
-        const [w, d] = alongX ? [0.84, 0.56] : [0.56, 0.84];
-        g.add(box(w, 0.36, d, C.depotWall, gx, y, gz));
-        g.add(box(w + 0.04, 0.04, d + 0.04, C.depotRoof, gx, y + 0.36, gz));
-        const front = alongX ? gz + door.dy * (d / 2) : gx + door.dx * (w / 2);
-        const [dx, dz] = alongX ? [0.5, front] : [front, 0.5];
-        const [dw, dd] = alongX ? [0.46, 0.02] : [0.02, 0.46];
-        g.add(box(dw, 0.28, dd, C.chassis, dx, y, dz));
-        for (let k = 0; k < 4; k++)
-          g.add(box(dw, 0.012, dd + 0.004, C.quayWall, dx, y + 0.04 + k * 0.065, dz));
+        g.add(box(0.84, 0.36, 0.56, C.depotWall, 0.5, y, 0.32));
+        g.add(box(0.88, 0.04, 0.6, C.depotRoof, 0.5, y + 0.36, 0.32));
+        g.add(box(0.46, 0.28, 0.02, C.chassis, 0.5, y, 0.6));
+        for (let k = 0; k < 4; k++) {
+          g.add(box(0.46, 0.012, 0.024, C.quayWall, 0.5, y + 0.04 + k * 0.065, 0.6));
+        }
         // Hazard stripe across the apron and a red fuel pump.
-        const [sx, sz] = alongX ? [0.5, 0.5 + door.dy * 0.4] : [0.5 + door.dx * 0.4, 0.5];
-        g.add(box(alongX ? 0.9 : 0.05, 0.008, alongX ? 0.05 : 0.9, C.stripe, sx, y, sz));
-        const [px, pz] = alongX ? [0.88, 0.5 + door.dy * 0.3] : [0.5 + door.dx * 0.3, 0.88];
-        g.add(box(0.1, 0.22, 0.08, C.funnel, px, y, pz));
-        g.add(box(0.11, 0.05, 0.09, C.cabin, px, y + 0.16, pz));
+        g.add(box(0.9, 0.008, 0.05, C.stripe, 0.5, y, 0.9));
+        g.add(box(0.1, 0.22, 0.08, C.funnel, 0.88, y, 0.8));
+        g.add(box(0.11, 0.05, 0.09, C.cabin, 0.88, y + 0.16, 0.8));
         return g;
       }
       case Build.BreakHut: {
@@ -314,57 +311,62 @@ export class Structures {
         g.add(box(0.7, 0.04, 0.12, C.wood, 0.5, top + 0.12, 0.9));
         return g;
       }
-      case Build.TruckBay:
-      case Build.LargeBay: {
-        const large = code === Build.LargeBay;
-        g.add(box(1, 0.06, 1, large ? C.quayTop : C.concrete, 0.5, top, 0.5));
-        // Which side the road is on decides where trucks enter and crates sit.
-        const roadX = this.is(i, 1, 0, Build.Road) || this.is(i, -1, 0, Build.Road);
+      case Build.TruckBay: {
+        // Entrance at the front (+z): the truck pulls in, crates line the side.
+        g.add(box(1, 0.06, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.06;
-        for (const o of [0.06, 0.94]) {
-          const [x, z, w, d] = roadX ? [0.5, o, 0.9, 0.05] : [o, 0.5, 0.05, 0.9];
-          g.add(box(w, 0.01, d, C.stripe, x, y, z));
-        }
+        for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         const crates: Object3D[] = [];
-        // Large bays stack two rows deep, under a canopy.
-        const rows = large ? [0.84, 0.66] : [0.84];
-        for (let layer = 0; layer < (large ? 4 : 4); layer++) {
-          for (const row of rows) {
-            for (const a of [0.2, 0.4, 0.6, 0.8]) {
-              if (crates.length >= (large ? 28 : 16)) break;
-              const [cx, cz] = roadX ? [a, row] : [row, a];
-              const c = crate(0.17, cx, y + layer * 0.17, cz);
+        for (let layer = 0; layer < 4; layer++) {
+          for (const z of [0.2, 0.4, 0.6, 0.8]) {
+            const c = crate(0.17, 0.84, y + layer * 0.17, z);
+            c.visible = false;
+            g.add(c);
+            crates.push(c);
+          }
+        }
+        g.add(cyl(0.02, 0.5, C.chassis, 0.92, y, 0.08));
+        g.add(box(0.04, 0.16, 0.22, C.sign, 0.92, y + 0.45, 0.08));
+        this.stacks.set(i, { crates, boxes: [] });
+        return g;
+      }
+      case Build.LargeBay: {
+        // Two tiles: a truck lane (x 0..1) and a covered cargo yard beside it
+        // (x 1..2), both opening onto the road at the front (+z).
+        g.add(box(2, 0.06, 1, C.quayTop, 1, top, 0.5));
+        const y = top + 0.06;
+        for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
+        g.add(box(0.8, 0.01, 0.05, C.marking, 0.5, y, 0.08));
+        // Containers two by two along the back of the yard.
+        const boxes: Object3D[] = [];
+        for (let layer = 0; layer < 2; layer++) {
+          for (const x of [1.27, 1.73]) {
+            const c = container(boxes.length, x, y + layer * 0.17, 0.2);
+            c.visible = false;
+            g.add(c);
+            boxes.push(c);
+          }
+        }
+        // Crates in front of them: two rows of four, four high.
+        const crates: Object3D[] = [];
+        for (let layer = 0; layer < 4; layer++) {
+          for (const z of [0.52, 0.72]) {
+            for (const x of [1.2, 1.4, 1.6, 1.8]) {
+              if (crates.length >= 28) break;
+              const c = crate(0.17, x, y + layer * 0.17, z);
               c.visible = false;
               g.add(c);
               crates.push(c);
             }
           }
         }
-        if (large) {
-          for (const a of [0.08, 0.92]) {
-            const [cx, cz] = roadX ? [a, 0.92] : [0.92, a];
-            g.add(cyl(0.03, 0.78, C.chassis, cx, y, cz));
-          }
-          const [rx, rz, rw, rd] = roadX ? [0.5, 0.74, 1, 0.48] : [0.74, 0.5, 0.48, 1];
-          g.add(box(rw, 0.04, rd, C.depotRoof, rx, y + 0.78, rz));
+        // Canopy over the yard on four posts.
+        for (const x of [1.06, 1.94]) {
+          for (const z of [0.06, 0.94]) g.add(cyl(0.03, 0.8, C.chassis, x, y, z));
         }
-        const [px, pz] = roadX ? [0.92, 0.92] : [0.92, 0.08];
-        g.add(cyl(0.02, 0.5, C.chassis, px, y, pz));
-        g.add(box(0.04, 0.16, 0.22, C.sign, px, y + 0.45, pz));
-        // Large bays also hold up to four containers, two by two.
-        const boxes: Object3D[] = [];
-        if (large) {
-          for (let layer = 0; layer < 2; layer++) {
-            for (const a of [0.3, 0.72]) {
-              const [cx, cz] = roadX ? [a, 0.3] : [0.3, a];
-              const c = container(boxes.length, cx, y + layer * 0.17, cz);
-              if (!roadX) c.rotation.y = Math.PI / 2;
-              c.visible = false;
-              g.add(c);
-              boxes.push(c);
-            }
-          }
-        }
+        g.add(box(1, 0.04, 1, C.depotRoof, 1.5, y + 0.8, 0.5));
+        g.add(cyl(0.02, 0.5, C.chassis, 0.08, y, 0.08));
+        g.add(box(0.04, 0.16, 0.22, C.sign, 0.08, y + 0.45, 0.08));
         this.stacks.set(i, { crates, boxes });
         return g;
       }
@@ -418,32 +420,6 @@ export class Structures {
     }
   }
 
-  /** Direction from a tile to a neighbouring drivable surface, for doors. */
-  private drivableSide(i: number): { dx: number; dy: number } {
-    for (const [dx, dy] of [
-      [0, 1],
-      [1, 0],
-      [0, -1],
-      [-1, 0],
-    ]) {
-      const x = this.map.xOf(i) + dx;
-      const y = this.map.yOf(i) + dy;
-      if (!this.map.inBounds(x, y)) continue;
-      const b = this.map.build[this.map.idx(x, y)];
-      if (
-        b === Build.Road ||
-        b === Build.Footpath ||
-        b === Build.PortRoad ||
-        b === Build.ForkliftLane ||
-        b === Build.Quay ||
-        isBay(b)
-      ) {
-        return { dx, dy };
-      }
-    }
-    return { dx: 0, dy: 1 };
-  }
-
   /** Which half of a crane tile faces land, for its landing stack. */
   private landwardOffset(i: number): { alongX: boolean; side: number } {
     const water = (dx: number, dy: number) => {
@@ -479,4 +455,26 @@ export class Structures {
     }
     return g;
   }
+}
+
+/** Buildings drawn facing +z and then turned the way they were placed. */
+const FACES = new Set<number>([
+  Build.TruckBay,
+  Build.LargeBay,
+  Build.Depot,
+  Build.Office,
+  Build.BreakHut,
+]);
+
+/** Turn a tile's model about the tile centre so its front faces `orient`. */
+function turn(obj: Object3D, orient: number): Object3D {
+  const [dx, dy] = FACING[orient & 3];
+  const pivot = new Group();
+  pivot.position.set(0.5, 0, 0.5);
+  pivot.rotation.y = Math.atan2(dx, dy);
+  obj.position.set(-0.5, 0, -0.5);
+  pivot.add(obj);
+  const outer = new Group();
+  outer.add(pivot);
+  return outer;
 }

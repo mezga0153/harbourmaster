@@ -2,12 +2,17 @@ import type { Command } from './protocol';
 import type { Renderer } from './render/renderer';
 import type { GameMap } from './sim/map';
 import {
+  anchorOf,
+  bestFacing,
   BUILDABLES,
   bulldozeError,
+  bulldozeTiles,
   bulldozeValue,
+  footprint,
   machinePlacementError,
   placementCost,
   placementError,
+  ROTATABLE,
 } from './sim/rules';
 import { isMachineKind, MACHINES } from './sim/machines';
 import type { BuildKind } from './sim/types';
@@ -16,6 +21,7 @@ import {
   openCategory,
   panel,
   preview,
+  rotation,
   selection,
   snapshot,
   togglePanel,
@@ -38,6 +44,9 @@ export class Input {
   private moved = false;
   private dragStart: number | null = null;
   private lastSpeed = 1;
+  private hovered: number | null = null;
+  /** Facing the preview last showed, which a build click sends. */
+  private facing = 0;
 
   constructor(
     private renderer: Renderer,
@@ -61,7 +70,10 @@ export class Input {
       { passive: false },
     );
     window.addEventListener('keydown', (e) => this.key(e));
-    tool.subscribe(() => this.refreshPreview(null));
+    tool.subscribe(() => {
+      rotation.value = null;
+      this.refreshPreview(null);
+    });
   }
 
   setSpeed(speed: number): void {
@@ -114,7 +126,9 @@ export class Input {
     const i = this.renderer.pickTile(e.clientX, e.clientY);
 
     if (mode === 'pan' && !this.moved && this.button === 2) {
-      tool.value = 'select';
+      // Right-click turns a building being placed, Theme Hospital style.
+      if (ROTATABLE.has(tool.value as BuildKind)) this.rotate();
+      else tool.value = 'select';
       return;
     }
     if (mode === 'select' && !this.moved) this.selectAt(e.clientX, e.clientY, i);
@@ -124,7 +138,10 @@ export class Input {
       if (tiles.length > 0) {
         if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
-        else if (t !== 'select') this.send({ type: 'build', kind: t, tiles });
+        else if (ROTATABLE.has(t as BuildKind)) {
+          const kind = t as BuildKind;
+          this.send({ type: 'build', kind, tiles: [tiles[0]], facing: this.facing });
+        } else if (t !== 'select') this.send({ type: 'build', kind: t, tiles });
       }
     }
     this.dragStart = null;
@@ -163,7 +180,14 @@ export class Input {
     else if (k === '-') this.renderer.cam.zoom(1.2);
   }
 
-  private selectAt(cx: number, cy: number, i: number | null): void {
+  rotate(): void {
+    rotation.value = (this.facing + 1) % 4;
+    this.refreshPreview(this.hovered);
+  }
+
+  private selectAt(cx: number, cy: number, at: number | null): void {
+    const map = this.getMap();
+    const i = at !== null && map ? anchorOf(map, at) : at;
     const ent = this.renderer.pickEntity(cx, cy);
     if (ent) selection.value = { type: 'entity', id: ent.id };
     else if (i !== null && snapshot.value?.bays.some((b) => b.idx === i)) {
@@ -205,10 +229,16 @@ export class Input {
     if (!map) return;
     if (t === 'select' || i === null) {
       this.renderer.overlay.setGhosts(map, [], []);
+      this.renderer.overlay.setArrow(map, null, 0);
       preview.value = null;
       return;
     }
-    const tiles = this.tilesFor(i);
+    if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
+    // Bulldozing any tile of a building clears all of it, once.
+    const tiles =
+      t === 'bulldoze'
+        ? [...new Set(this.tilesFor(i).flatMap((k) => bulldozeTiles(map, anchorOf(map, k))))]
+        : this.tilesFor(i);
     const ok: boolean[] = [];
     const pending = new Set<number>();
     let value = 0;
@@ -234,17 +264,46 @@ export class Input {
         pending.add(tile);
         value +=
           t === 'bulldoze'
-            ? bulldozeValue(map, tile)
+            ? anchorOf(map, tile) === tile
+              ? bulldozeValue(map, tile)
+              : 0
             : isMachineKind(t)
               ? -MACHINES[t].price
               : -placementCost(map, t, tile);
       });
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);
-    preview.value = { count: pending.size, value, error: pending.size === 0 ? error : null };
+    this.renderer.overlay.setArrow(map, null, 0);
+    preview.value = {
+      count: pending.size,
+      rotatable: false,
+      value,
+      error: pending.size === 0 ? error : null,
+    };
+  }
+
+  /** One building on the hovered tile, facing the chosen (or a fitting) way. */
+  private previewBuilding(map: GameMap, kind: BuildKind, i: number): void {
+    const f = rotation.value ?? bestFacing(map, kind, i);
+    this.facing = f;
+    const tiles = footprint(map, kind, i, f).filter((t) => t >= 0);
+    const error = placementError(map, kind, i, undefined, f);
+    this.renderer.overlay.setGhosts(
+      map,
+      tiles,
+      tiles.map(() => !error),
+    );
+    this.renderer.overlay.setArrow(map, i, f);
+    preview.value = {
+      count: error ? 0 : 1,
+      rotatable: true,
+      value: -placementCost(map, kind, i),
+      error,
+    };
   }
 
   private setHover(i: number | null): void {
+    this.hovered = i;
     const map = this.getMap();
     if (!map) return;
     this.renderer.overlay.setHover(map, i);
