@@ -2156,8 +2156,22 @@ describe('Container Port tier', () => {
       world.tick + 10,
       0,
     );
-    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) world.step();
+    // Loading counts against the coaster's time alongside, with time allowed for it.
+    let loadingTicks = 0;
+    let allowed = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) {
+      const coaster = world.boats.find((b) => b.vessel === 'coaster' && b.state === 'moored');
+      const before = coaster?.mooredTicks ?? 0;
+      const grace = coaster?.grace ?? 0;
+      world.step();
+      if (coaster && coaster.crates === 0 && coaster.loadQuota !== undefined) {
+        loadingTicks += coaster.mooredTicks - before;
+        allowed = Math.max(allowed, coaster.grace - grace);
+      }
+    }
     expect(world.stats.exported ?? 0).toBeGreaterThan(0);
+    expect(loadingTicks).toBeGreaterThan(0);
+    expect(allowed).toBeGreaterThan(0);
   });
 
   it('keeps shippers away until there is parking outside the port', () => {

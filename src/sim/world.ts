@@ -3030,11 +3030,14 @@ export class World {
         }
         return;
       }
-      case 'moored':
-        // Unloaded and waiting for the fairway does not count against us.
-        if (b.crates > 0 || b.reserved > 0) b.mooredTicks++;
+      case 'moored': {
         // Unloaded, a coaster or feeder takes exports on board before it goes.
-        if (b.crates === 0 && b.reserved === 0 && this.stillLoading(b)) {
+        const loading = b.crates === 0 && b.reserved === 0 && this.stillLoading(b);
+        // Unloading and loading count against us; waiting for the fairway does not.
+        if (b.crates > 0 || b.reserved > 0 || loading) b.mooredTicks++;
+        if (loading) {
+          // Kept loading long past its time, it sails with what it has.
+          if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = b.out ?? 0;
           b.timer = 0;
           return;
         }
@@ -3046,6 +3049,7 @@ export class World {
           }
         }
         return;
+      }
       case 'leaving':
         this.claimRoom(b);
         // Clear of the dock: the next boat may use its fairway.
@@ -5943,7 +5947,10 @@ export class World {
         .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
         .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
       const room = outCap(b) - (b.out ?? 0);
-      b.loadQuota = (b.out ?? 0) + clamp(this.exportsWaiting(boxes) - claimed, 0, room);
+      const take = clamp(this.exportsWaiting(boxes) - claimed, 0, room);
+      b.loadQuota = (b.out ?? 0) + take;
+      // The line allows time to load as well as to unload.
+      b.grace += take * B.MOORED_TICKS_PER_CRATE;
     }
     if ((b.out ?? 0) >= b.loadQuota) return false;
     if (this.exportsWaiting(b.vessel === 'feeder') === 0) return false;

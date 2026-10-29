@@ -80,6 +80,8 @@ export const ANCHOR_PENALTY_TICKS = 90; // -1 satisfaction per this many ticks a
 export const MOORED_GRACE_TICKS = 40; // plus MOORED_TICKS_PER_CRATE for each crate on board
 export const MOORED_TICKS_PER_CRATE = 90; // about one dockhand's pace
 export const MOORED_PENALTY_TICKS = 60;
+/** Kept this long past its time allowed, unloading and loading, a ship sails with the exports it has. */
+export const LOAD_OVERRUN_TICKS = 300;
 export const BOAT_GIVE_UP_TICKS = 900; // a boat kept this long leaves with its cargo
 export const GAVE_UP_PENALTY = 10; // extra satisfaction lost when a boat leaves full
 export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded harbour

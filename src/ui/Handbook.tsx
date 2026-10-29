@@ -295,8 +295,9 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
           <li>Then it drives in and unloads into crate storage or a container yard.</li>
           <li>
-            A coaster or feeder that has unloaded stays to take exports on board, until it is full
-            or nothing more comes for a while.
+            A coaster or feeder that has unloaded stays to take on the exports waiting for it.
+            Loading counts against its time alongside like unloading does: slow loading costs
+            demurrage and goodwill, and kept too long it sails with what it has.
           </li>
         </ol>
         <p>
@@ -317,9 +318,10 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <ul>
           <li>
-            Boats served promptly keep a company happy. Kept waiting, it charges demurrage (
-            {money(B.DEMURRAGE_PER_DAY)} a day a boat), and an unhappy company walks out and claims
-            a breach penalty.
+            Boats served promptly keep a company happy. Each is allowed time for what it unloads and
+            the exports it takes on; kept waiting at anchor, or longer than that alongside, the
+            company charges demurrage ({money(B.DEMURRAGE_PER_DAY)} a day a boat), and an unhappy
+            company walks out and claims a breach penalty.
           </li>
           <li>
             The bank lends up to {money(B.LOAN_MAX)}. After {B.BANKRUPT_DAYS} days in the red it

@@ -580,7 +580,10 @@ function OfferCard({
 
 function Rules() {
   const rows: [string, string][] = [
-    ['A boat waits at anchor or unloads slowly', `${money(B.DEMURRAGE_PER_DAY)} per boat per day`],
+    [
+      'A boat waits at anchor, or unloads or loads exports slowly',
+      `${money(B.DEMURRAGE_PER_DAY)} per boat per day`,
+    ],
     [
       'A boat gives up after ~1.5 days',
       `${Math.round(B.LOST_CARGO_SHARE * 100)}% of the cargo still on board`,
@@ -594,8 +597,10 @@ function Rules() {
   return (
     <>
       <p class="muted intro">
-        Every boat served promptly improves the relationship. Waiting at anchor, slow unloading and
-        boats leaving with cargo all damage it. At zero, they walk out.
+        Every boat served promptly improves the relationship. Waiting at anchor, slow unloading,
+        slow loading of exports and boats leaving with cargo all damage it. Each boat is allowed
+        time for every crate or container it unloads and every export it takes on. At zero, they
+        walk out.
       </p>
       <table class="ledger rules">
         <tbody>
