@@ -42,6 +42,8 @@ export interface Contract {
   /** Fisheries only. */
   nextBoatTick: number;
   warned: boolean;
+  /** Hauliers only: when each truck that has left the port is back for more. */
+  returns?: number[];
 }
 
 export interface Offer {
@@ -141,7 +143,7 @@ export const STARTER_HAULIER: HaulierTerms = {
   kind: 'haulier',
   name: "Pip's Haulage",
   color: 0,
-  fleet: 1,
+  fleet: 2,
   capacity: B.TRUCK_CAPACITY,
   dailyFee: B.STARTER_HAULIER_FEE,
 };

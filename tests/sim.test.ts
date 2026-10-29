@@ -197,6 +197,31 @@ describe('Contracts', () => {
     expect(world.boats.some((b) => b.contractId === signed.id) || world.stats.boats > 1).toBe(true);
   });
 
+  it('sends a truck again only once it is back from its round', () => {
+    const world = World.create(7);
+    world.boats.length = 0;
+    const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
+    if (h.terms.kind === 'haulier') h.terms.fleet = 1;
+    const bay = [...world.bays.values()][0];
+    bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    const ours = () => world.trucks.filter((t) => t.contractId === h.id && !t.away);
+    let left = -1;
+    for (let k = 0; k < TICKS_PER_DAY && left < 0; k++) {
+      world.step();
+      if (h.returns?.length) left = world.tick;
+    }
+    expect(left).toBeGreaterThan(0);
+    // Crates still waiting, but its one truck is away.
+    for (let k = 0; k < B.TRUCK_ROUND_TRIP - 15; k++) {
+      world.step();
+      expect(ours()).toHaveLength(0);
+    }
+    expect(bay.crates.length).toBeGreaterThan(0);
+    expect(world.snapshot().contracts.find((c) => c.id === h.id)!.away).toBe(1);
+    for (let k = 0; k < 30; k++) world.step();
+    expect(ours().length).toBe(1);
+  });
+
   it('never sends more trucks than the hauliers have', () => {
     const world = World.create(3);
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
@@ -1620,6 +1645,35 @@ describe('Container Port tier', () => {
     world.command({ type: 'bulldoze', tiles: [tiles[3]] });
     expect(tiles.every((i) => m.build[i] === Build.Quay)).toBe(true);
     expect(world.cranes.has(t.crane)).toBe(false);
+  });
+
+  it('lets trucks take containers only once customs have cleared them', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: 1,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const yard = world.yards.get(t.yard)!;
+    yard.boxes.push(100, 100);
+    yard.boxReady = [world.tick + B.CUSTOMS_TICKS, world.tick + B.CUSTOMS_TICKS + 50];
+    for (let k = 0; k < B.CUSTOMS_TICKS - 10; k++) world.step();
+    expect(yard.boxes).toHaveLength(2);
+    expect(world.snapshot().yards.find((y) => y.idx === t.yard)!.cleared).toBe(0);
+    for (let k = 0; k < 200; k++) world.step();
+    expect(yard.boxes).toHaveLength(0);
   });
 
   it('gives a container to the free stacker nearest the crane', () => {

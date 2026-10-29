@@ -136,6 +136,8 @@ export interface ContractView {
   nextIn: number;
   /** Boats or trucks of this company currently at the port. */
   active: number;
+  /** Hauliers: trucks away on their round, not back yet. */
+  away: number;
 }
 
 export interface OfferView {
@@ -173,6 +175,16 @@ export interface BayView {
   /** A crate storage area, and the tiles marked out for it. */
   warehouse: boolean;
   tiles?: number[];
+  noAccess: boolean;
+}
+
+export interface YardView {
+  idx: number;
+  boxes: number;
+  /** Cleared by customs, so the trucks may take them. */
+  cleared: number;
+  capacity: number;
+  tiles: number[];
   noAccess: boolean;
 }
 
@@ -236,7 +248,7 @@ export interface Snapshot {
   entities: EntityView[];
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */
-  yards: { idx: number; boxes: number; capacity: number; tiles: number[]; noAccess: boolean }[];
+  yards: YardView[];
   /** Cargo dockhands have landed on the quay beside boats, for the forklifts. */
   piles: PileView[];
   contracts: ContractView[];

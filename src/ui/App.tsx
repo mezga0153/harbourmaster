@@ -371,14 +371,16 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
         <p class="muted">
-          Reach stackers stack containers here from the cranes, and container trucks load from the
-          road beside it.
+          Reach stackers stack containers here from the cranes. Once customs have cleared them,
+          about half a day later, container trucks load them from the road beside the yard.
         </p>
         <dl class="props">
           <dt>Containers</dt>
           <dd>
             {yard.boxes} / {yard.capacity}
           </dd>
+          <dt>Cleared by customs</dt>
+          <dd>{yard.cleared}</dd>
           <dt>Area</dt>
           <dd>
             {yard.tiles.length} tile{yard.tiles.length === 1 ? '' : 's'}

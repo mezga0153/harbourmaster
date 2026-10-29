@@ -258,7 +258,8 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
       ),
     ]);
   } else {
-    rows.push(['On the road', `${c.active} of ${t.fleet}`]);
+    rows.push(['At the port', `${c.active} of ${t.fleet}`]);
+    rows.push(['Away', c.away > 0 ? `${c.away} on their round` : <span class="muted">None</span>]);
   }
   return (
     <div class={`card ${c.waiting > 0 ? 'alerting' : ''}`}>

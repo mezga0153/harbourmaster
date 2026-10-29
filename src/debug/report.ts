@@ -93,7 +93,7 @@ export function report(s: Snapshot, x: ReportExtras): string {
     'Container yards',
     s.yards.map(
       (y) =>
-        `- ${at(y.idx)} (${y.tiles.length} tiles): ${y.boxes}/${y.capacity} containers${y.noAccess ? ', NO TRUCK ACCESS' : ''}`,
+        `- ${at(y.idx)} (${y.tiles.length} tiles): ${y.boxes}/${y.capacity} containers, ${y.cleared} cleared${y.noAccess ? ', NO TRUCK ACCESS' : ''}`,
     ),
   );
   section(

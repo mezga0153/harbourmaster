@@ -112,7 +112,7 @@ export const CATEGORIES: Category[] = [
         label: 'Container yard',
         key: 'V',
         note: `${money(B.BOX_STORE_COST)}/tile`,
-        hint: `Drag out an area on port roads or quays to stack containers, ${B.BOXES_PER_STORE_TILE} a tile. Reach stackers bring them from the cranes, and container trucks load from a public road beside it or a port road behind a port gate: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
+        hint: `Drag out an area on port roads or quays to stack containers, ${B.BOXES_PER_STORE_TILE} a tile. Reach stackers bring them from the cranes, they wait about half a day for customs, and container trucks load from a public road beside it or a port road behind a port gate: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
         tier: B.BOX_STORE_TIER,
       },
     ],

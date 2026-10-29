@@ -294,6 +294,8 @@ interface Truck extends Agent {
   value: number;
   /** Carries containers instead of crates. */
   boxes: boolean;
+  /** Has left the port, and counts as away on its round until its haulier's return is due. */
+  away?: boolean;
   idle: number;
   timer: number;
   variant: number;
@@ -307,6 +309,8 @@ interface Bay {
   warehouse?: boolean;
   /** Fees of containers waiting here (container yards only). */
   boxes: number[];
+  /** Container yards: when each of `boxes` clears customs; older saves have none, all clear. */
+  boxReady?: number[];
   boxIncoming: number;
   /** Fee of each crate waiting here. */
   crates: number[];
@@ -1063,14 +1067,17 @@ export class World {
     const m = this.map;
     const old = [...this.bays.values(), ...this.yards.values()].filter((b) => b.tiles);
     const held = new Map<number, number[]>();
+    const ready = new Map<number, number[]>();
     const lost = { crates: 0, boxes: 0 };
     for (const a of old) {
       const goods = a.yard ? a.boxes : a.crates;
+      const clear = a.yard ? this.readyList(a) : [];
       const per = a.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE;
       const tiles = a.tiles!;
       tiles.forEach((t, k) => {
         const last = k === tiles.length - 1;
         held.set(t, goods.slice(k * per, last ? undefined : (k + 1) * per));
+        ready.set(t, clear.slice(k * per, last ? undefined : (k + 1) * per));
       });
       lost[a.yard ? 'boxes' : 'crates'] += goods.length;
       (a.yard ? this.yards : this.bays).delete(a.idx);
@@ -1109,6 +1116,13 @@ export class World {
       };
       const goods = tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area));
       (yard ? area.boxes : area.crates).push(...goods);
+      if (yard) {
+        area.boxReady = tiles.flatMap((t) => ready.get(t) ?? []).slice(0, goods.length);
+        // Joined up from areas stacked at different times: oldest first.
+        const order = goods.map((_, k) => k).sort((x, y) => area.boxReady![x] - area.boxReady![y]);
+        area.boxes = order.map((k) => goods[k]);
+        area.boxReady = order.map((k) => area.boxReady![k]);
+      }
       lost[yard ? 'boxes' : 'crates'] -= goods.length;
       (yard ? this.yards : this.bays).set(i, area);
     }
@@ -1671,19 +1685,19 @@ export class World {
     const trip = (2 * avg * 1.2) / B.STACKER_SPEED + (B.PICK_TICKS + B.DROP_TICKS) * 2.5;
     const moving = avg > 0 ? stackers * ((TICKS_PER_DAY * 0.85) / trip) : 0;
     let trucking = 0;
-    // Trucks load at the yards, one at a time each, so only as many trucks
-    // as yards count, the biggest first.
+    // Trucks load beside the yards, one at a time at each spot, while the
+    // others are away on their rounds.
     const road = Math.min(Infinity, ...yards.map((y) => this.roadTo(y)));
     if (Number.isFinite(road)) {
-      const perTruck = this.hauliers()
+      const carried = this.hauliers()
         .filter((h) => h.terms.cargo === 'container')
-        .flatMap((h) => {
-          const ticks = (2 * road) / B.TRUCK_SPEED + h.terms.capacity * B.YARD_LOAD_TICKS + 30;
-          return Array<number>(h.terms.fleet).fill((h.terms.capacity * TICKS_PER_DAY) / ticks);
-        })
-        .sort((a, b) => b - a);
+        .reduce(
+          (n, h) => n + h.terms.fleet * this.truckRate(h.terms.capacity, road, B.YARD_LOAD_TICKS),
+          0,
+        );
       const docks = yards.reduce((n, y) => n + this.loadingDocks(y).length, 0);
-      trucking = perTruck.slice(0, docks).reduce((n, r) => n + r, 0);
+      const loaded = (docks * TICKS_PER_DAY) / (B.YARD_LOAD_TICKS + 15);
+      trucking = Math.min(carried, loaded);
     }
     return {
       demand: Math.round(demand),
@@ -1704,24 +1718,33 @@ export class World {
       .map((c) => c.terms)
       .filter((t) => !t.cargo);
     if (extra && !extra.cargo) terms.push(extra);
-    // Each dock loads one truck at a time, so trucks beyond the docks add
-    // nothing, and big trucks only fit large bays and warehouses. Trucks take
-    // the quickest docks first, the big ones before the rest.
-    const trucks = terms
-      .flatMap((t) => Array.from({ length: t.fleet }, () => t.capacity))
-      .sort((a, b) => b - a);
-    const docks = [...this.bays.values()]
-      .flatMap((b) => this.loadingDocks(b).map(() => ({ large: b.large, load: loadTicks(b) })))
-      .sort((a, b) => a.load - b.load);
-    let total = 0;
-    for (const cap of trucks) {
-      const k = docks.findIndex((d) => d.large || cap <= B.TRUCK_CAPACITY);
-      if (k < 0) continue;
-      const [dock] = docks.splice(k, 1);
-      const ticks = (2 * this.roadLen) / B.TRUCK_SPEED + cap * dock.load + 30;
-      total += (cap * TICKS_PER_DAY) / ticks;
+    // Each dock loads one truck at a time, while the others are away on
+    // their rounds; big trucks only fit large bays and storage. So the most
+    // the trucks can carry, or the docks load, whichever is less.
+    const docks = [...this.bays.values()].flatMap((b) =>
+      this.loadingDocks(b).map(() => ({ large: b.large, load: loadTicks(b) })),
+    );
+    if (docks.length === 0) return 0;
+    const large = docks.some((d) => d.large);
+    const load = docks.reduce((n, d) => n + d.load, 0) / docks.length;
+    let carried = 0;
+    for (const t of terms) {
+      if (t.capacity > B.TRUCK_CAPACITY && !large) continue;
+      carried += t.fleet * this.truckRate(t.capacity, this.roadLen, load);
     }
-    return Math.round(total);
+    const loaded = docks.reduce((n, d) => n + this.dockRate(d.load), 0);
+    return Math.round(Math.min(carried, loaded));
+  }
+
+  /** What one truck carries a day: in from the highway, loading, back out, then its round. */
+  private truckRate(capacity: number, road: number, load: number): number {
+    const ticks = (2 * road) / B.TRUCK_SPEED + capacity * load + 30 + B.TRUCK_ROUND_TRIP;
+    return (capacity * TICKS_PER_DAY) / ticks;
+  }
+
+  /** What one loading dock puts on trucks a day, kept busy, with time to pull in and out. */
+  private dockRate(load: number): number {
+    return (B.TRUCK_CAPACITY * TICKS_PER_DAY) / (B.TRUCK_CAPACITY * load + 30);
   }
 
   private dailyFees(): number {
@@ -4785,6 +4808,8 @@ export class World {
         if (!bay) return this.retargetCrate(p);
         const boxy = p.kind === 'stacker';
         (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
+        // Customs clear a container a while after it is stacked in the yard.
+        if (boxy) this.readyList(bay).push(...p.cargoFees.map(() => this.tick + B.CUSTOMS_TICKS));
         bayIncoming(bay, boxy, -p.planned);
         // Landed on the quay, a crate has not been handled yet.
         if (boxy) this.stats.containers += p.carrying;
@@ -5143,6 +5168,30 @@ export class World {
     return near.find((t) => this.pathFor(p, from, t)) ?? -1;
   }
 
+  /**
+   * When each container in a yard clears customs, kept in step with its
+   * containers; an older save's are clear already.
+   */
+  private readyList(b: Bay): number[] {
+    b.boxReady ??= [];
+    while (b.boxReady.length < b.boxes.length) b.boxReady.unshift(0);
+    if (b.boxReady.length > b.boxes.length) b.boxReady.length = b.boxes.length;
+    return b.boxReady;
+  }
+
+  /** Containers customs have cleared, at the front of the yard's queue. */
+  private cleared(b: Bay): number {
+    const ready = this.readyList(b);
+    let n = 0;
+    while (n < ready.length && ready[n] <= this.tick) n++;
+    return n;
+  }
+
+  /** What a truck could take away from this bay now. */
+  private collectable(b: Bay): number {
+    return b.crates.length + (b.yard ? this.cleared(b) : b.boxes.length);
+  }
+
   /** The truck bay, storage area or heap on the quay a load is going to. */
   private dest(idx: number): Bay | undefined {
     return this.bays.get(idx) ?? this.yards.get(idx) ?? this.piles.get(idx);
@@ -5400,9 +5449,14 @@ export class World {
     const m = this.map;
     const hauliers = this.hauliers();
     const out = new Map<number, number>();
-    // A truck that has gone on into town is off the haulier's books for the port.
+    // A truck that has left the port is away on its round, and back for
+    // more only once its haulier's return is due.
     for (const t of this.trucks) {
-      if (t.drop === undefined) out.set(t.contractId, (out.get(t.contractId) ?? 0) + 1);
+      if (!t.away && t.drop === undefined) out.set(t.contractId, (out.get(t.contractId) ?? 0) + 1);
+    }
+    for (const h of hauliers) {
+      h.returns = (h.returns ?? []).filter((at) => at > this.tick);
+      out.set(h.id, (out.get(h.id) ?? 0) + h.returns.length);
     }
     // Fullest bays get trucks first. Container trucks collect from the yards,
     // and from large bays still holding containers from older saves.
@@ -5410,7 +5464,7 @@ export class World {
       b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
     const bays = [...this.bays.values(), ...this.yards.values()]
       .filter((b) => {
-        if (b.crates.length + b.boxes.length === 0 || this.tick < b.nextTruckTick) return false;
+        if (this.collectable(b) === 0 || this.tick < b.nextTruckTick) return false;
         if (this.loadingDocks(b).length === 0) {
           this.cutOff(b);
           return false;
@@ -5426,7 +5480,7 @@ export class World {
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
       const haulier =
-        (bay.boxes.length > 0
+        ((bay.yard ? this.cleared(bay) : bay.boxes.length) > 0
           ? hauliers.find((h) => free(h) && h.terms.cargo === 'container')
           : undefined) ??
         (bay.crates.length > 0
@@ -5512,7 +5566,10 @@ export class World {
         const every = loadTicks(bay);
         if (++t.timer % every !== 0) return;
         const stock = t.boxes ? bay.boxes : bay.crates;
-        if (stock.length > 0 && t.cargo < t.capacity) {
+        // Containers only once customs have cleared them.
+        const ready = !t.boxes || !bay.yard || this.cleared(bay) > 0;
+        if (stock.length > 0 && ready && t.cargo < t.capacity) {
+          if (t.boxes && bay.yard) this.readyList(bay).shift();
           t.value += stock.shift()!;
           t.cargo++;
           t.idle = 0;
@@ -5585,6 +5642,10 @@ export class World {
   private truckLeave(t: Truck): void {
     const bay = this.dest(t.bayIdx);
     if (bay) bay.nextTruckTick = this.tick + 30;
+    // Off on its round: its haulier cannot send it again until it is back.
+    const haulier = this.contracts.find((c) => c.id === t.contractId);
+    if (haulier && !t.away) (haulier.returns ??= []).push(this.tick + B.TRUCK_ROUND_TRIP);
+    t.away = true;
     if (t.cargo > 0) {
       if (this.town) this.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
       const income = t.value;
@@ -5918,7 +5979,8 @@ export class World {
       active:
         c.terms.kind === 'fishery'
           ? this.boats.filter((b) => b.contractId === c.id).length
-          : this.trucks.filter((t) => t.contractId === c.id).length,
+          : this.trucks.filter((t) => t.contractId === c.id && !t.away).length,
+      away: (c.returns ?? []).filter((at) => at > this.tick).length,
       waiting: this.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
       nextIn: c.terms.kind === 'fishery' ? Math.max(0, c.nextBoatTick - this.tick) : -1,
     }));
@@ -5945,6 +6007,7 @@ export class World {
       yards: [...this.yards.values()].map((y) => ({
         idx: y.idx,
         boxes: y.boxes.length,
+        cleared: this.cleared(y),
         capacity: bayCap(y),
         tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,

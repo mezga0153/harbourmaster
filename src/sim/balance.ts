@@ -35,6 +35,10 @@ export const BIG_TRUCK_CAPACITY = 8;
 export const STARTER_HAULIER_FEE = 20; // per day
 export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more crates
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
+/** Ticks a truck is away once it leaves the port, on its round and back, before its haulier can send it again. */
+export const TRUCK_ROUND_TRIP = 120;
+/** Ticks a container waits in the yard for customs to clear it before a truck may take it. */
+export const CUSTOMS_TICKS = 300;
 export const BAY_CAPACITY = 12;
 export const LARGE_BAY_CAPACITY = 28;
 // Ticks to put one crate on a truck: by hand at a truck bay, quicker with
