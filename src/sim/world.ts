@@ -992,7 +992,7 @@ export class World {
   private markForkliftOnly(tiles: number[], on: boolean): void {
     if (this.tier < B.FORKLIFT_ONLY_TIER) {
       return this.message(
-        `Forklift-only roads unlock at the ${TIERS[B.FORKLIFT_ONLY_TIER].name}.`,
+        `Machines-only areas unlock at the ${TIERS[B.FORKLIFT_ONLY_TIER].name}.`,
         'bad',
       );
     }
@@ -2543,7 +2543,7 @@ export class World {
             (forks || this.jibStores(c).length > 0),
         );
         cranes ||= craned;
-        // Nobody could unload it by hand next to a crane, or off forklift-only quay.
+        // Nobody could unload it by hand next to a crane, or off machines-only quay.
         if (!needCrane && !craned && !walkableAt(m, j)) continue;
         const here = { berth: n, jetty: j, vessel };
         if (taken.some((t) => this.berthsClash(here, t))) continue;
@@ -4809,8 +4809,8 @@ export class World {
 
   /**
    * An idle machine works out whether it is cut off: from every truck bay,
-   * or from cargo that is waiting. Forklifts only drive on port roads,
-   * forklift lanes and quays, which is easy to miss.
+   * or from cargo that is waiting. Forklifts only drive on port roads and
+   * quays, which is easy to miss.
    */
   private diagnose(p: Dockhand): void {
     const here = this.tileOf(p);
@@ -4829,7 +4829,7 @@ export class World {
     if (!dests.some((d) => this.dropAt(p, d, here) >= 0)) {
       stuck = boxy
         ? `Can't reach a container yard. ${what} only drive on port roads and quays`
-        : `Can't reach a truck bay or crate storage. ${what} only drive on port roads, forklift lanes and quays`;
+        : `Can't reach a truck bay or crate storage. ${what} only drive on port roads and quays`;
     } else if (sources.length > 0 && !sources.some(reach)) {
       stuck = boxy
         ? "Can't reach the harbour crane. Connect it with quay or port roads"

@@ -9,7 +9,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, FORKLIFT_ONLY, nearCrane, ON_QUAY } from '../sim/rules';
+import { EXTENSION, FACING, machinesOnly, ON_QUAY } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
@@ -269,6 +269,7 @@ export class Structures {
       const both = new Group();
       const deck = new Group();
       this.quay(deck, i, true);
+      this.machinesOutline(deck, i, QUAY_Y);
       both.add(deck);
       if (obj) both.add(obj);
       obj = both;
@@ -350,10 +351,11 @@ export class Structures {
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
         if (this.map.store[i]) {
           this.storage(g, i, QUAY_Y);
+          this.machinesOutline(g, i, QUAY_Y);
           return g;
         }
-        if (this.map.orient[i] & FORKLIFT_ONLY || nearCrane(this.map, i)) {
-          this.forkliftMarking(g, along, QUAY_Y);
+        if (machinesOnly(this.map, i)) {
+          this.machinesMarking(g, i, QUAY_Y);
           return g;
         }
         for (const o of [0.15, 0.6]) {
@@ -437,17 +439,17 @@ export class Structures {
       }
       case Build.Quay: {
         this.quay(g, i);
-        if (this.map.store[i]) this.storage(g, i, QUAY_Y);
-        else if (this.map.orient[i] & FORKLIFT_ONLY || nearCrane(this.map, i)) {
-          const along = this.is(i, 1, 0, Build.Quay) || this.is(i, -1, 0, Build.Quay);
-          this.forkliftMarking(g, along, QUAY_Y);
-        }
+        if (this.map.store[i]) {
+          this.storage(g, i, QUAY_Y);
+          this.machinesOutline(g, i, QUAY_Y);
+        } else if (machinesOnly(this.map, i)) this.machinesMarking(g, i, QUAY_Y);
         return g;
       }
       case Build.HarbourCrane: {
         // Mobile harbour crane: a wheeled base with outriggers, a tall tower
         // and a long boom that slews out over the ship.
         this.quay(g, i);
+        this.machinesOutline(g, i, QUAY_Y);
         const y = QUAY_Y;
         g.add(box(0.86, 0.12, 0.86, C.chassis, 0.5, y, 0.5));
         for (const [ox, oz] of [
@@ -565,6 +567,7 @@ export class Structures {
       }
       case Build.JibCrane: {
         this.quay(g, i);
+        this.machinesOutline(g, i, QUAY_Y);
         // Pedestal, then a slewing cab and jib that swings to face the boat.
         g.add(cyl(0.13, 0.5, C.craneYellow, 0.5, QUAY_Y, 0.5, 8));
         const slew = new Group();
@@ -831,14 +834,22 @@ export class Structures {
     this.stacks.set(i, stack);
   }
 
-  /** Yellow edge lines and a forklift sign painted on forklift-only paving. */
-  private forkliftMarking(g: Group, along: boolean, y: number): void {
-    for (const o of [0.1, 0.9]) {
-      const [x, z, w, d] = along ? [0.5, o, 1, 0.04] : [o, 0.5, 0.04, 1];
-      g.add(box(w, 0.006, d, C.stripe, x, y, z));
-    }
+  /** Paving kept for port machines: the red outline, and a forklift sign painted on it. */
+  private machinesMarking(g: Group, i: number, y: number): void {
+    this.machinesOutline(g, i, y);
     g.add(box(0.22, 0.006, 0.12, C.stripe, 0.46, y, 0.5));
     g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, y, 0.5));
+  }
+
+  /** A red line round the edge of an area kept for port machines, if `i` is in one. */
+  private machinesOutline(g: Group, i: number, y: number): void {
+    if (!machinesOnly(this.map, i)) return;
+    for (const [dx, dy] of DIRS) {
+      const n = this.offset(i, dx, dy);
+      if (n >= 0 && machinesOnly(this.map, n)) continue;
+      const [x, z, w, d] = dx ? [0.5 + dx * 0.48, 0.5, 0.03, 1] : [0.5, 0.5 + dy * 0.48, 1, 0.03];
+      g.add(box(w, 0.007, d, C.buoyRed, x, y, z));
+    }
   }
 
   /**

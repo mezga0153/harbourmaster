@@ -52,10 +52,10 @@ export const CATEGORIES: Category[] = [
       {
         tool: 'forkliftOnly',
         icon: 'lane',
-        label: 'Forklift only',
+        label: 'Machines only',
         key: 'Y',
         note: `${money(B.FORKLIFT_ONLY_COST)}/tile`,
-        hint: 'Drag over port roads or quays to keep people on foot off them, so forklifts do not queue behind dockhands. Drag over marked tiles to clear the mark',
+        hint: 'Drag over port roads or quays to keep them for port machines: no people on foot, so forklifts and reach stackers do not queue behind dockhands, and no hauliers’ trucks. Outlined in red, like the ground round every crane. Drag over marked tiles to clear the mark',
         tier: B.FORKLIFT_ONLY_TIER,
       },
     ],

@@ -10,7 +10,7 @@ import type { BuildKind, MachineKind, StoreKind } from './sim/types';
 export type Command =
   | { type: 'build'; kind: BuildKind; tiles: number[]; facing?: number }
   | { type: 'bulldoze'; tiles: number[] }
-  /** Mark port road and quay tiles forklift-only, or clear the mark. */
+  /** Mark port road and quay tiles for port machines only, or clear the mark. */
   | { type: 'forkliftOnly'; tiles: number[]; on: boolean }
   /** Mark port road and quay tiles out as storage, or clear them. */
   | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }

@@ -338,7 +338,7 @@ export class Input {
   }
 
   /**
-   * A drag that starts on an unmarked tile marks forklift-only; one that
+   * A drag that starts on an unmarked tile marks it machines only; one that
    * starts on a marked tile clears the mark.
    */
   private marking(first: number): boolean {

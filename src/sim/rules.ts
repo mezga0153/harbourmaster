@@ -156,7 +156,10 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
 export const EXTENSION = 4;
 /** Which part of a multi-tile building a tile is, in `GameMap.orient` bits 4–5. */
 const PART_SHIFT = 4;
-/** Marks a port road or quay tile that people on foot keep off. */
+/**
+ * Marks a port road or quay tile for port machines only: people on foot and
+ * the hauliers' trucks keep off.
+ */
 export const FORKLIFT_ONLY = 8;
 /** Marks a building tile standing on a quay, which it leaves behind. */
 export const ON_QUAY = 64;
@@ -165,16 +168,26 @@ export function forkliftOnly(map: GameMap, i: number): boolean {
   return (map.orient[i] & FORKLIFT_ONLY) !== 0;
 }
 
-/** Only port roads and plain quay can be marked forklift-only. */
 /** Shown for the country past the port's land. */
 export const OUTSIDE = 'Beyond the port’s land';
 
+/** Only port roads and plain quay can be marked for port machines only. */
 export function forkliftOnlyError(map: GameMap, i: number): string | null {
   if (!map.buildable(i)) return OUTSIDE;
   const b = map.build[i];
   return b === Build.PortRoad || b === Build.Quay
     ? null
-    : 'Only port roads and quays can be forklift-only';
+    : 'Only port roads and quays can be marked for port machines only';
+}
+
+/**
+ * Kept for the port's machines: marked so, or round a crane. People on foot
+ * and the hauliers' trucks keep off.
+ */
+export function machinesOnly(map: GameMap, i: number): boolean {
+  const b = map.build[i];
+  const paved = b === Build.PortRoad || b === Build.Quay || isCrane(b);
+  return paved && (forkliftOnly(map, i) || nearCrane(map, i));
 }
 
 /** What marking out storage costs a tile. */
@@ -444,7 +457,7 @@ export function placementError(
 
 /**
  * Port surfaces forklifts can drive on: port roads and quays, including
- * those marked forklift-only. Not port paths
+ * those for port machines only. Not port paths
  * (those are for people on foot), public roads (for the hauliers) or wooden
  * jetties (they cannot take the weight).
  */
@@ -460,7 +473,7 @@ export function drivable(code: number): boolean {
   );
 }
 
-/** Walkable here: not marked forklift-only, nor next to a crane. */
+/** Walkable here: not kept for port machines, by marking or next to a crane. */
 export function walkableAt(map: GameMap, i: number): boolean {
   return i >= 0 && walkable(map.build[i]) && !forkliftOnly(map, i) && !nearCrane(map, i);
 }

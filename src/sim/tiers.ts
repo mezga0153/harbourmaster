@@ -33,7 +33,7 @@ export const TIERS: Tier[] = [
     contracts: 2,
     unlocks: [
       'Concrete quay, up to 8 m deep',
-      'Forklifts (4 crates a trip), forklift depots, port roads and forklift lanes',
+      'Forklifts (4 crates a trip), forklift depots, port roads and machines-only areas',
       'Crate storage marked out on port roads and quays',
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',

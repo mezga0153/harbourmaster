@@ -200,7 +200,7 @@ export const STACKER_SPEED = 0.32;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers
-/** Painting a port road or quay tile forklift-only, or back. */
+/** Marking a port road or quay tile for port machines only, or back. */
 export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;
 export const ROCK_CLEAR_COST = 50;
