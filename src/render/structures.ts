@@ -34,6 +34,8 @@ const LIGHT = 0xfff2b0;
 const BALLAST = 0x9b9284;
 const STEEL = 0x8d939b;
 const LAMP_RED = 0xff3b2f;
+/** How many tiles a yard gantry's rails run either way along its yard, at most. */
+const GANTRY_RUN = 12;
 const unitBox = new BoxGeometry(1, 1, 1);
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 
@@ -67,8 +69,10 @@ interface CrossingParts {
 }
 
 interface YardGantryParts {
-  /** The gantry, laid out along +z from its tile into the yard. */
+  /** The gantry's rails, laid out along +z from its tile into the yard and along x. */
   frame: Object3D;
+  /** Legs, beams and trolley, running along x on the rails. */
+  carriage: Object3D;
   /** Runs along the beam, along +z of the frame: out over the yard, back over the lane. */
   trolley: Object3D;
   /** Hoist rope from the trolley, scaled to its length, and the spreader on its end. */
@@ -146,6 +150,9 @@ export class Structures {
     for (const lot of parkingLots(this.map)) {
       if (lot.tiles.some((t) => touched.has(t))) for (const t of lot.tiles) touched.add(t);
     }
+    // A yard gantry's rails run the length of its yard, so it is laid again
+    // whatever changes.
+    if (changes.length > 0) for (const i of this.yardGantries.keys()) touched.add(i);
     for (const i of touched) this.rebuild(i);
   }
 
@@ -306,14 +313,15 @@ export class Structures {
     const at = g.frame.worldToLocal(slot.getWorldPosition(new Vector3()));
     // The spreader comes down onto its top; the container hangs below it.
     const drop = g.trolley.position.y - (at.y + BOX_HEIGHT + 0.04);
-    return { x: Math.max(-0.38, Math.min(0.38, at.x)), z: at.z, drop };
+    return { x: at.x, z: at.z, drop };
   }
 
   private runYardGantry(g: YardGantryParts, dt: number): void {
     // One lift a cycle, as long as one takes in the game.
     const cycle = YARD_GANTRY_TICKS / TICKS_PER_SECOND;
     g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
-    let x = 0;
+    // Idle, it stays where it last worked.
+    let x = g.carriage.position.x;
     let z = Math.max(0.6, g.far / 2);
     let drop = 0.2;
     let carry = false;
@@ -347,7 +355,7 @@ export class Structures {
         z = to.z + (from.z - to.z) * t;
       }
     }
-    g.trolley.position.x += (x - g.trolley.position.x) * Math.min(1, dt * 10);
+    g.carriage.position.x += (x - g.carriage.position.x) * Math.min(1, dt * 10);
     g.trolley.position.z += (z - g.trolley.position.z) * Math.min(1, dt * 10);
     g.rope.scale.y = drop;
     g.rope.position.y = -drop / 2;
@@ -450,6 +458,8 @@ export class Structures {
 
   private rebuild(i: number): void {
     const old = this.tiles.get(i);
+    // A yard gantry laid again carries on where it was.
+    const was = this.yardGantries.get(i);
     if (old) {
       this.group.remove(old);
       this.tiles.delete(i);
@@ -461,6 +471,12 @@ export class Structures {
       this.yardGantries.delete(i);
     }
     let obj = this.make(i);
+    const now = this.yardGantries.get(i);
+    if (was && now) {
+      now.carriage.position.x = was.carriage.position.x;
+      now.trolley.position.z = was.trolley.position.z;
+      Object.assign(now, { pick: was.pick, work: was.work, look: was.look, phase: was.phase });
+    }
     if ((FACES.has(this.map.build[i]) || isTownBuilding(this.map.build[i])) && obj) {
       obj = turn(obj, this.map.orient[i]);
     }
@@ -792,8 +808,9 @@ export class Structures {
       }
       case Build.YardGantry: {
         // A rail-mounted gantry spanning the container yard beside it: legs
-        // on rails at this tile and across the yard, a beam overhead and a
-        // trolley with its spreader over the stacks.
+        // on rails along this side of the yard and its far side, a beam
+        // overhead and a trolley with its spreader over the stacks. It runs
+        // along the rails to whichever row of the yard it is working.
         const m = this.map;
         const y = QUAY_Y;
         g.add(box(1, y - top, 1, C.quayTop, 0.5, top, 0.5));
@@ -808,18 +825,35 @@ export class Structures {
           if (!m.inBounds(x, z) || !storesBoxes(m.store[m.idx(x, z)])) break;
           span++;
         }
+        // Along the yard, either way, as far as its first row runs: the
+        // frame's +x is (dy, -dx) on the map.
+        const along = (sign: number) => {
+          let k = 0;
+          while (k < GANTRY_RUN) {
+            const x = m.xOf(i) + dx + dy * sign * (k + 1);
+            const z = m.yOf(i) + dy - dx * sign * (k + 1);
+            if (!m.inBounds(x, z) || !storesBoxes(m.store[m.idx(x, z)])) break;
+            k++;
+          }
+          return k * sign;
+        };
+        const [from, to] = yard === undefined ? [0, 0] : [along(-1), along(1)];
         const frame = new Group();
         const h = 1.15;
         const far = span + 0.35;
         for (const z of [-0.35, far]) {
+          frame.add(box(to - from + 1, 0.02, 0.06, C.chassis, (from + to) / 2, y, z));
+        }
+        const carriage = new Group();
+        for (const z of [-0.35, far]) {
           for (const x of [-0.4, 0.4]) {
-            frame.add(box(0.1, h, 0.1, C.craneYellow, x, y, z));
-            frame.add(box(0.14, 0.08, 0.24, C.chassis, x, y, z));
+            carriage.add(box(0.1, h, 0.1, C.craneYellow, x, y, z));
+            carriage.add(box(0.14, 0.08, 0.24, C.chassis, x, y, z));
           }
-          frame.add(box(0.9, 0.1, 0.1, C.craneYellow, 0, y + h - 0.1, z));
+          carriage.add(box(0.9, 0.1, 0.1, C.craneYellow, 0, y + h - 0.1, z));
         }
         for (const x of [-0.4, 0.4]) {
-          frame.add(box(0.1, 0.12, far + 0.45, C.craneYellow, x, y + h, (far - 0.35) / 2));
+          carriage.add(box(0.1, 0.12, far + 0.45, C.craneYellow, x, y + h, (far - 0.35) / 2));
         }
         // The trolley with its cab, the hoist ropes and the spreader on them,
         // and the container it is lifting, if any.
@@ -834,9 +868,11 @@ export class Structures {
         load.visible = false;
         spreader.add(load);
         trolley.add(rope, spreader);
-        frame.add(trolley);
+        carriage.add(trolley);
+        frame.add(carriage);
         this.yardGantries.set(i, {
           frame,
+          carriage,
           trolley,
           rope,
           spreader,
