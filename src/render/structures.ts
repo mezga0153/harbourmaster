@@ -136,9 +136,18 @@ export class Structures {
   private piles = new Map<number, { group: Group; crates: Object3D[]; pallets: boolean }>();
   private train: Train | null = null;
 
-  constructor(private map: GameMap) {
+  /** `bare`: just the tiles, without the highway, railway and boundary round the map. */
+  constructor(
+    private map: GameMap,
+    bare = false,
+  ) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
-    this.group.add(this.highway(), this.mainLine(), this.boundary());
+    if (!bare) this.group.add(this.highway(), this.mainLine(), this.boundary());
+  }
+
+  /** What is drawn on tile `i`, if anything. */
+  tileObject(i: number): Object3D | undefined {
+    return this.tiles.get(i);
   }
 
   apply(changes: TileChange[]): void {

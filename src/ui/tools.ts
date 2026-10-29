@@ -13,6 +13,10 @@ export interface ToolDef {
   /** For tools that are not buildings or machines. */
   hint?: string;
   tier?: number;
+  /** The tab of its category it is under in the build menu. */
+  group?: string;
+  /** What it costs to run, a day. */
+  upkeep?: number;
 }
 
 /** A group of tools behind one button in the bar, Cities: Skylines style. */
@@ -45,13 +49,14 @@ export const CATEGORIES: Category[] = [
     label: 'Roads',
     icon: 'road',
     tools: [
-      { tool: 'road', icon: 'road', label: 'Public road', key: 'R' },
-      { tool: 'footpath', icon: 'footpath', label: 'Port path', key: 'F' },
-      { tool: 'portRoad', icon: 'portRoad', label: 'Port road' },
-      { tool: 'portGate', icon: 'gate', label: 'Port gate' },
-      { tool: 'parking', icon: 'parking', label: 'Truck parking' },
+      { tool: 'road', icon: 'road', label: 'Public road', key: 'R', group: 'Roads' },
+      { tool: 'footpath', icon: 'footpath', label: 'Port path', key: 'F', group: 'Roads' },
+      { tool: 'portRoad', icon: 'portRoad', label: 'Port road', group: 'Roads' },
+      { tool: 'portGate', icon: 'gate', label: 'Port gate', group: 'Roads' },
+      { tool: 'parking', icon: 'parking', label: 'Truck parking', group: 'Areas' },
       {
         tool: 'forkliftOnly',
+        group: 'Areas',
         icon: 'lane',
         label: 'Machines only',
         key: 'Y',
@@ -66,13 +71,14 @@ export const CATEGORIES: Category[] = [
     label: 'Docks',
     icon: 'jetty',
     tools: [
-      { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J' },
-      { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G' },
-      { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O' },
-      { tool: 'buoyIn', icon: 'buoyIn', label: 'Buoy: way in' },
-      { tool: 'buoyOut', icon: 'buoyOut', label: 'Buoy: way out' },
+      { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J', group: 'Docks' },
+      { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G', group: 'Docks' },
+      { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O', group: 'Docks' },
+      { tool: 'buoyIn', icon: 'buoyIn', label: 'Buoy: way in', group: 'Channel' },
+      { tool: 'buoyOut', icon: 'buoyOut', label: 'Buoy: way out', group: 'Channel' },
       {
         tool: 'dredge',
+        group: 'Terraform',
         icon: 'dredge',
         label: 'Dredge',
         note: `${money(B.DREDGE_COST)}/tile`,
@@ -81,6 +87,7 @@ export const CATEGORIES: Category[] = [
       },
       {
         tool: 'reclaim',
+        group: 'Terraform',
         icon: 'reclaim',
         label: 'Reclaim',
         note: `${money(B.RECLAIM_COST)}/tile`,
@@ -94,10 +101,17 @@ export const CATEGORIES: Category[] = [
     label: 'Cargo',
     icon: 'crane',
     tools: [
-      { tool: 'truckBay', icon: 'truckBay', label: 'Truck bay', key: 'T' },
-      { tool: 'largeBay', icon: 'bigTruck', label: 'Large truck bay', key: 'X' },
+      { tool: 'truckBay', icon: 'truckBay', label: 'Truck bay', key: 'T', group: 'Truck bays' },
+      {
+        tool: 'largeBay',
+        icon: 'bigTruck',
+        label: 'Large truck bay',
+        key: 'X',
+        group: 'Truck bays',
+      },
       {
         tool: 'crateStore',
+        group: 'Storage',
         icon: 'warehouse',
         label: 'Crate storage: in',
         note: `${money(B.CRATE_STORE_COST)}/tile`,
@@ -106,18 +120,46 @@ export const CATEGORIES: Category[] = [
       },
       {
         tool: 'crateOutStore',
+        group: 'Storage',
         icon: 'warehouse',
         label: 'Crate storage: out',
         note: `${money(B.CRATE_STORE_COST)}/tile`,
         hint: `Drag out an area on port roads or quays for crates going out on the coasters, ${B.CRATES_PER_STORE_TILE} a tile, outlined in blue. Shippers' trucks unload into it from inside the port; dockhands carry the crates on board, forklifts bring them to the quay or to storage by a jib crane, and jib cranes lift them on from storage in reach. Kept apart from storage for crates coming in. Drag over marked tiles to clear them`,
         tier: B.CRATE_STORE_TIER,
       },
-      { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
-      { tool: 'harbourCrane', icon: 'bigCrane', label: 'Harbour crane', key: 'I' },
-      { tool: 'gantryCrane', icon: 'bigCrane', label: 'Gantry crane' },
-      { tool: 'yardGantry', icon: 'bigCrane', label: 'Yard gantry' },
+      {
+        tool: 'jibCrane',
+        icon: 'crane',
+        label: 'Jib crane',
+        key: 'N',
+        group: 'Cranes',
+        upkeep: B.CRANE_RUNNING_COST,
+      },
+      {
+        tool: 'harbourCrane',
+        icon: 'bigCrane',
+        label: 'Harbour crane',
+        key: 'I',
+        group: 'Cranes',
+        upkeep: B.HARBOUR_CRANE_RUNNING_COST,
+      },
+      {
+        tool: 'gantryCrane',
+        icon: 'bigCrane',
+        label: 'Gantry crane',
+        group: 'Cranes',
+        upkeep: B.GANTRY_RUNNING_COST,
+      },
+      {
+        tool: 'yardGantry',
+        icon: 'bigCrane',
+        label: 'Yard gantry',
+        group: 'Cranes',
+        upkeep: B.YARD_GANTRY_RUNNING_COST,
+      },
       {
         tool: 'boxStore',
+        group: 'Storage',
         icon: 'box',
         label: 'Container yard: in',
         key: 'V',
@@ -127,6 +169,7 @@ export const CATEGORIES: Category[] = [
       },
       {
         tool: 'boxOutStore',
+        group: 'Storage',
         icon: 'box',
         label: 'Container yard: out',
         note: `${money(B.BOX_STORE_COST)}/tile`,
@@ -140,13 +183,15 @@ export const CATEGORIES: Category[] = [
     label: 'Machines',
     icon: 'forklift',
     tools: [
-      { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
-      { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },
-      { tool: 'stacker', icon: 'stacker', label: 'Reach stacker', key: 'Z' },
-      { tool: 'tractor', icon: 'tractor', label: 'Terminal tractor' },
-      { tool: 'tugBerth', icon: 'anchor', label: 'Tug berth' },
+      { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U', group: 'Machines' },
+      { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L', group: 'Machines' },
+      { tool: 'stacker', icon: 'stacker', label: 'Reach stacker', key: 'Z', group: 'Machines' },
+      { tool: 'tractor', icon: 'tractor', label: 'Terminal tractor', group: 'Machines' },
+      { tool: 'tugBerth', icon: 'anchor', label: 'Tug berth', group: 'Tugs' },
       {
         tool: 'tug',
+        group: 'Tugs',
+        upkeep: B.TUG_RUNNING_COST,
         icon: 'anchor',
         label: 'Tugboat',
         note: money(B.TUG_PRICE),

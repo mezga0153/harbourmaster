@@ -16,6 +16,7 @@ import { StaffPanel, StaffDetails } from './Staff';
 import { RailwayPanel, TownPanel } from './Town';
 import { TOWN_STAGES } from '../sim/town';
 import { Icon, type IconName } from './icons';
+import { thumbnail } from '../render/thumbs';
 import { BULLDOZE_TOOL, CATEGORIES, SELECT_TOOL, type Category, type ToolDef } from './tools';
 import {
   openCategory,
@@ -658,7 +659,8 @@ function HoverTip() {
   );
 }
 
-function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
+/** What the build menu says about a tool: whether it is unlocked, what it does and costs. */
+function toolInfo(t: ToolDef) {
   const def = t.tool in BUILDABLES ? BUILDABLES[t.tool as BuildKind] : null;
   const machine = isMachineKind(t.tool) ? MACHINES[t.tool] : null;
   const needTier = def
@@ -668,15 +670,24 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
       : (t.tier ?? 0);
   const locked = needTier > (snapshot.value?.progress.tier ?? 0);
   const hint = def
-    ? `${def.label}: ${def.hint}`
+    ? def.hint
     : machine
-      ? `${machine.label}: ${machine.hint}. Click a depot to buy one there. Operator ${money(machine.wage)}/day`
-      : t.hint
-        ? `${t.label}: ${t.hint}`
-        : t.label;
+      ? `${machine.hint}. Click a depot to buy one there`
+      : (t.hint ?? '');
+  const price = def ? money(def.cost) : machine ? money(machine.price) : t.note;
+  const upkeep = machine
+    ? `Operator ${money(machine.wage)}/day`
+    : t.upkeep
+      ? `${money(t.upkeep)}/day to run`
+      : null;
+  return { locked, needTier, hint, price, upkeep };
+}
+
+function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
+  const { locked, needTier, hint, price } = toolInfo(t);
   const title = locked
     ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
-    : [hint, t.key && `(${t.key})`].filter(Boolean).join(' ');
+    : [hint ? `${t.label}: ${hint}` : t.label, t.key && `(${t.key})`].filter(Boolean).join(' ');
   return (
     <button
       class={`tool ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
@@ -693,26 +704,120 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
       )}
       <Icon name={t.icon} />
       <span class="tool-label">{t.label}</span>
-      <span class="tool-cost">
-        {def ? money(def.cost) : machine ? money(machine.price) : t.note}
-      </span>
+      <span class="tool-cost">{price}</span>
     </button>
   );
 }
 
-/** The flyout above the bar with the tools of the open category. */
+/** The tab last open in each category of the build menu. */
+const trayTabs = new Map<string, string>();
+
+/** One thing on offer in the build menu: its picture, name and price. */
+function ToolCard({
+  t,
+  active,
+  onHover,
+}: {
+  t: ToolDef;
+  active: boolean;
+  onHover(t: ToolDef | null): void;
+}) {
+  const { locked, price } = toolInfo(t);
+  const picture = thumbnail(t.tool);
+  return (
+    <button
+      class={`card ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
+      onClick={() => (locked ? (panel.value = 'port') : (tool.value = active ? 'select' : t.tool))}
+      onMouseEnter={() => onHover(t)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(t)}
+      onBlur={() => onHover(null)}
+      aria-pressed={active}
+      aria-label={t.label}
+    >
+      <span class="card-picture">
+        {picture ? <img src={picture} alt="" draggable={false} /> : <Icon name={t.icon} />}
+        {locked && (
+          <span class="lock">
+            <Icon name="lock" />
+          </span>
+        )}
+        {!locked && t.key && <kbd>{t.key}</kbd>}
+      </span>
+      <span class="card-label">{t.label}</span>
+      <span class="card-cost">{price}</span>
+    </button>
+  );
+}
+
+/**
+ * The build menu above the bar, Cities: Skylines style: the open category's
+ * tabs, a card with a picture for each thing in the tab, and what the one
+ * under the pointer (or in hand) does and costs.
+ */
 function CategoryTray({ cat }: { cat: Category }) {
   const current = tool.value;
+  const [hovered, setHovered] = useState<ToolDef | null>(null);
+  const [, redraw] = useState(0);
+  const tabs = [...new Set(cat.tools.map((t) => t.group ?? cat.label))];
+  const inHand = cat.tools.find((t) => t.tool === current);
+  const tab = trayTabs.get(cat.id) ?? (inHand ? (inHand.group ?? cat.label) : undefined) ?? tabs[0];
+  const shown = cat.tools.filter((t) => (t.group ?? cat.label) === tab);
+  const about = hovered ?? inHand ?? null;
+  const info = about && toolInfo(about);
+  const pick = (g: string) => {
+    trayTabs.set(cat.id, g);
+    setHovered(null);
+    redraw((n) => n + 1);
+  };
   return (
     <div class="tray panel" role="toolbar" aria-label={cat.label}>
       <div class="tray-head">
-        <Icon name={cat.icon} />
-        <span>{cat.label}</span>
+        <span class="tray-title">
+          <Icon name={cat.icon} />
+          {cat.label}
+        </span>
+        {tabs.length > 1 && (
+          <div class="tray-tabs" role="tablist">
+            {tabs.map((g) => (
+              <button
+                key={g}
+                role="tab"
+                class={`tray-tab ${g === tab ? 'on' : ''}`}
+                aria-selected={g === tab}
+                onClick={() => pick(g)}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <div class="tray-tools">
-        {cat.tools.map((t) => (
-          <ToolButton key={t.tool} t={t} active={current === t.tool} />
+      <div class="tray-cards">
+        {shown.map((t) => (
+          <ToolCard key={t.tool} t={t} active={current === t.tool} onHover={setHovered} />
         ))}
+      </div>
+      <div class="tray-about">
+        {about && info ? (
+          <>
+            <div class="tray-about-head">
+              <strong>{about.label}</strong>
+              <span class="tray-about-costs">
+                <span>{info.price}</span>
+                {info.upkeep && <span class="muted">{info.upkeep}</span>}
+                {about.key && <kbd>{about.key}</kbd>}
+              </span>
+            </div>
+            <p class="muted">
+              {info.locked
+                ? `Unlocks at the ${TIERS[info.needTier].name}. See the Port panel (P).`
+                : info.hint}
+            </p>
+          </>
+        ) : (
+          <p class="muted">Point at something to see what it does and what it costs.</p>
+        )}
       </div>
     </div>
   );
@@ -723,7 +828,7 @@ function BuildBar() {
   const open = CATEGORIES.find((c) => c.id === openCategory.value);
   return (
     <>
-      {open && <CategoryTray cat={open} />}
+      {open && <CategoryTray key={open.id} cat={open} />}
       <footer class="dock panel">
         <div class="dock-group">
           <ToolButton t={SELECT_TOOL} active={current === 'select'} />
