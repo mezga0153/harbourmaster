@@ -7697,7 +7697,8 @@ export class World {
   /**
    * The slot each container in a yard is stacked in, and each export,
    * kept beside them: a container set down goes in the lowest free place
-   * with one under it, across the whole yard before it goes higher.
+   * with one under it, across the whole yard before it goes higher; under
+   * a yard gantry, up first (see freeYardSlot).
    */
   private yardSlots(b: Bay): { boxes: number[]; exports: number[] } {
     const boxes = (b.boxSlots ??= []);
@@ -7749,6 +7750,22 @@ export class World {
     // When a container leaves, as best known: waiting on its ship to finish
     // last of all, and those from one ship alike.
     const when = (r: number | undefined) => (r === undefined ? Infinity : r < 0 ? 1e12 - r : r);
+    // Under a yard gantry, which reaches every stack, it goes up first: on
+    // the fullest stack topped by one off the same ship (an export on an
+    // export), so a ship's containers fill stacks of their own, clear
+    // customs together, and those that come later start new ones rather
+    // than bury them.
+    if (this.yardGantry(b)) {
+      let up = -1;
+      for (let k = YARD_STACKS; k < cap; k++) {
+        const p = yardPlace(k);
+        if (p.tier === 0 || under.has(k) || !under.has(k - YARD_STACKS)) continue;
+        if (reach && !reach.has(p.tile)) continue;
+        const below = under.get(k - YARD_STACKS);
+        if (below === ready && (up < 0 || p.tier > yardPlace(up).tier)) up = k;
+      }
+      if (up >= 0) return up;
+    }
     let fallback = -1;
     for (let tier = 0; tier < YARD_TIERS; tier++) {
       for (let k = tier * YARD_STACKS; k < cap; k++) {
@@ -8807,16 +8824,17 @@ export class World {
     if (cached) return cached;
     const most = Math.max(1, Math.floor(a.tiles!.length / B.STORE_TILES_PER_TRUCK));
     const spots = loadingSpots(this.map, a.tiles!, this.truckReach());
-    // At a yard with a gantry, trucks load in the lane its rails run along,
-    // beside the yard: under it, and either way along the yard from it.
-    // Where trucks cannot get to that lane, they load where they can.
+    // At a yard with a gantry, trucks load anywhere in the lane its rails
+    // run along, beside the yard: under it, and all the way along the yard
+    // either way from it. Where trucks cannot get to that lane, they load
+    // where they can.
     const rails = a.yard ? this.gantryLane(a) : null;
     const lane = rails
       ? spots
           .filter((s) => rails.has(s))
           .sort((p, q) => Math.abs(rails.get(p)!) - Math.abs(rails.get(q)!))
       : [];
-    const out = (lane.length > 0 ? lane : spots).slice(0, most);
+    const out = lane.length > 0 ? lane : spots.slice(0, most);
     this.spotCache.set(a.idx, out);
     return out;
   }

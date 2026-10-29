@@ -2343,6 +2343,32 @@ describe('Container Port tier', () => {
     expect(working).toBeGreaterThan(0);
   });
 
+  it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {
+    const world = feederPort(true);
+    const yard = [...world.yards.values()][0];
+    const spot: number = world['storeSpots'](yard)[0];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    yard.boxes = [];
+    yard.boxReady = [];
+    yard.boxSlots = [];
+    // Each waits on its ship to finish unloading, as customsFor has it.
+    const put = (ship: number) => {
+      const k: number = world['nextYardSlot'](yard, -ship);
+      yard.boxes.push(0);
+      yard.boxReady!.push(-ship);
+      yard.boxSlots!.push(k);
+      return { k, tier: Math.floor((k % B.BOXES_PER_STORE_TILE) / 2) };
+    };
+    const first = [put(101), put(101), put(101)];
+    // Up the one stack, before any more go on the ground.
+    expect(first.map((p) => p.tier)).toEqual([0, 1, 2]);
+    expect(first.map((p) => p.k - p.tier * 2)).toEqual([first[0].k, first[0].k, first[0].k]);
+    // A later ship's start a stack of their own, never on the first's.
+    const next = [put(102), put(102)];
+    expect(next.map((p) => p.tier)).toEqual([0, 1]);
+    expect(next[0].k).not.toBe(first[0].k);
+  });
+
   it('has terminal tractors bring containers to a yard with a gantry, with no reach stackers', () => {
     const world = feederPort(true);
     const m = world.map;
