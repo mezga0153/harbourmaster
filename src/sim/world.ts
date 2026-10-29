@@ -5541,7 +5541,9 @@ export class World {
     // counted however it creeps meanwhile, so it does not stop again at
     // every nudge forward.
     const patient = (b.keptFor ?? 0) < B.KEEP_CLEAR_PATIENCE;
+    /** Beside such water still, and held up by it alone. */
     let byEnds = false;
+    let heldByEnds = false;
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
@@ -5607,6 +5609,7 @@ export class World {
           const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
           speed = Math.min(speed, clamp(safe / v.speed, 0, 1));
           if (still && speed <= 0.05) stopped = true;
+          if (kept !== null && kept > 0 && speed <= 0.1) heldByEnds = true;
         } else {
           speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
         }
@@ -5627,7 +5630,8 @@ export class World {
     }
     if (b.keptTick !== this.tick) {
       b.keptTick = this.tick;
-      b.keptFor = byEnds ? (b.keptFor ?? 0) + 1 : 0;
+      const past = (b.keptFor ?? 0) >= B.KEEP_CLEAR_PATIENCE;
+      b.keptFor = heldByEnds || (past && byEnds) ? (b.keptFor ?? 0) + 1 : 0;
     }
     return { speed, makeWay, still: stopped && speed <= 0.05 };
   }
