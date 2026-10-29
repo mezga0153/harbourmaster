@@ -2431,6 +2431,30 @@ describe('Container Port tier', () => {
     expect(words(1001)).toMatch(/^Ready to sail/);
   });
 
+  it('has a ship ready to sail wait its turn only behind one free to go', () => {
+    const world = World.create(7);
+    const template = world.boats[0];
+    world.boats.length = 0;
+    const ship = (id: number, timer: number, x: number) => ({
+      ...template,
+      id,
+      vessel: 'coaster' as const,
+      state: 'moored' as const,
+      crates: 0,
+      reserved: 0,
+      timer,
+      x,
+      y: template.y,
+    });
+    const older = ship(1000, 500, 40.5);
+    const younger = ship(1001, 100, 42.5);
+    world.boats.push(older, younger);
+    expect(world['letsGoFirst'](younger)).toBe(true);
+    // The older one is waiting for the fairway itself: the younger goes on.
+    older.holdUp = 'fairway';
+    expect(world['letsGoFirst'](younger)).toBe(false);
+  });
+
   it('keeps shippers away until there is parking outside the port', () => {
     const world = World.create(7);
     world.tier = 2;
