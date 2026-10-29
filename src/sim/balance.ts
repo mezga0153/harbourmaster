@@ -164,6 +164,11 @@ export const FEEDER_MAX_LOAD = 72; // containers: six bays, three abreast, four 
 // every FEEDER_GROWTH_CONTAINERS containers the port has handled.
 export const FEEDER_GROWTH_MAX = 3;
 export const FEEDER_GROWTH_CONTAINERS = 1000;
+/**
+ * Clear water kept between boats moored end to end along a dock, in tiles;
+ * boats under way keep out of it too (see seaWay).
+ */
+export const BERTH_END_GAP = 0.3;
 /** A feeder is a big ship: its berth runs 3 tiles either side of the middle. */
 export const FEEDER_HALF_BERTH = 3;
 export const HARBOUR_CRANE_TICKS = 30; // per container lifted

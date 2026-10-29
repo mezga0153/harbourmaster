@@ -1451,6 +1451,28 @@ describe('Container Port tier', () => {
     expect(closest).toBeGreaterThan(B.DOCK_FRONT_RANGE - 1);
   });
 
+  it('keeps clear water off the bow and stern of boats moored end to end', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const xs: number[] = [];
+    for (let x = 0; x < m.w; x++) if (m.build[m.idx(x, r)] === Build.Jetty) xs.push(x);
+    // Berths along the north side of the starting jetty, all in one lane.
+    const at = (k: number, vessel: 'smack' | 'coaster') => ({
+      berth: m.idx(xs[1] + k, r - 1),
+      jetty: m.idx(xs[1] + k, r),
+      vessel,
+    });
+    const clash = world['berthsClash'].bind(world);
+    // Two smacks a ship's length apart would lie bow to stern with no water
+    // between them; a tile further on they have room.
+    expect(clash(at(0, 'smack'), at(2, 'smack'))).toBe(true);
+    expect(clash(at(0, 'smack'), at(3, 'smack'))).toBe(false);
+    // Coasters, a good deal longer, used to overlap two tiles apart.
+    expect(clash(at(0, 'coaster'), at(2, 'coaster'))).toBe(true);
+    expect(clash(at(0, 'coaster'), at(3, 'coaster'))).toBe(false);
+  });
+
   it('gives way to a boat pulling out, then to boats leaving, then to the bigger ship', () => {
     const world = World.create(7);
     const template = world.boats[0];
