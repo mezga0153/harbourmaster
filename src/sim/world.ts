@@ -600,6 +600,13 @@ function isBoxy(p: { kind: string }): boolean {
 /** What drives the port's roads in traffic: trucks, and the reach stackers and terminal tractors. */
 type Vehicle = Truck | Dockhand;
 
+/** A truck or machine about to drive across a tile, and which way. */
+interface Crossing {
+  id: number;
+  dx: number;
+  dy: number;
+}
+
 function isTruck(o: Vehicle): o is Truck {
   return 'contractId' in o;
 }
@@ -917,6 +924,8 @@ export class World {
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
   private junctionCache: Uint8Array | null = null;
+  /** Where trucks and machines are about to drive, this tick; see crossings. */
+  private crossingCache: { tick: number; at: Map<number, Crossing[]> } | null = null;
   /** Where trucks can turn about; see turnable. */
   private turnCache: Uint8Array | null = null;
   /** Where port machines can drive from their depots; see machineGround. */
@@ -8913,10 +8922,16 @@ export class World {
     const m = this.map;
     const standing = this.trucks.filter((o) => this.docked(o));
     // Trucks on their way in to a loading spot: where each will stand, and
-    // the way it still has to go to get there.
+    // how far the nearest of them still has to go to each tile of its way
+    // there.
     const coming = this.trucks.filter((o) => o.state === 'toBay' && o.path.length > 0);
     const willStand = new Set(coming.map((o) => o.goal));
-    const onTheirWay = new Set(coming.flatMap((o) => o.path.slice(0, -1)));
+    const onTheirWay = new Map<number, number>();
+    for (const o of coming) {
+      o.path.slice(0, -1).forEach((i, k) => {
+        if ((onTheirWay.get(i) ?? Infinity) > k) onTheirWay.set(i, k);
+      });
+    }
     const open = this.freeDockSet(bay, len);
     const free = this.loadingDocks(bay).filter((d) => open.has(d));
     this.dockRouted = false;
@@ -8946,10 +8961,13 @@ export class World {
         );
       });
       // Nor drive in past where one coming in will stand, nor stop where
-      // one coming in has yet to get past: so the first in go deepest and
-      // the rest stop short of them, and none blocks the lane behind it.
+      // one coming in has yet to get past by the time it gets there: so the
+      // first in go deepest and the rest stop short of them, and none
+      // blocks the lane behind it. One coming in ahead of it, as all on
+      // the same road in are, gets past first.
       const past = path.slice(0, -1).some((i) => willStand.has(i));
-      const inTheWay = onTheirWay.has(dock);
+      const toPass = onTheirWay.get(dock);
+      const inTheWay = toPass !== undefined && toPass + 2 >= path.length;
       if (!through && !past && !inTheWay && (!best || path.length > best.path.length)) {
         best = { dock, path };
       }
@@ -9535,7 +9553,8 @@ export class World {
       // Off the map at the end of the way, it drives on out.
       const stop = t.state !== 'leaving';
       if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, B.TRUCK_SPEED, Infinity, stop);
-      const room = Math.min(this.gapAhead(t) - B.TRUCK_GAP, this.toStopLine(t));
+      const gap = this.gapAhead(t) - B.TRUCK_GAP;
+      const room = Math.min(gap, this.toStopLine(t), this.toCrossing(t, gap));
       if (cost && t.held === B.REROUTE_AFTER) this.goRound(t, cost);
       return this.drive(t, B.TRUCK_SPEED, room, stop);
     };
@@ -9581,6 +9600,69 @@ export class World {
       d += 1;
     }
     return Infinity;
+  }
+
+  /**
+   * Don't block the box: how far a truck can go before its front reaches a
+   * tile just ahead that another's way crosses, when the queue in front
+   * would leave it standing there across that way; Infinity if none is
+   * near. Where roads two wide meet there is no junction to wait at (see
+   * junctions), and a queue backing up through a crossing stops the
+   * traffic across it, which on a loop of roads stops the queue itself.
+   */
+  private toCrossing(t: Truck, room: number): number {
+    if (room === Infinity || t.path.length === 0) return Infinity;
+    const m = this.map;
+    const crossings = this.crossings();
+    const here = this.tileOf(t);
+    const half = this.lengthOf(t) / 2;
+    let x = t.x;
+    let y = t.y;
+    let d = 0;
+    for (const i of t.path) {
+      const cx = m.xOf(i) + 0.5;
+      const cy = m.yOf(i) + 0.5;
+      const len = Math.hypot(cx - x, cy - y);
+      d += len;
+      // Up to its front, and as far as it could go anyway.
+      if (d - 0.5 > room + half) break;
+      // Not where it is going to stop anyway.
+      if (i !== here && i !== t.goal && len > 1e-6) {
+        const hx = (cx - x) / len;
+        const hy = (cy - y) / len;
+        const across = crossings
+          .get(i)
+          ?.some((c) => c.id !== t.id && Math.abs(c.dx * hx + c.dy * hy) < 0.5);
+        // Its nose already in it, it goes on; else it stops short unless
+        // there is room to get all the way over.
+        if (across && d - 0.5 >= half - 0.05 && room < d + 0.5 + half) return d - 0.5 - half;
+      }
+      x = cx;
+      y = cy;
+    }
+    return Infinity;
+  }
+
+  /** The tiles trucks and machines in traffic are about to drive onto, and which way; once a tick. */
+  private crossings(): Map<number, Crossing[]> {
+    if (this.crossingCache?.tick === this.tick) return this.crossingCache.at;
+    const m = this.map;
+    const at = new Map<number, Crossing[]>();
+    for (const o of this.traffic()) {
+      let from = this.tileOf(o);
+      for (const i of o.path.slice(0, 3)) {
+        if (i === from) continue;
+        const dx = m.xOf(i) - m.xOf(from);
+        const dy = m.yOf(i) - m.yOf(from);
+        const len = Math.hypot(dx, dy);
+        const list = at.get(i) ?? [];
+        list.push({ id: o.id, dx: dx / len, dy: dy / len });
+        at.set(i, list);
+        from = i;
+      }
+    }
+    this.crossingCache = { tick: this.tick, at };
+    return at;
   }
 
   /** Where a truck is on the road: on the right-hand side of it, or in the middle of a parking space. */
@@ -9657,9 +9739,10 @@ export class World {
     for (const q of this.people) if (isBoxy(q)) by.set(q.id, q);
     let at: Vehicle | undefined = t;
     const ring: Vehicle[] = [t];
-    for (let k = 0; k < 12 && at?.blocker !== undefined; k++) {
+    // However far round: a loop of roads can fill all the way.
+    while (at?.blocker !== undefined) {
       at = by.get(at.blocker);
-      if (!at || this.heldFor(at) === 0) return null;
+      if (!at || this.heldFor(at) === 0 || (at !== t && ring.includes(at))) return null;
       if (at === t) {
         const across = ring.filter(
           (v) => Math.cos(this.goingTo(by.get(v.blocker!)!) - this.goingTo(v)) < 0.7,
@@ -10319,9 +10402,18 @@ export class World {
 
   private truckWhy(t: Truck): string | undefined {
     if (t.exports && t.state === 'parked' && this.tick >= (t.papers ?? Infinity)) {
-      return this.outgoingRoom(t)
-        ? `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken. More tiles along the side trucks use give more spots.`
-        : `No outgoing ${t.boxes ? 'container yard' : 'crate storage'} has room for its load.`;
+      const store = t.boxes ? 'container yard' : 'crate storage';
+      if (!this.outgoingRoom(t)) return `No outgoing ${store} has room for its load.`;
+      // Spots free, but those on their way in to the others have to get past them first.
+      const free = [...(t.boxes ? this.yards : this.bays).values()].some(
+        (b) =>
+          this.takesExports(b) &&
+          bayRoom(b, t.boxes) >= t.cargo &&
+          this.freeDockSet(b, this.lengthOf(t)).size > 0,
+      );
+      return free
+        ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.`
+        : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken. More tiles along the side trucks use give more spots.`;
     }
     if (t.state !== 'loading') return undefined;
     const bay = this.dest(t.bayIdx);

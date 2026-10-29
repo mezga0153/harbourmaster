@@ -1414,6 +1414,86 @@ describe('Rules of the road', () => {
     expect(gone[0]).toBeGreaterThan(B.truckLength(6, false) + 1);
   });
 
+  it('undoes a ring of trucks however many there are in it, as round a loop of roads', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // Sixteen nose to tail round a block four on a side, clockwise.
+    const ring: (ReturnType<typeof truck> & {
+      blocker?: number;
+      passing?: { ids: number[]; x: number; y: number };
+    })[] = [];
+    for (let k = 0; k < 16; k++) {
+      const side = Math.floor(k / 4);
+      const s = k % 4;
+      const [x, y] = [
+        [30 + s, 30],
+        [34, 30 + s],
+        [34 - s, 34],
+        [30, 34 - s],
+      ][side];
+      const dir = [0, Math.PI / 2, Math.PI, -Math.PI / 2][side];
+      const far = m.idx(x + Math.round(Math.cos(dir)) * 20, y + Math.round(Math.sin(dir)) * 20);
+      ring.push(truck(world, x + 0.5, y + 0.5, dir, [far]));
+    }
+    const pace = () => ring.forEach((t) => world['pace'](t)());
+    for (let k = 0; k <= B.TRUCK_RING_AFTER; k++) pace();
+    // Each held up by the next, all the way round; one of them goes on
+    // through all the rest.
+    expect(ring.map((t) => t.blocker)).toEqual(ring.map((_, k) => ring[(k + 1) % 16].id));
+    pace();
+    const going = ring.filter((t) => t.passing);
+    expect(going).toHaveLength(1);
+    expect(going[0].passing!.ids).toHaveLength(15);
+  });
+
+  it('stops short of a crossing it could not get all the way over, rather than in it', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const east = [9, 10, 11, 12, 13].map((x) => m.idx(x, 20));
+    const t = truck(world, 8.6, 20.5, 0, east);
+    // A queue ahead, just past where another's way crosses at (10, 20).
+    truck(world, 11.6, 20.5, 0, [m.idx(20, 20)]).held = 50;
+    const room = world['gapAhead'](t) - B.TRUCK_GAP;
+    expect(world['toCrossing'](t, room)).toBe(Infinity);
+    truck(
+      world,
+      10.5,
+      22.5,
+      -Math.PI / 2,
+      [21, 20, 19].map((y) => m.idx(10, y)),
+    );
+    world.tick++;
+    // Its front at the near edge of the crossing, not across it.
+    const half = B.truckLength(6, false) / 2;
+    expect(world['toCrossing'](t, room)).toBeCloseTo(10 - half - 8.6, 6);
+    // With room to get all the way over, it goes on.
+    expect(world['toCrossing'](t, 4)).toBe(Infinity);
+  });
+
+  it('sends a truck to a loading spot one already on its way in drives past first', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // Four spots down a lane, the deepest taken by a truck on its way in.
+    const docks = [10, 11, 12, 13].map((y) => m.idx(20, y));
+    const lane = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, k) => m.idx(20, from + k));
+    const coming = truck(world, 20.5, 4.5, Math.PI / 2, lane(5, 13));
+    coming.state = 'toBay' as never;
+    world['loadingDocks'] = () => docks;
+    world['freeDockSet'] = () => new Set(docks.slice(0, 3));
+    world['drivePath'] = () => [m.entry];
+    const bay = { idx: 0 } as never;
+    // From well behind it: the deepest still free.
+    const behind = world['dockFor'](bay, (d: number) => lane(0, m.yOf(d)));
+    expect(behind?.dock).toBe(docks[2]);
+    // From ahead of it, it would stop where that one has yet to get past.
+    const ahead = world['dockFor'](bay, (d: number) => lane(8, m.yOf(d)));
+    expect(ahead).toBeNull();
+  });
+
   it('gets past a truck loading in its lane on a wide road, by the other lane', () => {
     const world = World.create(7);
     world.trucks.length = 0;
