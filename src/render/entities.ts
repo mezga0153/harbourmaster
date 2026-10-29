@@ -232,6 +232,8 @@ export interface Wake {
 
 /** Forklifts: how far to the right of the middle of the way they keep. */
 const FORK_KEEP = 0.16;
+/** How far ahead of a forklift's middle the pallet on its forks sits. */
+const FORK_REACH = 0.3;
 /** Forklifts turning about: the tighter of the two arcs they go round. */
 const TIGHT_ARC = 0.15;
 /** How far off the way it is going a forklift has to face to turn about. */
@@ -490,7 +492,12 @@ export class Entities {
           track.samples.unshift(tail);
           if (track.samples.length > WAKE_POINTS - 2) track.samples.pop();
         }
-      } else if (cur.kind === 'stacker' || cur.kind === 'tractor') {
+      } else if (
+        cur.kind === 'stacker' ||
+        cur.kind === 'tractor' ||
+        (cur.kind === 'forklift' && (cur.handAt?.store !== undefined || e.hand))
+      ) {
+        // A forklift drives up to a pallet in crate storage like this too.
         this.handle(e, x, y, dir, t);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
@@ -648,7 +655,7 @@ export class Entities {
    */
   private handle(e: Entry, x: number, y: number, dir: number, t: number): void {
     const v = e.view;
-    const keep = 0.2;
+    const keep = v.kind === 'forklift' ? FORK_KEEP : 0.2;
     const drive: Pose = {
       x: x - Math.sin(dir) * keep,
       z: y + Math.cos(dir) * keep,
@@ -711,7 +718,8 @@ export class Entities {
     const at = v.handAt;
     if (!at) return null;
     const stacker = v.kind === 'stacker';
-    const hold = stacker ? STACKER_REACH : TRAILER_AT;
+    // How far ahead of its middle it holds a load: a forklift's on its forks.
+    const hold = stacker ? STACKER_REACH : v.kind === 'forklift' ? FORK_REACH : TRAILER_AT;
     const ahead = (face: number, d: number) => [Math.cos(face) * d, Math.sin(face) * d];
     if (at.along !== undefined) {
       // Turned about its container, which the gantry's spreader is over.

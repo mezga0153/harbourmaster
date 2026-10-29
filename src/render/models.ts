@@ -80,6 +80,9 @@ export function headingOf(o: Object3D): number {
   return Math.atan2(lengthwise.z, lengthwise.x);
 }
 
+/** The crates on a pallet, as a forklift carries them and storage keeps them, two by two. */
+export const PALLET_CRATE = 0.15;
+
 /** Forklifts: how high the forks ride empty and with a load, above the ground. */
 export const FORKS_EMPTY = 0.05;
 export const FORKS_LOADED = 0.12;
@@ -243,7 +246,7 @@ export function forklift(): Model {
   const crates: Object3D[] = [];
   for (let layer = 0; layer < 2; layer++) {
     for (const z of [-0.08, 0.08]) {
-      const c = crate(0.15, 0.3, 0.04 + layer * 0.15, z);
+      const c = crate(PALLET_CRATE, 0.3, 0.04 + layer * PALLET_CRATE, z);
       c.visible = false;
       forks.add(c);
       crates.push(c);

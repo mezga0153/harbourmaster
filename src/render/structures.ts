@@ -25,6 +25,8 @@ import {
 } from '../sim/types';
 import {
   BOXES_PER_STORE_TILE,
+  CRATES_PER_STORE_TILE,
+  FORKLIFT_CAPACITY as PALLET,
   CRANE_LIFT_SET,
   CRANE_LIFT_TAKEN,
   CRANE_TICKS,
@@ -35,7 +37,7 @@ import {
 } from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
 import { turnOf } from './entities';
-import { container, crate, headingOf, paintContainer } from './models';
+import { container, crate, headingOf, paintContainer, PALLET_CRATE } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { bake, pavements, townBuilding } from './town';
@@ -133,6 +135,8 @@ roofGeo.translate(0, 0.13, 0);
 interface BayStack {
   crates: Object3D[];
   boxes: Object3D[];
+  /** Crate storage: the pallets' places, each holding the next four of `crates`. */
+  places?: Object3D[];
 }
 
 interface GateParts {
@@ -1129,6 +1133,14 @@ export class Structures {
       const order = this.slots.get(-1 - at.crane) ?? [];
       const k = at.look === undefined ? order.length : order.indexOf(at.look);
       slot = k < 0 ? undefined : stack[Math.min(k, stack.length - 1)];
+    } else if (at.store !== undefined && at.place !== undefined) {
+      // A pallet's place in crate storage, the way its forks go in.
+      const tiles = this.areas.get(at.store) ?? [at.store];
+      const per = CRATES_PER_STORE_TILE / PALLET;
+      const place = this.stacks.get(tiles[Math.floor(at.place / per)])?.places?.[at.place % per];
+      if (!place) return null;
+      place.getWorldPosition(out);
+      return headingOf(place);
     } else if (at.yard !== undefined && at.place !== undefined) {
       const tiles = this.yardTiles.get(at.yard) ?? [];
       const per = BOXES_PER_STORE_TILE;
@@ -2267,7 +2279,7 @@ export class Structures {
       const [x, z, w, d] = dx ? [0.5 + dx * 0.45, 0.5, 0.04, 1] : [0.5, 0.5 + dy * 0.45, 1, 0.04];
       g.add(box(w, 0.006, d, line, x, y, z));
     }
-    const stack: BayStack = { crates: [], boxes: [] };
+    const stack: BayStack = { crates: [], boxes: [], places: [] };
     if (boxes) {
       // Along the yard's long side, as its gantry runs.
       const area = this.storeArea(i);
@@ -2285,17 +2297,33 @@ export class Structures {
         }
       }
     } else {
-      for (let layer = 0; layer < 4; layer++) {
-        for (const [x, z] of [
-          [0.29, 0.29],
-          [0.71, 0.29],
-          [0.29, 0.71],
-          [0.71, 0.71],
-        ]) {
-          const c = crate(0.2, x, y + layer * 0.2, z);
-          c.visible = false;
-          g.add(c);
-          stack.crates.push(c);
+      // Pallets of crates, each a forklift's load as it carries them, set
+      // down four to a tile with their forks' ends to the area's long sides.
+      const area = this.storeArea(i);
+      const xs = area.map((t) => this.map.xOf(t));
+      const ys = area.map((t) => this.map.yOf(t));
+      const alongX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+      for (const a of [0.28, 0.72]) {
+        for (const b of [0.29, 0.71]) {
+          const place = new Group();
+          // Its forks' way runs along local x; across the area's length.
+          if (alongX) {
+            place.position.set(b, y, a);
+            place.rotation.y = -Math.PI / 2;
+          } else place.position.set(a, y, b);
+          for (let layer = 0; layer < 2; layer++) {
+            for (const z of [-0.08, 0.08]) {
+              const c = crate(PALLET_CRATE, 0, 0.025 + layer * PALLET_CRATE, z);
+              c.visible = false;
+              place.add(c);
+              stack.crates.push(c);
+            }
+          }
+          // The pallet shows with the first crate on it.
+          const first = stack.crates[stack.crates.length - 4];
+          first.add(box(0.2, 0.025, 0.34, C.wood, 0, -0.025, 0.08));
+          g.add(place);
+          stack.places!.push(place);
         }
       }
     }

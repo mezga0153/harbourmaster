@@ -4282,16 +4282,52 @@ export class World {
   private handView(
     p: Dockhand,
   ): Pick<EntityView, 'handStage' | 'handPhase' | 'handTicks' | 'handAt'> {
-    if (p.kind !== 'stacker' && p.kind !== 'tractor') return {};
     if (p.state !== 'picking' && p.state !== 'dropping') return {};
     const pick = p.state === 'picking';
+    const at =
+      p.kind === 'forklift'
+        ? this.palletAt(p, pick)
+        : p.kind === 'stacker' || p.kind === 'tractor'
+          ? this.handAt(p, pick)
+          : undefined;
+    if (p.kind === 'forklift' && !at) return {};
+    if (p.kind !== 'forklift' && p.kind !== 'stacker' && p.kind !== 'tractor') return {};
     const ticks = this.handlingTicks(p, pick ? B.PICK_TICKS : B.DROP_TICKS);
     return {
       handStage: pick ? 'pick' : 'drop',
       handPhase: clamp(1 - p.timer / ticks, 0, 1),
       handTicks: ticks,
-      handAt: this.handAt(p, pick),
+      handAt: at,
     };
+  }
+
+  /**
+   * The tile of crate storage the last pallet in it is on (`pick`), or the
+   * place the next goes: four pallets to a tile, a tile at a time.
+   */
+  private palletTile(b: Bay, pick: boolean): number {
+    const tiles = b.tiles ?? [b.idx];
+    const held = b.crates.length + (b.exports?.length ?? 0) + (pick ? 0 : b.incoming);
+    const place = Math.max(0, Math.floor((pick ? held - 1 : held) / B.FORKLIFT_CAPACITY));
+    const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
+    return tiles[Math.min(tiles.length - 1, Math.floor(place / per))];
+  }
+
+  /**
+   * Which pallet a forklift takes from crate storage, or sets one down in:
+   * the last there, or the next place after it, as the storage shows its
+   * crates a pallet at a time.
+   */
+  private palletAt(p: Dockhand, pick: boolean): HandAt | undefined {
+    const store = pick
+      ? this.bays.get(p.stockIdx)
+      : p.toBoat !== undefined && p.toBoat >= 0
+        ? undefined
+        : this.bays.get(p.bayIdx);
+    if (!store?.tiles) return undefined;
+    const held = store.crates.length + (store.exports?.length ?? 0);
+    const place = Math.floor((pick ? held - 1 : held) / B.FORKLIFT_CAPACITY);
+    return place < 0 ? undefined : { store: store.idx, place };
   }
 
   /** Where a stacker or tractor is taking a container from, or setting one down. */
@@ -6401,8 +6437,8 @@ export class World {
         const avail = store.crates.length - (store.reserved ?? 0);
         // A full load at a time: there is no boat waiting on it.
         if (!store.tiles || avail < p.capacity || this.truckable(store)) continue;
-        for (const tile of this.collectAt(store))
-          sources.push({ tile, avail, pile: store, rank: 1 });
+        // At the last pallet in it.
+        sources.push({ tile: this.palletTile(store, true), avail, pile: store, rank: 1 });
       }
     }
     this.exportSources(p, here, sources);
@@ -6530,7 +6566,9 @@ export class World {
       const tile =
         p.kind === 'stacker' && store.yard
           ? this.stackSide(p, store, here, 'pick', true)
-          : this.dropAt(p, store, here);
+          : p.kind === 'forklift' && !store.yard
+            ? this.palletTile(store, true)
+            : this.dropAt(p, store, here);
       if (tile >= 0) sources.push({ tile, avail, pile: store, out: true, rank: 1 });
     }
     if (p.kind !== 'dockhand') return;
@@ -7131,15 +7169,6 @@ export class World {
     return this.roadTo(b) < Infinity;
   }
 
-  /** Tiles of a storage area to collect from: where it meets the drivable port. */
-  private collectAt(store: Bay): number[] {
-    const m = this.map;
-    const edge = store.tiles!.filter((t) =>
-      m.neighbors4(t).some((n) => !m.store[n] && drivable(m.build[n])),
-    );
-    return (edge.length > 0 ? edge : store.tiles!).slice(0, 4);
-  }
-
   /** Tiles from `from` to the nearest part of a bay or storage area. */
   private distTo(from: number, b: Bay): number {
     return b.tiles ? Math.min(...b.tiles.map((t) => this.dist(from, t))) : this.dist(from, b.idx);
@@ -7153,6 +7182,11 @@ export class World {
     if (!b.tiles) return this.pathFor(p, from, b.idx) ? b.idx : -1;
     if (p.kind === 'tractor') return this.tractorSpot(p, b, from);
     if (p.kind === 'stacker' && b.yard) return this.stackSide(p, b, from, 'drop');
+    // A forklift sets its pallet down in the next place in crate storage.
+    if (p.kind === 'forklift' && !b.yard) {
+      const t = this.palletTile(b, false);
+      return this.pathFor(p, from, t) ? t : -1;
+    }
     const near = [...b.tiles].sort((x, y) => this.dist(from, x) - this.dist(from, y)).slice(0, 4);
     return near.find((t) => this.pathFor(p, from, t)) ?? -1;
   }
