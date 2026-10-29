@@ -2951,10 +2951,51 @@ export class World {
     return -1;
   }
 
+  /**
+   * Coming alongside, moving to x, y would take a boat further into water a
+   * ship pulling out has claimed, other than water round its own berth.
+   */
+  private intoClaimed(b: Boat, x: number, y: number): boolean {
+    const m = this.map;
+    const bx = m.xOf(b.berth) + 0.5;
+    const by = m.yOf(b.berth) + 0.5;
+    return this.boats.some((o) => {
+      if (o === b || !o.room) return false;
+      const spots = o.room.spots;
+      if (spots.some(([sx, sy, r]) => Math.hypot(bx - sx, by - sy) < r + 1)) return false;
+      return spots.some(
+        ([sx, sy, r]) =>
+          Math.hypot(x - sx, y - sy) < r &&
+          Math.hypot(x - sx, y - sy) < Math.hypot(b.x - sx, b.y - sy),
+      );
+    });
+  }
+
   /** Lying in the water a ship pulling out has claimed: it waits to cast off. */
   private boxedIn(b: Boat): boolean {
     return this.boats.some((o) =>
       o.room?.spots.some(([x, y, r]) => Math.hypot(b.x - x, b.y - y) < r + 0.5),
+    );
+  }
+
+  /**
+   * A ship that claims water to turn in as it pulls out lets a boat in that
+   * water go first if it has been ready to leave longer: first ready, first
+   * out, so no boat waits out one ship after another.
+   */
+  private letsGoFirst(b: Boat): boolean {
+    const v = B.VESSELS[b.vessel];
+    if (v.length < B.RUN_OUT_LENGTH) return false;
+    // As far as its run out along the dock and the water it turns in reach.
+    const reach = v.length * 2 + B.ROOM_MARGIN;
+    return this.boats.some(
+      (o) =>
+        o !== b &&
+        o.state === 'moored' &&
+        o.crates === 0 &&
+        o.reserved === 0 &&
+        o.timer > b.timer &&
+        Math.hypot(o.x - b.x, o.y - b.y) < reach,
     );
   }
 
@@ -3042,9 +3083,8 @@ export class World {
           return;
         }
         if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) {
-          // Waiting out a ship pulling out by it, but never more than one.
-          const boxed = this.boxedIn(b) && b.timer < 30 + B.ROOM_TICKS;
-          if (!boxed && this.tugReady(b) && this.takeFairway(b, true)) {
+          const ready = !this.boxedIn(b) && !this.letsGoFirst(b) && this.tugReady(b);
+          if (ready && this.takeFairway(b, true)) {
             this.depart(b, false);
           }
         }
@@ -3170,7 +3210,12 @@ export class World {
           const closer = near < left - 1e-4 && (near > 0.5 || off < 0.3);
           const swung = off < Math.abs(err) - 1e-4;
           if (!closer && !swung) return false;
-          return stuck || (this.clips(b, x, y, d, ships) <= now && !this.crowds(b, x, y, d));
+          return (
+            stuck ||
+            (this.clips(b, x, y, d, ships) <= now &&
+              !this.crowds(b, x, y, d) &&
+              !this.intoClaimed(b, x, y))
+          );
         });
         const was = left;
         if (way) {
@@ -3192,7 +3237,9 @@ export class World {
           // A long ship lines up first and comes in sideways only as its
           // hull clears the dock, nor on top of another boat passing its
           // berth, short of being wedged there for good.
-          const crowded = this.crowds(b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
+          const crowded =
+            (this.crowds(b, nx, ny) || this.intoClaimed(b, nx, ny)) &&
+            (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
           const slide =
             !crowded &&
             ((b.held ?? 0) > 150 ||
@@ -3326,8 +3373,9 @@ export class World {
     // too long counts as wedged too.
     if (way.makeWay >= 0) {
       b.yieldFor = way.makeWay;
-      // Take the way off first, then go astern: no stopping dead.
-      const coast = Math.max(0, (b.speed ?? 0) - accel * 2);
+      // Take the way off first, then go astern: no stopping dead, unless
+      // it is in water a ship pulling out has claimed, where it backs at once.
+      const coast = this.roomWait.has(b) ? 0 : Math.max(0, (b.speed ?? 0) - accel * 2);
       if (coast > 0) {
         const nx = b.x + Math.cos(b.dir) * coast;
         const ny = b.y + Math.sin(b.dir) * coast;
@@ -3860,6 +3908,29 @@ export class World {
     );
   }
 
+  /**
+   * Someone is there to load or unload a container truck at this storage:
+   * a yard gantry, or a reach stacker free and not already wanted by another
+   * truck there waiting for one. Always so for crate storage and bays.
+   */
+  private handlerFree(bay: Bay, except?: Truck): boolean {
+    if (!bay.yard || this.yardGantry(bay)) return true;
+    const free = this.people.filter(
+      (p) =>
+        p.kind === 'stacker' &&
+        (p.state === 'idle' ||
+          p.state === 'wander' ||
+          (p.state === 'toDepot' && p.depotTask === 'park')),
+    ).length;
+    const wanting = this.trucks.filter((q) => {
+      if (q === except || !q.boxes || (q.coming ?? 0) > 0 || (q.taking ?? 0) > 0) return false;
+      if (q.state !== 'toBay' && q.state !== 'loading' && q.state !== 'delivering') return false;
+      const yard = this.yards.get(q.bayIdx);
+      return !!yard && !this.yardGantry(yard);
+    }).length;
+    return free > wanting;
+  }
+
   /** A container truck at a yard with no gantry, which reach stackers load or unload. */
   private byStacker(t: Truck, bay: Bay): boolean {
     return t.boxes && !!bay.yard && !this.yardGantry(bay);
@@ -3879,7 +3950,8 @@ export class World {
           )
         : t.cargo - (t.taking ?? 0);
       if (avail <= 0) continue;
-      sources.push({ tile: this.besideTruck(yard, t), avail, truck: t, load, rank: 0 });
+      // A truck was only sent in because a stacker was free for it: it comes first.
+      sources.push({ tile: this.besideTruck(yard, t), avail, truck: t, load, rank: -1 });
     }
   }
 
@@ -6312,6 +6384,33 @@ export class World {
     return b.crates.length + (b.yard ? this.cleared(b) : b.boxes.length);
   }
 
+  /**
+   * Containers (or crates) at a bay or yard ready to go that no truck is
+   * already coming for: room on the trucks heading there, parked for it or
+   * loading at it is spoken for. Leaving `except` out of those.
+   */
+  private unclaimed(b: Bay, boxes: boolean, except?: Truck): number {
+    const ready = boxes
+      ? b.yard
+        ? this.cleared(b) - (b.truckReserved ?? 0)
+        : b.boxes.length
+      : b.crates.length;
+    let claimed = 0;
+    for (const t of this.trucks) {
+      if (t === except || t.bayIdx !== b.idx || t.exports || t.boxes !== boxes) continue;
+      if (
+        t.state !== 'toPark' &&
+        t.state !== 'parked' &&
+        t.state !== 'toBay' &&
+        t.state !== 'loading'
+      ) {
+        continue;
+      }
+      claimed += Math.max(0, t.capacity - t.cargo - (t.coming ?? 0));
+    }
+    return ready - claimed;
+  }
+
   /** The truck bay, storage area or heap on the quay a load is going to. */
   private dest(idx: number): Bay | undefined {
     return this.bays.get(idx) ?? this.yards.get(idx) ?? this.piles.get(idx);
@@ -6797,7 +6896,9 @@ export class World {
       b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
     const bays = [...this.bays.values(), ...this.yards.values()]
       .filter((b) => {
-        if (this.collectable(b) === 0 || this.tick < b.nextTruckTick) return false;
+        // Only where there is cargo no truck is already coming for.
+        if (this.unclaimed(b, false) <= 0 && this.unclaimed(b, true) <= 0) return false;
+        if (this.tick < b.nextTruckTick) return false;
         if (this.loadingDocks(b).length === 0) {
           this.cutOff(b);
           return false;
@@ -6815,10 +6916,10 @@ export class World {
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
       const haulier =
-        ((bay.yard ? this.cleared(bay) : bay.boxes.length) > 0
+        (this.unclaimed(bay, true) > 0
           ? hauliers.find((h) => free(h) && h.terms.cargo === 'container')
           : undefined) ??
-        (bay.crates.length > 0
+        (this.unclaimed(bay, false) > 0
           ? hauliers.find(
               (h) =>
                 free(h) && !h.terms.cargo && (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY),
@@ -6840,9 +6941,15 @@ export class World {
         }
         continue;
       }
-      const spot = this.freeDock(bay);
-      const wide = needsWideSpace(haulier.terms.capacity, haulier.terms.cargo === 'container');
+      // A container truck goes on to a yard only when its gantry or a free
+      // reach stacker is there to load it; otherwise it waits in parking
+      // inside the port, or is not sent yet.
+      const boxy = haulier.terms.cargo === 'container';
+      const served = !boxy || this.handlerFree(bay);
+      const spot = served ? this.freeDock(bay) : -1;
+      const wide = needsWideSpace(haulier.terms.capacity, boxy);
       const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
+      if (!served && !space) continue;
       const into = space ? this.intoSpace(m.entry, space, bay.idx) : null;
       const path = space
         ? (into?.path ?? null)
@@ -6924,6 +7031,8 @@ export class World {
           if (this.tick < (t.papers ?? 0) || (this.tick + t.id) % 10 !== 0) return;
           const to = this.exportStore(t);
           if (!to) return;
+          // Containers wait parked until the yard's gantry or a stacker is free.
+          if (t.boxes && !this.handlerFree(to.store, t)) return;
           to.store.exportIncoming = (to.store.exportIncoming ?? 0) + t.cargo;
           t.bayIdx = to.store.idx;
           t.park = undefined;
@@ -6938,6 +7047,7 @@ export class World {
         if (this.collectable(bay) === 0 && (t.idle += 10) >= B.TRUCK_GIVE_UP) {
           return this.leavePark(t);
         }
+        if (t.boxes && !this.handlerFree(bay, t)) return;
         const dock = this.freeDock(bay);
         if (dock < 0) return;
         const path = this.routeFrom(t, dock, this.truckCost(bay.idx, -1, t));
@@ -6990,12 +7100,15 @@ export class World {
         if (++t.timer % every !== 0) return;
         // Containers at a yard with no gantry go on by reach stacker: it
         // waits while one is on its way.
+        // With nothing more here for it, it goes with what it has rather
+        // than wait for more.
+        const done = (t.coming ?? 0) === 0 && this.unclaimed(bay, t.boxes, t) <= 0;
         if (this.byStacker(t, bay)) {
           if ((t.coming ?? 0) > 0) t.idle = 0;
           else t.idle += every;
           const full = t.cargo >= t.capacity;
           const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
-          if (full || bored) this.truckLeave(t);
+          if (full || bored || done) this.truckLeave(t);
           return;
         }
         const stock = t.boxes ? bay.boxes : bay.crates;
@@ -7011,7 +7124,7 @@ export class World {
         }
         const full = t.cargo >= t.capacity;
         const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
-        if (full || bored) this.truckLeave(t);
+        if (full || bored || (done && this.unclaimed(bay, t.boxes, t) <= 0)) this.truckLeave(t);
         return;
       }
       case 'toTown': {
