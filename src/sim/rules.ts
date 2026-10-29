@@ -12,6 +12,7 @@ import {
   isPublicRoad,
   isTownBuilding,
   STORE_CODE,
+  storesBoxes,
   Terrain,
   type BuildCode,
   type BuildKind,
@@ -103,6 +104,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     label: 'Tug berth',
     cost: B.TUG_BERTH_COST,
     hint: `A berth in the water beside a jetty or quay, where one harbour tug lies; buy the tug from the Machines tab. Without a tug, coasters and feeders swing round, come alongside and pull out slowly. A tug sails out to meet them and works them in and out`,
+    drag: false,
+  },
+  yardGantry: {
+    code: Build.YardGantry,
+    label: 'Yard gantry',
+    cost: B.YARD_GANTRY_COST,
+    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   breakHut: {
@@ -365,6 +373,12 @@ export function placementError(
       ? null
       : 'Put the gantry at the quay edge, its front two tiles facing open water';
   }
+  if (kind === 'yardGantry') {
+    const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
+    if (!paved || map.store[i]) return 'A yard gantry stands on port road or quay, beside a yard';
+    const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
+    return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
+  }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
     const water = map.neighbors4(i).find((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
@@ -497,6 +511,7 @@ export function drivable(code: number): boolean {
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
     code === Build.Gantry ||
+    code === Build.YardGantry ||
     isBay(code) ||
     code === Build.Depot
   );

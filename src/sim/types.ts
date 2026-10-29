@@ -59,6 +59,11 @@ export const Build = {
    * parkingLots in rules.ts.
    */
   Parking: 35,
+  /**
+   * A gantry crane spanning a container yard from beside it: it loads and
+   * unloads the trucks there, where otherwise reach stackers must.
+   */
+  YardGantry: 36,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -102,6 +107,7 @@ export type BuildKind =
   | 'harbourCrane'
   | 'gantryCrane'
   | 'tugBerth'
+  | 'yardGantry'
   | 'portRoad'
   | 'portGate'
   | 'parking'

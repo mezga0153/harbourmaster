@@ -621,6 +621,50 @@ export class Structures {
         });
         return g;
       }
+      case Build.YardGantry: {
+        // A rail-mounted gantry spanning the container yard beside it: legs
+        // on rails at this tile and across the yard, a beam overhead and a
+        // trolley with its spreader over the stacks.
+        const m = this.map;
+        const y = QUAY_Y;
+        g.add(box(1, y - top, 1, C.quayTop, 0.5, top, 0.5));
+        const yard = m.neighbors4(i).find((n) => storesBoxes(m.store[n]));
+        const [dx, dy] =
+          yard === undefined ? [0, 1] : [m.xOf(yard) - m.xOf(i), m.yOf(yard) - m.yOf(i)];
+        // Across as many yard tiles as there are, up to three.
+        let span = 1;
+        while (span < 3) {
+          const x = m.xOf(i) + dx * (span + 1);
+          const z = m.yOf(i) + dy * (span + 1);
+          if (!m.inBounds(x, z) || !storesBoxes(m.store[m.idx(x, z)])) break;
+          span++;
+        }
+        const frame = new Group();
+        const h = 1.15;
+        const far = span + 0.35;
+        for (const z of [-0.35, far]) {
+          for (const x of [-0.4, 0.4]) {
+            frame.add(box(0.1, h, 0.1, C.craneYellow, x, y, z));
+            frame.add(box(0.14, 0.08, 0.24, C.chassis, x, y, z));
+          }
+          frame.add(box(0.9, 0.1, 0.1, C.craneYellow, 0, y + h - 0.1, z));
+        }
+        for (const x of [-0.4, 0.4]) {
+          frame.add(box(0.1, 0.12, far + 0.45, C.craneYellow, x, y + h, (far - 0.35) / 2));
+        }
+        const trolley = new Group();
+        trolley.position.set(0, y + h, Math.max(0.6, far / 2));
+        trolley.add(box(0.6, 0.08, 0.3, C.chassis, 0, 0.12, 0));
+        trolley.add(box(0.2, 0.16, 0.2, C.window, 0.18, -0.16, 0));
+        trolley.add(box(0.012, 0.55, 0.012, C.chassis, 0, -0.55, 0));
+        trolley.add(box(0.5, 0.04, 0.16, C.stripe, 0, -0.6, 0));
+        frame.add(trolley);
+        // Laid out along +z, then turned to face the yard.
+        frame.position.set(0.5, 0, 0.5);
+        frame.rotation.y = Math.atan2(dx, dy);
+        g.add(frame);
+        return g;
+      }
       case Build.Gantry: {
         // Ship-to-shore gantry over 2×2 of quay: x 0..2 along the edge, the
         // water off the front (+z), z -1..1. Four legs on rails, a portal

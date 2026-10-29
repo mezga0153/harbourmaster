@@ -226,6 +226,9 @@ export const GANTRY_COST = 30000;
 export const GANTRY_TICKS = 16;
 export const GANTRY_STACK = 16;
 export const GANTRY_RUNNING_COST = 300;
+/** A yard gantry, which loads the trucks at a container yard. */
+export const YARD_GANTRY_COST = 12000;
+export const YARD_GANTRY_RUNNING_COST = 120;
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;

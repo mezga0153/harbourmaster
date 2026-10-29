@@ -189,6 +189,12 @@ interface Dockhand extends Agent {
   toCrane?: number;
   /** The load is exports, going out. */
   outbound?: boolean;
+  /**
+   * Stackers: the truck at a container yard it is loading (`truckLoad`) or
+   * unloading, where no yard gantry does it.
+   */
+  truckId?: number;
+  truckLoad?: boolean;
 }
 
 interface Crane {
@@ -352,6 +358,9 @@ interface Truck extends Agent {
   exports?: boolean;
   /** When its paperwork is done and it may drive into the port. */
   papers?: number;
+  /** Containers reach stackers are bringing it, or taking off it. */
+  coming?: number;
+  taking?: number;
   idle: number;
   timer: number;
   variant: number;
@@ -401,6 +410,8 @@ interface Bay {
   exportIncoming?: number;
   /** Exports promised to workers on their way to take them on board. */
   outReserved?: number;
+  /** Container yards: cleared containers promised to stackers loading trucks. */
+  truckReserved?: number;
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.
@@ -504,6 +515,9 @@ interface Source {
   pile?: Bay;
   /** Exports, taken from storage or the quay to go on board. */
   out?: boolean;
+  /** A truck at a yard for a stacker to load (`load`) or unload. */
+  truck?: Truck;
+  load?: boolean;
   /** Lower goes first. */
   rank: number;
 }
@@ -644,6 +658,15 @@ const FORKLIFT_ACTIVITY: Partial<Record<DockhandState, string>> = {
 /** What a worker is up to; `landing` when setting a load down on the quay. */
 function activity(p: Dockhand, landing: boolean): string {
   if (p.state === 'idle' && p.stuck) return p.stuck;
+  if (p.truckId !== undefined) {
+    if (p.state === 'toPickup') return 'Heading to a truck at the container yard';
+    if (p.state === 'picking') {
+      return p.truckLoad ? 'Lifting a container off the stack' : 'Lifting a container off a truck';
+    }
+    if (p.state === 'dropping') {
+      return p.truckLoad ? 'Setting a container on a truck' : 'Stacking a container';
+    }
+  }
   if (landing && (p.state === 'toDrop' || p.state === 'dropping')) {
     return 'Setting a crate down on the quay';
   }
@@ -2051,6 +2074,8 @@ export class World {
       this.book('maintenance', -cost);
     }
     this.book('maintenance', -B.TUG_RUNNING_COST * this.tugs.length);
+    const yardGantries = this.map.build.filter((c) => c === Build.YardGantry).length;
+    this.book('maintenance', -B.YARD_GANTRY_RUNNING_COST * yardGantries);
     for (const p of this.people) {
       if (isMachine(p) && this.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
     }
@@ -3807,6 +3832,190 @@ export class World {
     return hits;
   }
 
+  // ── Trucks at container yards ─────────────────────────
+
+  /** A yard gantry stands beside this container yard, to load its trucks. */
+  private yardGantry(yard: Bay): boolean {
+    const m = this.map;
+    return (yard.tiles ?? [yard.idx]).some((i) =>
+      m.neighbors4(i).some((n) => m.build[n] === Build.YardGantry),
+    );
+  }
+
+  /** A container truck at a yard with no gantry, which reach stackers load or unload. */
+  private byStacker(t: Truck, bay: Bay): boolean {
+    return t.boxes && !!bay.yard && !this.yardGantry(bay);
+  }
+
+  /** Trucks waiting at yards with no gantry, for reach stackers to load or unload. */
+  private truckSources(sources: Source[]): void {
+    for (const t of this.trucks) {
+      const load = t.state === 'loading';
+      if (!load && t.state !== 'delivering') continue;
+      const yard = this.yards.get(t.bayIdx);
+      if (!yard || !this.byStacker(t, yard)) continue;
+      const avail = load
+        ? Math.min(
+            t.capacity - t.cargo - (t.coming ?? 0),
+            this.cleared(yard) - (yard.truckReserved ?? 0),
+          )
+        : t.cargo - (t.taking ?? 0);
+      if (avail <= 0) continue;
+      sources.push({ tile: this.besideTruck(yard, t), avail, truck: t, load, rank: 0 });
+    }
+  }
+
+  /** The yard tile nearest a truck loading beside it, where a stacker works it. */
+  private besideTruck(yard: Bay, t: Truck): number {
+    const m = this.map;
+    const near = (i: number) => Math.hypot(m.xOf(i) + 0.5 - t.x, m.yOf(i) + 0.5 - t.y);
+    return (yard.tiles ?? [yard.idx]).reduce((a, b) => (near(b) < near(a) ? b : a));
+  }
+
+  /** Send a stacker to load a truck at a yard, or unload one: one container a trip. */
+  private takeTruckJob(p: Dockhand, src: Source): boolean {
+    const t = src.truck!;
+    const yard = this.yards.get(t.bayIdx);
+    // One stacker at a time works a truck; a nearer free one takes it.
+    if (!yard || this.workersAt(src.tile) > 0 || this.nearerMachine(p, src.tile)) return false;
+    if (!this.headTo(p, src.tile)) return false;
+    if (src.load) {
+      yard.truckReserved = (yard.truckReserved ?? 0) + 1;
+      t.coming = (t.coming ?? 0) + 1;
+    } else t.taking = (t.taking ?? 0) + 1;
+    p.truckId = t.id;
+    p.truckLoad = !!src.load;
+    p.bayIdx = yard.idx;
+    p.planned = 1;
+    p.boatId = -1;
+    p.craneIdx = -1;
+    p.stockIdx = -1;
+    p.state = 'toPickup';
+    return true;
+  }
+
+  /**
+   * A stacker moving a container between a yard and the truck beside it:
+   * off the stack onto the truck, or off a shipper's truck onto the stack.
+   * True while it is at it.
+   */
+  private truckJob(p: Dockhand): boolean {
+    const t = this.trucks.find((q) => q.id === p.truckId);
+    const yard = this.yards.get(p.bayIdx);
+    const live =
+      !!t &&
+      !!yard &&
+      t.bayIdx === yard.idx &&
+      t.state === (p.truckLoad ? 'loading' : 'delivering');
+    switch (p.state) {
+      case 'toPickup': {
+        if (!live) {
+          this.cancelJob(p);
+          return true;
+        }
+        const r = this.walk(p);
+        if (r === 'blocked') this.cancelJob(p);
+        else if (r === 'arrived') {
+          p.state = 'picking';
+          p.timer = this.handlingTicks(p, B.PICK_TICKS);
+        }
+        return true;
+      }
+      case 'picking': {
+        if (--p.timer > 0) return true;
+        if (!live) {
+          this.cancelJob(p);
+          return true;
+        }
+        let fee: number | undefined;
+        if (p.truckLoad) {
+          yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
+          // Only what customs have cleared, whichever that is.
+          const ready = this.readyList(yard);
+          const at = ready.findIndex((r) => this.isClear(r));
+          if (at >= 0) {
+            ready.splice(at, 1);
+            fee = yard.boxes.splice(at, 1)[0];
+          } else t.coming = Math.max(0, (t.coming ?? 0) - 1);
+        } else {
+          t.taking = Math.max(0, (t.taking ?? 0) - 1);
+          if (t.cargo > 0) {
+            t.cargo--;
+            fee = t.value;
+          }
+        }
+        if (fee === undefined) {
+          this.endTruckJob(p);
+          return true;
+        }
+        p.carrying = 1;
+        p.cargoFees = [fee];
+        // The truck is right there: straight on, or straight down.
+        p.state = 'dropping';
+        p.timer = this.handlingTicks(p, B.DROP_TICKS);
+        return true;
+      }
+      case 'dropping': {
+        if (--p.timer > 0) return true;
+        this.landTruckLoad(p, t, yard, live);
+        this.endTruckJob(p);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Set down what a stacker took from a yard or a truck: on the truck if it
+   * is still there to load, else back on the stack; exports onto the stack.
+   */
+  private landTruckLoad(
+    p: Dockhand,
+    t: Truck | undefined,
+    yard: Bay | undefined,
+    live: boolean,
+  ): void {
+    const fee = p.cargoFees[0];
+    if (fee === undefined) return;
+    if (p.truckLoad) {
+      if (t) t.coming = Math.max(0, (t.coming ?? 0) - 1);
+      if (live && t) {
+        t.cargo++;
+        t.value += fee;
+        t.idle = 0;
+      } else if (yard) {
+        this.readyList(yard).push(0);
+        yard.boxes.push(fee);
+      }
+    } else if (yard) {
+      (yard.exports ??= []).push(fee);
+      yard.exportIncoming = Math.max(0, (yard.exportIncoming ?? 0) - 1);
+    }
+  }
+
+  /** Give back what a truck job promised, setting down anything in hand. */
+  private releaseTruckJob(p: Dockhand): void {
+    if (p.truckId === undefined) return;
+    const t = this.trucks.find((q) => q.id === p.truckId);
+    const yard = this.yards.get(p.bayIdx);
+    if (p.carrying > 0) this.landTruckLoad(p, t, yard, false);
+    else if (p.truckLoad) {
+      if (yard) yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
+      if (t) t.coming = Math.max(0, (t.coming ?? 0) - 1);
+    } else if (t) t.taking = Math.max(0, (t.taking ?? 0) - 1);
+    this.endTruckJob(p);
+  }
+
+  private endTruckJob(p: Dockhand): void {
+    p.truckId = undefined;
+    p.truckLoad = undefined;
+    p.carrying = 0;
+    p.cargoFees = [];
+    p.planned = 0;
+    p.bayIdx = -1;
+    p.state = 'idle';
+  }
+
   // ── Tugs ──────────────────────────────────────────────
 
   /** Coasters and feeders, which tugs work in and out. */
@@ -5186,6 +5395,7 @@ export class World {
   private updateDockhand(p: Dockhand): void {
     if ((p.state === 'idle' || p.state === 'wander') && this.rescue(p)) return;
     if (this.tire(p)) return this.goOnBreak(p);
+    if (p.truckId !== undefined && this.truckJob(p)) return;
     switch (p.state) {
       case 'broken':
         if (--p.timer <= 0) {
@@ -5452,6 +5662,7 @@ export class World {
       }
     }
     this.exportSources(p, here, sources);
+    if (boxy) this.truckSources(sources);
     const ordered = sources.sort(
       (a, b) => a.rank - b.rank || this.dist(here, a.tile) - this.dist(here, b.tile),
     );
@@ -5459,6 +5670,10 @@ export class World {
     for (const src of ordered) {
       if (src.out) {
         if (this.takeExportJob(p, src, cost)) return true;
+        continue;
+      }
+      if (src.truck) {
+        if (this.takeTruckJob(p, src)) return true;
         continue;
       }
       if (!Number.isFinite(cost(src.tile))) continue;
@@ -6178,6 +6393,7 @@ export class World {
   }
 
   private cancelJob(p: Dockhand): void {
+    this.releaseTruckJob(p);
     this.releaseTarget(p, p.planned);
     if (!p.carrying && p.outbound) {
       const heap = this.stock(p.stockIdx) ?? this.yards.get(p.stockIdx);
@@ -6705,6 +6921,14 @@ export class World {
       case 'delivering': {
         // Unloading a shipper's goods into storage, for the ships.
         if (!bay) return this.headOut(t);
+        // Containers at a yard with no gantry come off by reach stacker.
+        if (this.byStacker(t, bay)) {
+          if (t.cargo <= 0) {
+            this.tip('exports');
+            this.headOut(t);
+          }
+          return;
+        }
         if (++t.timer % loadTicks(bay) !== 0) return;
         (bay.exports ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
@@ -6718,6 +6942,16 @@ export class World {
         if (!bay) return this.truckLeave(t);
         const every = loadTicks(bay);
         if (++t.timer % every !== 0) return;
+        // Containers at a yard with no gantry go on by reach stacker: it
+        // waits while one is on its way.
+        if (this.byStacker(t, bay)) {
+          if ((t.coming ?? 0) > 0) t.idle = 0;
+          else t.idle += every;
+          const full = t.cargo >= t.capacity;
+          const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
+          if (full || bored) this.truckLeave(t);
+          return;
+        }
         const stock = t.boxes ? bay.boxes : bay.crates;
         // Containers only once customs have cleared them, whichever those are.
         const at = t.boxes && bay.yard ? this.readyList(bay).findIndex((r) => this.isClear(r)) : 0;

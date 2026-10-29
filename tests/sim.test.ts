@@ -1747,6 +1747,9 @@ describe('Container Port tier', () => {
       0,
     );
     const earned = world.stats.earned;
+    // With no yard gantry, the stackers load the trucks too: a second one.
+    const depot = world.map.build.findIndex((c) => c === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
     // A feeder takes a while to come alongside.
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) world.step();
     expect(world.stats.containers).toBeGreaterThan(0);
@@ -1755,6 +1758,67 @@ describe('Container Port tier', () => {
       true,
     );
     expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
+  });
+
+  /**
+   * A container port with feeders and container trucks calling, and a yard
+   * gantry beside the yard or not. Counts containers that went onto trucks
+   * while a stacker was working that truck, and those that went on without.
+   */
+  function truckLoading(gantry: boolean) {
+    const world = feederPort(true);
+    const m = world.map;
+    const yard = [...world.yards.values()][0];
+    if (gantry) {
+      const spot = m.build.findIndex((_, i) => !placementError(m, 'yardGantry', i));
+      expect(spot).toBeGreaterThanOrEqual(0);
+      world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+      expect(m.build[spot]).toBe(Build.YardGantry);
+    }
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    let byStacker = 0;
+    let byItself = 0;
+    let stackerJobs = 0;
+    const was = new Map<number, number>();
+    for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
+      // Who is at a truck going into the tick: a stacker setting a
+      // container down finishes the job in it.
+      const working = new Set(
+        world.people.filter((p) => p.truckId !== undefined).map((p) => p.truckId!),
+      );
+      stackerJobs += working.size;
+      world.step();
+      for (const t of world.trucks) {
+        const gained = t.cargo - (was.get(t.id) ?? t.cargo);
+        if (t.boxes && t.bayIdx === yard.idx && gained > 0) {
+          if (working.has(t.id)) byStacker += gained;
+          else byItself += gained;
+        }
+        was.set(t.id, t.cargo);
+      }
+    }
+    return { byStacker, byItself, stackerJobs };
+  }
+
+  it('has reach stackers load the trucks at a container yard, unless a yard gantry does', () => {
+    const stackers = truckLoading(false);
+    expect(stackers.byStacker).toBeGreaterThan(0);
+    expect(stackers.byItself).toBe(0);
+    const gantry = truckLoading(true);
+    expect(gantry.byItself).toBeGreaterThan(0);
+    expect(gantry.stackerJobs).toBe(0);
   });
 
   it('brings a container ship in and out without its hull touching the docks', () => {
