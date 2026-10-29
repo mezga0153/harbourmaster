@@ -194,6 +194,10 @@ export const FEEDER_GROWTH_CONTAINERS = 1000;
  * boats under way keep out of it too (see seaWay).
  */
 export const BERTH_END_GAP = 0.3;
+/** Ticks a boat stops short of a moored boat's bow or stern before going on past its hull. */
+export const KEEP_CLEAR_PATIENCE = 40;
+/** Tiles out from its berth a boat holding a fairway lets a boat pulling out go first. */
+export const FAIRWAY_FAR = 5;
 /** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */
 export const TUG_BERTH_COST = 1500;
 export const TUG_PRICE = 6000;

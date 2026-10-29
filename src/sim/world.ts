@@ -268,6 +268,11 @@ interface Boat extends Agent {
   out?: number;
   outIncoming?: number;
   loadIdle?: number;
+  /**
+   * Exports it takes on board this visit: what was waiting in the port when
+   * it was unloaded, less what other ships had claimed. Set then.
+   */
+  loadQuota?: number;
   berth: number;
   jetty: number;
   timer: number;
@@ -3034,7 +3039,11 @@ export class World {
           return;
         }
         if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) {
-          if (!this.boxedIn(b) && this.tugReady(b) && this.takeFairway(b)) this.depart(b, false);
+          // Waiting out a ship pulling out by it, but never more than one.
+          const boxed = this.boxedIn(b) && b.timer < 30 + B.ROOM_TICKS;
+          if (!boxed && this.tugReady(b) && this.takeFairway(b, true)) {
+            this.depart(b, false);
+          }
         }
         return;
       case 'leaving':
@@ -4806,9 +4815,11 @@ export class World {
       // Off a moored boat's bow and stern lies clear water it keeps to
       // itself; a boat already in it, casting off beside it, need only
       // keep clear of the hull.
-      const kept = still
-        ? this.inWay(me, { ...other, half: other.half + B.BERTH_END_GAP }, look)
-        : null;
+      // Held up by that alone a while, it goes on past, clear of the hull.
+      const kept =
+        still && (b.held ?? 0) < B.KEEP_CLEAR_PATIENCE
+          ? this.inWay(me, { ...other, half: other.half + B.BERTH_END_GAP }, look)
+          : null;
       const ahead = kept !== null && kept > 0 ? kept : this.inWay(me, other, look);
       if (ahead !== null) {
         const gap = ahead - me.half;
@@ -4937,14 +4948,26 @@ export class World {
     return m.yOf(berth) === m.yOf(jetty) ? 2 * m.xOf(berth) + 1 : 2 * m.yOf(berth);
   }
 
-  private fairwayFree(b: Boat, jetty: number, berth: number): boolean {
+  /**
+   * No other boat holds the fairway to this berth. Pulling out, a boat goes
+   * ahead of one that holds it but is still well out from its berth: it is
+   * clear of the lane before the other gets there.
+   */
+  private fairwayFree(b: Boat, jetty: number, berth: number, leaving = false): boolean {
     const key = this.fairwayOf(jetty, berth);
-    return key === undefined || !this.boats.some((o) => o !== b && o.fairway === key);
+    const m = this.map;
+    const far = (o: Boat) =>
+      o.state === 'arriving' &&
+      Math.hypot(m.xOf(o.berth) + 0.5 - o.x, m.yOf(o.berth) + 0.5 - o.y) > B.FAIRWAY_FAR;
+    return (
+      key === undefined ||
+      !this.boats.some((o) => o !== b && o.fairway === key && !(leaving && far(o)))
+    );
   }
 
   /** Take the fairway to this boat's berth if no other boat holds it. */
-  private takeFairway(b: Boat): boolean {
-    if (!this.fairwayFree(b, b.jetty, b.berth)) return false;
+  private takeFairway(b: Boat, leaving = false): boolean {
+    if (!this.fairwayFree(b, b.jetty, b.berth, leaving)) return false;
     b.fairway = this.fairwayOf(b.jetty, b.berth);
     return true;
   }
@@ -5891,7 +5914,7 @@ export class World {
       b.state === 'moored' &&
       b.crates === 0 &&
       b.reserved === 0 &&
-      outCap(b) - (b.out ?? 0) - (b.outIncoming ?? 0) > 0
+      (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - (b.outIncoming ?? 0) > 0
     );
   }
 
@@ -5912,6 +5935,17 @@ export class World {
     if (outCap(b) === 0) return false;
     if ((b.outIncoming ?? 0) > 0) return true;
     if ((b.out ?? 0) >= outCap(b)) return false;
+    // It takes what is in the port when it is ready to go, never waiting for
+    // more to come in, nor to fill up.
+    if (b.loadQuota === undefined) {
+      const boxes = b.vessel === 'feeder';
+      const claimed = this.boats
+        .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
+        .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
+      const room = outCap(b) - (b.out ?? 0);
+      b.loadQuota = (b.out ?? 0) + clamp(this.exportsWaiting(boxes) - claimed, 0, room);
+    }
+    if ((b.out ?? 0) >= b.loadQuota) return false;
     if (this.exportsWaiting(b.vessel === 'feeder') === 0) return false;
     // Its own cargo still being cleared off the crane comes first.
     const busy = [...this.cranes.values()].some(

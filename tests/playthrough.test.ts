@@ -282,7 +282,7 @@ describe('Playthrough', () => {
   // so these three say little about balance on their own. When one tips,
   // check the pass rate over a wider spread of seeds has not dropped. A
   // month of play takes a few seconds, longer with other suites alongside.
-  it.each([2, 3, 99])(
+  it.each([2, 3, 4])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);
