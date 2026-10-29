@@ -308,7 +308,7 @@ interface Boat extends Agent {
    * A long ship's manoeuvre, ahead or astern with the helm over, or swung
    * round by tugs where it lies, and until when.
    */
-  plan?: { helm: number; astern: boolean; pivot?: boolean; until: number };
+  plan?: { helm: number; astern: boolean; pivot?: boolean; until: number; out?: boolean };
   /** Where the approach line to its berth starts and ends, see approachPath. */
   lineup?: number;
   lineEnd?: number;
@@ -3618,6 +3618,21 @@ export class World {
       return { d, x: b.x + Math.cos(d) * dist, y: b.y + Math.sin(d) * dist, back };
     };
     if (plan && !fits(step(plan).x, step(plan).y, step(plan).d)) plan = undefined;
+    // Held up for good by something lying still ahead, with where it is
+    // going behind it, as at the head of a basin: nothing will move out of
+    // its way and it cannot come round where it lies. It backs out, swinging
+    // its bow round towards its course, until it is clear to come round.
+    if (plan?.out && Math.abs(err) < Math.PI / 6) plan = undefined;
+    if (!plan && way.still && Math.abs(err) > Math.PI / 6 && (b.held ?? 0) > 30) {
+      const helm = [Math.sign(err) || 1, 0].find((h) => {
+        const n = step({ helm: h, astern: true });
+        return fits(n.x, n.y, n.d);
+      });
+      if (helm !== undefined && this.clearAstern(b)) {
+        plan = { helm, astern: true, until: this.tick + 60, out: true };
+        b.plan = plan;
+      }
+    }
     if (!plan) {
       // Aim a ship's length or so along the route, not just at the next
       // waypoint, so a manoeuvre is judged by where it leaves the ship.
@@ -3664,7 +3679,7 @@ export class World {
       // The run looked clear but this step is not: think again next tick.
       b.plan = undefined;
       speed = 0;
-    } else if (plan && next && way.speed > 0.05) {
+    } else if (plan && next && (way.speed > 0.05 || (plan.out && this.clearAstern(b)))) {
       b.dir = next.d;
       b.x = next.x;
       b.y = next.y;
@@ -4002,6 +4017,14 @@ export class World {
   }
 
   /** Back off slowly to clear the way for another boat, if nothing is astern. */
+  /** Nothing under way or lying still just astern of a boat, for it to back into. */
+  private clearAstern(b: Boat): boolean {
+    const astern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
+    return this.boats.every(
+      (o) => o === b || this.inWay(astern, this.hullOf(o), astern.half + 0.3) === null,
+    );
+  }
+
   private goAstern(b: Boat): void {
     const v = B.VESSELS[b.vessel];
     const cost = this.boatCostFor(b.draft);
@@ -4010,12 +4033,8 @@ export class World {
     const sy = b.y - Math.sin(b.dir) * back;
     const sternX = sx - Math.cos(b.dir) * 0.3;
     const sternY = sy - Math.sin(b.dir) * 0.3;
-    const astern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
-    const clearAstern = this.boats.every(
-      (o) => o === b || this.inWay(astern, this.hullOf(o), astern.half + 0.3) === null,
-    );
     const moved =
-      clearAstern && this.navigable(sx, sy, cost) && this.navigable(sternX, sternY, cost);
+      this.clearAstern(b) && this.navigable(sx, sy, cost) && this.navigable(sternX, sternY, cost);
     if (moved) {
       b.x = sx;
       b.y = sy;
@@ -5190,7 +5209,7 @@ export class World {
    * sail through each other; one that is wedged in all the same squeezes
    * past in the end rather than lock up the harbour.
    */
-  private giveWay(b: Boat): { speed: number; makeWay: number } {
+  private giveWay(b: Boat): { speed: number; makeWay: number; still?: boolean } {
     const me = this.hullOf(b);
     const v = B.VESSELS[b.vessel];
     // Looks out as far as it takes to stop gently from full speed, so it
@@ -5201,6 +5220,8 @@ export class World {
     let speed = 1;
     /** Id of the boat to back out of the way of, or -1. */
     let makeWay = -1;
+    /** Brought up short by a boat lying still. */
+    let stopped = false;
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
@@ -5263,6 +5284,7 @@ export class World {
             : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
           const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
           speed = Math.min(speed, clamp(safe / v.speed, 0, 1));
+          if (still && speed <= 0.05) stopped = true;
         } else {
           speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
         }
@@ -5281,7 +5303,7 @@ export class World {
       if (!lead || lead === b || !this.outranks(lead, b)) continue;
       if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = head;
     }
-    return { speed, makeWay };
+    return { speed, makeWay, still: stopped && speed <= 0.05 };
   }
 
   /**
