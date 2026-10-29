@@ -72,6 +72,27 @@ export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */
 export type PanelName = 'contracts' | 'staff' | 'finance' | 'port' | 'handbook';
 export const panel = signal<PanelName | null>(null);
+/** The Contracts panel tab last open, kept for next time, in this browser too. */
+export type ContractsTab = 'overview' | 'active' | 'offers' | 'rules';
+const TAB_KEY = 'harbourmaster.contractsTab';
+function savedTab(): ContractsTab {
+  try {
+    const t = localStorage.getItem(TAB_KEY);
+    if (t === 'overview' || t === 'active' || t === 'offers' || t === 'rules') return t;
+  } catch {
+    // No storage here: start on the overview.
+  }
+  return 'overview';
+}
+export const contractsTab = signal<ContractsTab>(savedTab());
+contractsTab.subscribe((t) => {
+  try {
+    localStorage.setItem(TAB_KEY, t);
+  } catch {
+    // Remembered for this visit only.
+  }
+});
+
 /** The handbook page open; see Handbook.tsx. */
 export const handbookTopic = signal('start');
 

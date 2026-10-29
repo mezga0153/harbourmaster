@@ -8,10 +8,8 @@ import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { duration, money } from './format';
 import { Icon } from './icons';
-import { panel, snapshot } from './store';
+import { contractsTab, panel, snapshot, type ContractsTab } from './store';
 import { InfoHeader, Meter, More } from './widgets';
-
-type Tab = 'active' | 'offers' | 'rules';
 
 function css(hex: number): string {
   return `#${hex.toString(16).padStart(6, '0')}`;
@@ -540,31 +538,139 @@ function Rules() {
 
 // ── Panel ─────────────────────────────────────────────────
 
-function TabButton({
-  id,
-  tab,
-  setTab,
-  children,
-}: {
-  id: Tab;
-  tab: Tab;
-  setTab: (t: Tab) => void;
-  children: ComponentChildren;
-}) {
+function TabButton({ id, children }: { id: ContractsTab; children: ComponentChildren }) {
+  const on = contractsTab.value === id;
   return (
     <button
       role="tab"
-      aria-selected={tab === id}
-      class={tab === id ? 'on' : ''}
-      onClick={() => setTab(id)}
+      aria-selected={on}
+      class={`tab ${on ? 'on' : ''}`}
+      onClick={() => (contractsTab.value = id)}
     >
       {children}
     </button>
   );
 }
 
+/**
+ * All the contracts at a glance: the cargo flow, totals for the lines and
+ * the hauliers, what needs attention, and a line for each contract.
+ */
+function Overview() {
+  const s = snapshot.value!;
+  const lines = s.contracts.filter((c) => c.terms.kind === 'fishery');
+  const hauls = s.contracts.filter((c) => c.terms.kind === 'haulier');
+  let crates = 0;
+  let boxes = 0;
+  let income = 0;
+  for (const c of lines) {
+    if (c.terms.kind !== 'fishery') continue;
+    if (c.terms.vessel === 'feeder') boxes += fisheryDailyCrates(c.terms);
+    else crates += fisheryDailyCrates(c.terms);
+    income += fisheryDailyValue(c.terms);
+  }
+  let fleet = 0;
+  let fees = 0;
+  for (const c of hauls) {
+    if (c.terms.kind !== 'haulier') continue;
+    fleet += c.terms.fleet;
+    fees += c.terms.dailyFee;
+  }
+  const atPort = hauls.reduce((n, c) => n + c.active, 0);
+  const away = hauls.reduce((n, c) => n + c.away, 0);
+  const waiting = lines.reduce((n, c) => n + c.waiting, 0);
+  const unhappy = lines
+    .filter((c) => c.satisfaction < 45)
+    .sort((a, b) => a.satisfaction - b.satisfaction);
+  // The lines first, unhappiest at the top, then the hauliers.
+  const rows = [
+    ...lines.sort((a, b) => a.satisfaction - b.satisfaction),
+    ...hauls.sort((a, b) => a.terms.name.localeCompare(b.terms.name)),
+  ];
+  return (
+    <>
+      <Summary cap={s.capacity} />
+      <div class="kpis four">
+        <div class="kpi">
+          <span class="kpi-label">Lines</span>
+          <span class="kpi-value">{lines.length}</span>
+          <span class="kpi-below">
+            ≈{Math.round(crates)} crates{boxes > 0 ? `, ${Math.round(boxes)} boxes` : ''}/day
+          </span>
+        </div>
+        <div class="kpi good">
+          <span class="kpi-label">Brings in</span>
+          <span class="kpi-value">≈{money(income)}</span>
+          <span class="kpi-below">a day</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Trucks</span>
+          <span class="kpi-value">{fleet}</span>
+          <span class="kpi-below">
+            {atPort} here, {away} away · {money(-fees)}/day
+          </span>
+        </div>
+        <div class={`kpi ${waiting > 0 ? 'bad' : 'good'}`}>
+          <span class="kpi-label">At anchor</span>
+          <span class="kpi-value">{waiting}</span>
+          <span class="kpi-below">boats waiting</span>
+        </div>
+      </div>
+      {lines.length === 0 && (
+        <p class="note bad">No fishery or line is sending boats. Sign one from the Offers tab.</p>
+      )}
+      {hauls.length === 0 && (
+        <p class="note bad">No haulier under contract. No trucks will collect the cargo.</p>
+      )}
+      {unhappy.length > 0 && (
+        <p class="note bad">
+          {unhappy.map((c) => c.terms.name).join(', ')} {unhappy.length === 1 ? 'is' : 'are'}{' '}
+          unhappy: serve their boats promptly, or they walk out and claim{' '}
+          {money(unhappy.reduce((n, c) => n + c.breach, 0))}.
+        </p>
+      )}
+      <table class="roster">
+        <tbody>
+          {rows.map((c) => {
+            const t = c.terms;
+            const color = t.kind === 'fishery' ? C.hulls[t.color] : C.trucks[t.color];
+            const m = mood(c.satisfaction);
+            return (
+              <tr key={c.id} onClick={() => (contractsTab.value = 'active')} title="Show in detail">
+                <td>
+                  <span class="swatch" style={{ background: css(color) }} />
+                </td>
+                <td class="roster-name">{t.name}</td>
+                <td class="muted">{kindLabel(t)}</td>
+                <td class="num">
+                  {t.kind === 'fishery'
+                    ? `≈${Math.round(fisheryDailyCrates(t))}/day`
+                    : `${t.fleet}×${t.capacity}`}
+                </td>
+                <td class="num">
+                  {t.kind === 'fishery' ? (
+                    c.waiting > 0 ? (
+                      <span class="neg">{c.waiting} waiting</span>
+                    ) : (
+                      <span class={`mood-label ${m.tone}`}>{m.label}</span>
+                    )
+                  ) : (
+                    <span class="muted">
+                      {c.active} here{c.away > 0 ? `, ${c.away} away` : ''}
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 export function ContractsPanel({ actions }: { actions: Actions }) {
-  const [tab, setTab] = useState<Tab>('active');
+  const tab = contractsTab.value;
   const s = snapshot.value;
   if (!s) return null;
   const waiting = s.contracts.reduce((n, c) => n + c.waiting, 0);
@@ -581,33 +687,28 @@ export function ContractsPanel({ actions }: { actions: Actions }) {
   return (
     <aside class="side panel wide xwide" aria-label="Contracts">
       <InfoHeader kicker="Business" title="Contracts" onClose={() => (panel.value = null)} />
-      <Summary cap={s.capacity} />
-
       <div class="tabs" role="tablist">
-        <TabButton id="active" tab={tab} setTab={setTab}>
-          Active <span class="tab-count">{s.contracts.length}</span>
+        <TabButton id="overview">Overview</TabButton>
+        <TabButton id="active">
+          All <span class="tab-count">{s.contracts.length}</span>
           {waiting > 0 && (
             <span class="count bad" title="Boats waiting at anchor">
               {waiting}
             </span>
           )}
         </TabButton>
-        <TabButton id="offers" tab={tab} setTab={setTab}>
+        <TabButton id="offers">
           Offers <span class="tab-count">{s.offers.length}</span>
         </TabButton>
-        <TabButton id="rules" tab={tab} setTab={setTab}>
+        <TabButton id="rules">
           <Icon name="alert" /> Penalties
         </TabButton>
       </div>
 
+      {tab === 'overview' && <Overview />}
+
       {tab === 'active' && (
         <>
-          {!s.contracts.some((c) => c.terms.kind === 'fishery') && (
-            <p class="note bad">No fishery is sending boats. Sign one from the Offers tab.</p>
-          )}
-          {!s.contracts.some((c) => c.terms.kind === 'haulier') && (
-            <p class="note bad">No haulier under contract. No trucks will collect crates.</p>
-          )}
           {sorted.map((c) => (
             <ContractCard key={c.id} c={c} actions={actions} />
           ))}

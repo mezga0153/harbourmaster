@@ -735,6 +735,42 @@ button:focus-visible {
   color: var(--text-3);
 }
 
+/* One line for each contract in the overview. */
+.roster {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.roster tr {
+  cursor: pointer;
+}
+
+.roster tr:hover td {
+  background: var(--raised);
+}
+
+.roster td {
+  padding: 5px 4px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.roster .roster-name {
+  width: 100%;
+  white-space: normal;
+  font-weight: 600;
+}
+
+.roster .swatch {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.roster .num {
+  text-align: right;
+}
+
 .mood-label {
   font-size: 12px;
   font-weight: 600;
