@@ -100,7 +100,7 @@ export const CATEGORIES: Category[] = [
         icon: 'warehouse',
         label: 'Crate storage',
         note: `${money(B.CRATE_STORE_COST)}/tile`,
-        hint: `Drag out an area on port roads or quays to store crates, ${B.CRATES_PER_STORE_TILE} a tile. Forklifts and dockhands bring crates, jib cranes close by swing them straight in, and trucks load fast from a public road beside it or a port road behind a port gate, big trucks too: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
+        hint: `Drag out an area on port roads or quays to store crates, ${B.CRATES_PER_STORE_TILE} a tile. Forklifts and dockhands bring crates, jib cranes within ${B.JIB_REACH} tiles swing them straight in, and trucks load fast from a public road beside it or a port road behind a port gate, big trucks too: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Where trucks cannot get to it, forklifts take the crates on. Drag over marked tiles to clear them`,
         tier: B.CRATE_STORE_TIER,
       },
       { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },

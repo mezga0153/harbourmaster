@@ -125,7 +125,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
       t.vessel === 'feeder'
         ? `Harbour crane, ${B.FEEDER_DRAFT} m`
         : t.vessel === 'coaster'
-          ? `2-wide quay, ${B.COASTER_DRAFT} m, forklifts`
+          ? `2-wide quay, ${B.COASTER_DRAFT} m, forklifts or a jib crane`
           : 'Any berth',
     ],
   ];
@@ -204,7 +204,7 @@ function Summary({ cap }: { cap: Capacity }) {
     cap.demand > cap.unloading
       ? jammed
         ? 'Bottleneck: unloading, and workers are queueing on narrow walkways. More staff will not help much: widen jetties and paths, add berths, or use cranes and forklifts.'
-        : 'Bottleneck: unloading. Hire dockhands or buy forklifts.'
+        : 'Bottleneck: unloading. Hire dockhands to lift cargo off the boats, build jib cranes, or buy forklifts to take it on from the quay.'
       : cap.demand > cap.trucking
         ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare.'
         : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
@@ -399,8 +399,8 @@ function OfferCard({
       checks.push(
         <Check ok={forks >= pallets} warn={forks > 0 && forks < pallets}>
           {forks > 0
-            ? `Pallets: ${pallets} crates a day, forklifts move ${forks}`
-            : 'Crates come on pallets: only forklifts can unload them'}
+            ? `Pallets: ${pallets} crates a day, ${forks} can be unloaded`
+            : 'Crates come on pallets: dockhands or jib cranes lift them off, then forklifts take them on, or a jib crane swings them into crate storage'}
         </Check>,
       );
     }

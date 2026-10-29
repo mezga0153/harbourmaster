@@ -7,7 +7,7 @@ import {
   Mesh,
   type Object3D,
 } from 'three';
-import type { BayView, CraneView, TileChange } from '../protocol';
+import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY } from '../sim/rules';
 import { hash01 } from '../sim/noise';
@@ -81,6 +81,8 @@ export class Structures {
   /** Buoys, bobbing on the swell. */
   private buoys = new Map<number, Object3D>();
   private crossings = new Map<number, CrossingParts>();
+  /** Cargo landed on the quay, by tile. */
+  private piles = new Map<number, { group: Group; crates: Object3D[]; pallets: boolean }>();
   private train: Train | null = null;
 
   constructor(private map: GameMap) {
@@ -172,6 +174,59 @@ export class Structures {
       stack.crates.forEach((c, k) => (c.visible = k < b.stock));
       stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
     }
+  }
+
+  /** Crates set down on the quay beside the boats, two piles of two high, on pallets or not. */
+  setPiles(views: PileView[]): void {
+    const seen = new Set<number>();
+    for (const v of views) {
+      seen.add(v.idx);
+      let pile = this.piles.get(v.idx);
+      if (pile && pile.pallets !== v.pallets) {
+        this.group.remove(pile.group);
+        pile = undefined;
+      }
+      if (!pile) {
+        pile = this.pile(v.idx, v.pallets);
+        this.piles.set(v.idx, pile);
+        this.group.add(pile.group);
+      }
+      pile.crates.forEach((c, k) => (c.visible = k < v.crates));
+    }
+    for (const [i, pile] of this.piles) {
+      if (seen.has(i)) continue;
+      this.group.remove(pile.group);
+      this.piles.delete(i);
+    }
+  }
+
+  private pile(
+    i: number,
+    pallets: boolean,
+  ): { group: Group; crates: Object3D[]; pallets: boolean } {
+    const g = new Group();
+    g.position.set(this.map.xOf(i), 0, this.map.yOf(i));
+    const lift = pallets ? 0.04 : 0;
+    const crates: Object3D[] = [];
+    for (let layer = 0; layer < 2; layer++) {
+      for (const [x, z] of [
+        [0.38, 0.38],
+        [0.62, 0.38],
+        [0.38, 0.62],
+        [0.62, 0.62],
+      ]) {
+        const c = crate(0.2, x, QUAY_Y + lift + layer * 0.2, z);
+        c.visible = false;
+        g.add(c);
+        crates.push(c);
+      }
+    }
+    if (pallets) {
+      for (const x of [0.38, 0.62]) {
+        for (const z of [0.38, 0.62]) g.add(box(0.22, 0.04, 0.22, C.wood, x, QUAY_Y, z));
+      }
+    }
+    return { group: g, crates, pallets };
   }
 
   /** Show a storage area's goods, a tile's worth at a time from its first tile. */

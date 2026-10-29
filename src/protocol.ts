@@ -176,6 +176,12 @@ export interface BayView {
   noAccess: boolean;
 }
 
+export interface PileView {
+  idx: number;
+  crates: number;
+  pallets: boolean;
+}
+
 export interface Stats {
   cratesHandled: number;
   containers: number;
@@ -231,6 +237,8 @@ export interface Snapshot {
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */
   yards: { idx: number; boxes: number; capacity: number; tiles: number[]; noAccess: boolean }[];
+  /** Cargo dockhands have landed on the quay beside boats, for the forklifts. */
+  piles: PileView[];
   contracts: ContractView[];
   offers: OfferView[];
   capacity: Capacity;

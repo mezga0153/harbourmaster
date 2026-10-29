@@ -13,6 +13,8 @@ import {
   ShaderMaterial,
   TextureLoader,
   type Texture,
+  UniformsLib,
+  UniformsUtils,
   UnsignedByteType,
   Vector3,
   Vector4,
@@ -31,16 +33,27 @@ const SUB = 4;
 /** Distance from the coast, in tiles, that the shore field spans. */
 const SHORE_TILES = 4;
 
+// three's own shadow chunks, so the sea takes the shadows of boats, docks
+// and cranes like any lit surface.
 const vertexShader = /* glsl */ `
+  #include <common>
+  #include <shadowmap_pars_vertex>
   varying vec2 vXZ;
   void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vXZ = wp.xz;
-    gl_Position = projectionMatrix * viewMatrix * wp;
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vXZ = worldPosition.xz;
+    vec3 transformedNormal = normalMatrix * normal;
+    vec4 mvPosition = viewMatrix * worldPosition;
+    #include <shadowmap_vertex>
+    gl_Position = projectionMatrix * mvPosition;
   }
 `;
 
 const fragmentShader = /* glsl */ `
+  #include <common>
+  #include <packing>
+  #include <shadowmap_pars_fragment>
+  #include <shadowmask_pars_fragment>
   uniform sampler2D uField; // r: depth, g: distance to shore (first few tiles)
   uniform sampler2D uDist; // r: distance to the nearest land, in tiles
   uniform sampler2D uNormals; // tileable water normal map
@@ -279,7 +292,9 @@ const fragmentShader = /* glsl */ `
     stirred = max(stirred, stir(vXZ, n));
     // Churned water is full of bubbles, so it goes a paler, milkier blue.
     col = mix(col, uShallow * 1.2 + 0.08, stirred.y * 0.45);
-    col *= 0.78 + 0.34 * max(dot(n, uSun), 0.0);
+    // In the shade the sea goes darker and the sun's glints go out.
+    float lit = getShadowMask();
+    col *= (0.78 + 0.34 * max(dot(n, uSun), 0.0) * lit) * mix(0.62, 1.0, lit);
     // Soft sheen from the sun, and tight bright glints that flicker as the
     // wave layers drift past each other. The glint light sits a little off
     // the mirror direction so only tilted facets catch it.
@@ -287,7 +302,7 @@ const fragmentShader = /* glsl */ `
     vec3 mirror = reflect(-uView, vec3(0.0, 1.0, 0.0));
     vec3 glintLight = normalize(mirror + vec3(0.32, 0.0, 0.22));
     float glint = pow(max(dot(reflect(-glintLight, n), uView), 0.0), 900.0);
-    float spec = sheen * 0.18 + glint * 1.6;
+    float spec = (sheen * 0.18 + glint * 1.6) * lit;
     col += vec3(1.0, 0.97, 0.88) * spec;
 
     // Foam hugging the coast.
@@ -304,7 +319,7 @@ const fragmentShader = /* glsl */ `
     foam = max(foam, max(breaking * 0.9, backwash));
     foam = max(foam, stirred.x);
 
-    col = mix(col, uFoam, foam);
+    col = mix(col, uFoam * mix(0.75, 1.0, lit), foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
     float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
     alpha = max(alpha, foam * 0.9);
@@ -353,7 +368,9 @@ export class Water {
       fragmentShader,
       transparent: true,
       depthWrite: false,
+      lights: true,
       uniforms: {
+        ...UniformsUtils.clone(UniformsLib.lights),
         uField: { value: tex },
         uDist: { value: dist },
         uNormals: { value: loadNormals() },
@@ -376,6 +393,7 @@ export class Water {
     const geo = new PlaneGeometry(size, size);
     geo.rotateX(-Math.PI / 2);
     this.mesh = new Mesh(geo, this.material);
+    this.mesh.receiveShadow = true;
     this.mesh.position.set(map.w / 2, 0, map.h / 2);
   }
 

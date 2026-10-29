@@ -356,7 +356,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         {bay.noAccess && (
           <p class="note bad">
             {bay.tiles
-              ? 'Trucks cannot reach this storage. It needs a public road beside it, or a port road or quay beside it behind a port gate.'
+              ? 'Trucks cannot load here: forklifts take the crates on to storage or a truck bay they can reach. For trucks to load, it needs a public road beside it, or a port road or quay beside it behind a port gate.'
               : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
           </p>
         )}

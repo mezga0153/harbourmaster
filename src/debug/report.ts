@@ -97,6 +97,10 @@ export function report(s: Snapshot, x: ReportExtras): string {
     ),
   );
   section(
+    'Landed on the quay',
+    s.piles.map((p) => `- ${at(p.idx)}: ${p.crates} ${p.pallets ? 'crates on pallets' : 'crates'}`),
+  );
+  section(
     'Cranes',
     s.cranes.map((k) => `- ${k.kind} ${at(k.idx)}: stack ${k.stack}${k.busy ? ', busy' : ''}`),
   );

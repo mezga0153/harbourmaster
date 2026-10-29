@@ -11,7 +11,7 @@ export const MACHINES: Record<
     price: B.FORKLIFT_PRICE,
     wage: B.FORKLIFT_WAGE,
     capacity: B.FORKLIFT_CAPACITY,
-    hint: `Carries ${B.FORKLIFT_CAPACITY} crates a trip`,
+    hint: `Carries ${B.FORKLIFT_CAPACITY} crates a trip from a crane or the quay to a truck bay or storage. Forklifts cannot unload boats: dockhands and jib cranes land the cargo for them`,
   },
   stacker: {
     label: 'Reach stacker',

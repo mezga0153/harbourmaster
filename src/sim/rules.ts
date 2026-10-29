@@ -65,7 +65,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.JibCrane,
     label: 'Jib crane',
     cost: 2500,
-    hint: `Goes on a quay. Lifts crates off moored boats onto the quay. $${B.CRANE_RUNNING_COST}/day to run`,
+    hint: `Goes on a quay edge. Lifts crates off moored boats, straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto the quay for forklifts and dockhands. Boats would rather berth under one, and wait for one when there are no dockhands. $${B.CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
   depot: {

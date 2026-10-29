@@ -194,6 +194,7 @@ export class Renderer {
     this.layers.trains.push(s.train, s.speed, performance.now());
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
+    this.layers.structures.setPiles(s.piles);
     this.layers.structures.setCranes(s.cranes);
     this.layers.structures.setGates(s.entities.filter((e) => e.kind === 'truck'));
   }

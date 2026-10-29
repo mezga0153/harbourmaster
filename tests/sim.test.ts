@@ -625,6 +625,107 @@ describe('Coastal Wharf tier', () => {
     expect(crane.stack).toHaveLength(0);
   });
 
+  /** The starting jetty paved into a quay, its paths into port roads, and an office. */
+  function quayPort(world: World): number[] {
+    const m = world.map;
+    world.boats.length = 0; // the first boat moors at once; keep the jetty free
+    world.tier = 1;
+    world.cash = 100_000;
+    const jetty = starterJetty(world);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    const paths = [...m.build.keys()].filter((i) => m.build[i] === Build.Footpath);
+    world.command({ type: 'build', kind: 'portRoad', tiles: paths });
+    buildOffice(world);
+    return jetty;
+  }
+
+  function fireDockhands(world: World): void {
+    for (const p of world.people.filter((q) => q.kind === 'dockhand')) {
+      world.command({ type: 'fire', id: p.id });
+    }
+  }
+
+  it('never lets forklifts unload a boat: dockhands land the crates on the quay for them', () => {
+    const world = World.create(7);
+    quayPort(world);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
+    fireDockhands(world);
+    for (let t = 0; t < TICKS_PER_DAY * 2 && !world.boats.some((b) => b.state === 'moored'); t++) {
+      world.step();
+    }
+    const boat = world.boats.find((b) => b.state === 'moored')!;
+    expect(boat).toBeDefined();
+    const load = boat.crates;
+    expect(load).toBeGreaterThan(0);
+    for (let t = 0; t < 200; t++) world.step();
+    expect(boat.crates).toBe(load);
+    expect(world.stats.cratesHandled).toBe(0);
+    // A dockhand lifts them off onto the quay, and the forklift takes them on.
+    world.command({ type: 'hire', candidateId: world.candidates[0].id });
+    let landed = false;
+    let forked = false;
+    for (let t = 0; t < TICKS_PER_DAY && world.stats.cratesHandled < 4; t++) {
+      world.step();
+      landed ||= world.piles.size > 0;
+      forked ||= world.people.some((p) => p.kind === 'forklift' && p.carrying > 0);
+    }
+    expect(landed).toBe(true);
+    expect(forked).toBe(true);
+    expect(world.stats.cratesHandled).toBeGreaterThanOrEqual(4);
+  });
+
+  it('swings crates straight into crate storage near a jib crane, and forklifts take them on', () => {
+    const world = World.create(7);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    const store = jetty[jetty.length - 3];
+    world.command({ type: 'store', tiles: [store], kind: 'crates', on: true });
+    expect(world.map.store[store]).toBe(Store.Crates);
+    fireDockhands(world);
+    let stowed = 0;
+    // The next boat sets out after a day and takes a while to sail in.
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
+      world.step();
+      expect(world.cranes.get(tip)!.stack).toHaveLength(0);
+      stowed = Math.max(stowed, world.bays.get(store)?.crates.length ?? 0);
+    }
+    expect(stowed).toBeGreaterThan(0);
+    // No truck gets out there: a forklift takes the crates on to a truck bay.
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
+    const handled = world.stats.cratesHandled;
+    const trucked = world.stats.trucks;
+    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    expect(world.bays.get(store)!.crates.length).toBeLessThan(B.FORKLIFT_CAPACITY);
+    expect(world.stats.cratesHandled).toBeGreaterThan(handled);
+    expect(world.stats.trucks).toBeGreaterThan(trucked);
+  });
+
+  it('has boats wait for a berth under a jib crane when nobody can unload them by hand', () => {
+    const world = World.create(7);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    fireDockhands(world);
+    const m = world.map;
+    let moored = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 4; t++) {
+      world.step();
+      for (const b of world.boats) {
+        if (b.state !== 'moored' && b.state !== 'arriving') continue;
+        const reach = Math.max(
+          Math.abs(m.xOf(b.berth) - m.xOf(tip)),
+          Math.abs(m.yOf(b.berth) - m.yOf(tip)),
+        );
+        expect(reach).toBeLessThanOrEqual(1);
+        if (b.state === 'moored') moored++;
+      }
+    }
+    expect(moored).toBeGreaterThan(0);
+    // The crane lifted the crates onto the quay, for whoever comes for them.
+    expect(world.cranes.get(tip)!.stack.length).toBeGreaterThan(0);
+  });
+
   it('runs a jib crane and forklifts off a quay', () => {
     const world = World.create(7);
     world.boats.length = 0; // the first boat moors at once; keep the jetty free
@@ -1628,8 +1729,10 @@ describe('Container Port tier', () => {
       world.step();
       for (const b of world.boats) {
         if (b.state === 'moored') moored++;
-        // Long ships are tested on their own; squeezing past is a last resort.
-        if (b.vessel === 'feeder' || b.squeeze || b.state === 'moored') continue;
+        // Long ships are tested on their own; squeezing past, or in when
+        // wedged for good, is a last resort.
+        const wedged = (b.held ?? 0) > B.BOAT_WEDGED_AFTER;
+        if (b.vessel === 'feeder' || b.squeeze || wedged || b.state === 'moored') continue;
         if (clips(b, b.x, b.y, b.dir, []) > 0) over++;
       }
     }
