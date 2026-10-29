@@ -215,7 +215,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
           label="Trucked"
           value={b.trucking}
           demand={b.demand}
-          hint="Container trucks take them away once customs clear them, about half a day after they reach a yard"
+          hint="Container trucks take them away once customs clear them, a day after they reach a yard"
           below={stock && `${stock.boxCleared} cleared`}
         />
       </div>

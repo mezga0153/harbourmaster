@@ -4830,9 +4830,10 @@ export class World {
         const bay = this.dest(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
         const boxy = p.kind === 'stacker';
-        (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         // Customs clear a container a while after it is stacked in the yard.
+        // Their times go on first, while the list still matches the yard.
         if (boxy) this.readyList(bay).push(...p.cargoFees.map(() => this.tick + B.CUSTOMS_TICKS));
+        (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         if (boxy) this.tip('customs');
         if (bay.pile) this.tip('landed');
         bayIncoming(bay, boxy, -p.planned);

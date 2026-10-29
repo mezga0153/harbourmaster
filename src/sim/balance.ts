@@ -1,5 +1,7 @@
 // Tuning values. See plan.md §14.
 
+import { TICKS_PER_DAY } from './types';
+
 export const START_CASH = 5000;
 export const START_YEAR = 1962;
 
@@ -37,8 +39,8 @@ export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more c
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
 /** Ticks a truck is away once it leaves the port, on its round and back, before its haulier can send it again. */
 export const TRUCK_ROUND_TRIP = 120;
-/** Ticks a container waits in the yard for customs to clear it before a truck may take it. */
-export const CUSTOMS_TICKS = 300;
+/** Ticks a container waits in the yard for customs to clear it before a truck may take it: a day. */
+export const CUSTOMS_TICKS = TICKS_PER_DAY;
 export const BAY_CAPACITY = 12;
 export const LARGE_BAY_CAPACITY = 28;
 // Ticks to put one crate on a truck: by hand at a truck bay, quicker with

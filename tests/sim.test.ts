@@ -1691,6 +1691,54 @@ describe('Container Port tier', () => {
     expect(yard.boxes).toHaveLength(0);
   });
 
+  it('holds containers stacked in a yard for a day of customs before a truck takes one', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 6,
+        cratesMax: 6,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    add(
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: 1,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const yard = world.yards.get(t.yard)!;
+    let stacked = -1;
+    let taken = -1;
+    for (let k = 0; k < TICKS_PER_DAY * 6 && taken < 0; k++) {
+      const before = yard.boxes.length;
+      world.step();
+      if (stacked < 0 && yard.boxes.length > before) stacked = world.tick;
+      if (yard.boxes.length < before) taken = world.tick;
+    }
+    expect(stacked).toBeGreaterThan(0);
+    expect(taken).toBeGreaterThan(0);
+    expect(taken - stacked).toBeGreaterThanOrEqual(B.CUSTOMS_TICKS);
+  });
+
   it('gives a container to the free stacker nearest the crane', () => {
     const world = World.create(7);
     world.tier = 2;

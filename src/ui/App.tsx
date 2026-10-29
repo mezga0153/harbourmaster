@@ -424,9 +424,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
         <p class="muted">
-          Reach stackers stack containers here from the cranes. Once customs have cleared them,
-          about half a day later, container trucks load them from the road beside the yard, on the
-          yellow tiles. <More topic="containers" />
+          Reach stackers stack containers here from the cranes. Once customs have cleared them, a
+          day later, container trucks load them from the road beside the yard, on the yellow tiles.{' '}
+          <More topic="containers" />
         </p>
         <dl class="props">
           <dt>Containers</dt>

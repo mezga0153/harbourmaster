@@ -244,9 +244,9 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <p>
           A container waits in the yard for customs to clear it, about {hours(B.CUSTOMS_TICKS)}{' '}
-          hours, before a truck may take it. Yards hold that half day of traffic: when they fill,
-          the stackers stop, then the cranes, and ships wait. Select a yard to see what is in
-          customs and when the next one clears.
+          hours, before a truck may take it. Yards hold that day of traffic: when they fill, the
+          stackers stop, then the cranes, and ships wait. Select a yard to see what is in customs
+          and when the next one clears.
         </p>
       </>
     ),
