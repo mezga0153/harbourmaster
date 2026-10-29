@@ -285,6 +285,7 @@ export class Renderer {
       this.layers.water.update(
         time,
         this.viewDir.copy(this.cam.camera.position).sub(this.cam.target).normalize(),
+        this.sun.shadow.camera.right * 2,
       );
       this.layers.entities.update(now, time);
       this.layers.water.setWakes(this.layers.entities.wakes());

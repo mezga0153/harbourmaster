@@ -63,7 +63,8 @@ const fragmentShader = /* glsl */ `
   #include <shadowmap_pars_fragment>
   // Set by three for every object; the lit materials declare it themselves.
   uniform bool receiveShadow;
-  #include <shadowmask_pars_fragment>
+  // Tiles across the sun's shadow map, to size the shade's wobble and blur.
+  uniform float uShadowSpan;
   uniform sampler2D uField; // r: depth, g: distance to shore (first few tiles)
   uniform sampler2D uDist; // r: distance to the nearest land, in tiles
   uniform sampler2D uNormals; // tileable water normal map
@@ -288,6 +289,34 @@ const fragmentShader = /* glsl */ `
     return vec2(foam, min(churn, 1.0));
   }
 
+  // How much sun reaches the water at p (1 full sun, 0 in shade). The
+  // shadow map is sampled in a ring round about, nudged by the tilt of the
+  // waves and a slow swirl, so the edge of a shadow on the sea is soft and
+  // wavers as the ripples run through it.
+  float waterShade(vec2 p, vec3 n) {
+    #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+      if (!receiveShadow) return 1.0;
+      DirectionalLightShadow sh = directionalLightShadows[0];
+      vec4 c = vDirectionalShadowCoord[0];
+      float perTile = c.w / max(uShadowSpan, 1.0);
+      vec2 swirl = vec2(noise(p * 1.3 + uTime * 0.35), noise(p * 1.3 - uTime * 0.3 + 5.0)) - 0.5;
+      vec2 wobble = (n.xz * 0.12 + swirl * 0.06) * perTile;
+      float fuzz = 0.035 * perTile;
+      float spin = uTime * 0.7;
+      float sum = getShadow(directionalShadowMap[0], sh.shadowMapSize, sh.shadowIntensity,
+        sh.shadowBias, sh.shadowRadius, c + vec4(wobble, 0.0, 0.0));
+      for (int k = 0; k < 6; k++) {
+        float a = spin + float(k) * 1.0472;
+        vec2 o = wobble + vec2(cos(a), sin(a)) * fuzz;
+        sum += getShadow(directionalShadowMap[0], sh.shadowMapSize, sh.shadowIntensity,
+          sh.shadowBias, sh.shadowRadius, c + vec4(o, 0.0, 0.0));
+      }
+      return sum / 7.0;
+    #else
+      return 1.0;
+    #endif
+  }
+
   void main() {
     vec4 field = texture2D(uField, vXZ / uSize);
     float depth = field.r;
@@ -303,7 +332,7 @@ const fragmentShader = /* glsl */ `
     // Churned water is full of bubbles, so it goes a paler, milkier blue.
     col = mix(col, uShallow * 1.2 + 0.08, stirred.y * 0.45);
     // In the shade the sea goes darker and the sun's glints go out.
-    float lit = getShadowMask();
+    float lit = waterShade(vXZ, n);
     col *= (0.78 + 0.34 * max(dot(n, uSun), 0.0) * lit) * mix(0.62, 1.0, lit);
     // Soft sheen from the sun, and tight bright glints that flicker as the
     // wave layers drift past each other. The glint light sits a little off
@@ -332,6 +361,8 @@ const fragmentShader = /* glsl */ `
     col = mix(col, uFoam * mix(0.75, 1.0, lit), foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
     float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
+    // Less light reaches the bottom in the shade, so less of it shows.
+    alpha = mix(alpha, max(alpha, 0.85), (1.0 - lit) * 0.7);
     alpha = max(alpha, foam * 0.9);
     alpha = min(1.0, alpha + spec * 0.5);
     gl_FragColor = vec4(col, alpha);
@@ -404,6 +435,7 @@ export class Water {
         uWakeCount: { value: 0 },
         uStirs: { value: Array.from({ length: STIR_MAX * 2 }, () => new Vector4()) },
         uStirCount: { value: 0 },
+        uShadowSpan: { value: 32 },
       },
     });
 
@@ -416,9 +448,11 @@ export class Water {
   }
 
   /** `view` points from the water towards the camera. */
-  update(time: number, view: Vector3): void {
+  /** `shadowSpan`: tiles across the sun's shadow map. */
+  update(time: number, view: Vector3, shadowSpan: number): void {
     this.material.uniforms.uTime.value = time;
     (this.material.uniforms.uView.value as Vector3).copy(view);
+    this.material.uniforms.uShadowSpan.value = shadowSpan;
   }
 
   /** Boat tracks for the sea to churn up this frame. */
