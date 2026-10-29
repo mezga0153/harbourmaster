@@ -107,6 +107,12 @@ export const REROUTE_AFTER = 18; // ticks blocked before looking for a way aroun
 export const SQUEEZE_AFTER = 60; // ticks blocked before squeezing past anyway
 export const WORKERS_PER_SPOT = 2; // sent to the same loading spot at once
 export const TRUCK_SPEED = 0.7;
+/** Trucks drive this far right of the middle of the road, in tiles. */
+export const TRUCK_LANE = 0.18;
+/** Distance a truck keeps behind the one ahead of it, centre to centre, in tiles. */
+export const TRUCK_GAP = 0.9;
+/** Ticks a truck waits on the others before creeping on anyway, so traffic never locks up. */
+export const TRUCK_SQUEEZE_AFTER = 150;
 /**
  * How each kind of vessel handles: hull size in tiles, top speed in tiles a
  * tick, and how fast it can turn at that speed, in radians a tick. Big

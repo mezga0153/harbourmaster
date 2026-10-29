@@ -1167,6 +1167,86 @@ describe('Buildings', () => {
   });
 });
 
+describe('Rules of the road', () => {
+  /** A truck at x, y heading `dir`, on its way along `path`. */
+  function truck(world: World, x: number, y: number, dir: number, path: number[] = []) {
+    const t = {
+      id: world.nextId++,
+      contractId: -1,
+      company: 'Test',
+      capacity: 6,
+      x,
+      y,
+      dir,
+      path,
+      goal: path.at(-1) ?? 0,
+      state: 'leaving' as const,
+      bayIdx: -1,
+      cargo: 0,
+      value: 0,
+      boxes: false,
+      idle: 0,
+      timer: 0,
+      variant: 0,
+      held: 0,
+    };
+    world.trucks.push(t);
+    return t;
+  }
+
+  it('keeps its distance behind a truck going its way, but passes one coming the other way', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const a = truck(world, 10.5, 20.5, 0, [1]);
+    const pace = () => world['pace'](a)();
+    expect(pace()).toBe(B.TRUCK_SPEED);
+    // Close ahead, going the same way: it holds back.
+    const b = truck(world, 11, 20.5, 0, [1]);
+    expect(pace()).toBe(0);
+    // Coming the other way it is in the other lane.
+    b.dir = Math.PI;
+    expect(pace()).toBe(B.TRUCK_SPEED);
+    // Further ahead, it closes up to the gap and no closer.
+    b.dir = 0;
+    b.x = 10.5 + B.TRUCK_GAP + 0.3;
+    expect(pace()).toBeCloseTo(0.3);
+  });
+
+  it('gives way at a junction to a truck coming in from its right', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const junctions: Uint8Array = world['junctions']();
+    const j = junctions.findIndex((v) => v === 1);
+    expect(j).toBeGreaterThanOrEqual(0);
+    const cx = m.xOf(j) + 0.5;
+    const cy = m.yOf(j) + 0.5;
+    // One coming up from the south heading north, one from the east heading west.
+    const north = truck(world, cx, cy + 1, -Math.PI / 2, [j]);
+    const west = truck(world, cx + 1, cy, Math.PI, [j]);
+    expect(world['mayEnter'](north)(j)).toBe(false);
+    expect(world['mayEnter'](west)(j)).toBe(true);
+    // While one is crossing, the other waits for it.
+    west.x = cx;
+    west.y = cy;
+    north.x = cx - 1;
+    expect(world['mayEnter'](north)(j)).toBe(false);
+    // Wedged for good, it goes anyway.
+    north.held = B.TRUCK_SQUEEZE_AFTER + 1;
+    expect(world['mayEnter'](north)(j)).toBe(true);
+  });
+
+  it('drives on the right-hand side of the road', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    truck(world, 10.5, 20.5, 0, [1]);
+    const view = world.snapshot().entities.find((e) => e.kind === 'truck')!;
+    // Heading east, the right is south.
+    expect(view.x).toBeCloseTo(10.5);
+    expect(view.y).toBeCloseTo(20.5 + B.TRUCK_LANE);
+  });
+});
+
 describe('Port side', () => {
   it('keeps dockhands off grass and public roads', () => {
     const world = World.create(7);

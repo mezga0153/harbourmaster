@@ -359,6 +359,10 @@ interface Truck extends Agent {
   boxes: boolean;
   /** Has left the port, and counts as away on its round until its haulier's return is due. */
   away?: boolean;
+  /** Ticks it has not moved for, with somewhere to go, and where it was; see pace. */
+  held?: number;
+  lastX?: number;
+  lastY?: number;
   /** A shipper's truck, bringing goods in to go out on the ships. */
   exports?: boolean;
   /** When its paperwork is done and it may drive into the port. */
@@ -726,6 +730,8 @@ export class World {
   private spotCache = new Map<number, number[]>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
   private reachCache: Int32Array | null = null;
+  /** Junctions trucks give way at; see junctions. */
+  private junctionCache: Uint8Array | null = null;
   /** The parking lots, and whether each works; see parkingLots. */
   private lotsCache: ParkingLot[] | null = null;
   /** The town up the coast, which grows with the port. */
@@ -1021,6 +1027,7 @@ export class World {
     this.spotCache.clear();
     this.reachCache = null;
     this.lotsCache = null;
+    this.junctionCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -7011,8 +7018,8 @@ export class World {
           t,
           this.truckCost(t.bayIdx, -1, t),
           false,
-          () => B.TRUCK_SPEED,
-          this.level,
+          this.pace(t),
+          this.mayEnter(t),
         );
         if (r === 'blocked' || this.map.build[t.park ?? -1] !== Build.Parking) {
           return this.removeTruck(t);
@@ -7064,8 +7071,8 @@ export class World {
           t,
           this.truckCost(t.bayIdx, -1, t),
           false,
-          () => B.TRUCK_SPEED,
-          this.level,
+          this.pace(t),
+          this.mayEnter(t),
         );
         if (r === 'blocked') {
           if (t.exports) bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - t.cargo);
@@ -7136,8 +7143,8 @@ export class World {
           t,
           this.truckCost(t.goal, t.bayIdx),
           false,
-          () => B.TRUCK_SPEED,
-          this.level,
+          this.pace(t),
+          this.mayEnter(t),
         );
         if (r === 'blocked') this.headOut(t);
         else if (r === 'arrived' && t.then && this.town) {
@@ -7174,7 +7181,7 @@ export class World {
       }
       case 'leaving': {
         const cost = this.truckCost(this.map.entry, t.bayIdx, t);
-        const r = this.move(t, cost, false, () => B.TRUCK_SPEED, this.level);
+        const r = this.move(t, cost, false, this.pace(t), this.mayEnter(t));
         if (r === 'arrived' || r === 'blocked') this.removeTruck(t);
         return;
       }
@@ -7184,6 +7191,100 @@ export class World {
   /** Trucks stop at a level crossing while the barriers are down. */
   private level = (i: number): boolean =>
     this.map.build[i] !== Build.Crossing || !crossingClosed(this.rail.train, this.map.yOf(i));
+
+  // ── Rules of the road ─────────────────────────────────────
+  //
+  // Trucks keep to the right (see snapshot), so those going opposite ways
+  // pass each other. Going the same way, each keeps its distance behind the
+  // one ahead. At a junction a truck waits while another is crossing it,
+  // and gives way to one coming in from its right. One held up for good
+  // creeps on anyway, so traffic never locks up.
+
+  /** Loading at the kerb, unloading in town, parked or away on the highway: off the road. */
+  private onRoad(o: Truck): boolean {
+    return (
+      o.state !== 'loading' &&
+      o.state !== 'delivering' &&
+      o.state !== 'unloading' &&
+      o.state !== 'parked' &&
+      !o.round
+    );
+  }
+
+  /** How far a truck may drive this tick: its speed, short of a safe gap behind the one ahead. */
+  private pace(t: Truck): () => number {
+    return () => {
+      const still = t.path.length > 0 && t.x === t.lastX && t.y === t.lastY;
+      t.held = still ? (t.held ?? 0) + 1 : 0;
+      t.lastX = t.x;
+      t.lastY = t.y;
+      if (t.held > B.TRUCK_SQUEEZE_AFTER) return B.TRUCK_SPEED;
+      return clamp(this.gapAhead(t) - B.TRUCK_GAP, 0, B.TRUCK_SPEED);
+    };
+  }
+
+  /** Distance to the nearest truck ahead in the same lane, going the same way; Infinity if none. */
+  private gapAhead(t: Truck): number {
+    const hx = Math.cos(t.dir);
+    const hy = Math.sin(t.dir);
+    let best = Infinity;
+    for (const o of this.trucks) {
+      if (o === t || !this.onRoad(o)) continue;
+      const dx = o.x - t.x;
+      const dy = o.y - t.y;
+      const along = dx * hx + dy * hy;
+      if (along <= 0 || along > 3) continue;
+      // In the lane ahead, and not coming the other way on its own side.
+      if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - t.dir) < -0.2) continue;
+      best = Math.min(best, along);
+    }
+    return best;
+  }
+
+  /** Where three or more roads meet, for the trucks. Cleared when the port changes. */
+  private junctions(): Uint8Array {
+    if (this.junctionCache) return this.junctionCache;
+    const m = this.map;
+    const road = truckCost(m);
+    const out = new Uint8Array(m.build.length);
+    for (let i = 0; i < m.build.length; i++) {
+      if (!Number.isFinite(road(i))) continue;
+      const ways = m.neighbors4(i).filter((n) => Number.isFinite(road(n))).length;
+      if (ways >= 3) out[i] = 1;
+    }
+    this.junctionCache = out;
+    return out;
+  }
+
+  /**
+   * Whether a truck may drive on into tile `i`: the level crossing is open,
+   * and at a junction nobody is crossing it and nobody waits to come in from
+   * its right.
+   */
+  private mayEnter(t: Truck): (i: number) => boolean {
+    return (i) => {
+      if (!this.level(i)) return false;
+      if (!this.junctions()[i] || (t.held ?? 0) > B.TRUCK_SQUEEZE_AFTER) return true;
+      const m = this.map;
+      for (const o of this.trucks) {
+        if (o === t || !this.onRoad(o)) continue;
+        // Crossing it now, other than going our way ahead of us.
+        if (this.tileOf(o) === i && Math.cos(o.dir - t.dir) < 0.7) return false;
+      }
+      // Priority to the right.
+      const cx = m.xOf(i) + 0.5;
+      const cy = m.yOf(i) + 0.5;
+      const rx = -Math.sin(t.dir);
+      const ry = Math.cos(t.dir);
+      for (const o of this.trucks) {
+        if (o === t || !this.onRoad(o) || o.path[0] !== i) continue;
+        const dx = o.x - cx;
+        const dy = o.y - cy;
+        if (Math.hypot(dx, dy) < 1.2 && dx * rx + dy * ry > 0.5) return false;
+      }
+      return true;
+    };
+  }
 
   private truckLeave(t: Truck): void {
     const bay = this.dest(t.bayIdx);
@@ -7656,8 +7757,9 @@ export class World {
       entities.push({
         id: t.id,
         kind: 'truck',
-        x: t.x,
-        y: t.y,
+        // On the right-hand side of the road; parked in a space, in the middle of it.
+        x: t.x - (t.state === 'parked' ? 0 : Math.sin(t.dir) * B.TRUCK_LANE),
+        y: t.y + (t.state === 'parked' ? 0 : Math.cos(t.dir) * B.TRUCK_LANE),
         dir: t.dir,
         load: t.cargo,
         moving: t.path.length > 0,
