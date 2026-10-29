@@ -1848,6 +1848,17 @@ describe('Container Port tier', () => {
     expect(gantry.stackerJobs).toBe(0);
   });
 
+  it('keeps yard gantries off the tiles trucks load a yard from', () => {
+    const world = feederPort(false);
+    const m = world.map;
+    const yard = [...world.yards.values()][0];
+    const spots: number[] = world['storeSpots'](yard);
+    expect(spots.length).toBeGreaterThan(0);
+    for (const s of spots) expect(placementError(m, 'yardGantry', s)).toMatch(/Trucks load/);
+    // Another side of the yard will do.
+    expect(m.build.some((_, i) => !placementError(m, 'yardGantry', i))).toBe(true);
+  });
+
   it('brings a container ship in and out without its hull touching the docks', () => {
     const world = World.create(7);
     world.tier = 2;

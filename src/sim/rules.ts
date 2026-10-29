@@ -377,7 +377,13 @@ export function placementError(
     const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
     if (!paved || map.store[i]) return 'A yard gantry stands on port road or quay, beside a yard';
     const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
-    return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
+    if (!yard) return 'Put it beside a container yard: it spans the stacks to load the trucks';
+    // Not where the trucks stand to load at storage beside it (see loadingSpots).
+    const served = map.neighbors4(i).some((n) => map.store[n] && !machinesOnly(map, n));
+    if (served && truckReach(map)[i] >= 0) {
+      return 'Trucks load the storage from here: put the gantry on another side of the yard';
+    }
+    return null;
   }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
