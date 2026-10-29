@@ -59,7 +59,7 @@ const TIPS: Record<string, Tip> = {
   },
   customs: {
     title: 'Customs',
-    text: `Containers wait in the yard about ${hours(B.CUSTOMS_TICKS)} hours for customs to clear them before a truck may take them. Build yards to hold that much: when they fill, the cranes stop.`,
+    text: `Customs start on a ship's containers once the whole ship is unloaded, and clear them about ${hours(B.CUSTOMS_TICKS)} hours later. Until then they wait in the yard. Build yards to hold that much: when they fill, the cranes stop.`,
     topic: 'containers',
   },
   noHands: {

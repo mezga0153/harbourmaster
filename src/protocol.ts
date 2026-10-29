@@ -206,6 +206,8 @@ export interface YardView {
   exports: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
+  /** Containers whose ship is still being unloaded: customs start once it is. */
+  pending: number;
   capacity: number;
   tiles: number[];
   noAccess: boolean;

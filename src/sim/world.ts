@@ -176,6 +176,8 @@ interface Dockhand extends Agent {
   stockIdx: number;
   /** Where the load goes: a truck bay, or for containers a yard. */
   bayIdx: number;
+  /** Stackers: the ship each container carried came off, by id. */
+  cargoFrom?: number[];
   /** Exports: the ship they are going on board, or the crane they go to; else -1. */
   toBoat?: number;
   toCrane?: number;
@@ -195,6 +197,8 @@ interface Crane {
   /** The stack holds a coaster's pallets, which only forklifts can move. */
   pallets?: boolean;
   reserved: number;
+  /** Container cranes: the ship each container on the stack came off, by id. */
+  stackFrom?: number[];
   /** Container cranes: exports set down for it to lift on board, and those on the way. */
   outStack?: number[];
   outReserved?: number;
@@ -351,7 +355,11 @@ interface Bay {
   warehouse?: boolean;
   /** Fees of containers waiting here (container yards only). */
   boxes: number[];
-  /** Container yards: when each of `boxes` clears customs; older saves have none, all clear. */
+  /**
+   * Container yards: when each of `boxes` clears customs; minus the ship's
+   * id while that ship is still being unloaded, as the clock only starts
+   * once it is. Older saves have none: all clear.
+   */
   boxReady?: number[];
   boxIncoming: number;
   /** Fee of each crate waiting here. */
@@ -422,6 +430,8 @@ export interface SaveData {
   scenery?: number;
   /** Advisor tips already given; see tip(). */
   tips?: string[];
+  /** When container ships lately finished unloading; see unloadedAt. */
+  unloaded?: [number, number][];
 }
 
 function emptyLedger(): Ledger {
@@ -716,6 +726,8 @@ export class World {
   private dockKey = new Map<number, number>();
   /** Advisor tips already given, so each comes once a game. */
   tipsSeen = new Set<string>();
+  /** When each container ship lately finished unloading, by id, for customs. */
+  unloadedAt = new Map<number, number>();
   private warnedOffice = false;
   private warnedParking = false;
   private warnedBigTrucks = false;
@@ -872,6 +884,7 @@ export class World {
     }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     world.tipsSeen = new Set(s.tips ?? []);
+    world.unloadedAt = new Map(s.unloaded ?? []);
     if (s.rail) world.rail = structuredClone(s.rail);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
@@ -948,6 +961,7 @@ export class World {
       rail: this.rail,
       scenery: this.scenery.state,
       tips: [...this.tipsSeen],
+      unloaded: [...this.unloadedAt],
     });
   }
 
@@ -1983,6 +1997,10 @@ export class World {
   }
 
   private newDay(): void {
+    // Containers in transit from a ship are stacked within the day.
+    for (const [id, at] of this.unloadedAt) {
+      if (this.tick - at > TICKS_PER_DAY * 3) this.unloadedAt.delete(id);
+    }
     if (this.town) townDay(this.town, this.jobs(), this.map);
     this.checkMorale();
     this.raiseRequests();
@@ -4748,6 +4766,8 @@ export class World {
 
   private depart(b: Boat, gaveUp: boolean): void {
     this.judgeVisit(b, gaveUp);
+    // Leaving with containers still on board: customs start on those it landed.
+    if (b.vessel === 'feeder') this.shipUnloaded(b);
     if (b.state === 'moored') {
       b.castOff = b.berth;
       b.castDock = b.jetty;
@@ -5271,7 +5291,11 @@ export class World {
         const boxy = p.kind === 'stacker';
         // Customs clear a container a while after it is stacked in the yard.
         // Their times go on first, while the list still matches the yard.
-        if (boxy) this.readyList(bay).push(...p.cargoFees.map(() => this.tick + B.CUSTOMS_TICKS));
+        if (boxy) {
+          const from = p.cargoFrom ?? [];
+          this.readyList(bay).push(...p.cargoFees.map((_, k) => this.customsFor(from[k])));
+          p.cargoFrom = undefined;
+        }
         (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         if (boxy) this.tip('customs');
         if (bay.pile) this.tip('landed');
@@ -5828,7 +5852,9 @@ export class World {
       p.craneIdx = -1;
       if (!crane) return [];
       crane.reserved = Math.max(0, crane.reserved - p.planned);
-      return crane.stack.splice(0, Math.min(p.planned, crane.stack.length));
+      const n = Math.min(p.planned, crane.stack.length);
+      p.cargoFrom = crane.kind === 'jib' ? undefined : (crane.stackFrom ?? []).splice(0, n);
+      return crane.stack.splice(0, n);
     }
     if (p.stockIdx >= 0) {
       const pile = this.stock(p.stockIdx);
@@ -5920,19 +5946,25 @@ export class World {
     return b.boxReady;
   }
 
-  /** Containers customs have cleared, at the front of the yard's queue. */
+  /** Whether customs have cleared a container ready at `r` (see boxReady). */
+  private isClear(r: number): boolean {
+    return r >= 0 && r <= this.tick;
+  }
+
+  /** Containers customs have cleared. */
   private cleared(b: Bay): number {
-    const ready = this.readyList(b);
-    let n = 0;
-    while (n < ready.length && ready[n] <= this.tick) n++;
-    return n;
+    return this.readyList(b).filter((r) => this.isClear(r)).length;
+  }
+
+  /** Containers whose ship is still being unloaded, so customs have not started on them. */
+  private pending(b: Bay): number {
+    return this.readyList(b).filter((r) => r < 0).length;
   }
 
   /** Ticks until the next container in this yard clears customs, or -1. */
   private nextClear(b: Bay): number {
-    const ready = this.readyList(b);
-    const next = ready[this.cleared(b)];
-    return next === undefined ? -1 : next - this.tick;
+    const next = Math.min(Infinity, ...this.readyList(b).filter((r) => r > this.tick));
+    return Number.isFinite(next) ? next - this.tick : -1;
   }
 
   /** What a truck could take away from this bay now. */
@@ -6131,6 +6163,33 @@ export class World {
     }
     c.pallets = boat.vessel === 'coaster';
     c.stack.push(boat.fee);
+    if (c.kind !== 'jib') {
+      (c.stackFrom ??= []).push(boat.id);
+      if (boat.crates === 0) this.shipUnloaded(boat);
+    }
+  }
+
+  /**
+   * A container ship has been unloaded: customs start on all its containers
+   * now, those already in a yard and those still on their way there.
+   */
+  private shipUnloaded(b: Boat): void {
+    if (this.unloadedAt.has(b.id)) return;
+    this.unloadedAt.set(b.id, this.tick);
+    for (const y of this.yards.values()) {
+      const ready = this.readyList(y);
+      for (let k = 0; k < ready.length; k++) {
+        if (ready[k] === -b.id) ready[k] = this.tick + B.CUSTOMS_TICKS;
+      }
+    }
+  }
+
+  /** When customs clear a container stacked now that came off ship `from`; see boxReady. */
+  private customsFor(from: number | undefined): number {
+    if (from === undefined) return this.tick + B.CUSTOMS_TICKS;
+    const done = this.unloadedAt.get(from);
+    if (done !== undefined) return done + B.CUSTOMS_TICKS;
+    return this.boats.some((b) => b.id === from) ? -from : this.tick + B.CUSTOMS_TICKS;
   }
 
   /**
@@ -6476,11 +6535,11 @@ export class World {
         const every = loadTicks(bay);
         if (++t.timer % every !== 0) return;
         const stock = t.boxes ? bay.boxes : bay.crates;
-        // Containers only once customs have cleared them.
-        const ready = !t.boxes || !bay.yard || this.cleared(bay) > 0;
-        if (stock.length > 0 && ready && t.cargo < t.capacity) {
-          if (t.boxes && bay.yard) this.readyList(bay).shift();
-          t.value += stock.shift()!;
+        // Containers only once customs have cleared them, whichever those are.
+        const at = t.boxes && bay.yard ? this.readyList(bay).findIndex((r) => this.isClear(r)) : 0;
+        if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
+          if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
+          t.value += stock.splice(at, 1)[0];
           t.cargo++;
           t.idle = 0;
         } else {
@@ -7108,6 +7167,7 @@ export class World {
         exports: y.exports?.length ?? 0,
         cleared: this.cleared(y),
         nextClear: this.nextClear(y),
+        pending: this.pending(y),
         capacity: bayCap(y),
         tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,

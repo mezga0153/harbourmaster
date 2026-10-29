@@ -1804,7 +1804,7 @@ describe('Container Port tier', () => {
     expect(yard.boxes).toHaveLength(0);
   });
 
-  it('holds containers stacked in a yard for a day of customs before a truck takes one', () => {
+  it('holds containers in a yard for a day of customs from when their ship is unloaded', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
@@ -1850,6 +1850,10 @@ describe('Container Port tier', () => {
     expect(stacked).toBeGreaterThan(0);
     expect(taken).toBeGreaterThan(0);
     expect(taken - stacked).toBeGreaterThanOrEqual(B.CUSTOMS_TICKS);
+    // The clock only started once the whole ship was unloaded.
+    const unloaded = Math.min(...world.unloadedAt.values());
+    expect(unloaded).toBeGreaterThan(stacked);
+    expect(taken - unloaded).toBeGreaterThanOrEqual(B.CUSTOMS_TICKS);
   });
 
   it('ships out exports: paperwork parked outside, into the yard, onto a feeder', () => {
@@ -2238,9 +2242,10 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    // Feeders keep landing more, so count what the trucks take away.
+    // Feeders keep landing more, so count what the trucks take away, once
+    // customs have had their day after the ship was unloaded.
     let collected = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 2; k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       const before = yard.boxes.length;
       world.step();
       collected += Math.max(0, before - yard.boxes.length);

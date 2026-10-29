@@ -250,10 +250,11 @@ export const TOPICS: Record<TopicId, Topic> = {
           container yard, and container trucks collect them.
         </p>
         <p>
-          A container waits in the yard for customs to clear it, about {hours(B.CUSTOMS_TICKS)}{' '}
-          hours, before a truck may take it. Yards hold that day of traffic: when they fill, the
-          stackers stop, then the cranes, and ships wait. Select a yard to see what is in customs
-          and when the next one clears.
+          Customs start on a ship's containers once the whole ship has been unloaded, and clear them
+          about {hours(B.CUSTOMS_TICKS)} hours later. Until then they wait in the yard, and no truck
+          may take them. Yards hold a ship's load and a day of traffic: when they fill, the stackers
+          stop, then the cranes, and ships wait. Select a yard to see what is in customs and when
+          the next one clears.
         </p>
       </>
     ),

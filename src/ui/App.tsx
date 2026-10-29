@@ -424,9 +424,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
         <p class="muted">
-          Reach stackers stack containers here from the cranes. Once customs have cleared them, a
-          day later, container trucks load them from the road beside the yard, on the yellow tiles.{' '}
-          <More topic="containers" />
+          Reach stackers stack containers here from the cranes. Customs clear them a day after their
+          ship has been unloaded, and then container trucks load them from the road beside the yard,
+          on the yellow tiles. <More topic="containers" />
         </p>
         <dl class="props">
           <dt>Containers</dt>
@@ -435,9 +435,15 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
           <dt>Cleared by customs</dt>
           <dd>{yard.cleared}</dd>
+          {yard.pending > 0 && (
+            <>
+              <dt>Ship still unloading</dt>
+              <dd>{yard.pending}</dd>
+            </>
+          )}
           <dt>In customs</dt>
           <dd>
-            {yard.boxes - yard.cleared}
+            {yard.boxes - yard.cleared - yard.pending}
             {yard.nextClear >= 0 && (
               <span class="muted"> · next clears in {duration(yard.nextClear)}</span>
             )}
