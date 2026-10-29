@@ -4947,8 +4947,10 @@ export class World {
       // itself; a boat already in it, casting off beside it, need only
       // keep clear of the hull.
       // Held up by that alone a while, it goes on past, clear of the hull.
+      // Running out along the dock it passes the berths beside it like
+      // one casting off, minding only their hulls.
       const kept =
-        still && (b.held ?? 0) < B.KEEP_CLEAR_PATIENCE
+        still && b.berthing !== 'out' && (b.held ?? 0) < B.KEEP_CLEAR_PATIENCE
           ? this.inWay(me, { ...other, half: other.half + B.BERTH_END_GAP }, look)
           : null;
       const ahead = kept !== null && kept > 0 ? kept : this.inWay(me, other, look);
