@@ -70,8 +70,15 @@ export const newGameOpen = signal(false);
 /** The build category whose tools are showing above the bar. */
 export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */
-export type PanelName = 'contracts' | 'staff' | 'finance' | 'port';
+export type PanelName = 'contracts' | 'staff' | 'finance' | 'port' | 'handbook';
 export const panel = signal<PanelName | null>(null);
+/** The handbook page open; see Handbook.tsx. */
+export const handbookTopic = signal('start');
+
+export function openHandbook(topic: string): void {
+  handbookTopic.value = topic;
+  panel.value = 'handbook';
+}
 
 export function togglePanel(name: PanelName): void {
   panel.value = panel.value === name ? null : name;

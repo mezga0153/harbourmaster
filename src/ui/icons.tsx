@@ -243,6 +243,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M9 9h6M9 13h7M9 17h4" />
     </>
   ),
+  book: (
+    <>
+      <path d="M4 5c3-1.5 5.5-1.5 8 0v15c-2.5-1.5-5-1.5-8 0z" />
+      <path d="M20 5c-3-1.5-5.5-1.5-8 0v15c2.5-1.5 5-1.5 8 0z" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;

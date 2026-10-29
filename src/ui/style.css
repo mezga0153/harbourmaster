@@ -1191,6 +1191,58 @@ button:focus-visible {
   border: 1px solid var(--line-strong);
 }
 
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.link:hover {
+  text-decoration: underline;
+}
+
+button.chip {
+  background: none;
+  cursor: pointer;
+}
+
+button.chip.on {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.handbook-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.handbook-page {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.handbook-page p,
+.handbook-page ul,
+.handbook-page ol {
+  margin: 0 0 10px;
+}
+
+.handbook-page ul,
+.handbook-page ol {
+  padding-left: 18px;
+}
+
+.handbook-page b {
+  color: var(--text);
+}
+
 .checks {
   list-style: none;
   margin: 0;

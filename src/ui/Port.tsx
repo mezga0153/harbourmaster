@@ -2,7 +2,10 @@ import { TIERS } from '../sim/tiers';
 import type { Actions } from './App';
 import { money } from './format';
 import { panel, snapshot } from './store';
-import { InfoHeader, Meter } from './widgets';
+import { InfoHeader, Meter, More } from './widgets';
+
+/** The handbook page on what each step up brings. */
+const TIER_TOPIC = ['start', 'machines', 'containers'];
 
 function Requirement({ label, have, need }: { label: string; have: number; need: number }) {
   const done = have >= need;
@@ -49,6 +52,7 @@ export function PortPanel({ actions }: { actions: Actions }) {
                 <li key={u}>{u}</li>
               ))}
             </ul>
+            {TIER_TOPIC[k] && !t.comingSoon && <More topic={TIER_TOPIC[k]} label="How it works" />}
             {state === 'next' && !t.comingSoon && (
               <>
                 <Requirement label="Crates handled" have={crates} need={t.crates} />

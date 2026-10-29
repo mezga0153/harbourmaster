@@ -9,7 +9,7 @@ import type { Actions } from './App';
 import { duration, money } from './format';
 import { Icon } from './icons';
 import { panel, snapshot } from './store';
-import { InfoHeader, Meter } from './widgets';
+import { InfoHeader, Meter, More } from './widgets';
 
 type Tab = 'active' | 'offers' | 'rules';
 
@@ -192,7 +192,9 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
             : null;
   return (
     <>
-      <h3 class="flow-title">Containers, ship to truck</h3>
+      <h3 class="flow-title">
+        Containers, ship to truck <More topic="containers" label="How" />
+      </h3>
       <div class="kpis four flow">
         <Kpi label="Arriving" value={b.demand} hint="Containers per day your lines send" />
         <Kpi
@@ -244,7 +246,9 @@ function Summary({ cap }: { cap: Capacity }) {
             : null;
   return (
     <div class="summary">
-      <h3 class="flow-title">Crates, boat to truck</h3>
+      <h3 class="flow-title">
+        Crates, boat to truck <More topic="start" label="How" />
+      </h3>
       <div class="kpis four flow">
         <Kpi label="Arriving" value={cap.demand} hint="Crates per day your contracts send" />
         <Kpi

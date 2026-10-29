@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { Icon } from './icons';
+import { openHandbook } from './store';
 
 export function InfoHeader({
   title,
@@ -24,12 +25,23 @@ export function InfoHeader({
 }
 
 /** Why something is held up, and what would help. */
-export function Why({ children }: { children: ComponentChildren }) {
+export function Why({ children, topic }: { children: ComponentChildren; topic?: string }) {
   return (
     <p class="note why">
       <Icon name="alert" />
-      <span>{children}</span>
+      <span>
+        {children} {topic && <More topic={topic} />}
+      </span>
     </p>
+  );
+}
+
+/** A link to a page of the handbook. */
+export function More({ topic, label = 'More' }: { topic: string; label?: string }) {
+  return (
+    <button class="link" onClick={() => openHandbook(topic)}>
+      {label} ›
+    </button>
   );
 }
 

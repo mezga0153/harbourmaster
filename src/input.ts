@@ -203,6 +203,7 @@ export class Input {
       this.send({ type: 'debug', cash: 1_000_000 });
     } else if (k === 'm') togglePanel('finance');
     else if (k === 'p') togglePanel('port');
+    else if (k === '?') togglePanel('handbook');
     else if (k in TOOL_KEYS) {
       const next = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
       tool.value = next;

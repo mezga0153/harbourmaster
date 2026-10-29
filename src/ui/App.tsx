@@ -7,6 +7,7 @@ import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
 import { dayProgress, duration, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
+import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
@@ -28,7 +29,7 @@ import {
   snapshot,
   tool,
 } from './store';
-import { InfoHeader, Meter, Why } from './widgets';
+import { InfoHeader, Meter, More, Why } from './widgets';
 
 export interface Actions {
   send(cmd: Command): void;
@@ -66,6 +67,8 @@ export function App({ actions }: { actions: Actions }) {
         <FinancePanel actions={actions} />
       ) : panel.value === 'port' ? (
         <PortPanel actions={actions} />
+      ) : panel.value === 'handbook' ? (
+        <HandbookPanel />
       ) : (
         <InfoPanel actions={actions} />
       )}
@@ -222,6 +225,13 @@ function TopBar({ actions }: { actions: Actions }) {
           <span>Contracts</span>
           {s.offers.length > 0 && <span class="count">{s.offers.length}</span>}
         </button>
+        <button
+          class={`btn icon ${panel.value === 'handbook' ? 'on' : ''}`}
+          onClick={() => togglePanel('handbook')}
+          title="Handbook: how the port works (?)"
+        >
+          <Icon name="book" />
+        </button>
         <button class="btn icon" onClick={() => actions.send({ type: 'save' })} title="Save game">
           <Icon name="save" />
         </button>
@@ -292,7 +302,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader kicker="Building" title="Forklift depot" onClose={close} />
         <p class="muted">
-          Forklifts refuel here, are repaired here and park here when there is nothing to do.
+          Forklifts refuel here, are repaired here and park here when there is nothing to do.{' '}
+          <More topic="machines" />
         </p>
         <dl class="props">
           <dt>Forklifts</dt>
@@ -341,7 +352,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         {bay.tiles && (
           <p class="muted">
             Dockhands and forklifts bring crates here, and jib cranes close by swing them straight
-            in. Trucks load from the road beside it, on the yellow tiles.
+            in. Trucks load from the road beside it, on the yellow tiles. <More topic="storage" />
           </p>
         )}
         <dl class="props">
@@ -384,7 +395,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
           {CRANE_NOTE[c.kind]}{' '}
           {c.kind === 'jib'
             ? 'Red on the map: machines only. Blue: as far as it reaches into storage.'
-            : 'Red on the map: machines only.'}
+            : 'Red on the map: machines only.'}{' '}
+          <More topic="cranes" />
         </p>
         <dl class="props">
           <dt>{c.kind === 'gantry' ? 'Between its legs' : 'Landing stack'}</dt>
@@ -412,7 +424,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <p class="muted">
           Reach stackers stack containers here from the cranes. Once customs have cleared them,
           about half a day later, container trucks load them from the road beside the yard, on the
-          yellow tiles.
+          yellow tiles. <More topic="containers" />
         </p>
         <dl class="props">
           <dt>Containers</dt>
@@ -453,7 +465,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <span class={`dot ${e.moving ? 'live' : ''}`} />
         {e.activity}
       </p>
-      {e.why && <Why>{e.why}</Why>}
+      {e.why && <Why topic={WHY_TOPIC[e.kind]}>{e.why}</Why>}
       {(e.kind === 'dockhand' || e.kind === 'forklift' || e.kind === 'stacker') && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
@@ -480,6 +492,15 @@ function InfoPanel({ actions }: { actions: Actions }) {
     </aside>
   );
 }
+
+/** The handbook page that explains why each kind of thing gets held up. */
+const WHY_TOPIC: Record<string, string> = {
+  boat: 'boats',
+  truck: 'trucks',
+  dockhand: 'machinesOnly',
+  forklift: 'machines',
+  stacker: 'machines',
+};
 
 const CRANE_NAME = { jib: 'Jib crane', harbour: 'Harbour crane', gantry: 'Gantry crane' };
 
