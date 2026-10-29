@@ -77,7 +77,7 @@ export function App({ actions }: { actions: Actions }) {
       <PreviewTip />
       <HoverTip />
       <Advisor />
-      <BuildBar />
+      <BuildBar actions={actions} />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
     </>
@@ -167,35 +167,6 @@ function TopBar({ actions }: { actions: Actions }) {
             </Stat>
           </button>
         )}
-      </div>
-
-      <div class="topbar-center">
-        <div class="clock" title="Date">
-          <span class="clock-date">{formatDate(s.tick)}</span>
-          <span class="daybar">
-            <span style={{ width: `${dayProgress(s.tick) * 100}%` }} />
-          </span>
-        </div>
-        <div class="segmented" role="group" aria-label="Game speed">
-          <button
-            class={s.speed === 0 ? 'on' : ''}
-            onClick={() => actions.togglePause()}
-            title="Pause (Space)"
-            aria-label="Pause"
-          >
-            <Icon name="pause" />
-          </button>
-          {SPEEDS.map((o, k) => (
-            <button
-              key={o.speed}
-              class={s.speed === o.speed ? 'on' : ''}
-              onClick={() => actions.setSpeed(o.speed)}
-              title={`Speed ${o.label} (${k + 1})`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div class="topbar-right">
@@ -823,7 +794,43 @@ function CategoryTray({ cat }: { cat: Category }) {
   );
 }
 
-function BuildBar() {
+/** The date and the game's speed, at the right-hand end of the bottom bar. */
+function TimeControl({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s) return null;
+  return (
+    <div class="dock-group time">
+      <div class="clock" title="Date">
+        <span class="clock-date">{formatDate(s.tick)}</span>
+        <span class="daybar">
+          <span style={{ width: `${dayProgress(s.tick) * 100}%` }} />
+        </span>
+      </div>
+      <div class="segmented" role="group" aria-label="Game speed">
+        <button
+          class={s.speed === 0 ? 'on' : ''}
+          onClick={() => actions.togglePause()}
+          title="Pause (Space)"
+          aria-label="Pause"
+        >
+          <Icon name="pause" />
+        </button>
+        {SPEEDS.map((o, k) => (
+          <button
+            key={o.speed}
+            class={s.speed === o.speed ? 'on' : ''}
+            onClick={() => actions.setSpeed(o.speed)}
+            title={`Speed ${o.label} (${k + 1})`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BuildBar({ actions }: { actions: Actions }) {
   const current = tool.value;
   const open = CATEGORIES.find((c) => c.id === openCategory.value);
   return (
@@ -867,6 +874,7 @@ function BuildBar() {
             <span class="tool-cost">Hire</span>
           </button>
         </div>
+        <TimeControl actions={actions} />
       </footer>
     </>
   );

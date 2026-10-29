@@ -342,11 +342,12 @@ button:focus-visible {
   color: var(--bad);
 }
 
-.topbar-center {
+/* The date and game speed, at the right-hand end of the bottom bar. */
+.dock-group.time {
   flex: none;
-  display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  padding-right: 4px;
 }
 
 .clock {
@@ -1866,12 +1867,6 @@ input:focus {
 @media (max-width: 760px) {
   .topbar {
     flex-wrap: wrap;
-  }
-
-  .topbar-center {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
   }
 
   .messages,
