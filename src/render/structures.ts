@@ -430,6 +430,28 @@ export class Structures {
         this.gates.set(i, { boom, open: false, angle: 0 });
         return g;
       }
+      case Build.TugBerth: {
+        // A pontoon afloat along the dock edge, where the tug lies: tyre
+        // fenders on its water side and a pair of bollards.
+        const m = this.map;
+        const dock = m.neighbors4(i).find((n) => isDock(m.build[n]));
+        const [dx, dy] =
+          dock === undefined ? [0, -1] : [m.xOf(dock) - m.xOf(i), m.yOf(dock) - m.yOf(i)];
+        const pontoon = new Group();
+        pontoon.add(box(0.9, 0.08, 0.22, C.quayWall, 0, -0.04, 0));
+        pontoon.add(box(0.9, 0.012, 0.22, C.quayTop, 0, 0.04, 0));
+        for (const x of [-0.3, 0, 0.3]) {
+          const tyre = cyl(0.045, 0.035, 0x1d1f22, x, -0.01, 0.13, 10);
+          tyre.rotation.x = Math.PI / 2;
+          pontoon.add(tyre);
+        }
+        for (const x of [-0.36, 0.36]) pontoon.add(cyl(0.025, 0.06, C.chassis, x, 0.05, 0.02, 8));
+        // Along the edge nearest the dock, its fenders facing the water.
+        pontoon.position.set(0.5 + dx * 0.38, 0, 0.5 + dy * 0.38);
+        pontoon.rotation.y = Math.atan2(-dx, -dy);
+        g.add(pontoon);
+        return g;
+      }
       case Build.BuoyIn:
       case Build.BuoyOut: {
         // A lateral mark: green with a cone on top for the way in, red with

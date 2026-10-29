@@ -126,6 +126,15 @@ export const CATEGORIES: Category[] = [
       { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
       { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },
       { tool: 'stacker', icon: 'stacker', label: 'Reach stacker', key: 'Z' },
+      { tool: 'tugBerth', icon: 'anchor', label: 'Tug berth' },
+      {
+        tool: 'tug',
+        icon: 'anchor',
+        label: 'Tugboat',
+        note: money(B.TUG_PRICE),
+        hint: `Click a tug berth to buy a tug there. It sails out to meet coasters and feeders and works them in alongside and out again, quickly, where on their own they swing round and come alongside slowly. ${money(B.TUG_RUNNING_COST)}/day to run`,
+        tier: B.TUG_TIER,
+      },
     ],
   },
   {

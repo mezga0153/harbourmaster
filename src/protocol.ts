@@ -21,6 +21,8 @@ export type Command =
   | { type: 'loan'; amount: number }
   | { type: 'upgrade' }
   | { type: 'buyMachine'; kind: MachineKind; tile?: number }
+  /** A harbour tug, at the tug berth at `tile` or any free one. */
+  | { type: 'buyTug'; tile?: number }
   | { type: 'raise'; id: number; accept: boolean }
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }

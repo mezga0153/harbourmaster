@@ -114,6 +114,7 @@ export const VESSELS = {
   smack: { length: 1.9, beam: 0.6, speed: 0.15, turn: 0.05 },
   coaster: { length: 2.7, beam: 0.84, speed: 0.11, turn: 0.032 },
   feeder: { length: 5.6, beam: 0.96, speed: 0.08, turn: 0.02 },
+  tug: { length: 1.1, beam: 0.48, speed: 0.17, turn: 0.1 },
 } as const;
 /** Share of top speed a boat gains per tick; it sheds way at twice that. */
 export const BOAT_ACCEL = 1 / 60;
@@ -193,6 +194,25 @@ export const FEEDER_GROWTH_CONTAINERS = 1000;
  * boats under way keep out of it too (see seaWay).
  */
 export const BERTH_END_GAP = 0.3;
+/** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */
+export const TUG_BERTH_COST = 1500;
+export const TUG_PRICE = 6000;
+export const TUG_RUNNING_COST = 60;
+export const TUG_DRAFT = 2;
+/** Tugs come with the coasters, which need them first. */
+export const TUG_TIER = 1;
+/**
+ * How handy a coaster or feeder is without a tug, swinging round, crabbing
+ * in alongside, easing off the dock and running out along it, as a share of
+ * how it handles with one.
+ */
+export const UNTUGGED_HANDLING = 0.35;
+/** Tiles out from its berth a ship coming in calls its tug. */
+export const TUG_MEET = 10;
+/** A ship calls its tug with this much cargo still to unload, so it is there to cast off. */
+export const TUG_CALL_LOAD = 4;
+/** Ticks a ship ready to leave waits for a tug about to come alongside. */
+export const TUG_WAIT = 60;
 /** A feeder is a big ship: its berth runs 3 tiles either side of the middle. */
 export const FEEDER_HALF_BERTH = 3;
 export const HARBOUR_CRANE_TICKS = 50; // per container lifted

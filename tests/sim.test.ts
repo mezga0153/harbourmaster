@@ -1539,12 +1539,78 @@ describe('Container Port tier', () => {
     return { crane, yard };
   }
 
+  /**
+   * A tug berth beside the docks, as far from the feeder berth at the crane
+   * as there is room for, and a tug lying in it.
+   */
+  function withTug(world: World, crane: number): void {
+    const m = world.map;
+    const far = (i: number) =>
+      Math.abs(m.xOf(i) - m.xOf(crane)) + Math.abs(m.yOf(i) - m.yOf(crane));
+    let berth = -1;
+    for (let i = 0; i < m.build.length; i++) {
+      if (placementError(m, 'tugBerth', i)) continue;
+      if (berth < 0 || far(i) > far(berth)) berth = i;
+    }
+    world.command({ type: 'build', kind: 'tugBerth', tiles: [berth] });
+    world.command({ type: 'buyTug', tile: berth });
+    expect(world.tugs.length).toBe(1);
+  }
+
+  /** A port with a feeder line sending a ship a day, and a tug or not. */
+  function feederPort(tug: boolean): World {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    if (tug) withTug(world, t.crane);
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 6,
+        cratesMax: 6,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    return world;
+  }
+
+  it('has a tug work a feeder in alongside, quicker than it comes in on its own', () => {
+    // From when it is sent in to its berth until it is moored there.
+    const berthing = (tug: boolean) => {
+      const world = feederPort(tug);
+      let sent = -1;
+      let worked = false;
+      for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+        world.step();
+        const ship = world.boats.find((b) => b.vessel === 'feeder');
+        if (!ship) continue;
+        if (ship.state === 'arriving' && sent < 0) sent = world.tick;
+        if (world.tugs.some((t) => t.ship === ship.id && t.state === 'assist')) worked = true;
+        if (ship.state === 'moored' && sent >= 0) return { ticks: world.tick - sent, worked };
+      }
+      return { ticks: Infinity, worked };
+    };
+    const alone = berthing(false);
+    const tugged = berthing(true);
+    expect(tugged.worked).toBe(true);
+    expect(tugged.ticks).toBeLessThan(alone.ticks * 0.85);
+  });
+
   it('lifts containers off a feeder, stacks them in a yard and trucks them out', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world);
     expect(t).not.toBeNull();
+    withTug(world, t!.crane);
     expect(world.capacity().boxes.berths).toBeGreaterThan(0);
     const add = world['addContract'].bind(world);
     add(
@@ -2137,6 +2203,7 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
+    withTug(world, t.crane);
     const add = world['addContract'].bind(world);
     add(
       {

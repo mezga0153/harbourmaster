@@ -377,6 +377,49 @@ export function coasterShip(seed: number, company: number, crate: Crate): Craft 
 }
 
 /**
+ * A harbour tug about 1.1 tiles long: a beamy hull in fenders all round, a
+ * wheelhouse forward with a raised bridge, a funnel and a towing winch aft.
+ */
+export function tugBoat(seed: number): Craft {
+  const rng = new Rng(seed * 4973 + 29);
+  const root = new Group();
+  const paint = rng.pick([0xb33a32, 0x24324a, 0x2e7d4f, 0xd9822b]);
+  const length = 1.1;
+  const beam = 0.48;
+  const deck = hull(root, {
+    length,
+    beam,
+    height: 0.3,
+    draft: 0.12,
+    bow: 0.32,
+    stern: 0.88,
+    paint,
+    bottom: rng.pick(ANTIFOUL),
+    stripe: C.cabin,
+    deck: rng.pick(DECK),
+  });
+  // Rubber fenders all round, heaviest at the bow, where it pushes.
+  const fender = 0x1d1f22;
+  for (const s of [-1, 1])
+    root.add(box(length * 0.62, 0.07, 0.05, fender, -0.06, deck - 0.12, s * beam * 0.48));
+  root.add(box(0.1, 0.1, beam * 0.55, fender, length / 2 - 0.06, deck - 0.14, 0));
+  root.add(box(0.06, 0.07, beam * 0.8, fender, -length / 2 + 0.02, deck - 0.12, 0));
+  const white = rng.pick(SUPERSTRUCTURE);
+  cabin(root, 0.1, deck, 0.36, beam * 0.62, 0.17, white, paint);
+  // The bridge on top, all round windows.
+  root.add(box(0.2, 0.1, beam * 0.5, white, 0.14, deck + 0.19, 0));
+  root.add(box(0.012, 0.045, beam * 0.42, C.window, 0.245, deck + 0.22, 0));
+  root.add(box(0.23, 0.02, beam * 0.54, paint, 0.14, deck + 0.29, 0));
+  // Funnel in the company paint with a black top, and the winch aft.
+  root.add(cyl(0.045, 0.16, paint, -0.12, deck + 0.13));
+  root.add(cyl(0.047, 0.04, fender, -0.12, deck + 0.29));
+  const winch = cyl(0.05, beam * 0.4, C.chassis, -0.34, deck + 0.06, 0, 8);
+  winch.rotation.x = Math.PI / 2;
+  root.add(winch);
+  return { root, slots: [] };
+}
+
+/**
  * A container feeder, a big ship about 5.6 tiles long. Most have the bridge
  * aft; some have it further forward with containers either side.
  */

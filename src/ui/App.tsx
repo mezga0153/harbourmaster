@@ -471,7 +471,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
       {(e.kind === 'dockhand' || e.kind === 'forklift' || e.kind === 'stacker') && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
-      {e.kind === 'boat' && (
+      {e.kind === 'boat' && e.vessel !== 'tug' && (
         <dl class="props">
           <dt>Cargo</dt>
           <dd>

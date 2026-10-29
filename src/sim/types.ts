@@ -51,6 +51,8 @@ export const Build = {
   Factory: 32,
   /** A ship-to-shore gantry crane, 2×2 on a quay edge. */
   Gantry: 33,
+  /** A berth in the water beside a jetty or quay, where a harbour tug lies. */
+  TugBerth: 34,
   // 34 is the tug berth.
   /**
    * Truck parking: outside the port where it joins a public road, inside
@@ -83,6 +85,7 @@ export type BuildKind =
   | 'largeBay'
   | 'harbourCrane'
   | 'gantryCrane'
+  | 'tugBerth'
   | 'portRoad'
   | 'portGate'
   | 'parking'

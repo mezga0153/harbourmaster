@@ -212,6 +212,25 @@ interface Moorage {
   vessel: Vessel;
 }
 
+/**
+ * A harbour tug. It lies at its berth until a coaster or feeder needs
+ * working in or out, sails out to meet it, keeps station alongside while
+ * the ship comes round and alongside or pulls out, then goes back.
+ */
+export interface Tug extends Agent {
+  name: string;
+  /** Its tug berth. */
+  home: number;
+  speed: number;
+  state: 'idle' | 'out' | 'assist' | 'back';
+  /** The ship it is out to, or -1. */
+  ship: number;
+  /** Ticks until it plans its way again. */
+  plan: number;
+}
+
+const TUG_NAMES = ['Hercules', 'Samson', 'Goliath', 'Titan', 'Atlas', 'Bulldog', 'Ajax', 'Brutus'];
+
 interface Boat extends Agent {
   /** Sails in to the anchorage, waits there if needed, then moors at a jetty. */
   state: 'approaching' | 'anchored' | 'arriving' | 'moored' | 'leaving';
@@ -390,6 +409,8 @@ export interface SaveData {
   map: MapData;
   people: Dockhand[];
   boats: Boat[];
+  /** Older saves have none. */
+  tugs?: Tug[];
   trucks: Truck[];
   bays: Bay[];
   yards?: Bay[];
@@ -637,6 +658,9 @@ export class World {
   };
   people: Dockhand[] = [];
   boats: Boat[] = [];
+  tugs: Tug[] = [];
+  /** Ticks each tug has been held up, see steerTug. Not saved. */
+  private tugHeld = new WeakMap<Tug, number>();
   trucks: Truck[] = [];
   bays = new Map<number, Bay>();
   /** Container yards, by their main tile. Crate storage areas are with the bays. */
@@ -814,6 +838,7 @@ export class World {
       cargoFees: [...p.cargoFees],
     }));
     world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
+    world.tugs = (s.tugs ?? []).map((t) => ({ ...t, path: [...t.path] }));
     world.trucks = s.trucks.map((t) => ({ ...t, path: [...t.path] }));
     // Older saves had warehouses and container yards as buildings: now they
     // are storage marked out on the port road or quay they stood on.
@@ -914,6 +939,7 @@ export class World {
       map: this.map.toData(),
       people: this.people,
       boats: this.boats,
+      tugs: this.tugs,
       trucks: this.trucks,
       bays: [...this.bays.values()],
       yards: [...this.yards.values()],
@@ -959,6 +985,8 @@ export class World {
         return this.upgrade();
       case 'buyMachine':
         return this.buyMachine(cmd.kind, cmd.tile);
+      case 'buyTug':
+        return this.buyTug(cmd.tile);
       case 'raise':
         return this.answerRaise(cmd.id, cmd.accept);
       case 'signContract':
@@ -1863,6 +1891,7 @@ export class World {
     if (this.tick % TICKS_PER_DAY === 0) this.newDay();
     this.spawnBoats();
     for (const b of [...this.boats]) this.updateBoat(b);
+    this.updateTugs();
     for (const c of this.cranes.values()) this.updateCrane(c);
     this.countOccupancy();
     for (const p of this.people) this.updateDockhand(p);
@@ -1973,6 +2002,7 @@ export class World {
             : B.CRANE_RUNNING_COST;
       this.book('maintenance', -cost);
     }
+    this.book('maintenance', -B.TUG_RUNNING_COST * this.tugs.length);
     for (const p of this.people) {
       if (isMachine(p) && this.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
     }
@@ -2926,7 +2956,7 @@ export class World {
           return;
         }
         if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) {
-          if (!this.boxedIn(b) && this.takeFairway(b)) this.depart(b, false);
+          if (!this.boxedIn(b) && this.tugReady(b) && this.takeFairway(b)) this.depart(b, false);
         }
         return;
       case 'leaving':
@@ -3007,10 +3037,12 @@ export class World {
       const err = wrapAngle(moor + flip - b.dir);
       // A long ship swings into line only as far as its hull clears the
       // dock, unless it has been at it a long while.
-      const turned = b.dir + clamp(err, -v.turn * 0.6, v.turn * 0.6);
+      // Without a tug a coaster or feeder comes round and alongside slowly.
+      const hand = this.handiness(b);
+      const turned = b.dir + clamp(err, -v.turn * 0.6 * hand, v.turn * 0.6 * hand);
       // Every boat minds its whole hull this close to the dock.
       const ships = this.stillNear(b);
-      speed = Math.min(speed, 0.03 + left * 0.1);
+      speed = Math.min(speed, (0.03 + left * 0.1) * hand);
       let step = Math.min(left, Math.max(speed, 0.008));
       if (v.length < B.CAREFUL_LENGTH) {
         // A small boat swings into line as it comes in. Failing that, it
@@ -3261,7 +3293,8 @@ export class World {
     let plan = b.plan && this.tick < b.plan.until ? b.plan : undefined;
     const step = (p: { helm: number; astern: boolean; pivot?: boolean }) => {
       if (p.pivot) {
-        const d = wrapAngle(b.dir + clamp(err, -v.turn * 0.5, v.turn * 0.5));
+        const swing = v.turn * 0.5 * this.handiness(b);
+        const d = wrapAngle(b.dir + clamp(err, -swing, swing));
         return { d, x: b.x, y: b.y, back: 0 };
       }
       const delta =
@@ -3380,7 +3413,7 @@ export class World {
     const now = this.clips(b, b.x, b.y, b.dir, ships);
     const way = this.giveWay(b);
     const accel = v.speed * B.BOAT_ACCEL;
-    const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed;
+    const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed * (0.4 + 0.6 * this.handiness(b));
     const speed = clamp(
       (b.speed ?? 0) + accel,
       0,
@@ -3421,7 +3454,8 @@ export class World {
     const v = B.VESSELS[b.vessel];
     const ships = this.stillNear(b);
     const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const swung = wrapAngle(b.dir + clamp(wrapAngle(along - b.dir), -v.turn, v.turn));
+    const hand = this.handiness(b);
+    const swung = wrapAngle(b.dir + clamp(wrapAngle(along - b.dir), -v.turn * hand, v.turn * hand));
     if (this.clips(b, b.x, b.y, swung, ships) <= now) {
       b.dir = swung;
       b.speed = 0;
@@ -3588,7 +3622,7 @@ export class World {
     const ay = m.yOf(b.castOff) - m.yOf(b.castDock);
     if (b.undock === 1) {
       const off = (b.x - bx) * ax + (b.y - by) * ay;
-      const step = v.speed * 0.2;
+      const step = v.speed * 0.2 * this.handiness(b);
       // A long ship gets a tile out, or with no run out along the dock, out
       // as far as it takes to have room to swing; a small boat far enough
       // that its stern swings clear of the dock as it turns.
@@ -3630,7 +3664,8 @@ export class World {
       const sy = b.y - Math.sin(b.dir) * back;
       const stern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
       // Going astern the stern swings one way and the bow the other.
-      const swung = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
+      const swing = v.turn * 0.4 * this.handiness(b);
+      const swung = wrapAngle(b.dir + clamp(err, -swing, swing));
       const ships = this.stillNear(b);
       const roomAstern =
         this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
@@ -3722,6 +3757,297 @@ export class World {
       }
     }
     return hits;
+  }
+
+  // ── Tugs ──────────────────────────────────────────────
+
+  /** Coasters and feeders, which tugs work in and out. */
+  private needsTugs(b: Boat): boolean {
+    return b.vessel === 'coaster' || b.vessel === 'feeder';
+  }
+
+  /**
+   * A ship wanting a tug now: coming in the last stretch to its berth,
+   * nearly unloaded (so the tug is there when it casts off), or pulling out.
+   */
+  private wantsTug(b: Boat): boolean {
+    if (!this.needsTugs(b)) return false;
+    const m = this.map;
+    if (b.state === 'arriving') {
+      return Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y) < B.TUG_MEET;
+    }
+    const soon = b.state === 'moored' && b.crates + b.reserved <= B.TUG_CALL_LOAD;
+    return soon || this.pullingOut(b);
+  }
+
+  /**
+   * Ready to cast off: unless its tug is just about to come alongside, when
+   * it waits that moment for it, or it has waited long enough.
+   */
+  private tugReady(b: Boat): boolean {
+    const tug = this.tugs.find((t) => t.ship === b.id);
+    if (!tug || tug.state !== 'out') return true;
+    const close = Math.hypot(tug.x - b.x, tug.y - b.y) < B.VESSELS[b.vessel].length / 2 + 3;
+    return !close || b.timer > 30 + B.TUG_WAIT;
+  }
+
+  /** A tug alongside, working this ship. */
+  private tugged(b: Boat): boolean {
+    return this.tugs.some((t) => t.ship === b.id && t.state === 'assist');
+  }
+
+  /**
+   * How handy a ship is swinging round, crabbing in alongside and easing
+   * off the dock: fully with a tug alongside (and a small boat always), much
+   * less on its own.
+   */
+  private handiness(b: Boat): number {
+    return !this.needsTugs(b) || this.tugged(b) ? 1 : B.UNTUGGED_HANDLING;
+  }
+
+  /** Buy a tug at a tug berth: the one at `tile`, or any without its tug. */
+  private buyTug(tile?: number): void {
+    if (this.tier < B.TUG_TIER) {
+      return this.message(`Tugs unlock at the ${TIERS[B.TUG_TIER].name}.`, 'bad');
+    }
+    const m = this.map;
+    const free = (i: number) =>
+      m.build[i] === Build.TugBerth && !this.tugs.some((t) => t.home === i);
+    let home = tile ?? -1;
+    if (tile === undefined) {
+      for (let i = 0; i < m.build.length && home < 0; i++) if (free(i)) home = i;
+      if (home < 0) {
+        return this.message('Build a tug berth first, in the water beside a jetty or quay.', 'bad');
+      }
+    } else if (tile < 0 || tile >= m.build.length || m.build[tile] !== Build.TugBerth) {
+      return this.message('Click a tug berth to buy a tug there', 'bad');
+    } else if (!free(tile)) {
+      return this.message('That berth has its tug already. Each takes one.', 'bad');
+    }
+    if (this.cash < B.TUG_PRICE) return this.message('Not enough money', 'bad');
+    this.book('construction', -B.TUG_PRICE);
+    const name = `Tug ${TUG_NAMES[this.tugs.length % TUG_NAMES.length]}`;
+    this.tugs.push({
+      id: this.nextId++,
+      name,
+      home,
+      ...this.tugBerthPose(home),
+      goal: home,
+      speed: 0,
+      state: 'idle',
+      ship: -1,
+      path: [],
+      plan: 0,
+    });
+    this.moneyAt(-B.TUG_PRICE, home);
+    this.message(`${name} is ready at its berth.`, 'good');
+  }
+
+  /** Where a tug lies at its berth: in the middle, alongside the dock. */
+  private tugBerthPose(home: number): { x: number; y: number; dir: number } {
+    const m = this.map;
+    const dock = m.neighbors4(home).find((n) => isDock(m.build[n])) ?? home;
+    const out = Math.atan2(m.yOf(home) - m.yOf(dock), m.xOf(home) - m.xOf(dock));
+    return { x: m.xOf(home) + 0.5, y: m.yOf(home) + 0.5, dir: wrapAngle(out + Math.PI / 2) };
+  }
+
+  private updateTugs(): void {
+    // A tug whose berth has gone lies up at another free one, or is sold.
+    for (const t of [...this.tugs]) {
+      if (this.map.build[t.home] === Build.TugBerth) continue;
+      const other = this.map.build.findIndex(
+        (c, i) => c === Build.TugBerth && !this.tugs.some((q) => q.home === i),
+      );
+      if (other >= 0) {
+        t.home = other;
+        if (t.state === 'idle') t.state = 'back';
+        t.path = [];
+        t.plan = 0;
+        continue;
+      }
+      this.tugs = this.tugs.filter((q) => q !== t);
+      this.book('construction', B.TUG_PRICE / 2);
+      this.message(
+        `With its berth gone, ${t.name} was sold for $${(B.TUG_PRICE / 2).toLocaleString('en-US')}.`,
+        'info',
+      );
+    }
+    // Each ship wanting one gets the nearest free tug.
+    for (const b of this.boats) {
+      if (!this.wantsTug(b) || this.tugs.some((t) => t.ship === b.id)) continue;
+      let best: Tug | undefined;
+      for (const t of this.tugs) {
+        if (t.ship >= 0) continue;
+        if (!best || Math.hypot(t.x - b.x, t.y - b.y) < Math.hypot(best.x - b.x, best.y - b.y)) {
+          best = t;
+        }
+      }
+      if (!best) break;
+      best.ship = b.id;
+      best.state = 'out';
+      best.path = [];
+      best.plan = 0;
+    }
+    for (const t of this.tugs) this.updateTug(t);
+  }
+
+  private updateTug(t: Tug): void {
+    const ship = t.ship >= 0 ? this.boats.find((b) => b.id === t.ship) : undefined;
+    // Done, or no longer wanted: back to its berth.
+    if (t.ship >= 0 && (!ship || !this.wantsTug(ship))) {
+      t.ship = -1;
+      t.state = 'back';
+      t.path = [];
+      t.plan = 0;
+    }
+    if (t.state === 'idle') return;
+    if (t.state === 'back' || !ship) {
+      const home = this.tugBerthPose(t.home);
+      if (this.steerTug(t, home.x, home.y, t.home, true) < 0.08 && t.speed < 0.02) {
+        Object.assign(t, home);
+        t.speed = 0;
+        t.state = 'idle';
+        t.path = [];
+      }
+      return;
+    }
+    const spot = this.tugSpot(ship);
+    if (t.state === 'out') {
+      if (Math.hypot(spot.x - t.x, spot.y - t.y) > 0.9) {
+        const goal = this.map.idx(
+          clamp(Math.floor(spot.x), 0, this.map.w - 1),
+          clamp(Math.floor(spot.y), 0, this.map.h - 1),
+        );
+        this.steerTug(t, spot.x, spot.y, goal, false);
+        return;
+      }
+      t.state = 'assist';
+    }
+    // Alongside: keep station on the ship, swinging round with it.
+    const dx = spot.x - t.x;
+    const dy = spot.y - t.y;
+    const d = Math.hypot(dx, dy);
+    const step = Math.min(d, 0.2);
+    if (d > 1e-6) {
+      t.x += (dx / d) * step;
+      t.y += (dy / d) * step;
+    }
+    t.dir = wrapAngle(t.dir + clamp(wrapAngle(spot.dir - t.dir), -0.12, 0.12));
+    t.speed = ship.speed ?? 0;
+  }
+
+  /**
+   * Where a tug works a ship: alongside, forward of midships, on the side
+   * away from the dock it is coming alongside or leaving.
+   */
+  private tugSpot(b: Boat): { x: number; y: number; dir: number } {
+    const m = this.map;
+    const v = B.VESSELS[b.vessel];
+    const fx = Math.cos(b.dir);
+    const fy = Math.sin(b.dir);
+    let px = -fy;
+    let py = fx;
+    const berth = b.state === 'leaving' ? b.castOff : b.berth;
+    const dock = b.state === 'leaving' ? b.castDock : b.jetty;
+    if (berth !== undefined && dock !== undefined && berth >= 0 && dock >= 0) {
+      const ax = m.xOf(berth) - m.xOf(dock);
+      const ay = m.yOf(berth) - m.yOf(dock);
+      if (px * ax + py * ay < 0) {
+        px = -px;
+        py = -py;
+      }
+    }
+    const along = v.length * 0.2;
+    const off = v.beam / 2 + B.VESSELS.tug.beam / 2 + 0.05;
+    return { x: b.x + fx * along + px * off, y: b.y + fy * along + py * off, dir: b.dir };
+  }
+
+  /**
+   * Steer a tug towards x, y (in tile `goal`) the way a boat moves, nimbly:
+   * along a route clear of hulls lying still, stopping for anything in its
+   * way, and with `stop` set, coming to rest there. Returns how far it has
+   * still to go.
+   */
+  private steerTug(t: Tug, gx: number, gy: number, goal: number, stop: boolean): number {
+    const v = B.VESSELS.tug;
+    const m = this.map;
+    const way = this.seaWayFor(B.TUG_DRAFT, goal, null);
+    const cost: CostFn = (i) => (i === t.home || i === goal ? 1 : way(i));
+    const left = Math.hypot(gx - t.x, gy - t.y);
+    // Plan the way there now and then: what it is meeting moves.
+    if (--t.plan <= 0) {
+      t.path = findPath(m.w, m.h, this.tileOf(t), goal, cost, true) ?? [];
+      t.plan = 25;
+    }
+    const cx = (i: number) => (i % m.w) + 0.5;
+    const cy = (i: number) => Math.floor(i / m.w) + 0.5;
+    while (t.path.length > 1 && Math.hypot(cx(t.path[0]) - t.x, cy(t.path[0]) - t.y) < 0.7) {
+      t.path.shift();
+    }
+    // The furthest of the next few waypoints with open water to it; the
+    // last is the point itself.
+    let ahead = 0;
+    for (let k = 1; k < Math.min(t.path.length - 1, 4); k++) {
+      if (!this.openWater(t.x, t.y, cx(t.path[k]), cy(t.path[k]), cost, v.beam / 2 + 0.05)) break;
+      ahead = k;
+    }
+    t.path.splice(0, ahead);
+    const [tx, ty] = t.path.length > 1 ? [cx(t.path[0]), cy(t.path[0])] : [gx, gy];
+    const err = wrapAngle(Math.atan2(ty - t.y, tx - t.x) - t.dir);
+    const turn = v.turn * (0.4 + (0.6 * t.speed) / v.speed);
+    t.dir = wrapAngle(t.dir + clamp(err, -turn, turn));
+    const accel = v.speed * B.BOAT_ACCEL * 2;
+    let desired = v.speed * Math.max(0.2, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
+    // Easing off to stop there, or to come up alongside a ship under way.
+    desired = Math.min(desired, stop ? Math.sqrt(2 * accel * left) + 0.003 : 0.03 + left * 0.1);
+    // Stopping for boats moving in its way, but not the ship it is out to;
+    // its route already keeps clear of those lying still.
+    const me = {
+      x: t.x,
+      y: t.y,
+      hx: Math.cos(t.dir),
+      hy: Math.sin(t.dir),
+      half: v.length / 2,
+      beam: v.beam / 2,
+    };
+    const look = me.half + 0.4 + (t.speed * t.speed) / (2 * accel);
+    // Held up a while, it noses on past for a spell.
+    const held = this.tugHeld.get(t) ?? 0;
+    const moving = (o: Boat) => (o.speed ?? 0) + (o.sternway ?? 0) > 0.01;
+    const hulls =
+      held < 0
+        ? []
+        : [
+            ...this.boats.filter((o) => o.id !== t.ship && moving(o)).map((o) => this.hullOf(o)),
+            ...this.tugs
+              .filter((o) => o !== t && o.state !== 'idle')
+              .map((o) => ({
+                x: o.x,
+                y: o.y,
+                hx: Math.cos(o.dir),
+                hy: Math.sin(o.dir),
+                half: v.length / 2,
+                beam: v.beam / 2,
+              })),
+          ];
+    for (const h of hulls) {
+      const gap = this.inWay(me, h, look);
+      if (gap !== null) desired = Math.min(desired, Math.max(0, (gap - me.half - 0.15) * 0.2));
+    }
+    t.speed = clamp(t.speed + clamp(desired - t.speed, -accel * 1.5, accel), 0, v.speed);
+    // Counting up while held, then down (below zero) while it noses past.
+    const stuck = t.speed < 0.01 && left > 0.3;
+    this.tugHeld.set(t, held < 0 ? held + 1 : stuck ? (held >= 40 ? -30 : held + 1) : 0);
+    const nx = t.x + Math.cos(t.dir) * t.speed;
+    const ny = t.y + Math.sin(t.dir) * t.speed;
+    // Afloat in deep enough water; the margin round hulls is for routes.
+    const water = this.boatCostFor(B.TUG_DRAFT);
+    const afloat: CostFn = (i) => (i === t.home || i === goal ? 1 : water(i));
+    if (this.navigable(nx, ny, afloat)) {
+      t.x = nx;
+      t.y = ny;
+    } else t.speed = 0;
+    return left;
   }
 
   /** Moving to x, y heading `dir` would bring the hull up against another boat's. */
@@ -4034,7 +4360,10 @@ export class World {
           helm: Math.sign(swing),
           astern: false,
           pivot: true,
-          score: Math.hypot(tx - b.x, ty - b.y) + off * 1.5 + 2.5 * (1 - Math.abs(swing) / Math.PI),
+          score:
+            Math.hypot(tx - b.x, ty - b.y) +
+            off * 1.5 +
+            (this.tugged(b) ? 0.5 : 2.5) * (1 - Math.abs(swing) / Math.PI),
         });
       }
     }
@@ -4306,12 +4635,16 @@ export class World {
 
   /** Open water, with a wide berth given to boats lying still. */
   private seaWay(b: Boat, strict = false): CostFn {
-    const base = this.boatCostFor(b.draft);
+    return this.seaWayFor(b.draft, b.goal, b, strict);
+  }
+
+  /** Open water for a hull of this draft heading for `goal`; see seaWay. */
+  private seaWayFor(draft: number, goal: number, self: Boat | null, strict = false): CostFn {
+    const base = this.boatCostFor(draft);
     // Strict: every other hull is off limits, moving ones included.
     const still = this.boats
-      .filter((o) => o !== b && (strict || o.state === 'moored' || o.state === 'anchored'))
+      .filter((o) => o !== self && (strict || o.state === 'moored' || o.state === 'anchored'))
       .map((o) => this.hullOf(o));
-    const goal = b.goal;
     return (i) => {
       const c = base(i);
       if (!Number.isFinite(c)) return c;
@@ -6638,7 +6971,8 @@ export class World {
                   : b.state === 'moored'
                     ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
                     : 'Heading back out to sea') +
-          (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : ''),
+          (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : '') +
+          (this.tugged(b) ? ', with a tug alongside' : ''),
         plot: plot && [...plot].flatMap((v, k) => (k % 9 < 2 ? [Math.round(v * 100) / 100] : [])),
         givingWayTo: giving?.id,
         variant: b.variant,
@@ -6652,6 +6986,34 @@ export class World {
         why: this.boatWhy(b),
         vessel: b.vessel,
         boxes: b.vessel === 'feeder',
+      });
+    }
+    for (const t of this.tugs) {
+      const ship = this.boats.find((b) => b.id === t.ship);
+      const whose = ship ? `the ${ship.company} ${kind(ship)}` : 'a ship';
+      entities.push({
+        id: t.id,
+        kind: 'boat',
+        x: t.x,
+        y: t.y,
+        dir: t.dir,
+        load: 0,
+        moving: t.state !== 'idle',
+        name: t.name,
+        activity:
+          t.state === 'idle'
+            ? 'Lying at its berth'
+            : t.state === 'out'
+              ? `Heading out to ${whose}`
+              : t.state === 'assist'
+                ? ship?.state === 'leaving'
+                  ? `Working ${whose} out of its berth`
+                  : `Working ${whose} in alongside`
+                : 'Heading back to its berth',
+        variant: 0,
+        capacity: 0,
+        alert: false,
+        vessel: 'tug',
       });
     }
     for (const t of this.trucks) {

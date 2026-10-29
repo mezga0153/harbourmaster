@@ -14,6 +14,7 @@ import {
   terraformCost,
   terraformError,
   machinePlacementError,
+  tugPlacementError,
   placementCost,
   placementError,
   ROTATABLE,
@@ -163,7 +164,8 @@ export class Input {
       const tiles = this.tilesFor(i);
       const t = tool.value;
       if (tiles.length > 0) {
-        if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
+        if (t === 'tug') this.send({ type: 'buyTug', tile: tiles[0] });
+        else if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
         else if (t === 'dredge' || t === 'reclaim') {
           this.send({ type: 'terraform', tiles, raise: t === 'reclaim' });
@@ -323,9 +325,11 @@ export class Input {
         const err =
           t === 'bulldoze'
             ? bulldozeError(map, tile)
-            : isMachineKind(t)
-              ? machinePlacementError(map, tile)
-              : placementError(map, t as BuildKind, tile, pending);
+            : t === 'tug'
+              ? tugPlacementError(map, tile)
+              : isMachineKind(t)
+                ? machinePlacementError(map, tile)
+                : placementError(map, t as BuildKind, tile, pending);
         if (err) {
           error ??= err;
           return;
@@ -337,9 +341,11 @@ export class Input {
             ? anchorOf(map, tile) === tile
               ? bulldozeValue(map, tile)
               : 0
-            : isMachineKind(t)
-              ? -MACHINES[t].price
-              : -placementCost(map, t as BuildKind, tile);
+            : t === 'tug'
+              ? -B.TUG_PRICE
+              : isMachineKind(t)
+                ? -MACHINES[t].price
+                : -placementCost(map, t as BuildKind, tile);
       });
     }
     this.renderer.overlay.setGhosts(map, tiles, ok);

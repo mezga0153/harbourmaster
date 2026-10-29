@@ -17,6 +17,7 @@ export type Tool =
   | 'select'
   | BuildKind
   | MachineKind
+  | 'tug'
   | StoreTool
   | 'bulldoze'
   | 'forkliftOnly'

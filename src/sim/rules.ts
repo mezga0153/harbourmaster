@@ -99,6 +99,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down in the bay between its legs, ${B.GANTRY_STACK} at most, where only reach stackers collect them, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. The ground round it is for port machines only. $${B.GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
+  tugBerth: {
+    code: Build.TugBerth,
+    label: 'Tug berth',
+    cost: B.TUG_BERTH_COST,
+    hint: `A berth in the water beside a jetty or quay, where one harbour tug lies; buy the tug from the Machines tab. Without a tug, coasters and feeders swing round, come alongside and pull out slowly. A tug sails out to meet them and works them in and out`,
+    drag: false,
+  },
   breakHut: {
     code: Build.BreakHut,
     label: 'Break hut',
@@ -407,6 +414,13 @@ export function placementError(
       : 'A quay must connect to the shore or another quay, not a jetty';
   }
 
+  if (kind === 'tugBerth') {
+    if (t !== Terrain.Water || !map.ocean[i]) return 'A tug berth goes in the water';
+    if (map.depth[i] < B.TUG_DRAFT) return `Too shallow: a tug needs ${B.TUG_DRAFT} m`;
+    const dock = map.neighbors4(i).some((n) => isDock(map.build[n]));
+    return dock ? null : 'Put it beside a jetty or quay, where the crew step aboard';
+  }
+
   if (kind === 'buoyIn' || kind === 'buoyOut') {
     if (t !== Terrain.Water) return 'Buoys go in the water';
     if (!map.ocean[i]) return 'This water is not connected to the sea';
@@ -535,6 +549,11 @@ export function walkable(code: number): boolean {
 /** Forklifts are bought at, and live in, a forklift depot. */
 export function machinePlacementError(map: GameMap, i: number): string | null {
   return map.build[i] === Build.Depot ? null : 'Click a forklift depot to buy a forklift there';
+}
+
+/** Tugs are bought at, and lie at, a tug berth: one each. */
+export function tugPlacementError(map: GameMap, i: number): string | null {
+  return map.build[i] === Build.TugBerth ? null : 'Click a tug berth to buy a tug there';
 }
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {

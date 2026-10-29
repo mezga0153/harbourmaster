@@ -38,6 +38,7 @@ export const TIERS: Tier[] = [
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',
       'Large truck bays for big trucks',
+      'Tug berths and harbour tugs, to work coasters and feeders in and out',
     ],
   },
   {
@@ -83,6 +84,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   largeBay: 1,
   harbourCrane: 2,
   gantryCrane: 2,
+  tugBerth: 1,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {
