@@ -50,7 +50,7 @@ function terminal(world: World): number {
   world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
   const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
   world.command({ type: 'build', kind: 'office', tiles: [office] });
-  for (let k = 0; k < 2; k++) world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+  for (let k = 0; k < 3; k++) world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
   return crane;
 }
 

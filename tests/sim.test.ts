@@ -1215,18 +1215,24 @@ describe('Rules of the road', () => {
     const world = World.create(7);
     world.trucks.length = 0;
     const a = truck(world, 10.5, 20.5, 0, [1]);
-    const pace = () => world['pace'](a)();
-    expect(pace()).toBe(B.TRUCK_SPEED);
+    // Up to speed, gathering it as it goes.
+    const pace = () => {
+      for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) world['pace'](a)();
+      return world['pace'](a)();
+    };
+    expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
     // Close ahead, going the same way: it holds back.
     const b = truck(world, 11, 20.5, 0, [1]);
     expect(pace()).toBe(0);
     // Coming the other way it is in the other lane.
     b.dir = Math.PI;
-    expect(pace()).toBe(B.TRUCK_SPEED);
-    // Further ahead, it closes up to the gap and no closer.
+    expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
+    // Further ahead, it closes up to the gap and no closer, braking as it does.
     b.dir = 0;
     b.x = 10.5 + B.TRUCK_GAP + 0.3;
-    expect(pace()).toBeCloseTo(0.3);
+    const closing = pace();
+    expect(closing).toBeGreaterThan(0);
+    expect(closing).toBeLessThan(0.3);
   });
 
   it('gives way at a junction to a truck coming in from its right', () => {
@@ -2393,7 +2399,7 @@ describe('Container Port tier', () => {
     for (let k = 0; k < B.CUSTOMS_TICKS - 10; k++) world.step();
     expect(yard.boxes).toHaveLength(2);
     expect(world.snapshot().yards.find((y) => y.idx === t.yard)!.cleared).toBe(0);
-    for (let k = 0; k < 200; k++) world.step();
+    for (let k = 0; k < 400; k++) world.step();
     expect(yard.boxes).toHaveLength(0);
   });
 

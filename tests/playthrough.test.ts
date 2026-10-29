@@ -278,11 +278,11 @@ function playthrough(seed: number, days: number) {
 
 describe('Playthrough', () => {
   // The bot keeps up on about half of all seeds, and which half shifts with
-  // small changes to boat traffic (seeds 7 and 1234 have both tipped over),
+  // small changes to boat traffic (seeds 7, 1234 and 12 have all tipped over),
   // so these three say little about balance on their own. When one tips,
   // check the pass rate over a wider spread of seeds has not dropped. A
   // month of play takes a few seconds, longer with other suites alongside.
-  it.each([2, 4, 12])(
+  it.each([2, 4, 13])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);

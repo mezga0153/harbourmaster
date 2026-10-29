@@ -114,6 +114,14 @@ export const TRUCK_LANE = 0.18;
 /** Distance a truck keeps behind the one ahead of it, centre to centre, in tiles. */
 export const TRUCK_GAP = 0.9;
 /**
+ * Trucks and port machines: ticks to get up to speed from standing, and to
+ * brake to a stand from full speed; and the share of full speed they take
+ * a right-angled corner at.
+ */
+export const VEHICLE_ACCEL_TICKS = 14;
+export const VEHICLE_BRAKE_TICKS = 9;
+export const CORNER_SPEED = 0.35;
+/**
  * Ticks a truck waits on the others at a junction before it stops giving
  * way; twice this and it goes without room past it, four times and it
  * creeps on through the truck ahead, so traffic never locks up for good.

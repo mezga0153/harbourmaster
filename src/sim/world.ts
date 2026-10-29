@@ -122,6 +122,8 @@ interface Agent {
   /** Tiles still to walk through, next first. */
   path: number[];
   goal: number;
+  /** Trucks and port machines: how fast it is going, in tiles a tick; see drive. */
+  v?: number;
 }
 
 type DockhandState =
@@ -5786,7 +5788,7 @@ export class World {
             ? B.TRACTOR_SPEED
             : B.FORKLIFT_SPEED;
       const speed = p.fuel > 0 ? top : top * 0.3;
-      r = this.move(p, this.driveCost, true, () => speed, enter);
+      r = this.move(p, this.driveCost, true, () => this.drive(p, speed), enter);
     } else {
       const pace = paceFactor(p.skill, p.morale, p.energy);
       r = this.move(p, this.walkCost, true, () => this.walkSpeed() * pace, enter);
@@ -8331,8 +8333,10 @@ export class World {
       t.held = still ? (t.held ?? 0) + 1 : 0;
       t.lastX = t.x;
       t.lastY = t.y;
-      if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return B.TRUCK_SPEED;
-      return clamp(this.gapAhead(t) - B.TRUCK_GAP, 0, B.TRUCK_SPEED);
+      // Off the map at the end of the way, it drives on out.
+      const stop = t.state !== 'leaving';
+      if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, B.TRUCK_SPEED, Infinity, stop);
+      return this.drive(t, B.TRUCK_SPEED, this.gapAhead(t) - B.TRUCK_GAP, stop);
     };
   }
 
@@ -8642,7 +8646,10 @@ export class World {
     while (budget > 1e-6 && a.path.length > 0) {
       const next = a.path[0];
       // Hold back at the edge of a tile someone else is standing on.
-      if (canEnter && next !== this.tileOf(a) && !canEnter(next)) return 'waiting';
+      if (canEnter && next !== this.tileOf(a) && !canEnter(next)) {
+        a.v = 0;
+        return 'waiting';
+      }
       if (!Number.isFinite(cost(next, this.tileOf(a)))) {
         const p =
           repaths++ < 1 ? findPath(w, this.map.h, this.tileOf(a), a.goal, cost, diagonal) : null;
@@ -8670,7 +8677,51 @@ export class World {
         budget = 0;
       }
     }
+    if (a.path.length === 0) a.v = 0;
     return a.path.length === 0 ? 'arrived' : 'moving';
+  }
+
+  /**
+   * How far a truck or port machine goes this tick, at most `top`: it gets
+   * up to speed gradually, eases off in good time for a corner (the sharper
+   * the slower), brakes to a stop at the end of its way rather than pulling
+   * up dead, and keeps to what lets it stop within `room`, short of whatever
+   * is ahead of it. With `stop` false it runs on off the end (off the map).
+   */
+  private drive(a: Agent, top: number, room = Infinity, stop = true): number {
+    const w = this.map.w;
+    const accel = top / B.VEHICLE_ACCEL_TICKS;
+    const brake = top / B.VEHICLE_BRAKE_TICKS;
+    // How fast it may go with `d` to go to where it must be down to `v`.
+    const by = (v: number, d: number) => Math.sqrt(v * v + 2 * brake * Math.max(0, d));
+    const sight = (top * top) / (2 * brake) + top;
+    let want = Math.min(top, by(0, room));
+    let x = a.x;
+    let y = a.y;
+    let heading = a.dir;
+    let run = 0;
+    let k = 0;
+    for (; k < a.path.length && run <= sight; k++) {
+      const nx = (a.path[k] % w) + 0.5;
+      const ny = Math.floor(a.path[k] / w) + 0.5;
+      const len = Math.hypot(nx - x, ny - y);
+      const dir = len > 1e-6 ? Math.atan2(ny - y, nx - x) : heading;
+      // A bend where this stretch meets the last.
+      if (k > 0 && len > 1e-6) {
+        const bend = Math.abs(wrapAngle(dir - heading));
+        const corner = top * Math.max(B.CORNER_SPEED, Math.cos(Math.min(bend, Math.PI / 2)));
+        if (bend > 0.05) want = Math.min(want, by(corner, run));
+      }
+      run += len;
+      x = nx;
+      y = ny;
+      heading = dir;
+    }
+    // Stopping at the end of the way, creeping the last bit.
+    if (stop && k === a.path.length) want = Math.min(want, Math.max(by(0, run), top * 0.15));
+    const v = a.v ?? 0;
+    a.v = want < v ? want : Math.min(want, v + accel);
+    return a.v;
   }
 
   private tileOf(a: Agent): number {
