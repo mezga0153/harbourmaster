@@ -70,14 +70,39 @@ function drive(
   return entities;
 }
 
-/** The truck's tractor and trailer headings, and where the kingpin is against the fifth wheel. */
+/**
+ * The truck's tractor and trailers: how far round the last trailer has come
+ * against the tractor, all its couplings added up, and how far any trailer's
+ * kingpin is off the fifth wheel it stands on.
+ */
 function rig(e: Entities) {
   const model = e['entries'].get(1)!.model;
-  const t = model.trailer!;
   model.root.updateMatrixWorld(true);
-  const wheel = model.root.localToWorld(new Vector3(t.hitch, 0, 0));
-  const pin = t.root.getWorldPosition(new Vector3());
-  return { bend: t.root.rotation.y, gap: wheel.distanceTo(pin), model };
+  let bend = 0;
+  let gap = 0;
+  let parent = model.root;
+  for (let t = model.trailer; t; t = t.next) {
+    const wheel = parent.localToWorld(new Vector3(t.hitch, 0, 0));
+    const pin = t.root.getWorldPosition(new Vector3());
+    gap = Math.max(gap, wheel.distanceTo(pin));
+    bend += t.root.rotation.y;
+    parent = t.root;
+  }
+  return { bend, gap, model };
+}
+
+/** Where a slot on the rig would be with every trailer held straight behind. */
+function straight(model: ReturnType<typeof rig>['model'], slot: number): Vector3 {
+  const turns: number[] = [];
+  for (let t = model.trailer; t; t = t.next) {
+    turns.push(t.root.rotation.y);
+    t.root.rotation.y = 0;
+  }
+  model.root.updateMatrixWorld(true);
+  const at = model.crates[slot].getWorldPosition(new Vector3());
+  for (let t = model.trailer, k = 0; t; t = t.next, k++) t.root.rotation.y = turns[k];
+  model.root.updateMatrixWorld(true);
+  return at;
 }
 
 const DEG = 180 / Math.PI;
@@ -117,18 +142,16 @@ describe('Articulated trucks', () => {
     drive(route, 1, (e) => {
       const r = rig(e);
       if (Math.abs(r.bend) < 0.3) return;
-      // Each container slot is where the trailer has it, not where the rig
-      // would have it held straight.
-      const t = r.model.trailer!;
+      // Each container slot is where its trailer has it, not where the rig
+      // would have it held straight; the second on a trailer of its own.
+      expect(r.model.crates[0].parent).toBe(r.model.trailer!.root);
+      expect(r.model.crates[1].parent).toBe(r.model.trailer!.next!.root);
       for (let k = 0; k < 2; k++) {
         const slot = r.model.crates[k];
         const at = e.slotPosition(1, k, new Vector3())!;
-        const want = t.root.localToWorld(slot.position.clone());
+        const want = slot.parent!.localToWorld(slot.position.clone());
         expect(at.distanceTo(want)).toBeLessThan(1e-6);
-        const straight = r.model.root.localToWorld(
-          slot.position.clone().add(new Vector3(t.hitch, 0, 0)),
-        );
-        expect(at.distanceTo(straight)).toBeGreaterThan(0.05);
+        if (k === 1) expect(at.distanceTo(straight(r.model, k))).toBeGreaterThan(0.05);
         checked++;
       }
     });

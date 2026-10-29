@@ -43,9 +43,8 @@ interface Entry {
   /** How hard it is working its engine at low speed, see Stir. */
   work?: number;
   stir?: Stir;
-  /** Articulated trucks: where the trailer's axles and the fifth wheel were last frame. */
-  axle?: [number, number];
-  hitch?: [number, number];
+  /** Articulated trucks: where each trailer's axles and its fifth wheel were last frame. */
+  links?: { axle?: [number, number]; hitch?: [number, number] }[];
   /** Forklifts' forks, or a dockhand's hands: how far down to the ground, 0 to 1. */
   down?: number;
   /** Forklifts turning about: where from, which way to, see turnAbout. */
@@ -526,19 +525,21 @@ export class Entities {
     dir: number,
     moving: boolean,
     dt: number,
+    k = 0,
   ): void {
+    const link = ((e.links ??= [])[k] ??= {});
     const fx = Math.cos(dir);
     const fy = Math.sin(dir);
     const hx = x + fx * t.hitch;
     const hy = y + fy * t.hitch;
-    const [px, py] = e.hitch ?? [hx, hy];
+    const [px, py] = link.hitch ?? [hx, hy];
     const dx = hx - px;
     const dy = hy - py;
     // Just come into view, or jumped a long way (the tab was in the
     // background): straight behind.
     let bend = 0;
-    if (e.axle && Math.hypot(dx, dy) < 2) {
-      const [ax, ay] = e.axle;
+    if (link.axle && Math.hypot(dx, dy) < 2) {
+      const [ax, ay] = link.axle;
       const along = dx * fx + dy * fy;
       bend =
         along >= 0
@@ -548,9 +549,12 @@ export class Entities {
       bend = Math.max(-FOLD, Math.min(FOLD, bend));
     }
     const a = dir - bend;
-    e.axle = [hx - Math.cos(a) * t.length, hy - Math.sin(a) * t.length];
-    e.hitch = [hx, hy];
+    link.axle = [hx - Math.cos(a) * t.length, hy - Math.sin(a) * t.length];
+    link.hitch = [hx, hy];
     t.root.rotation.y = bend;
+    // A trailer coupled behind swings the same way behind this one, from
+    // its kingpin, as this one does behind the tractor.
+    if (t.next) this.trail(e, t.next, hx, hy, a, moving, dt, k + 1);
   }
 
   /**

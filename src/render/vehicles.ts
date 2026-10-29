@@ -26,6 +26,11 @@ export interface Trailer {
   hitch: number;
   /** From the kingpin back to the middle of the trailer's axles, which it turns about. */
   length: number;
+  /**
+   * A second trailer coupled behind this one: its `hitch` is measured from
+   * this trailer's kingpin, along it, and its root is a child of this one's.
+   */
+  next?: Trailer;
 }
 
 const WHITE = 0xf4f4f0;
@@ -176,6 +181,9 @@ function articulated(
 ): Vehicle {
   const root = new Group();
   const s = style(rng, company);
+  // Containers go one to a trailer, the second on a trailer of its own
+  // coupled behind the first: the rig bends at each.
+  if (boxes && capacity > 1) return roadTrain(root, s, seed, capacity, container);
   const trailerLen = boxes
     ? capacity * (BOX_LENGTH + 0.03) + 0.04
     : Math.ceil(capacity / 2) * 0.19 + 0.06;
@@ -242,6 +250,74 @@ function articulated(
   tailLights(trailer, tail, deckY - 0.04);
   const length = -axles.reduce((n, x) => n + x, 0) / axles.length;
   return { root, slots: slots.slice(0, capacity), trailer: { root: trailer, hitch, length } };
+}
+
+/** Gap between one container trailer's tail and the next one's front, over the coupling. */
+const COUPLING = 0.12;
+
+/**
+ * A container tractor pulling a trailer for each container, one behind the
+ * other, each on a fifth wheel at the back of the one ahead of it.
+ */
+function roadTrain(
+  root: Group,
+  s: CabStyle,
+  seed: number,
+  capacity: number,
+  container: Box,
+): Vehicle {
+  const one = BOX_LENGTH + 0.07;
+  const total = capacity * one + (capacity - 1) * COUPLING;
+  const front = 0.27 + total / 2;
+  const back = cab(root, front, s);
+  const hitch = back - 0.14;
+  const end = hitch - 0.1;
+  root.add(box(front - 0.02 - end, 0.04, 0.22, DARK, (front - 0.02 + end) / 2, 0.06, 0));
+  root.add(cyl(0.06, 0.02, DARK, hitch, 0.1, 0, 10));
+  axle(root, front - 0.1, 0.065, 0.3);
+  axle(root, hitch - 0.01, 0.065, 0.3, true);
+  const deckY = 0.15;
+  const slots: Object3D[] = [];
+  let parent: Group = root;
+  let at = hitch;
+  let first: Trailer | undefined;
+  let last: Trailer | undefined;
+  for (let k = 0; k < capacity; k++) {
+    const g = new Group();
+    g.position.x = at;
+    parent.add(g);
+    const head = 0.025;
+    const tail = head - one;
+    for (const z of [-1, 1]) {
+      g.add(box(one, 0.03, 0.03, DARK, (head + tail) / 2, deckY - 0.03, z * 0.1));
+    }
+    for (const x of [head - 0.02, tail + 0.02])
+      g.add(box(0.03, 0.02, 0.3, DARK, x, deckY - 0.02, 0));
+    const c = container(seed + k, head - 0.035 - BOX_LENGTH / 2, deckY, 0);
+    c.visible = false;
+    g.add(c);
+    slots.push(c);
+    // The front of the lead trailer stands on landing legs when it is dropped.
+    if (k === 0) {
+      for (const z of [-1, 1]) g.add(box(0.02, deckY - 0.03, 0.02, GREY, head - 0.16, 0, z * 0.12));
+    }
+    const axles = [tail + 0.1, tail + 0.22];
+    for (const x of axles) axle(g, x, 0.065, 0.3, true);
+    const more = k < capacity - 1;
+    if (more) {
+      // A fifth wheel on a drawbar out behind it, for the next trailer.
+      const coupling = tail - COUPLING + 0.025;
+      g.add(box(tail - coupling + 0.04, 0.03, 0.05, DARK, (tail + coupling) / 2, deckY - 0.05, 0));
+      g.add(cyl(0.05, 0.02, DARK, coupling, deckY - 0.04, 0, 10));
+    } else tailLights(g, tail, deckY - 0.04);
+    const link: Trailer = { root: g, hitch: at, length: -axles.reduce((n, x) => n + x, 0) / 2 };
+    if (last) last.next = link;
+    else first = link;
+    last = link;
+    parent = g;
+    at = tail - COUPLING + 0.025;
+  }
+  return { root, slots, trailer: first };
 }
 
 /** A haulier's truck, in company colours, unique to its id. */
