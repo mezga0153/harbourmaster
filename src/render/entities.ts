@@ -19,6 +19,7 @@ import {
 } from './models';
 import { pose } from './people';
 import { surfaceY } from './terrain';
+import type { Trailer } from './vehicles';
 
 const SNAPSHOT_MS = 100;
 
@@ -35,7 +36,15 @@ interface Entry {
   /** How hard it is working its engine at low speed, see Stir. */
   work?: number;
   stir?: Stir;
+  /** Articulated trucks: where the trailer's axles and the fifth wheel were last frame. */
+  axle?: [number, number];
+  hitch?: [number, number];
 }
+
+/** Furthest a trailer folds against its tractor, either way: 80°. */
+const FOLD = (80 * Math.PI) / 180;
+/** How quickly a trailer settles straight behind a truck standing still, per game second. */
+const SETTLE = 3;
 
 /** Most wakes drawn at once, and points along each. */
 export const WAKE_MAX = 32;
@@ -303,6 +312,7 @@ export class Entities {
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
+        if (e.model.trailer) this.trail(e, e.model.trailer, x, y, dir, cur.moving, dt);
       }
       if (cur.kind === 'dockhand') pose(e.model, cur.moving, cur.load > 0, time * 12 + id);
       if (e.alert) {
@@ -310,6 +320,50 @@ export class Entities {
         e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);
       }
     }
+  }
+
+  /**
+   * Swing an articulated truck's trailer behind its tractor, at x, y heading
+   * `dir`. The trailer turns about its axles towards wherever the fifth
+   * wheel has gone, so going ahead it follows the tractor round a corner,
+   * cutting inside it, and lines up behind it again on the straight. Pushed
+   * back it would only fold further, so then it is eased straight, as a
+   * driver backing up would keep it; and it settles straight behind once
+   * the truck stands still, as the sim has it parked or loading.
+   */
+  private trail(
+    e: Entry,
+    t: Trailer,
+    x: number,
+    y: number,
+    dir: number,
+    moving: boolean,
+    dt: number,
+  ): void {
+    const fx = Math.cos(dir);
+    const fy = Math.sin(dir);
+    const hx = x + fx * t.hitch;
+    const hy = y + fy * t.hitch;
+    const [px, py] = e.hitch ?? [hx, hy];
+    const dx = hx - px;
+    const dy = hy - py;
+    // Just come into view, or jumped a long way (the tab was in the
+    // background): straight behind.
+    let bend = 0;
+    if (e.axle && Math.hypot(dx, dy) < 2) {
+      const [ax, ay] = e.axle;
+      const along = dx * fx + dy * fy;
+      bend =
+        along >= 0
+          ? wrapAngle(dir - Math.atan2(hy - ay, hx - ax))
+          : wrapAngle(dir - Math.atan2(py - ay, px - ax)) * Math.exp(along / t.length);
+      if (!moving) bend *= Math.exp(-dt * SETTLE);
+      bend = Math.max(-FOLD, Math.min(FOLD, bend));
+    }
+    const a = dir - bend;
+    e.axle = [hx - Math.cos(a) * t.length, hy - Math.sin(a) * t.length];
+    e.hitch = [hx, hy];
+    t.root.rotation.y = bend;
   }
 
   /** Leave a wake to settle where it lies. */
@@ -379,8 +433,12 @@ export class Entities {
 }
 
 function lerpAngle(a: number, b: number, t: number): number {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
+  return a + wrapAngle(b - a) * t;
+}
+
+/** An angle brought into -π to π. */
+function wrapAngle(a: number): number {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
 }

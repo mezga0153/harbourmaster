@@ -5,7 +5,7 @@ import { coasterShip, feederShip, fishingBoat, tugBoat } from './craft';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { worker, type Limbs } from './people';
-import { truckModel } from './vehicles';
+import { truckModel, type Trailer } from './vehicles';
 
 // Procedural low-poly models. All face +X; the root sits on the ground at y=0.
 
@@ -17,6 +17,8 @@ export interface Model {
   body?: Object3D;
   /** People: legs and arms that swing as they walk. */
   limbs?: Limbs;
+  /** Articulated trucks: the trailer, swinging behind the tractor. */
+  trailer?: Trailer;
 }
 
 /**
@@ -141,7 +143,7 @@ export function boat(variant: number, vessel = 'smack', id = 0): Model {
 /** A haulier's truck in company colours, unique to its id. */
 export function truck(variant: number, capacity: number, boxes = false, id = 0): Model {
   const v = truckModel(id, variant, capacity, boxes, crate, (k, x, y, z) => container(k, x, y, z));
-  return { root: v.root, crates: v.slots };
+  return { root: v.root, crates: v.slots, trailer: v.trailer };
 }
 
 /** A counterbalance forklift with its driver. Forks face +X. */

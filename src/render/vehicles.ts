@@ -12,6 +12,20 @@ export interface Vehicle {
   root: Group;
   /** Cargo slots, shown one per unit of load. */
   slots: Object3D[];
+  /** Articulated trucks: the trailer, with the slots on it. */
+  trailer?: Trailer;
+}
+
+/**
+ * An articulated truck's trailer: a group of its own, turning about the
+ * kingpin at its origin, which sits on the tractor's fifth wheel.
+ */
+export interface Trailer {
+  root: Group;
+  /** Where the fifth wheel is along the tractor, from the truck's origin. */
+  hitch: number;
+  /** From the kingpin back to the middle of the trailer's axles, which it turns about. */
+  length: number;
 }
 
 const WHITE = 0xf4f4f0;
@@ -148,7 +162,8 @@ function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Vehic
 
 /**
  * A tractor unit pulling a trailer: a flatbed for crates or a skeletal
- * chassis with twist-locks for containers.
+ * chassis with twist-locks for containers. The trailer is a group of its
+ * own, to swing behind the tractor about the fifth wheel.
  */
 function articulated(
   rng: Rng,
@@ -165,60 +180,68 @@ function articulated(
     ? capacity * (BOX_LENGTH + 0.03) + 0.04
     : Math.ceil(capacity / 2) * 0.19 + 0.06;
   // Roughly centred on the middle of the rig.
-  const front = 0.2 + trailerLen / 2;
+  const front = 0.27 + trailerLen / 2;
   const back = cab(root, front, s);
-  // Tractor chassis with the fifth wheel just behind the cab.
-  root.add(box(0.36, 0.04, 0.22, DARK, front - 0.2, 0.06, 0));
-  root.add(cyl(0.06, 0.02, DARK, back - 0.06, 0.1, 0, 10));
+  // Tractor chassis with the fifth wheel over the drive axle, far enough
+  // behind the cab for the front of the trailer to swing clear of it.
+  const hitch = back - 0.14;
+  const end = hitch - 0.1;
+  root.add(box(front - 0.02 - end, 0.04, 0.22, DARK, (front - 0.02 + end) / 2, 0.06, 0));
+  root.add(cyl(0.06, 0.02, DARK, hitch, 0.1, 0, 10));
   axle(root, front - 0.1, 0.065, 0.3);
-  axle(root, back - 0.06, 0.065, 0.3, true);
-  // The trailer starts over the fifth wheel.
-  const head = back;
+  axle(root, hitch - 0.01, 0.065, 0.3, true);
+  // The trailer, from its kingpin on the fifth wheel: it starts just ahead.
+  const trailer = new Group();
+  trailer.position.x = hitch;
+  root.add(trailer);
+  const head = 0.025;
   const tail = head - trailerLen;
   const deckY = 0.15;
   const slots: Object3D[] = [];
   if (boxes) {
     // Skeletal chassis: two rails and cross-members.
     for (const z of [-1, 1])
-      root.add(box(trailerLen, 0.03, 0.03, DARK, (head + tail) / 2, deckY - 0.03, z * 0.1));
+      trailer.add(box(trailerLen, 0.03, 0.03, DARK, (head + tail) / 2, deckY - 0.03, z * 0.1));
     for (let k = 0; k <= capacity; k++) {
       const x = head - 0.02 - k * (BOX_LENGTH + 0.03);
-      root.add(box(0.03, 0.02, 0.3, DARK, x, deckY - 0.02, 0));
+      trailer.add(box(0.03, 0.02, 0.3, DARK, x, deckY - 0.02, 0));
     }
     for (let k = 0; k < capacity; k++) {
       const x = head - 0.02 - (BOX_LENGTH + 0.03) * (k + 0.5);
       const c = container(seed + k, x, deckY, 0);
       c.visible = false;
-      root.add(c);
+      trailer.add(c);
       slots.push(c);
     }
   } else {
     const color = rng.pick([GREY, C.wood, s.paint]);
-    root.add(box(trailerLen, 0.03, 0.34, color, (head + tail) / 2, deckY - 0.03, 0));
+    trailer.add(box(trailerLen, 0.03, 0.34, color, (head + tail) / 2, deckY - 0.03, 0));
     for (const z of [-1, 1]) {
-      root.add(box(trailerLen, 0.05, 0.015, color, (head + tail) / 2, deckY, z * 0.165));
+      trailer.add(box(trailerLen, 0.05, 0.015, color, (head + tail) / 2, deckY, z * 0.165));
       // Stakes along the sides.
       for (let x = tail + 0.06; x < head - 0.04; x += 0.19)
-        root.add(box(0.015, 0.1, 0.015, DARK, x, deckY, z * 0.165));
+        trailer.add(box(0.015, 0.1, 0.015, DARK, x, deckY, z * 0.165));
     }
-    root.add(box(0.015, 0.14, 0.34, color, head - 0.01, deckY, 0));
+    trailer.add(box(0.015, 0.14, 0.34, color, head - 0.01, deckY, 0));
     const cols = Math.ceil(capacity / 2);
     for (let k = 0; k < cols; k++) {
       for (const z of [-0.08, 0.08]) {
         const c = crate(0.16, head - 0.13 - k * 0.19, deckY, z);
         c.visible = false;
-        root.add(c);
+        trailer.add(c);
         slots.push(c);
       }
     }
   }
   // Landing legs at the front of the trailer, two or three axles at the back.
-  for (const z of [-1, 1]) root.add(box(0.02, deckY - 0.03, 0.02, GREY, head - 0.16, 0, z * 0.12));
+  for (const z of [-1, 1])
+    trailer.add(box(0.02, deckY - 0.03, 0.02, GREY, head - 0.16, 0, z * 0.12));
   const axles = capacity >= 2 || !boxes ? [tail + 0.1, tail + 0.24] : [tail + 0.1];
   if (trailerLen > 1.1) axles.push(tail + 0.38);
-  for (const x of axles) axle(root, x, 0.065, 0.3, true);
-  tailLights(root, tail, deckY - 0.04);
-  return { root, slots: slots.slice(0, capacity) };
+  for (const x of axles) axle(trailer, x, 0.065, 0.3, true);
+  tailLights(trailer, tail, deckY - 0.04);
+  const length = -axles.reduce((n, x) => n + x, 0) / axles.length;
+  return { root, slots: slots.slice(0, capacity), trailer: { root: trailer, hitch, length } };
 }
 
 /** A haulier's truck, in company colours, unique to its id. */
