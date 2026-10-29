@@ -1963,7 +1963,9 @@ export class World {
     const anchored = b.anchorTicks / B.ANCHOR_PENALTY_TICKS;
     const slow = slowTicks / B.MOORED_PENALTY_TICKS;
     const delta = B.SATISFACTION_PER_BOAT - anchored - slow - (gaveUp ? B.GAVE_UP_PENALTY : 0);
-    c.satisfaction = Math.max(0, Math.min(100, c.satisfaction + delta));
+    // Good visits lift it to 100 at most; above that (set so by hand) it
+    // only comes down.
+    c.satisfaction = Math.max(0, Math.min(Math.max(100, c.satisfaction), c.satisfaction + delta));
     if (c.satisfaction === 0) {
       this.contracts = this.contracts.filter((x) => x !== c);
       const breach = breachPenalty(c);
