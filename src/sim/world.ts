@@ -8707,6 +8707,11 @@ export class World {
   ): { dock: number; path: number[] } | null {
     const m = this.map;
     const standing = this.trucks.filter((o) => this.docked(o));
+    // Trucks on their way in to a loading spot: where each will stand, and
+    // the way it still has to go to get there.
+    const coming = this.trucks.filter((o) => o.state === 'toBay' && o.path.length > 0);
+    const willStand = new Set(coming.map((o) => o.goal));
+    const onTheirWay = new Set(coming.flatMap((o) => o.path.slice(0, -1)));
     const open = this.freeDockSet(bay, len);
     const free = this.loadingDocks(bay).filter((d) => open.has(d));
     this.dockRouted = false;
@@ -8735,7 +8740,14 @@ export class World {
           (o) => this.tileOf(o) === i && Math.cos(o.dir) * dx + Math.sin(o.dir) * dy > 0.5,
         );
       });
-      if (!through && (!best || path.length > best.path.length)) best = { dock, path };
+      // Nor drive in past where one coming in will stand, nor stop where
+      // one coming in has yet to get past: so the first in go deepest and
+      // the rest stop short of them, and none blocks the lane behind it.
+      const past = path.slice(0, -1).some((i) => willStand.has(i));
+      const inTheWay = onTheirWay.has(dock);
+      if (!through && !past && !inTheWay && (!best || path.length > best.path.length)) {
+        best = { dock, path };
+      }
     }
     return best;
   }
