@@ -1326,9 +1326,11 @@ describe('Rules of the road', () => {
     expect(pace()).toBe(0);
     // Coming the other way it is in the other lane.
     b.dir = Math.PI;
+    b.path = [world.map.idx(1, 20)];
     expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
     // Further ahead, it closes up to the gap and no closer, braking as it does.
     b.dir = 0;
+    b.path = east;
     b.x = 10.5 + B.truckLength(6, false) + B.TRUCK_GAP + 0.3;
     const closing = pace();
     expect(closing).toBeGreaterThan(0);
@@ -1624,6 +1626,26 @@ describe('Rules of the road', () => {
     t.held = 0;
     for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) v = world['pace'](t, cost)();
     expect(v).toBeGreaterThan(0.1);
+  });
+
+  it('never waits for a vehicle going the other way, even one facing round from where it stood', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const t = truck(world, 10.5, 20.5, 0, [m.idx(20, 20)]);
+    // Close ahead, facing our way but setting off back towards us.
+    const o = truck(world, 11.6, 20.5, 0, [m.idx(1, 20)]);
+    expect(world['ahead'](t, o)).toBe(-1);
+    // At a junction, turning left across one coming the other way, it goes.
+    for (const d of [-2, -1, 0, 1, 2]) {
+      m.build[m.idx(30 + d, 30)] = Build.Road;
+      m.build[m.idx(30, 30 + d)] = Build.Road;
+    }
+    world['junctionCache'] = null;
+    const j = m.idx(30, 30);
+    const left = truck(world, 29.5, 30.5, 0, [j, m.idx(30, 29)]);
+    truck(world, 31.5, 30.5, Math.PI, [j, m.idx(29, 30)]);
+    expect(world['mayEnter'](left)(j)).toBe(true);
   });
 
   it('drives on the right-hand side of the road', () => {

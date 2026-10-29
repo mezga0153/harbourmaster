@@ -9612,11 +9612,12 @@ export class World {
   // ── Rules of the road ─────────────────────────────────────
   //
   // Trucks keep to the right (see snapshot), so those going opposite ways
-  // pass each other. Going the same way, each keeps its distance behind the
+  // pass each other, and never hold each other up, even turning across
+  // one another. Going the same way, each keeps its distance behind the
   // one ahead. A junction is where the rules come in: a truck goes onto one
   // only with room to get off it again, waits while another is driving
-  // across it, and gives way to traffic on a bigger road, to traffic coming
-  // from its right, and turning left, to oncoming traffic. Out of parking,
+  // across it, and gives way to traffic on a bigger road and to traffic
+  // coming from its right. Out of parking,
   // it gives way to everything. Only moving traffic is given way to; between
   // two trucks both standing at the line, one goes and the other waits, by
   // an order that takes turns, so two never wait for each other. A truck
@@ -9900,7 +9901,9 @@ export class World {
     const dy = oy - ty;
     const along = dx * hx + dy * hy;
     if (along < 0 || along > reach) return -1;
-    if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - dir) < -0.2) return -1;
+    // Going the other way, by where it is headed rather than how it faces,
+    // it passes: the two never hold each other up.
+    if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(this.goingTo(o) - dir) < -0.2) return -1;
     return along;
   }
 
@@ -9936,7 +9939,7 @@ export class World {
       const across = Math.abs(dy * hx - dx * hy);
       // Clear of each other side by side; round a corner, what is just
       // short of it only if it has turned that way already.
-      const facing = Math.cos(o.dir - dir);
+      const facing = Math.cos(this.goingTo(o) - dir);
       const from = k > 0 && facing > 0.7 ? -0.3 : 0;
       if (along >= from && along <= len && across <= 0.3 && facing >= -0.2) {
         return run + Math.max(0, along);
@@ -10123,8 +10126,6 @@ export class World {
       const [hx, hy] = this.heading(here, i);
       const exit = t.path[1];
       const [ex, ey] = exit === undefined ? [hx, hy] : this.heading(i, exit);
-      // To our right, the way we are heading: (-hy, hx) on this grid.
-      const leftTurn = ex * -hy + ey * hx < -0.5;
       const rank = fromParking ? 0 : this.roadRank(here);
       const cx = m.xOf(i) + 0.5;
       const cy = m.yOf(i) + 0.5;
@@ -10146,16 +10147,15 @@ export class World {
         const dy = o.y - cy;
         if (Math.hypot(dx, dy) > 1.8) continue;
         const along = ox * hx + oy * hy;
-        if (along > 0.7) continue; // behind us, our way
+        // Behind us, our way; or coming the other way, which never holds
+        // us up, even turning across it.
+        if (along > 0.7 || along < -0.7) continue;
         const theirRank =
           m.build[there] === Build.Parking && m.build[i] !== Build.Parking
             ? 0
             : this.roadRank(there);
         const fromRight = dx * -hy + dy * hx > 0.5;
-        const yields =
-          along < -0.7
-            ? leftTurn && theirRank >= rank // oncoming, and we turn across it
-            : theirRank > rank || (theirRank === rank && fromRight);
+        const yields = theirRank > rank || (theirRank === rank && fromRight);
         if (!yields) continue;
         if (this.rolling(o)) return false;
         // Both standing: take turns, unless it is only queueing to get on.
