@@ -4359,6 +4359,17 @@ export class World {
   }
 
   /**
+   * How many crates a forklift may take off crate storage: those on the
+   * last pallet there, the one it drives up to, so it lifts just what is
+   * seen on it; no limit anywhere else.
+   */
+  private onTopPallet(p: Dockhand, b: Bay): number {
+    if (p.kind !== 'forklift' || !b.tiles || b.yard) return Infinity;
+    const held = b.crates.length + (b.exports?.length ?? 0);
+    return held - Math.floor((held - 1) / B.FORKLIFT_CAPACITY) * B.FORKLIFT_CAPACITY;
+  }
+
+  /**
    * A forklift at crate storage not at the tile of the pallet it takes, or
    * the place its own goes as it sets it down, heads on there; true if so.
    */
@@ -7283,7 +7294,7 @@ export class World {
       if (p.outbound && !pile.pile) {
         pile.outReserved = Math.max(0, (pile.outReserved ?? 0) - p.planned);
         const out = (pile.exports ??= []);
-        const n = Math.min(p.planned, out.length);
+        const n = Math.min(p.planned, out.length, this.onTopPallet(p, pile));
         if (!pile.yard) {
           p.cargoLooks = this.exportLooks(pile).splice(0, n);
           return out.splice(0, n);
@@ -7302,7 +7313,8 @@ export class World {
         return fees;
       }
       pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
-      const fees = pile.crates.splice(0, Math.min(p.planned, pile.crates.length));
+      const n = Math.min(p.planned, pile.crates.length, this.onTopPallet(p, pile));
+      const fees = pile.crates.splice(0, n);
       this.tidyPile(at);
       return fees;
     }

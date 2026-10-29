@@ -690,9 +690,10 @@ export class Entities {
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
       w.goal ??= this.workPose(v, w, drive) ?? undefined;
-      // A forklift too far to drive up to its pallet in the time it has
-      // works it from where it is.
-      const far = w.goal && Math.hypot(w.goal.x - w.from.x, w.goal.z - w.from.z) > REACH_MOST;
+      // A forklift the game has too far from its pallet to drive up to it
+      // works it from where it is. It is shown a snapshot behind the game,
+      // so that is measured from where the game has it, not where it shows.
+      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > REACH_MOST;
       if (w.goal && far && (v.kind === 'forklift' || v.kind === 'dockhand')) {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h };
       }

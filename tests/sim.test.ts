@@ -783,6 +783,50 @@ describe('Coastal Wharf tier', () => {
     expect(world.stats.trucks).toBeGreaterThan(trucked);
   });
 
+  it('has a forklift take off crate storage just the crates on the last pallet there', () => {
+    const world = World.create(7);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    const store = jetty[jetty.length - 3];
+    world.command({
+      type: 'store',
+      tiles: [store, jetty[jetty.length - 2]],
+      kind: 'crates',
+      on: true,
+    });
+    fireDockhands(world);
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) world.step();
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
+    const held = () => {
+      const b = world.bays.get(store)!;
+      return b.crates.length + (b.exports?.length ?? 0);
+    };
+    // The crates on the last pallet of so many, four to a pallet.
+    const top = (n: number) => n - Math.floor((n - 1) / B.FORKLIFT_CAPACITY) * B.FORKLIFT_CAPACITY;
+    const forklifts = world.people.filter((p) => p.kind === 'forklift');
+    let lifts = 0;
+    let partial = 0;
+    for (let t = 0; t < TICKS_PER_DAY; t++) {
+      const before = held();
+      const was = forklifts.map((p) => p.carrying);
+      const from = forklifts.map((p) => p.state === 'picking' && p.stockIdx === store);
+      const planned = forklifts.map((p) => p.planned);
+      world.step();
+      forklifts.forEach((p, k) => {
+        if (!from[k] || p.carrying <= was[k]) return;
+        // Whatever the crane swung in meanwhile, before it or after.
+        const landed = held() + p.carrying - before;
+        const most = [top(before), top(before + landed)].map((n) => Math.min(n, planned[k]));
+        expect(most).toContain(p.carrying);
+        lifts++;
+        if (p.carrying < B.FORKLIFT_CAPACITY) partial++;
+      });
+    }
+    expect(lifts).toBeGreaterThan(3);
+    expect(partial).toBeGreaterThan(0);
+  });
+
   it('has boats wait for a berth under a jib crane when nobody can unload them by hand', () => {
     const world = World.create(7);
     const jetty = quayPort(world);
