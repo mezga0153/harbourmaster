@@ -73,6 +73,8 @@ export interface EntityView {
   boxes?: boolean;
   /** Containers carried: how each looks, in load order. */
   looks?: number[];
+  /** A feeder's deck: the slot each container in `looks` is in; without it, the first `load`. */
+  deck?: number[];
   /** Boats under way: where it plots it will be over the next while, as x, y pairs. */
   plot?: number[];
   /** Boats: the boat it is giving way to. */
@@ -97,6 +99,16 @@ export interface CraneView {
   stores: number;
   /** What it is doing, or why it is not. */
   why: string;
+  /**
+   * Container cranes at work: lifting a container off a ship's deck or an
+   * export onto it, the ship, the deck slot, how the container looks, and
+   * how far through the lift it is (0 to 1).
+   */
+  working?: 'load' | 'unload';
+  workBoat?: number;
+  workSlot?: number;
+  workLook?: number;
+  workPhase?: number;
 }
 
 export interface TierProgress {

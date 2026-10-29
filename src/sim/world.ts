@@ -3,6 +3,7 @@ import type {
   Capacity,
   Command,
   ContractView,
+  CraneView,
   EntityView,
   Ledger,
   LedgerCategory,
@@ -222,6 +223,12 @@ interface Crane {
   timer: number;
   angle: number;
   busy: boolean;
+  /**
+   * Container cranes: the ship and the slot on its deck it is lifting a
+   * container from, or setting an export into; see deckSlot.
+   */
+  liftBoat?: number;
+  liftSlot?: number;
 }
 
 type Vessel = keyof typeof B.VESSELS;
@@ -273,8 +280,11 @@ interface Boat extends Agent {
   out?: number;
   outIncoming?: number;
   loadIdle?: number;
-  /** Feeders: how each export taken on board looks. */
+  /** Feeders: how each export taken on board looks, and the deck slot it is in. */
   outLooks?: number[];
+  outSlots?: number[];
+  /** Feeders: deck slots the cranes have lifted their containers from. */
+  lifted?: number[];
   /**
    * Exports it takes on board this visit: what was waiting in the port when
    * it was unloaded, less what other ships had claimed. Set then.
@@ -510,6 +520,16 @@ function isMachine(p: { kind: string }): boolean {
 /** Reach stackers and terminal tractors move containers; everyone else crates. */
 function isBoxy(p: { kind: string }): boolean {
   return p.kind === 'stacker' || p.kind === 'tractor';
+}
+
+/** Where slot `k` lies on a feeder's deck: its bay from the stern, row across and tier up. */
+function deckPlace(k: number): { bay: number; row: number; tier: number } {
+  const per = B.FEEDER_BAYS * B.FEEDER_ROWS;
+  return {
+    bay: Math.floor((k % per) / B.FEEDER_ROWS),
+    row: k % B.FEEDER_ROWS,
+    tier: Math.floor(k / per),
+  };
 }
 
 /** Ticks a crane takes to lift one crate or container. */
@@ -6419,8 +6439,16 @@ export class World {
     let take: (() => number) | null = null;
     if (boxes) {
       if (c.outStack?.length) {
+        const k = c.liftSlot;
+        if (c.liftBoat !== ship.id || k === undefined || k < 0 || this.outSlots(ship).includes(k)) {
+          c.liftBoat = ship.id;
+          c.liftSlot = this.deckSlot(c, ship, true);
+        }
+        if (c.liftSlot! < 0) return;
         take = () => {
           (ship.outLooks ??= []).push(this.outLooks(c).shift()!);
+          this.outSlots(ship).push(c.liftSlot!);
+          c.liftSlot = undefined;
           return c.outStack!.shift()!;
         };
       }
@@ -7044,6 +7072,13 @@ export class World {
         reaches(b),
     );
     if (!boat) return this.loadShip(c);
+    // A container crane lifts them a bay at a time, from the top down, in
+    // its own share of the ship when others work it too.
+    if (boxes && !this.liftingFrom(c, boat)) {
+      c.liftBoat = boat.id;
+      c.liftSlot = this.deckSlot(c, boat, false);
+      if (c.liftSlot < 0) return;
+    }
     c.busy = true;
     c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
     if (++c.timer < craneTicks(c)) return;
@@ -7055,13 +7090,147 @@ export class World {
       return;
     }
     c.pallets = boat.vessel === 'coaster';
-    // Off the top of its deck: the slot the ship drew it in.
-    if (c.kind !== 'jib') this.stackLooks(c).push(boxLookOf(boat.id, boat.crates));
+    // Out of the slot on its deck the ship drew it in.
+    if (c.kind !== 'jib') {
+      const slot = c.liftSlot ?? boat.crates + (boat.lifted?.length ?? 0);
+      this.stackLooks(c).push(boxLookOf(boat.id, slot));
+      (boat.lifted ??= []).push(slot);
+      c.liftSlot = undefined;
+    }
     c.stack.push(boat.fee);
     if (c.kind !== 'jib') {
       (c.stackFrom ??= []).push(boat.id);
-      if (boat.crates === 0) this.shipUnloaded(boat);
+      if (boat.crates === 0) {
+        boat.lifted = [];
+        this.shipUnloaded(boat);
+      }
     }
+  }
+
+  /**
+   * What a container crane is lifting, for the view: off a ship's deck or
+   * onto it, which slot, how it looks and how far through the lift it is.
+   */
+  private craneWork(c: Crane): Partial<CraneView> {
+    const k = c.liftSlot;
+    if (c.kind === 'jib' || !c.busy || k === undefined || k < 0) return {};
+    const b = this.boats.find((q) => q.id === c.liftBoat);
+    if (!b) return {};
+    const unload = this.liftingFrom(c, b);
+    return {
+      working: unload ? 'unload' : 'load',
+      workBoat: b.id,
+      workSlot: k,
+      workLook: unload ? boxLookOf(b.id, k) : this.outLooks(c)[0],
+      workPhase: c.timer / craneTicks(c),
+    };
+  }
+
+  /**
+   * The containers on a feeder's deck, for the view: by slot, with how each
+   * looks. Its line's, less those lifted off, then the exports taken on; one
+   * a crane is lifting leaves the deck as its spreader takes it, and an
+   * export goes on as it is set down.
+   */
+  private deckView(b: Boat): { load: number; looks: number[]; deck: number[] } {
+    const deck: number[] = [];
+    const looks: number[] = [];
+    const gone = new Set(b.lifted ?? []);
+    const lifting = [...this.cranes.values()].filter(
+      (c) => c.kind !== 'jib' && c.busy && c.liftBoat === b.id && c.liftSlot !== undefined,
+    );
+    for (const c of lifting) {
+      const late = c.timer / craneTicks(c);
+      if (this.liftingFrom(c, b) && late >= B.CRANE_LIFT_TAKEN) gone.add(c.liftSlot!);
+    }
+    for (let k = 0; k < b.crates + (b.lifted?.length ?? 0); k++) {
+      if (gone.has(k)) continue;
+      deck.push(k);
+      looks.push(boxLookOf(b.id, k));
+    }
+    b.outLooks = aligned(Array(b.out ?? 0).fill(0), b.outLooks, b.id);
+    deck.push(...this.outSlots(b).slice(0, b.out ?? 0));
+    looks.push(...b.outLooks);
+    for (const c of lifting) {
+      const late = c.timer / craneTicks(c);
+      if (!this.liftingFrom(c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
+        deck.push(c.liftSlot!);
+        looks.push(this.outLooks(c)[0]);
+      }
+    }
+    return { load: deck.length, looks, deck };
+  }
+
+  /** Whether a container crane is part way through a lift from this ship's deck. */
+  private liftingFrom(c: Crane, b: Boat): boolean {
+    const k = c.liftSlot;
+    if (c.liftBoat !== b.id || k === undefined || k < 0) return false;
+    return k < b.crates + (b.lifted?.length ?? 0) && !(b.lifted ?? []).includes(k);
+  }
+
+  /** The container cranes working a ship, from its stern to its bow. */
+  private shipCranes(b: Boat): Crane[] {
+    const m = this.map;
+    const ax = Math.cos(b.dir);
+    const ay = Math.sin(b.dir);
+    const along = (c: Crane) => {
+      const front = this.craneFront(c);
+      const x = front.reduce((n, t) => n + m.xOf(t) + 0.5, 0) / front.length;
+      const y = front.reduce((n, t) => n + m.yOf(t) + 0.5, 0) / front.length;
+      return (x - b.x) * ax + (y - b.y) * ay;
+    };
+    return [...this.cranes.values()]
+      .filter((c) => c.kind !== 'jib' && this.craneReaches(c, b))
+      .sort((p, q) => along(p) - along(q) || p.idx - q.idx);
+  }
+
+  /** The bays of a ship that are a crane's to work, from..to, shared out with the others on it. */
+  private craneBays(c: Crane, b: Boat): [number, number] {
+    const all = this.shipCranes(b);
+    const j = Math.max(0, all.indexOf(c));
+    const n = Math.max(1, all.length);
+    return [Math.floor((B.FEEDER_BAYS * j) / n), Math.floor((B.FEEDER_BAYS * (j + 1)) / n)];
+  }
+
+  /**
+   * The deck slot a container crane lifts from next, or with `load` sets an
+   * export into: in its own bays while it has work there, a bay at a time,
+   * from the top down unloading and the bottom up loading; -1 if none is
+   * left that another crane is not already at.
+   */
+  private deckSlot(c: Crane, b: Boat, load: boolean): number {
+    const taken = new Set<number>();
+    for (const q of this.cranes.values()) {
+      if (q !== c && q.busy && q.liftBoat === b.id && q.liftSlot !== undefined) {
+        taken.add(q.liftSlot);
+      }
+    }
+    const used = new Set(load ? this.outSlots(b) : (b.lifted ?? []));
+    const total = load
+      ? B.FEEDER_BAYS * B.FEEDER_ROWS * B.FEEDER_TIERS
+      : b.crates + (b.lifted?.length ?? 0);
+    const [lo, hi] = this.craneBays(c, b);
+    const off = (bay: number) => (bay < lo ? lo - bay : bay >= hi ? bay - hi + 1 : 0);
+    let best = -1;
+    let bestKey: number[] = [];
+    for (let k = 0; k < total; k++) {
+      if (used.has(k) || taken.has(k)) continue;
+      const p = deckPlace(k);
+      const key = [off(p.bay), p.bay, load ? p.tier : -p.tier, p.row];
+      const at = key.findIndex((v, i) => v !== bestKey[i]);
+      if (best < 0 || (at >= 0 && key[at] < bestKey[at])) {
+        best = k;
+        bestKey = key;
+      }
+    }
+    return best;
+  }
+
+  /** The deck slot each export on board a feeder is in, filling the lowest free for older saves. */
+  private outSlots(b: Boat): number[] {
+    const slots = (b.outSlots ??= []);
+    for (let k = 0; slots.length < (b.out ?? 0); k++) if (!slots.includes(k)) slots.push(k);
+    return slots;
   }
 
   /**
@@ -8306,15 +8475,7 @@ export class World {
         x: b.x,
         y: b.y,
         dir: b.dir,
-        load: b.crates + (b.out ?? 0),
-        // Its line's containers, then the exports it has taken on.
-        looks:
-          b.vessel === 'feeder'
-            ? [
-                ...Array.from({ length: b.crates }, (_, k) => boxLookOf(b.id, k)),
-                ...(b.outLooks = aligned(Array(b.out ?? 0).fill(0), b.outLooks, b.id)),
-              ]
-            : undefined,
+        ...(b.vessel === 'feeder' ? this.deckView(b) : { load: b.crates + (b.out ?? 0) }),
         moving: b.path.length > 0,
         name: b.company,
         activity:
@@ -8528,6 +8689,7 @@ export class World {
         busy: c.busy,
         stores: c.kind === 'jib' ? this.jibStores(c).length : 0,
         why: this.craneWhy(c),
+        ...this.craneWork(c),
       })),
       town: this.town && {
         name: this.town.name,

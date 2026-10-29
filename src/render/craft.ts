@@ -1,4 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, type Object3D } from 'three';
+import { FEEDER_BAYS, FEEDER_ROWS, FEEDER_TIERS } from '../sim/balance';
 import { Rng } from '../sim/rng';
 import { BOX_WIDTH } from './assets';
 import { C } from './palette';
@@ -473,14 +474,16 @@ export function feederShip(seed: number, company: number, container: Box): Craft
   root.add(cyl(0.012, 0.4, C.chassis, bx, y));
   // Containers: six bays along, three abreast, up to four high, clear of
   // the bridge. They fill a tier at a time, so a light load sits low.
-  const along = midBridge ? spread(-1.95, 1.3, 6) : spread(-1.75, 1.45, 6);
+  const bays = FEEDER_BAYS;
+  const along = midBridge ? spread(-1.95, 1.3, bays) : spread(-1.75, 1.45, bays);
+  const across = spread(-BOX_WIDTH, BOX_WIDTH, FEEDER_ROWS);
   const slots = slotGrid(
     root,
     (x, sy, z, k) => container(k + seed, x, sy, z),
     along,
-    [-BOX_WIDTH, 0, BOX_WIDTH],
+    across,
     deck,
-    4,
+    FEEDER_TIERS,
     0.24,
   );
   return { root, slots };

@@ -10,7 +10,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
+import { EXTENSION, FACING, footprint, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
@@ -23,7 +23,7 @@ import {
   storesOutgoing,
   TICKS_PER_SECOND,
 } from '../sim/types';
-import { YARD_GANTRY_TICKS } from '../sim/balance';
+import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN, GANTRY_TICKS, YARD_GANTRY_TICKS } from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
 import { container, crate, paintContainer } from './models';
 import { C } from './palette';
@@ -34,6 +34,21 @@ const LIGHT = 0xfff2b0;
 const BALLAST = 0x9b9284;
 const STEEL = 0x8d939b;
 const LAMP_RED = 0xff3b2f;
+/** A thin bar from `a` to `b`, for stays and bracing. */
+function strut(
+  a: [number, number, number],
+  b: [number, number, number],
+  thick: number,
+  color: number,
+): Object3D {
+  const from = new Vector3(...a);
+  const to = new Vector3(...b);
+  const bar = box(thick, thick, from.distanceTo(to), color);
+  bar.position.copy(from).add(to).multiplyScalar(0.5);
+  bar.lookAt(to);
+  return bar;
+}
+
 /** How many tiles a yard gantry's rails run either way along its yard, at most. */
 const GANTRY_RUN = 12;
 const unitBox = new BoxGeometry(1, 1, 1);
@@ -111,6 +126,28 @@ interface CraneParts {
   busy: boolean;
   /** A gantry: `slew` is its trolley, running out along the boom and back instead. */
   fixed?: boolean;
+  /** A ship-to-shore gantry: its parts, and the lift it is at; see runShipGantry. */
+  sts?: ShipGantryParts;
+}
+
+interface ShipGantryParts {
+  /** Laid out as built: x along the quay edge, the water off +z. */
+  frame: Object3D;
+  /** Legs, portal, boom and trolley, running along x on the rails. */
+  carriage: Object3D;
+  /** How far along x the carriage can run either way, on the rails. */
+  from: number;
+  to: number;
+  /** The container on the spreader, shown while it carries one. */
+  load: Object3D;
+  work: 'load' | 'unload' | null;
+  boat: number;
+  slot: number;
+  look: number;
+  /** How far through a lift, 0 to 1, kept in step with the game. */
+  phase: number;
+  /** Containers on the stack between its legs, and exports, for where the next goes. */
+  stacked: number;
 }
 
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
@@ -217,6 +254,18 @@ export class Structures {
       });
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
+      const g = c.sts;
+      if (!g) continue;
+      g.stacked = v.stack + v.out;
+      g.work = v.working ?? null;
+      if (v.workBoat !== undefined) g.boat = v.workBoat;
+      if (v.workSlot !== undefined) g.slot = v.workSlot;
+      if (v.workLook !== undefined) g.look = v.workLook;
+      // Kept in step with the game, without jumping for a small difference.
+      if (v.workPhase !== undefined) {
+        const off = ((v.workPhase - g.phase + 1.5) % 1) - 0.5;
+        g.phase = Math.abs(off) > 0.15 ? v.workPhase : (g.phase + off * 0.5 + 1) % 1;
+      }
     }
   }
 
@@ -254,6 +303,10 @@ export class Structures {
     }
     for (const g of this.yardGantries.values()) this.runYardGantry(g, dt);
     for (const c of this.cranes.values()) {
+      if (c.sts) {
+        this.runShipGantry(c, c.sts, dt);
+        continue;
+      }
       if (c.fixed) {
         // Out over the ship and back in over the bay between the legs.
         const out = c.busy ? 0.5 + 0.5 * Math.sin(time * 1.1) : 1;
@@ -270,6 +323,82 @@ export class Structures {
       c.rope.position.y = -drop / 2;
       c.hook.position.y = -drop;
     }
+  }
+
+  /**
+   * A ship-to-shore gantry at work runs along its rails to the bay of the
+   * ship it is working, runs its trolley out over the row, lowers the
+   * spreader onto the container and lifts it, then runs back over the bay
+   * between its legs and sets it down on the stack there; loading, the other
+   * way round. Idle, it waits where it is with the spreader up.
+   */
+  private runShipGantry(c: CraneParts, g: ShipGantryParts, dt: number): void {
+    const cycle = GANTRY_TICKS / TICKS_PER_SECOND;
+    g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
+    const trolley = c.slew;
+    let x = g.carriage.position.x;
+    let z = -0.3;
+    let drop = c.rest;
+    let carry = false;
+    const ship = g.work ? this.truckSlot?.(g.boat, g.slot, this.slotAt) : null;
+    if (g.work && ship) {
+      g.frame.updateWorldMatrix(true, false);
+      g.frame.worldToLocal(ship);
+      const deck = {
+        x: ship.x,
+        z: ship.z,
+        drop: trolley.position.y - (ship.y + BOX_HEIGHT + 0.04),
+      };
+      // The next free place on the stack, or the export on top of it.
+      const k = Math.max(0, Math.min(c.stack.length - 1, g.stacked - (g.work === 'load' ? 1 : 0)));
+      const slot = c.stack[k];
+      const pile = {
+        x: slot.position.x,
+        z: slot.position.z,
+        drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
+      };
+      const [from, to] = g.work === 'unload' ? [deck, pile] : [pile, deck];
+      const p = g.phase;
+      const ease = (t: number) => t * t * (3 - 2 * t);
+      const dip = (t: number, depth: number) => c.rest + (depth - c.rest) * Math.sin(t * Math.PI);
+      const take = CRANE_LIFT_TAKEN;
+      const set = CRANE_LIFT_SET;
+      // Over to the container, down and up with it at `take`, across to
+      // where it goes, down and up again having let go at `set`.
+      const a = take - 0.15;
+      const b = take + 0.15;
+      const d = set - 0.15;
+      if (p < a) {
+        const t = ease(p / a);
+        x = g.carriage.position.x + (from.x - g.carriage.position.x) * t;
+        z = trolley.position.z + (from.z - trolley.position.z) * t;
+      } else if (p < b) {
+        x = from.x;
+        z = from.z;
+        drop = dip((p - a) / (b - a), from.drop);
+        carry = p >= take;
+      } else if (p < d) {
+        const t = ease((p - b) / (d - b));
+        x = from.x + (to.x - from.x) * t;
+        z = from.z + (to.z - from.z) * t;
+        carry = true;
+      } else {
+        x = to.x;
+        z = to.z;
+        drop = dip((p - d) / (1 - d), to.drop);
+        carry = p < set;
+      }
+    }
+    x = Math.max(g.from, Math.min(g.to, x));
+    g.carriage.position.x += (x - g.carriage.position.x) * Math.min(1, dt * 10);
+    // The trolley's along the boom from the carriage.
+    trolley.position.z += (z - trolley.position.z) * Math.min(1, dt * 10);
+    trolley.position.x = 0;
+    c.rope.scale.y = drop;
+    c.rope.position.y = -drop / 2;
+    c.hook.position.y = -drop;
+    g.load.visible = carry;
+    if (carry) paintContainer(g.load, g.look);
   }
 
   setSpeed(speed: number): void {
@@ -936,60 +1065,127 @@ export class Structures {
       }
       case Build.Gantry: {
         // Ship-to-shore gantry over 2×2 of quay: x 0..2 along the edge, the
-        // water off the front (+z), z -1..1. Four legs on rails, a portal
-        // frame, and a boom running out over the ship and back over the
-        // bay between the back legs, where it sets the containers down.
+        // water off the front (+z), z -1..1. A slender portal on four legs
+        // runs on rails along the quay, its boom reaching out across the
+        // whole ship and back over the bay between its back legs, where it
+        // sets the containers down.
+        const m = this.map;
         const y = QUAY_Y;
-        const top = y + 1.7;
-        for (const z of [-0.85, 0.85]) g.add(box(2, 0.02, 0.06, C.chassis, 1, y, z));
-        for (const x of [0.12, 1.88]) {
-          for (const z of [-0.85, 0.85]) {
-            g.add(box(0.16, 0.1, 0.22, C.chassis, x, y, z));
-            g.add(box(0.1, top - y, 0.1, C.sign, x, y + 0.1, z));
+        const top = y + 1.55;
+        // The rails run on along the quay as far as it goes, three tiles
+        // either way at most, for it to work the length of a ship.
+        const [a, r] = footprint(m, 'gantryCrane', i, m.orient[i]);
+        const [rx, ry] = [m.xOf(r) - m.xOf(a), m.yOf(r) - m.yOf(a)];
+        const [bx, by] = [m.xOf(i) - m.xOf(a), m.yOf(i) - m.yOf(a)];
+        const back = footprint(m, 'gantryCrane', i, m.orient[i])[2];
+        const [kx, ky] = [m.xOf(back) - m.xOf(a), m.yOf(back) - m.yOf(a)];
+        const paved = (x: number, z: number) => {
+          if (!m.inBounds(x, z)) return false;
+          const b = m.build[m.idx(x, z)];
+          return (
+            b === Build.Quay ||
+            b === Build.Gantry ||
+            b === Build.HarbourCrane ||
+            b === Build.JibCrane
+          );
+        };
+        const run = (sign: number, from: number) => {
+          let k = 0;
+          while (k < 3) {
+            const x = m.xOf(a) + bx + rx * sign * (from + k);
+            const z = m.yOf(a) + by + ry * sign * (from + k);
+            if (!paved(x, z) || !paved(x + kx, z + ky)) break;
+            k++;
           }
-          g.add(box(0.12, 0.12, 1.8, C.sign, x, top - 0.12, 0));
-          g.add(box(0.06, 0.06, 1.7, C.sign, x, y + 0.5, 0));
+          return k;
+        };
+        const left = run(-1, 1);
+        const right = run(1, 2);
+        for (const z of [-0.85, 0.85]) {
+          g.add(box(2 + left + right, 0.02, 0.05, C.chassis, 1 + (right - left) / 2, y, z));
         }
-        for (const z of [-0.85, 0.85]) g.add(box(1.88, 0.1, 0.1, C.sign, 1, top - 0.3, z));
-        // The boom: out 2 tiles over the water, back 0.8 behind the legs.
-        g.add(box(0.12, 0.1, 4.6, C.craneYellow, 0.78, top, 0.5));
-        g.add(box(0.12, 0.1, 4.6, C.craneYellow, 1.22, top, 0.5));
-        // Apex frame, its stays, and the machinery house on the backreach.
-        for (const x of [0.78, 1.22]) g.add(box(0.06, 0.7, 0.06, C.sign, x, top + 0.1, -0.7));
-        g.add(box(0.5, 0.06, 0.06, C.sign, 1, top + 0.8, -0.7));
-        g.add(box(0.56, 0.28, 0.5, C.cabin, 1, top + 0.1, -1.4));
+        const carriage = new Group();
+        carriage.position.x = 1;
+        const half = 0.38;
+        const leg = 0.06;
+        for (const x of [-half, half]) {
+          for (const z of [-0.85, 0.85]) {
+            carriage.add(box(0.1, 0.07, 0.2, C.chassis, x, y, z));
+            carriage.add(box(leg, top - y, leg, C.sign, x, y + 0.07, z));
+          }
+          // A tie along each side, high enough for the stacks to pass under.
+          carriage.add(box(0.04, 0.05, 1.7, C.sign, x, top - 0.45, 0));
+        }
+        // The portal beams across, front and back.
+        for (const z of [-0.85, 0.85]) {
+          carriage.add(box(half * 2 + leg, 0.07, 0.07, C.sign, 0, top - 0.07, z));
+        }
+        // The boom: twin girders out across the ship's beam and back over
+        // the landside, a lighter tip, and a walkway between.
+        const reach = 2.75;
+        const tail = -1.55;
+        for (const x of [-0.13, 0.13]) {
+          carriage.add(box(0.04, 0.07, reach - tail, C.craneYellow, x, top, (reach + tail) / 2));
+        }
+        carriage.add(box(0.3, 0.02, reach - tail, C.chassis, 0, top - 0.01, (reach + tail) / 2));
+        // An apex frame over the back legs, stays out to the tip and back to
+        // the tail, and the machinery house on the backreach.
+        const apex = top + 0.62;
+        for (const x of [-0.13, 0.13]) {
+          carriage.add(strut([x, top, -1.05], [0, apex, -0.85], 0.035, C.sign));
+          carriage.add(strut([x, top, -0.65], [0, apex, -0.85], 0.035, C.sign));
+          carriage.add(strut([0, apex, -0.85], [x, top + 0.07, reach - 0.15], 0.014, C.chassis));
+          carriage.add(strut([0, apex, -0.85], [x, top + 0.07, tail + 0.1], 0.014, C.chassis));
+        }
+        carriage.add(box(0.3, 0.16, 0.36, C.cabin, 0, top + 0.07, tail + 0.3));
+        // The trolley with the driver's cab under it, the hoist and spreader.
         const trolley = new Group();
-        trolley.position.set(1, top, 2.2);
-        trolley.add(box(0.5, 0.06, 0.3, C.chassis, 0, -0.06, 0));
-        trolley.add(box(0.18, 0.14, 0.18, C.window, 0.12, -0.2, 0.06));
+        trolley.position.set(0, top, -0.3);
+        trolley.add(box(0.32, 0.05, 0.22, C.chassis, 0, 0.06, 0));
+        trolley.add(box(0.14, 0.12, 0.14, C.window, 0.1, -0.14, 0.04));
         const rope = box(0.012, 1, 0.012, C.chassis);
         const hook = new Group();
-        hook.add(box(0.62, 0.04, 0.16, C.stripe, 0, -0.04));
+        hook.add(box(0.62, 0.035, 0.15, C.stripe, 0, -0.035));
+        const load = container(i, 0, -0.035 - BOX_HEIGHT, 0);
+        load.visible = false;
+        hook.add(load);
         trolley.add(rope, hook);
-        g.add(trolley);
-        // The bay between the back legs: two rows of two, four high.
+        carriage.add(trolley);
+        g.add(carriage);
+        // The bay between the legs: a row of four across, four high.
         const stack: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [-0.68, -0.32]) {
-            for (const x of [0.5, 1.5]) {
-              const c = container(i * 5 + stack.length, x, y + layer * BOX_HEIGHT, z);
-              c.visible = false;
-              g.add(c);
-              stack.push(c);
-            }
+          for (const z of [-0.6, -0.3, 0, 0.3]) {
+            const c = container(i * 5 + stack.length, 1, y + layer * BOX_HEIGHT, z);
+            c.visible = false;
+            g.add(c);
+            stack.push(c);
           }
         }
         this.cranes.set(i, {
           slew: trolley,
           rope,
           hook,
-          rest: 0.6,
+          rest: 0.25,
           reach: 1.0,
           stack,
           angle: 0,
           target: 0,
           busy: false,
           fixed: true,
+          sts: {
+            frame: g,
+            carriage,
+            from: 1 - left - 0.6,
+            to: 1 + right + 0.6,
+            load,
+            work: null,
+            boat: -1,
+            slot: 0,
+            look: 0,
+            phase: 0,
+            stacked: 0,
+          },
         });
         return g;
       }

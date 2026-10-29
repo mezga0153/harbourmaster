@@ -10,6 +10,7 @@ import {
   forklift,
   person,
   paintLoad,
+  showDeck,
   showLoad,
   stacker,
   tractor,
@@ -179,8 +180,11 @@ export class Entities {
         this.entries.set(v.id, e);
       }
       e.view = v;
-      showLoad(e.model, v.load);
-      if (v.looks) paintLoad(e.model, v.looks);
+      if (v.deck) showDeck(e.model, v.deck, v.looks ?? []);
+      else {
+        showLoad(e.model, v.load);
+        if (v.looks) paintLoad(e.model, v.looks);
+      }
     }
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {

@@ -2245,6 +2245,70 @@ describe('Container Port tier', () => {
     expect(world.cranes.has(t.crane)).toBe(false);
   });
 
+  it('has two gantry cranes over one ship share its bays out and work it together', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    world.command({ type: 'bulldoze', tiles: [t.crane] });
+    // Two side by side along the edge of the pier, each 2 wide.
+    let pair: [number, number, number] | null = null;
+    for (let x = m.xOf(t.crane); x > m.xOf(t.crane) - 8 && !pair; x--) {
+      for (const row of [m.yOf(t.crane), m.yOf(t.crane) + 1]) {
+        for (let f = 0; f < 4 && !pair; f++) {
+          const at = m.idx(x, row);
+          const tiles = footprint(m, 'gantryCrane', at, f);
+          const next = at + 2 * (tiles[1] - tiles[0]);
+          const ok = (i: number) => placementError(m, 'gantryCrane', i, undefined, f) === null;
+          if (ok(at) && ok(next)) pair = [at, next, f];
+        }
+      }
+    }
+    expect(pair).not.toBeNull();
+    const [first, second, f] = pair!;
+    for (const at of [first, second]) {
+      world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+      expect(world.cranes.get(at)?.kind).toBe('gantry');
+    }
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 36,
+        cratesMax: 36,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    let together = 0;
+    const bays = new Map<number, Set<number>>([
+      [first, new Set()],
+      [second, new Set()],
+    ]);
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      const views = world.snapshot().cranes.filter((c) => c.working === 'unload');
+      if (views.length === 2 && views[0].workBoat === views[1].workBoat) together++;
+      for (const c of views) {
+        bays
+          .get(c.idx)
+          ?.add(Math.floor((c.workSlot! % (B.FEEDER_BAYS * B.FEEDER_ROWS)) / B.FEEDER_ROWS));
+      }
+    }
+    expect(together).toBeGreaterThan(0);
+    // Each kept to its own half of the ship.
+    const [a, b] = [...bays.values()];
+    expect(a.size).toBeGreaterThan(0);
+    expect(b.size).toBeGreaterThan(0);
+    expect([...a].some((bay) => b.has(bay))).toBe(false);
+  });
+
   it('lets trucks take containers only once customs have cleared them', () => {
     const world = World.create(7);
     world.tier = 2;
@@ -2461,7 +2525,7 @@ describe('Container Port tier', () => {
     world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
     // Crates set down for a coaster that has sailed without them.
     const quay = m.build.findIndex((b, i) => b === Build.Quay && !m.store[i]);
-    const pile = world['pileAt'](quay, false, true);
+    const pile = world['pileAt'](quay, false, true)!;
     pile.crates.push(...Array(6).fill(20));
     world.piles.set(quay, pile);
     expect(world['stranded'](pile)).toBe(true);

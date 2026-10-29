@@ -199,6 +199,16 @@ export const PILE_CRATES = 8;
 // Container Port.
 export const FEEDER_DRAFT = 4;
 export const FEEDER_MAX_LOAD = 72; // containers: six bays, three abreast, four high
+/** A feeder's deck: bays along it, rows abreast, tiers high. */
+export const FEEDER_BAYS = 6;
+export const FEEDER_ROWS = 3;
+export const FEEDER_TIERS = 4;
+/**
+ * How far through a container crane's lift (0 to 1) its spreader takes the
+ * container, and sets it down.
+ */
+export const CRANE_LIFT_TAKEN = 0.35;
+export const CRANE_LIFT_SET = 0.85;
 // Container lines offer loads up to this many times bigger, growing with
 // every FEEDER_GROWTH_CONTAINERS containers the port has handled.
 export const FEEDER_GROWTH_MAX = 3;
