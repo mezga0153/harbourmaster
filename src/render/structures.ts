@@ -1924,14 +1924,18 @@ export class Structures {
         trolley.add(rope, hook);
         carriage.add(trolley);
         g.add(carriage);
-        // The bay between the legs: a row of four across, four high.
+        // Its stack, along the quay at the shipside, two deep and four high,
+        // clear of the legs: behind it the bay between the legs is left
+        // free for the stackers and tractors to come in under it.
         const stack: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [-0.6, -0.3, 0, 0.3]) {
-            const c = container(i * 5 + stack.length, 1, y + layer * BOX_HEIGHT, z);
-            c.visible = false;
-            g.add(c);
-            stack.push(c);
+          for (const z of [0.65, 0.35]) {
+            for (const x of [0.5, 1.5]) {
+              const c = container(i * 5 + stack.length, x, y + layer * BOX_HEIGHT, z);
+              c.visible = false;
+              g.add(c);
+              stack.push(c);
+            }
           }
         }
         this.cranes.set(i, {
