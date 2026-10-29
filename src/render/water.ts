@@ -231,11 +231,13 @@ const fragmentShader = /* glsl */ `
 
       // Lapping: low ripples running out from the hull as it rocks, their
       // crests catching the light, and broken water along the waterline.
-      float lap = exp(-max(d, 0.0) * 3.0) * smoothstep(-0.04, 0.02, d) * calm;
+      // Lying still it only just rocks; working its engine it stirs more.
+      float rock = calm * mix(0.5, 1.0, abs(s1.y));
+      float lap = exp(-max(d, 0.0) * 3.0) * smoothstep(-0.04, 0.02, d) * rock;
       float ripple = sin(d * 18.0 - uTime * 2.4 + s1.w);
       tilt += outward * ripple * lap * 0.55;
       float grain = noise(p * 13.0 + vec2(uTime * 0.6, -uTime * 0.4) + s1.w);
-      float line = (1.0 - smoothstep(0.02, 0.1, abs(d))) * smoothstep(0.35, 0.7, grain) * calm;
+      float line = (1.0 - smoothstep(0.02, 0.1, abs(d))) * smoothstep(0.35, 0.7, grain) * rock;
       foam = max(foam, line * 0.8);
       churn = max(churn, lap * (0.2 + max(ripple, 0.0) * 0.3));
 
