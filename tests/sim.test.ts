@@ -1527,6 +1527,34 @@ describe('Rules of the road', () => {
     expect(ahead).toBeNull();
   });
 
+  it('routes a truck to its spot round the spots others are going to, and moves one on deeper as one frees', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const docks = [10, 11, 12, 13].map((y) => m.idx(20, y));
+    const lane = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, k) => m.idx(20, from + k));
+    const coming = truck(world, 20.5, 4.5, Math.PI / 2, lane(5, 11));
+    coming.state = 'toBay' as never;
+    coming.bayIdx = 0;
+    world['loadingDocks'] = () => docks;
+    world['freeDockSet'] = () => new Set([docks[3]]);
+    world['drivePath'] = () => [m.entry];
+    const bay = { idx: 0, tiles: [] } as never;
+    // Asked for a way that keeps off where that one will stand.
+    let kept: ReadonlySet<number> = new Set();
+    world['dockFor'](bay, (d: number, avoid: ReadonlySet<number>) => {
+      kept = avoid;
+      return lane(0, m.yOf(d));
+    });
+    expect([...kept]).toEqual([docks[1]]);
+    // The spot past it free, the one coming in goes on to it.
+    world['routeFrom'] = (_t: never, d: number) => lane(5, m.yOf(d));
+    world['goDeeper'](coming, bay);
+    expect(coming.goal).toBe(docks[3]);
+    expect(coming.state).toBe('toBay');
+  });
+
   it("drives on past where a truck bound for another bay's spot will stand", () => {
     const world = World.create(7);
     world.trucks.length = 0;

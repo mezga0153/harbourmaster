@@ -7341,7 +7341,7 @@ export class World {
     for (const store of stores) {
       const to = this.dockFor(
         store,
-        (d) => this.routeFrom(t, d, this.truckCost(store.idx, -1, t)),
+        (d, avoid) => this.routeFrom(t, d, this.avoiding(this.truckCost(store.idx, -1, t), avoid)),
         this.lengthOf(t),
       );
       if (to) return { store, ...to };
@@ -8976,7 +8976,7 @@ export class World {
    */
   private dockFor(
     bay: Bay,
-    route: (dock: number) => number[] | null,
+    route: (dock: number, avoid: ReadonlySet<number>) => number[] | null,
     len = 1,
   ): { dock: number; path: number[] } | null {
     const m = this.map;
@@ -8999,8 +8999,12 @@ export class World {
     // rather than having to get past.
     let best: { dock: number; path: number[] } | null = null;
     this.dockTurn = false;
+    // Its way there keeps off the spots the others stand at or are going to
+    // where it can, by the lane beside them, rather than up the lane behind
+    // them all.
+    const taken = new Set([...standing.map((o) => this.tileOf(o)), ...willStand]);
     for (const dock of free) {
-      const path = route(dock);
+      const path = route(dock, taken);
       if (!path) continue;
       // It has to be able to drive away again, never backing out.
       const came = path.length >= 2 ? path[path.length - 2] : -1;
@@ -9033,6 +9037,31 @@ export class World {
       }
     }
     return best;
+  }
+
+  /**
+   * A truck on its way in to a spot beside a storage area goes on to one
+   * further along the lane that has come free since it set off, so the
+   * lane fills from the far end: one stopping short, near where trucks come
+   * in, keeps all the rest from being sent in past it.
+   */
+  private goDeeper(t: Truck, bay: Bay): void {
+    // Where it could stop were it not already on its way to one.
+    t.state = 'parked';
+    const to = this.dockFor(
+      bay,
+      (d, avoid) => this.routeFrom(t, d, this.avoiding(this.truckCost(bay.idx, -1, t), avoid)),
+      this.lengthOf(t),
+    );
+    t.state = 'toBay';
+    if (!to || to.dock === t.goal || to.path.length <= t.path.length) return;
+    t.goal = to.dock;
+    t.path = to.path;
+  }
+
+  /** A truck's way by `cost`, keeping off tiles in `avoid` where there is a short way round. */
+  private avoiding(cost: CostFn, avoid: ReadonlySet<number>): CostFn {
+    return avoid.size === 0 ? cost : (i, from) => cost(i, from) + (avoid.has(i) ? 20 : 0);
   }
 
   /**
@@ -9292,7 +9321,8 @@ export class World {
       const to = served
         ? this.dockFor(
             bay,
-            (d) => this.drivePath(m.entry, -1, d, this.truckCost(bay.idx)),
+            (d, avoid) =>
+              this.drivePath(m.entry, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
             B.truckLength(haulier.terms.capacity, boxy),
           )
         : null;
@@ -9408,7 +9438,7 @@ export class World {
         if (t.boxes && !this.handlerFree(bay, t)) return;
         const to = this.dockFor(
           bay,
-          (d) => this.routeFrom(t, d, this.truckCost(bay.idx, -1, t)),
+          (d, avoid) => this.routeFrom(t, d, this.avoiding(this.truckCost(bay.idx, -1, t), avoid)),
           this.lengthOf(t),
         );
         if (!to) {
@@ -9429,6 +9459,7 @@ export class World {
       }
       case 'toBay': {
         if (!bay) return t.exports ? this.headOut(t) : this.truckLeave(t);
+        if (bay.tiles && (this.tick + t.id) % 10 === 0) this.goDeeper(t, bay);
         const cost = this.truckCost(t.bayIdx, -1, t);
         const r = this.move(
           t,
