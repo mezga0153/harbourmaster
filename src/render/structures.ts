@@ -152,6 +152,11 @@ export class Structures {
     for (const lot of parkingLots(this.map)) {
       if (lot.tiles.some((t) => touched.has(t))) for (const t of lot.tiles) touched.add(t);
     }
+    // Containers lie along the long side of their yard, so the whole yard is
+    // laid again when it changes shape.
+    for (const i of [...touched]) {
+      if (this.map.store[i]) for (const t of this.storeArea(i)) touched.add(t);
+    }
     // A yard gantry's rails run the length of its yard, so it is laid again
     // whatever changes.
     if (changes.length > 0) for (const i of this.yardGantries.keys()) touched.add(i);
@@ -1205,7 +1210,11 @@ export class Structures {
     }
     const stack: BayStack = { crates: [], boxes: [] };
     if (boxes) {
-      const alongX = same(1, 0) || same(-1, 0) || !(same(0, 1) || same(0, -1));
+      // Along the yard's long side, as its gantry runs.
+      const area = this.storeArea(i);
+      const xs = area.map((t) => this.map.xOf(t));
+      const ys = area.map((t) => this.map.yOf(t));
+      const alongX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
       for (let layer = 0; layer < 3; layer++) {
         for (const o of [0.32, 0.68]) {
           const [x, z] = alongX ? [0.5, o] : [o, 0.5];
@@ -1377,6 +1386,21 @@ export class Structures {
   }
 
   /** Index of the tile at dx, dy from `i`, or -1 off the map. */
+  /** The tiles of the storage area `i` is in: those marked out the same, joined up. */
+  private storeArea(i: number): number[] {
+    const code = this.map.store[i];
+    const seen = new Set([i]);
+    const queue = [i];
+    for (let k = 0; k < queue.length; k++) {
+      for (const n of this.map.neighbors4(queue[k])) {
+        if (seen.has(n) || this.map.store[n] !== code) continue;
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+    return queue;
+  }
+
   private offset(i: number, dx: number, dy: number): number {
     const x = this.map.xOf(i) + dx;
     const y = this.map.yOf(i) + dy;
