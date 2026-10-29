@@ -74,7 +74,7 @@ const TIPS: Record<string, Tip> = {
   },
   parking: {
     title: 'Parking for the shippers',
-    text: `A shipper's trucks park outside the port for about ${hours(B.PAPERWORK_TICKS)} hours of paperwork before they come in. Build truck parking joined to a public road, or they do not come.`,
+    text: `A shipper's trucks park outside the port for about ${hours(B.PAPERWORK_TICKS)} hours of paperwork before they come in. Build truck parking between two public roads, a strip one or two tiles wide that trucks drive across, or they do not come.`,
     topic: 'exports',
   },
   exports: {

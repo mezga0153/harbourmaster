@@ -53,10 +53,10 @@ export const Build = {
   Gantry: 33,
   /** A berth in the water beside a jetty or quay, where a harbour tug lies. */
   TugBerth: 34,
-  // 34 is the tug berth.
   /**
-   * Truck parking: outside the port where it joins a public road, inside
-   * where it joins port roads. See parkingSides in rules.ts.
+   * Truck parking, a strip between two roads trucks drive across: outside
+   * the port between public roads, inside between port roads. See
+   * parkingLots in rules.ts.
    */
   Parking: 35,
 } as const;

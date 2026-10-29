@@ -45,8 +45,10 @@ import { categoryOf, TOOL_KEYS } from './ui/tools';
 
 type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
 
-/** What the tints round a crane being placed mean. */
-const CRANE_NOTES: Partial<Record<string, string>> = {
+/** What the tints shown while placing these mean. */
+const TOOL_NOTES: Partial<Record<string, string>> = {
+  parking:
+    'One or two tiles wide, a road all along both long sides: trucks drive in off one and out onto the other. Green works, red does not',
   jibCrane: 'Red: machines only. Blue: crate storage here is filled straight from the boats',
   harbourCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
   gantryCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
@@ -242,6 +244,8 @@ export class Input {
       selection.value = { type: 'depot', idx: i };
     } else if (i !== null && map?.build[i] === Build.Office) {
       selection.value = { type: 'office', idx: i };
+    } else if (i !== null && map?.build[i] === Build.Parking) {
+      selection.value = { type: 'parking', idx: i };
     } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {
       selection.value = { type: 'yard', idx: i };
     } else if (i !== null && map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) {
@@ -306,6 +310,7 @@ export class Input {
     if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
     if (t === 'jibCrane' || t === 'harbourCrane') this.showCraneGround(map, t, i, 0);
     if (t === 'jetty' || t === 'quay') this.showDocks(map);
+    if (t === 'parking') this.showParking(map);
     if (t === 'dredge' || t === 'reclaim') {
       return this.previewTerraform(map, this.tilesFor(i), t === 'reclaim');
     }
@@ -358,7 +363,7 @@ export class Input {
       rotatable: false,
       value,
       error: pending.size === 0 ? error : null,
-      note: CRANE_NOTES[t],
+      note: TOOL_NOTES[t],
     };
   }
 
@@ -423,6 +428,15 @@ export class Input {
       error: count > 0 ? null : storeError(map, tiles[0], kind, on),
       note,
     };
+  }
+
+  /** Parking that works in green, parking trucks cannot use in red. */
+  private showParking(map: GameMap): void {
+    const lots = snapshot.value?.parking ?? [];
+    this.renderer.overlay.setHints(map, 'tool', [
+      { kind: 'good', tiles: lots.filter((l) => !l.why).flatMap((l) => l.tiles) },
+      { kind: 'zone', tiles: lots.filter((l) => l.why).flatMap((l) => l.tiles) },
+    ]);
   }
 
   /** Docks the harbour office coordinates in green, those boats do not use in red. */
@@ -499,7 +513,7 @@ export class Input {
       rotatable: true,
       value: -placementCost(map, kind, i),
       error,
-      note: CRANE_NOTES[kind],
+      note: TOOL_NOTES[kind],
     };
   }
 

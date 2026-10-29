@@ -116,7 +116,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Parking,
     label: 'Truck parking',
     cost: B.PARKING_COST,
-    hint: 'Drag out spaces for trucks to wait in, one to a tile. Joined to a public road it is outside the port: export trucks wait there while their paperwork is done. Joined to port roads it is inside, behind a port gate: trucks queue there for a free loading spot. Never both',
+    hint: 'Drag out a strip one or two tiles wide, with a road all along both its long sides. Trucks drive in off one road, park at an angle across the strip, one to each space along it, and drive out onto the other road: always forwards. Big trucks need two tiles. Between public roads it is outside the port: shippers\u2019 trucks wait there for their paperwork. Between port roads it is inside, behind a port gate: trucks queue there for a free loading spot',
     drag: true,
   },
   portGate: {
@@ -743,14 +743,16 @@ export function truckCost(
   map: GameMap,
   target = -1,
   home = -1,
-  sides: Int8Array = parkingSides(map),
+  /** The parking space a truck is driving into or out of; other parking it keeps off. */
+  space?: ReadonlySet<number>,
 ): CostFn {
   const way = (i: number): 'road' | 'port' | 'gate' | null => {
     const b = map.build[i];
     if (map.store[i] || nearCrane(map, i)) return null;
     if (isPublicRoad(b)) return 'road';
-    // Parking is part of whichever road it joins.
-    if (b === Build.Parking) return sides[i] === 1 ? 'road' : sides[i] === 2 ? 'port' : null;
+    // A parking space is driven through from the road on one side to the
+    // road on the other, which are of a kind; see parkingLots.
+    if (b === Build.Parking) return space?.has(i) ? 'gate' : null;
     if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(map, i) ? null : 'port';
     if (b === Build.Gate) return 'gate';
     const a = anchorOf(map, i);
@@ -769,8 +771,8 @@ export function truckCost(
  * How far trucks drive from the highway to each tile they can get to, or
  * -1: public roads, and port roads and quays through a port gate.
  */
-export function truckReach(map: GameMap, sides?: Int8Array): Int32Array {
-  const cost = truckCost(map, -1, -1, sides);
+export function truckReach(map: GameMap): Int32Array {
+  const cost = truckCost(map);
   const dist = new Int32Array(map.build.length).fill(-1);
   const queue: number[] = [];
   if (Number.isFinite(cost(map.entry))) {
@@ -807,39 +809,119 @@ export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): 
 }
 
 /**
- * Which side of the port each parking tile is on: 1 outside, joined (by
- * other parking) to a public road; 2 inside, joined only to port roads or
- * quays; 0 not parking, or joined to neither. Parking joined to both is
- * outside, and trucks cannot cross from it onto the port roads.
+ * A parking space: the tiles across the lot a truck stands on, diagonally,
+ * from the road on one side to the road on the other, and those two road
+ * tiles. Trucks drive in from one road and out onto the other, only ever
+ * forwards.
  */
-export function parkingSides(map: GameMap): Int8Array {
-  const sides = new Int8Array(map.build.length);
+export interface ParkingSpace {
+  tiles: number[];
+  ends: [number, number];
+}
+
+/** A run of truck parking, and why it is no use, if it is not. */
+export interface ParkingLot {
+  tiles: number[];
+  spaces: ParkingSpace[];
+  /** Joined to public roads, outside the port; else to port roads, inside. */
+  outside: boolean;
+  /** Two tiles wide, with room for the big trucks. */
+  wide: boolean;
+  why: string | null;
+}
+
+/**
+ * Parking lots: each run of parking tiles, which must be a strip one or two
+ * tiles wide with a road all along both its long sides, both public roads
+ * (outside the port) or both port roads (inside), for trucks to drive
+ * across it into a space and out again on the far side.
+ */
+export function parkingLots(map: GameMap): ParkingLot[] {
+  const lots: ParkingLot[] = [];
   const seen = new Uint8Array(map.build.length);
+  const roadKind = (i: number): 'road' | 'port' | null => {
+    if (i < 0) return null;
+    const b = map.build[i];
+    if (isPublicRoad(b) && b !== Build.Crossing) return 'road';
+    const port = b === Build.PortRoad || b === Build.Quay;
+    return port && !forkliftOnly(map, i) && !map.store[i] && !nearCrane(map, i) ? 'port' : null;
+  };
   for (let i = 0; i < map.build.length; i++) {
     if (seen[i] || map.build[i] !== Build.Parking) continue;
-    const lot: number[] = [];
+    const tiles: number[] = [];
     const stack = [i];
     seen[i] = 1;
-    let road = false;
-    let port = false;
     while (stack.length > 0) {
       const t = stack.pop()!;
-      lot.push(t);
+      tiles.push(t);
       for (const n of map.neighbors4(t)) {
-        const b = map.build[n];
-        if (isPublicRoad(b)) road = true;
-        if ((b === Build.PortRoad || b === Build.Quay) && !forkliftOnly(map, n) && !map.store[n]) {
-          port = true;
-        }
-        if (b !== Build.Parking || seen[n]) continue;
+        if (seen[n] || map.build[n] !== Build.Parking) continue;
         seen[n] = 1;
         stack.push(n);
       }
     }
-    const side = road ? 1 : port ? 2 : 0;
-    for (const t of lot) sides[t] = side;
+    tiles.sort((a, b) => a - b);
+    const xs = tiles.map((t) => map.xOf(t));
+    const ys = tiles.map((t) => map.yOf(t));
+    const x0 = Math.min(...xs);
+    const y0 = Math.min(...ys);
+    const w = Math.max(...xs) - x0 + 1;
+    const h = Math.max(...ys) - y0 + 1;
+    const lot: ParkingLot = { tiles, spaces: [], outside: false, wide: false, why: null };
+    lots.push(lot);
+    if (tiles.length !== w * h || Math.min(w, h) > 2) {
+      lot.why = 'Parking is a straight strip, one or two tiles wide';
+      continue;
+    }
+    // Across the short way, the spaces side by side along the long way; a
+    // square lot may go either way round.
+    const ways: boolean[] = [];
+    if (h <= 2 && (h <= w || w > 2)) ways.push(true);
+    if (w <= 2) ways.push(false);
+    let why: string | null = null;
+    for (const acrossY of ways) {
+      const along = acrossY ? w : h;
+      const across = acrossY ? h : w;
+      const at = (a: number, c: number) =>
+        acrossY ? map.idx(x0 + a, y0 + c) : map.idx(x0 + c, y0 + a);
+      const off = (a: number, c: number) => {
+        const x = acrossY ? x0 + a : x0 + c;
+        const y = acrossY ? y0 + c : y0 + a;
+        return map.inBounds(x, y) ? map.idx(x, y) : -1;
+      };
+      const spaces: ParkingSpace[] = [];
+      const kinds = new Set<string | null>();
+      for (let a = 0; a < along; a++) {
+        const span = Array.from({ length: across }, (_, c) => at(a, c));
+        const ends: [number, number] = [off(a, -1), off(a, across)];
+        kinds.add(roadKind(ends[0]));
+        kinds.add(roadKind(ends[1]));
+        spaces.push({ tiles: span, ends });
+      }
+      if (kinds.has(null)) {
+        why ??=
+          'Parking needs a road all along both its long sides, to drive in on one and out on the other';
+        continue;
+      }
+      if (kinds.size > 1) {
+        why ??=
+          'A public road on one side and a port road on the other: trucks would get into the port without a gate';
+        continue;
+      }
+      lot.spaces = spaces;
+      lot.outside = kinds.has('road');
+      lot.wide = across === 2;
+      why = null;
+      break;
+    }
+    lot.why = why;
   }
-  return sides;
+  return lots;
+}
+
+/** Whether a truck needs a space two tiles wide: the big trucks, and those with two containers. */
+export function needsWideSpace(capacity: number, boxes: boolean): boolean {
+  return boxes ? capacity > 1 : capacity > B.TRUCK_CAPACITY;
 }
 
 /** Tiles round a crane at `i` kept for port machines, and those a jib crane reaches storage in. */

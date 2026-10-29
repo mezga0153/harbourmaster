@@ -33,6 +33,7 @@ export type Selection =
   | { type: 'yard'; idx: number }
   | { type: 'crane'; idx: number }
   | { type: 'office'; idx: number }
+  | { type: 'parking'; idx: number }
   | { type: 'town' }
   | { type: 'railway' };
 

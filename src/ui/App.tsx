@@ -399,6 +399,37 @@ function InfoPanel({ actions }: { actions: Actions }) {
     );
   }
 
+  if (sel.type === 'parking') {
+    const lot = s.parking.find((l) => l.tiles.includes(sel.idx));
+    if (!lot) return null;
+    return (
+      <aside class="side panel">
+        <InfoHeader
+          kicker="Truck parking"
+          title={lot.outside ? 'Parking outside the port' : 'Parking inside the port'}
+          onClose={close}
+        />
+        <p class="muted">
+          Trucks drive in off the road on one side, stand at an angle across the strip, and drive
+          out onto the road on the other side: always forwards, never backing out.{' '}
+          {lot.outside
+            ? 'Outside the port, shippers’ trucks wait here for their paperwork.'
+            : 'Inside the port, trucks queue here for a free loading spot.'}{' '}
+          <More topic="trucks" />
+        </p>
+        <dl class="props">
+          <dt>Spaces</dt>
+          <dd>
+            {lot.used} / {lot.spaces}
+          </dd>
+          <dt>Takes</dt>
+          <dd>{lot.wide ? 'Any truck' : 'Small trucks only: big trucks need two tiles'}</dd>
+        </dl>
+        {lot.why ? <Why topic="trucks">Not in use: {lot.why}.</Why> : null}
+      </aside>
+    );
+  }
+
   if (sel.type === 'office') {
     const d = s.docks;
     const idle = d.total - d.coordinated;

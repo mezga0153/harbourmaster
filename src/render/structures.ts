@@ -9,7 +9,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, machinesOnly, ON_QUAY } from '../sim/rules';
+import { EXTENSION, FACING, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
@@ -110,7 +110,39 @@ export class Structures {
         }
       }
     }
+    // A parking lot is drawn whole: inside or out, and which way it runs,
+    // depend on all of it and the roads along it.
+    this.lots = null;
+    for (const lot of parkingLots(this.map)) {
+      if (lot.tiles.some((t) => touched.has(t))) for (const t of lot.tiles) touched.add(t);
+    }
     for (const i of touched) this.rebuild(i);
+  }
+
+  /** Each parking tile's lot: inside the port or out, and whether its spaces run across x. */
+  private lots: Map<number, { inside: boolean; acrossX: boolean }> | null = null;
+
+  private lotAt(i: number): { inside: boolean; acrossX: boolean } {
+    if (!this.lots) {
+      const m = this.map;
+      this.lots = new Map();
+      for (const lot of parkingLots(m)) {
+        const xs = lot.tiles.map((t) => m.xOf(t));
+        const ys = lot.tiles.map((t) => m.yOf(t));
+        const w = Math.max(...xs) - Math.min(...xs) + 1;
+        const h = Math.max(...ys) - Math.min(...ys) + 1;
+        const space = lot.spaces[0];
+        const acrossX = space ? m.xOf(space.ends[0]) !== m.xOf(space.ends[1]) : w <= h;
+        // Laid out wrong it has no side yet: port paving if only port roads join it.
+        const near = lot.tiles.flatMap((t) => m.neighbors4(t).map((n) => m.build[n]));
+        const inside = space
+          ? !lot.outside
+          : !near.some((b) => isPublicRoad(b)) &&
+            near.some((b) => b === Build.PortRoad || b === Build.Quay);
+        for (const t of lot.tiles) this.lots.set(t, { inside, acrossX });
+      }
+    }
+    return this.lots.get(i) ?? { inside: false, acrossX: false };
   }
 
   setCranes(views: CraneView[]): void {
@@ -405,13 +437,24 @@ export class Structures {
         return g;
       }
       case Build.Parking: {
-        // Asphalt with white lines between the spaces, along the longer run of the lot.
-        g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
-        const lot = [Build.Parking];
-        const alongX = this.is(i, 1, 0, ...lot) || this.is(i, -1, 0, ...lot);
-        for (const o of [0.04, 0.96]) {
-          const [x, z, w, d] = alongX ? [o, 0.5, 0.04, 0.8] : [0.5, o, 0.8, 0.04];
-          g.add(box(w, 0.01, d, C.marking, x, top + 0.05, z));
+        // Asphalt outside the port, port paving inside it, with a diagonal
+        // white line between each space and the next, across the strip.
+        const { inside, acrossX } = this.lotAt(i);
+        const y = inside ? QUAY_Y : top + 0.05;
+        g.add(box(1, y - top, 1, inside ? C.quayTop : C.asphalt, 0.5, top, 0.5));
+        for (const o of [0, 1]) {
+          const [x, z] = acrossX ? [0.5, o] : [o, 0.5];
+          const line = box(
+            acrossX ? 1.25 : 0.035,
+            0.008,
+            acrossX ? 0.035 : 1.25,
+            C.marking,
+            x,
+            y,
+            z,
+          );
+          line.rotation.y = Math.PI / 4;
+          g.add(line);
         }
         return g;
       }

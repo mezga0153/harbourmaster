@@ -12,11 +12,11 @@ import {
   footprint,
   forkliftOnly,
   frontOf,
-  parkingSides,
+  needsWideSpace,
+  parkingLots,
   placementCost,
   placementError,
   terraformError,
-  truckReach,
   walkable,
   walkableAt,
 } from '../src/sim/rules';
@@ -24,6 +24,35 @@ import { Build, Deco, Store, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { Rng } from '../src/sim/rng';
 import { World } from '../src/sim/world';
+
+/**
+ * A strip of truck parking two spaces long between the public road and a
+ * new road looped round behind it, so trucks drive in off one and out onto
+ * the other; returns its tiles.
+ */
+function parkingLot(world: World): number[] {
+  const m = world.map;
+  const r = m.yOf(m.entry);
+  const free = (x: number, y: number) =>
+    m.inBounds(x, y) && m.terrain[m.idx(x, y)] === Terrain.Grass && m.build[m.idx(x, y)] === 0;
+  const x = [...Array(m.w).keys()].find(
+    (x) =>
+      [-1, 0, 1, 2].every((d) => m.build[m.idx(x + d, r)] === Build.Road) &&
+      [-1, 0, 1, 2].every((d) => free(x + d, r + 1) && free(x + d, r + 2)),
+  )!;
+  const lot = [m.idx(x, r + 1), m.idx(x + 1, r + 1)];
+  const loop = [
+    m.idx(x - 1, r + 1),
+    m.idx(x - 1, r + 2),
+    m.idx(x, r + 2),
+    m.idx(x + 1, r + 2),
+    m.idx(x + 2, r + 2),
+    m.idx(x + 2, r + 1),
+  ];
+  world.command({ type: 'build', kind: 'road', tiles: loop });
+  world.command({ type: 'build', kind: 'parking', tiles: lot });
+  return lot;
+}
 
 describe('findPath', () => {
   it('routes around walls', () => {
@@ -1007,38 +1036,70 @@ describe('Buildings', () => {
     const world = World.create(7);
     world.boats.length = 0;
     const m = world.map;
-    const at = besideRoad(world);
-    world.command({ type: 'build', kind: 'parking', tiles: [at, at + 1] });
-    expect(m.build[at]).toBe(Build.Parking);
-    const sides = parkingSides(m);
-    expect(sides[at]).toBe(1);
+    const lot = parkingLot(world);
+    expect(m.build[lot[0]]).toBe(Build.Parking);
+    const [info] = parkingLots(m);
+    expect(info.why).toBeNull();
+    expect(info.outside).toBe(true);
+    expect(info.spaces).toHaveLength(2);
     // One bay, more trucks than it can load at once: the rest park and wait.
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 3;
     const bay = [...world.bays.values()][0];
     bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
     let parked = 0;
+    // Each parked truck leaves forwards, onto the road on the far side.
+    let backwards = 0;
+    let forwards = 0;
+    const from = new Map<number, number>();
     for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
       world.step();
       parked = Math.max(parked, world.trucks.filter((t) => t.state === 'parked').length);
-      if (bay.crates.length < B.BAY_CAPACITY / 2) break;
+      for (const t of world.trucks) {
+        if (t.state === 'parked' && t.parkFrom !== undefined) from.set(t.id, t.parkFrom);
+        const came = from.get(t.id);
+        if (came === undefined || t.state === 'parked') continue;
+        const out = t.path.find((i) => !lot.includes(i));
+        if (out !== undefined) out === came ? backwards++ : forwards++;
+        from.delete(t.id);
+      }
     }
     expect(parked).toBeGreaterThan(0);
+    expect(forwards).toBeGreaterThan(0);
+    expect(backwards).toBe(0);
     expect(bay.crates.length).toBeLessThan(B.BAY_CAPACITY);
   });
 
-  it('counts parking joined only to port roads as inside the port', () => {
+  it('keeps the big trucks to parking two tiles wide', () => {
+    expect(needsWideSpace(B.BIG_TRUCK_CAPACITY, false)).toBe(true);
+    expect(needsWideSpace(B.TRUCK_CAPACITY, false)).toBe(false);
+    expect(needsWideSpace(2, true)).toBe(true);
+    const world = World.create(7);
+    parkingLot(world);
+    const [lot] = parkingLots(world.map);
+    expect(lot.wide).toBe(false);
+    expect(world['freeParking'](null, true, true)).toBeNull();
+    expect(world['freeParking'](null, true, false)).not.toBeNull();
+  });
+
+  it('says why parking laid out wrong is no use', () => {
     const world = World.create(7);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
-    const at = besideRoad(world, 2);
-    world.command({ type: 'bulldoze', tiles: [at, at + 1, at + 2] });
-    world.command({ type: 'build', kind: 'portRoad', tiles: [at] });
-    world.command({ type: 'build', kind: 'parking', tiles: [at + 1, at + 2] });
-    expect(parkingSides(m)[at + 1]).toBe(2);
-    // Not through the port road without a gate, so trucks cannot get to it.
-    expect(truckReach(m)[at + 1]).toBe(-1);
+    const why = () => world.snapshot().parking.map((l) => l.why);
+    // A road along one side only.
+    const at = besideRoad(world);
+    world.command({ type: 'build', kind: 'parking', tiles: [at, at + 1] });
+    expect(why()[0]).toMatch(/both its long sides/);
+    // Not a straight strip.
+    world.command({ type: 'build', kind: 'parking', tiles: [at + m.w] });
+    expect(why()[0]).toMatch(/straight strip/);
+    world.command({ type: 'bulldoze', tiles: [at, at + 1, at + m.w] });
+    // A public road one side, a port road the other.
+    world.command({ type: 'build', kind: 'parking', tiles: [at] });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [at + m.w] });
+    expect(why()[0]).toMatch(/without a gate/);
   });
 
   it('lets trucks into the port only through a port gate', () => {
@@ -1909,18 +1970,8 @@ describe('Container Port tier', () => {
     expect(t).not.toBeNull();
     const m = world.map;
     // Parking off the public road, outside the port, south of it.
-    const r = m.yOf(m.entry);
-    const free = (i: number) => m.terrain[i] === Terrain.Grass && m.build[i] === Build.None;
-    const x = [...Array(m.w).keys()].find(
-      (x) =>
-        m.build[m.idx(x, r)] === Build.Road && free(m.idx(x, r + 1)) && free(m.idx(x + 1, r + 1)),
-    )!;
-    world.command({
-      type: 'build',
-      kind: 'parking',
-      tiles: [m.idx(x, r + 1), m.idx(x + 1, r + 1)],
-    });
-    expect(m.build[m.idx(x, r + 1)]).toBe(Build.Parking);
+    const lot = parkingLot(world);
+    expect(m.build[lot[0]]).toBe(Build.Parking);
     // A yard for containers going out beside the one for those coming in, by the road.
     const corner = t.yard - 2;
     const out = [corner, corner + 1, corner + m.w, corner + m.w + 1];
@@ -1950,7 +2001,8 @@ describe('Container Port tier', () => {
         color: 0,
         cargo: 'container',
         perDay: 6,
-        capacity: 2,
+        // One container a truck: two need a parking space two tiles wide.
+        capacity: 1,
         fee: 100,
       },
       world.tick + 10,
@@ -1985,22 +2037,13 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const m = world.map;
-    const r = m.yOf(m.entry);
     // Storage for crates going out where the container yard was, by the public road.
     const store = world.yards.get(t.yard)!.tiles!;
     world.command({ type: 'store', tiles: store, kind: 'boxes', on: false });
     world.command({ type: 'store', tiles: store, kind: 'cratesOut', on: true });
     expect(world.bays.has(store[0])).toBe(true);
-    const free = (i: number) => m.terrain[i] === Terrain.Grass && m.build[i] === Build.None;
-    const x = [...Array(m.w).keys()].find(
-      (x) =>
-        m.build[m.idx(x, r)] === Build.Road && free(m.idx(x, r + 1)) && free(m.idx(x + 1, r + 1)),
-    )!;
-    world.command({
-      type: 'build',
-      kind: 'parking',
-      tiles: [m.idx(x, r + 1), m.idx(x + 1, r + 1)],
-    });
+    const lot = parkingLot(world);
+    expect(m.build[lot[0]]).toBe(Build.Parking);
     const add = world['addContract'].bind(world);
     add(
       {

@@ -218,6 +218,15 @@ export interface YardView {
   noAccess: boolean;
 }
 
+export interface ParkingView {
+  tiles: number[];
+  outside: boolean;
+  wide: boolean;
+  spaces: number;
+  used: number;
+  why: string | null;
+}
+
 export interface PileView {
   idx: number;
   crates: number;
@@ -283,6 +292,8 @@ export interface Snapshot {
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */
   yards: YardView[];
+  /** Truck parking, and why each lot is no use, if it is not. */
+  parking: ParkingView[];
   /** Cargo dockhands have landed on the quay beside boats, for the forklifts. */
   piles: PileView[];
   contracts: ContractView[];

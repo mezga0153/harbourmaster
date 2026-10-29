@@ -94,6 +94,9 @@ function showGround(): void {
       { kind: 'reach', tiles: reach },
       { kind: 'zone', tiles: zone },
     ];
+  } else if (s?.type === 'parking' && snap) {
+    const lot = snap.parking.find((l) => l.tiles.includes(s.idx));
+    if (lot) hints = [{ kind: lot.why ? 'zone' : 'good', tiles: lot.tiles }];
   } else if (s?.type === 'office' && snap) {
     hints = [
       { kind: 'good', tiles: snap.docks.inUse },

@@ -71,7 +71,10 @@ import {
   terraformError,
   machinePlacementError,
   nearCrane,
-  parkingSides,
+  needsWideSpace,
+  parkingLots,
+  type ParkingLot,
+  type ParkingSpace,
   placementCost,
   placementError,
   ROTATABLE,
@@ -321,8 +324,12 @@ interface Boat extends Agent {
 interface Truck extends Agent {
   state:
     'toPark' | 'parked' | 'toBay' | 'loading' | 'delivering' | 'toTown' | 'unloading' | 'leaving';
-  /** The parking space it has taken, while heading to it or parked there. */
+  /** The parking space it has taken (its first tile), while heading to it or parked there. */
   park?: number;
+  /** The road it drove into the space from: it leaves by the far side. */
+  parkFrom?: number;
+  /** The tiles of the space it is driving into, parked in or leaving. */
+  lot?: number[];
   /** A business in town it is delivering part of its load to, and how much. */
   drop?: number;
   /** Off the map: the highway round to the town's road, as x, y pairs still to drive. */
@@ -691,8 +698,8 @@ export class World {
   private spotCache = new Map<number, number[]>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
   private reachCache: Int32Array | null = null;
-  /** Which side of the port each parking tile is on; see parkingSides. */
-  private sidesCache: Int8Array | null = null;
+  /** The parking lots, and whether each works; see parkingLots. */
+  private lotsCache: ParkingLot[] | null = null;
   /** The town up the coast, which grows with the port. */
   town: Town | null = null;
   rail: RailState;
@@ -985,7 +992,7 @@ export class World {
     this.frontCache = null;
     this.spotCache.clear();
     this.reachCache = null;
-    this.sidesCache = null;
+    this.lotsCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -1093,6 +1100,13 @@ export class World {
     } else if (spent > 0 && kind === 'office') {
       this.warnedOffice = false;
       this.message('The harbour office is open and coordinating berths.', 'good');
+    } else if (spent > 0 && kind === 'parking') {
+      // Laid out where trucks cannot use it: say why.
+      this.lotsCache = null;
+      this.reachCache = null;
+      const lot = this.parkingLots().find((l) => l.tiles.some((i) => tiles.includes(i)));
+      const trouble = lot && this.lotTrouble(lot);
+      if (trouble) this.message(`This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
     } else if (firstError) this.message(firstError, 'bad');
   }
 
@@ -5747,10 +5761,10 @@ export class World {
     const m = this.map;
     for (const c of this.shippers()) {
       if (this.tick < c.nextBoatTick) continue;
-      const park = this.freeParking(null, true);
-      const path =
-        park >= 0 ? findPath(m.w, m.h, m.entry, park, this.truckCost(park), false) : null;
-      if (!path) {
+      const wide = needsWideSpace(c.terms.capacity, c.terms.cargo === 'container');
+      const space = this.freeParking(null, true, wide);
+      const into = space ? this.intoSpace(m.entry, space, -1) : null;
+      if (!space || !into) {
         c.nextBoatTick = this.tick + 60;
         this.tip('parking');
         if (!this.warnedParking) {
@@ -5772,9 +5786,11 @@ export class World {
         x: m.xOf(m.entry) + 0.5,
         y: m.yOf(m.entry) + 0.5,
         dir: 0,
-        path,
-        goal: park,
-        park,
+        path: into.path,
+        goal: into.path[into.path.length - 1],
+        park: space.tiles[0],
+        parkFrom: into.via,
+        lot: space.tiles,
         state: 'toPark',
         bayIdx: -1,
         cargo: c.terms.capacity,
@@ -5792,15 +5808,15 @@ export class World {
    * Storage with room for a shipper's truck to unload into and a free spot
    * beside it, the nearest it can get to from `from`.
    */
-  private exportStore(t: Truck, from: number): { store: Bay; dock: number; path: number[] } | null {
-    const m = this.map;
+  private exportStore(t: Truck): { store: Bay; dock: number; path: number[] } | null {
+    const from = this.tileOf(t);
     const stores = [...(t.boxes ? this.yards : this.bays).values()]
       .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
       .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
     for (const store of stores) {
       const dock = this.freeDock(store);
       if (dock < 0) continue;
-      const path = findPath(m.w, m.h, from, dock, this.truckCost(store.idx), false);
+      const path = this.routeFrom(t, dock, this.truckCost(store.idx, -1, t));
       if (path) return { store, dock, path };
     }
     return null;
@@ -6336,7 +6352,7 @@ export class World {
    * -1: public roads, and port roads and quays through a port gate.
    */
   private truckReach(): Int32Array {
-    this.reachCache ??= truckReach(this.map, this.parkingSides());
+    this.reachCache ??= truckReach(this.map);
     return this.reachCache;
   }
 
@@ -6383,36 +6399,114 @@ export class World {
    * enterable as the destination, or the one being left, from any side of it
    * that touches a road. Storage areas they load beside, never drive into.
    */
-  private truckCost(target: number, home = -1): CostFn {
-    return truckCost(this.map, target, home, this.parkingSides());
+  /** How trucks drive; through only the parking space `t` is in, or going into or out of. */
+  private truckCost(target: number, home = -1, t?: Truck): CostFn {
+    return truckCost(this.map, target, home, t?.lot && new Set(t.lot));
   }
 
-  private parkingSides(): Int8Array {
-    this.sidesCache ??= parkingSides(this.map);
-    return this.sidesCache;
+  private parkingLots(): ParkingLot[] {
+    this.lotsCache ??= parkingLots(this.map);
+    return this.lotsCache;
+  }
+
+  /**
+   * Why a lot is no use to the trucks: badly laid out, or out of their
+   * reach; null when it works.
+   */
+  private lotTrouble(lot: ParkingLot): string | null {
+    if (lot.why) return lot.why;
+    const reach = this.truckReach();
+    return lot.spaces.some((s) => reach[s.ends[0]] >= 0 && reach[s.ends[1]] >= 0)
+      ? null
+      : lot.outside
+        ? 'Trucks cannot get to the roads beside it from the highway'
+        : 'Trucks cannot get to the port roads beside it: they come in through a port gate';
   }
 
   /**
    * A free parking space for a truck bound for `bay`, nearest it: outside
-   * the port only when `outside`, else on either side; -1 when there is none.
+   * the port only when `outside`, two tiles wide for the big trucks; null
+   * when there is none.
    */
-  private freeParking(bay: Bay | null, outside = false): number {
-    const m = this.map;
-    const sides = this.parkingSides();
+  private freeParking(bay: Bay | null, outside = false, wide = false): ParkingSpace | null {
     const reach = this.truckReach();
     const taken = new Set(this.trucks.map((t) => t.park ?? -1));
-    let best = -1;
+    let best: ParkingSpace | null = null;
     let bestD = Infinity;
-    for (let i = 0; i < m.build.length; i++) {
-      if (m.build[i] !== Build.Parking || !sides[i] || reach[i] < 0 || taken.has(i)) continue;
-      if (outside && sides[i] !== 1) continue;
-      const d = bay ? this.distTo(i, bay) : reach[i];
-      if (d < bestD) {
-        bestD = d;
-        best = i;
+    for (const lot of this.parkingLots()) {
+      if (lot.why || (outside && !lot.outside) || (wide && !lot.wide)) continue;
+      for (const space of lot.spaces) {
+        const [a, b] = space.ends;
+        // In from one road and out onto the other: both must lead somewhere.
+        if (taken.has(space.tiles[0]) || reach[a] < 0 || reach[b] < 0) continue;
+        const d = bay ? this.distTo(space.tiles[0], bay) : Math.min(reach[a], reach[b]);
+        if (d < bestD) {
+          bestD = d;
+          best = space;
+        }
       }
     }
     return best;
+  }
+
+  /**
+   * The way from `from` into a parking space: to the road on whichever side
+   * is nearer, then onto the space's tile on that side. Null if neither can
+   * be reached.
+   */
+  private intoSpace(
+    from: number,
+    space: ParkingSpace,
+    target: number,
+  ): { path: number[]; via: number } | null {
+    const m = this.map;
+    const cost = truckCost(m, target, -1, new Set(space.tiles));
+    let best: { path: number[]; via: number } | null = null;
+    for (const [k, end] of space.ends.entries()) {
+      const way = findPath(m.w, m.h, from, end, cost, false);
+      if (!way || (best && way.length >= best.path.length - 1)) continue;
+      const first = k === 0 ? space.tiles[0] : space.tiles[space.tiles.length - 1];
+      best = { path: [...way, first], via: end };
+    }
+    return best;
+  }
+
+  /** Parked: stand across the middle of the space, at an angle, nose to the far side. */
+  private parkUp(t: Truck): void {
+    const m = this.map;
+    const tiles = t.lot ?? [this.tileOf(t)];
+    t.x = tiles.reduce((n, i) => n + m.xOf(i) + 0.5, 0) / tiles.length;
+    t.y = tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length;
+    const from = t.parkFrom ?? this.tileOf(t);
+    const ahead = Math.atan2(t.y - (m.yOf(from) + 0.5), t.x - (m.xOf(from) + 0.5));
+    t.dir = ahead + Math.PI / 4;
+  }
+
+  /**
+   * The way out from where a truck is to `goal`: from a parking space,
+   * always forwards, on across it and out onto the road on the far side.
+   */
+  private routeFrom(t: Truck, goal: number, cost: CostFn): number[] | null {
+    const m = this.map;
+    const here = this.tileOf(t);
+    let from = here;
+    let prefix: number[] = [];
+    const lot = t.lot;
+    if (lot?.includes(here) && t.parkFrom !== undefined) {
+      const space = this.parkingLots()
+        .flatMap((l) => l.spaces)
+        .find((s) => s.tiles[0] === lot[0]);
+      if (space) {
+        const fromA = t.parkFrom === space.ends[0];
+        const order = fromA ? space.tiles : [...space.tiles].reverse();
+        const exit = fromA ? space.ends[1] : space.ends[0];
+        prefix = [...order.slice(order.indexOf(here) + 1), exit];
+        from = exit;
+      }
+    }
+    if (from === goal) return prefix;
+    const rest = findPath(m.w, m.h, from, goal, cost, false);
+    return rest ? [...prefix, ...rest] : null;
   }
 
   /** Trucks parked, or on their way to park, waiting to load at this bay. */
@@ -6448,7 +6542,7 @@ export class World {
         }
         // With every spot taken, more trucks queue in the parking, a few at a time.
         if (this.freeDock(b) >= 0) return true;
-        return this.queuedAt(b) < this.loadingDocks(b).length && this.freeParking(b) >= 0;
+        return this.queuedAt(b) < this.loadingDocks(b).length && !!this.freeParking(b);
       })
       .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
 
@@ -6485,9 +6579,13 @@ export class World {
         continue;
       }
       const spot = this.freeDock(bay);
-      const park = spot >= 0 ? -1 : this.freeParking(bay);
-      const dock = spot >= 0 ? spot : park;
-      const path = findPath(m.w, m.h, m.entry, dock, this.truckCost(bay.idx), false);
+      const wide = needsWideSpace(haulier.terms.capacity, haulier.terms.cargo === 'container');
+      const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
+      const into = space ? this.intoSpace(m.entry, space, bay.idx) : null;
+      const path = space
+        ? (into?.path ?? null)
+        : findPath(m.w, m.h, m.entry, spot, this.truckCost(bay.idx), false);
+      const dock = path && path.length > 0 ? path[path.length - 1] : spot;
       if (!path) {
         this.cutOff(bay);
         continue;
@@ -6504,8 +6602,10 @@ export class World {
         dir: 0,
         path,
         goal: dock,
-        state: park >= 0 ? 'toPark' : 'toBay',
-        park: park >= 0 ? park : undefined,
+        state: space ? 'toPark' : 'toBay',
+        park: space?.tiles[0],
+        parkFrom: into?.via,
+        lot: space?.tiles,
         bayIdx: bay.idx,
         cargo: 0,
         value: 0,
@@ -6538,13 +6638,20 @@ export class World {
     const bay = this.dest(t.bayIdx);
     switch (t.state) {
       case 'toPark': {
-        const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED, this.level);
+        const r = this.move(
+          t,
+          this.truckCost(t.bayIdx, -1, t),
+          false,
+          () => B.TRUCK_SPEED,
+          this.level,
+        );
         if (r === 'blocked' || this.map.build[t.park ?? -1] !== Build.Parking) {
           return this.removeTruck(t);
         }
         if (r === 'arrived') {
           t.state = 'parked';
           t.idle = 0;
+          this.parkUp(t);
           // A shipper's truck has its paperwork done while it waits.
           if (t.exports && t.papers === undefined) t.papers = this.tick + B.PAPERWORK_TICKS;
         }
@@ -6553,7 +6660,7 @@ export class World {
       case 'parked': {
         if (t.exports) {
           if (this.tick < (t.papers ?? 0) || (this.tick + t.id) % 10 !== 0) return;
-          const to = this.exportStore(t, this.tileOf(t));
+          const to = this.exportStore(t);
           if (!to) return;
           to.store.exportIncoming = (to.store.exportIncoming ?? 0) + t.cargo;
           t.bayIdx = to.store.idx;
@@ -6571,8 +6678,7 @@ export class World {
         }
         const dock = this.freeDock(bay);
         if (dock < 0) return;
-        const m = this.map;
-        const path = findPath(m.w, m.h, this.tileOf(t), dock, this.truckCost(bay.idx), false);
+        const path = this.routeFrom(t, dock, this.truckCost(bay.idx, -1, t));
         if (!path) return;
         t.park = undefined;
         t.path = path;
@@ -6582,7 +6688,13 @@ export class World {
       }
       case 'toBay': {
         if (!bay) return t.exports ? this.headOut(t) : this.truckLeave(t);
-        const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED, this.level);
+        const r = this.move(
+          t,
+          this.truckCost(t.bayIdx, -1, t),
+          false,
+          () => B.TRUCK_SPEED,
+          this.level,
+        );
         if (r === 'blocked') {
           if (t.exports) bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - t.cargo);
           return this.removeTruck(t);
@@ -6668,7 +6780,7 @@ export class World {
         return;
       }
       case 'leaving': {
-        const cost = this.truckCost(this.map.entry, t.bayIdx);
+        const cost = this.truckCost(this.map.entry, t.bayIdx, t);
         const r = this.move(t, cost, false, () => B.TRUCK_SPEED, this.level);
         if (r === 'arrived' || r === 'blocked') this.removeTruck(t);
         return;
@@ -6779,7 +6891,7 @@ export class World {
     const gate = this.town?.gate ?? -1;
     const exits = gate >= 0 && m.yOf(here) > m.limit ? [gate, m.entry] : [m.entry];
     for (const exit of exits) {
-      const path = findPath(m.w, m.h, here, exit, this.truckCost(exit, t.bayIdx), false);
+      const path = this.routeFrom(t, exit, this.truckCost(exit, t.bayIdx, t));
       if (!path) continue;
       t.state = 'leaving';
       t.goal = exit;
@@ -6791,8 +6903,8 @@ export class World {
 
   /** A parked truck gives up waiting and drives off. */
   private leavePark(t: Truck): void {
-    t.park = undefined;
     this.truckLeave(t);
+    t.park = undefined;
   }
 
   private removeTruck(t: Truck): void {
@@ -7248,6 +7360,17 @@ export class World {
         tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,
       })),
+      parking: this.parkingLots().map((lot) => {
+        const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
+        return {
+          tiles: lot.tiles,
+          outside: lot.outside,
+          wide: lot.wide,
+          spaces: lot.spaces.length,
+          used: this.trucks.filter((t) => t.park !== undefined && keys.has(t.park)).length,
+          why: this.lotTrouble(lot),
+        };
+      }),
       piles: [...this.piles.values()].map((p) => ({
         idx: p.idx,
         crates: p.crates.length,

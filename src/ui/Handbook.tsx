@@ -239,10 +239,13 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
         </ul>
         <p>
-          <b>Truck parking</b> is a place for trucks to wait, one to a tile. Parking joined to a
-          public road is outside the port: shippers' trucks wait there for their paperwork. Parking
-          joined to port roads, behind a gate, is inside: trucks queue there for a free loading spot
-          instead of going away.
+          <b>Truck parking</b> is a strip one or two tiles wide with a road all along both its long
+          sides. Trucks drive in off one road, park at an angle across the strip, and drive out onto
+          the other road: always forwards, never backing out. There is a space for each tile along
+          the strip, and the big trucks need a strip two tiles wide. Between public roads it is
+          outside the port: shippers' trucks wait there for their paperwork. Between port roads,
+          behind a gate, it is inside: trucks queue there for a free loading spot instead of going
+          away. Select parking to see whether it works, and why not.
         </p>
       </>
     ),
