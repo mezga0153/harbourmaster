@@ -7595,9 +7595,14 @@ export class World {
       if (!this.entryClear()) return;
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
+      // A container truck goes only for a full load: as many cleared
+      // containers as it carries that no other truck is coming for.
+      const boxes = this.unclaimed(bay, true);
       const haulier =
-        (this.unclaimed(bay, true) > 0
-          ? hauliers.find((h) => free(h) && h.terms.cargo === 'container')
+        (boxes > 0
+          ? hauliers.find(
+              (h) => free(h) && h.terms.cargo === 'container' && boxes >= h.terms.capacity,
+            )
           : undefined) ??
         (this.unclaimed(bay, false) > 0
           ? hauliers.find(

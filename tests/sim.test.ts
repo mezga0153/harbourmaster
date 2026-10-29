@@ -2386,6 +2386,45 @@ describe('Container Port tier', () => {
     expect(yard.boxes).toHaveLength(0);
   });
 
+  it('sends a two-container truck to a yard only once two are cleared for it', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: 2,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const yard = world.yards.get(t.yard)!;
+    const sent = () => world.trucks.filter((k) => k.boxes && k.bayIdx === t.yard).length;
+    // One cleared: no truck comes for it.
+    yard.boxes.push(100);
+    yard.boxReady = [0];
+    for (let k = 0; k < 300; k++) world.step();
+    expect(sent()).toBe(0);
+    expect(yard.boxes).toHaveLength(1);
+    // A second: one comes, and takes both.
+    yard.boxes.push(100);
+    yard.boxReady!.push(0);
+    let most = 0;
+    for (let k = 0; k < 400; k++) {
+      world.step();
+      most = Math.max(most, sent());
+    }
+    expect(most).toBe(1);
+    expect(yard.boxes).toHaveLength(0);
+  });
+
   it('holds containers in a yard for a day of customs from when their ship is unloaded', () => {
     const world = World.create(7);
     world.tier = 2;
