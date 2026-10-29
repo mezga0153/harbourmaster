@@ -170,7 +170,11 @@ export function forkliftOnly(map: GameMap, i: number): boolean {
 }
 
 /** Only port roads and plain quay can be marked forklift-only. */
+/** Shown for the country past the port's land. */
+export const OUTSIDE = 'Beyond the port’s land';
+
 export function forkliftOnlyError(map: GameMap, i: number): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
   const b = map.build[i];
   return b === Build.PortRoad || b === Build.Quay
     ? null
@@ -282,6 +286,7 @@ export function placementError(
   pending?: ReadonlySet<number>,
   facing: number = bestFacing(map, kind, i, pending),
 ): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
   const t = map.terrain[i];
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
@@ -368,6 +373,7 @@ export function placementError(
   if (t === Terrain.Rock) return 'Rock is in the way';
   const clear = (n: number) =>
     n >= 0 &&
+    map.buildable(n) &&
     !pending?.has(n) &&
     (onQuay(n) ||
       (map.build[n] === Build.None &&
@@ -488,6 +494,7 @@ export function bulldozeTiles(map: GameMap, i: number): number[] {
 }
 
 export function bulldozeError(map: GameMap, i: number): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
   const empty = map.build[i] === Build.None && map.deco[i] === Deco.None;
   if (empty && map.terrain[i] !== Terrain.Rock) return 'Nothing to clear';
   if (i === map.entry) return 'The main road cannot be removed';
@@ -518,6 +525,7 @@ export function terraformError(
   raise: boolean,
   pending?: ReadonlySet<number>,
 ): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
   if (map.build[i] !== Build.None) return 'Clear what is built here first';
   const t = map.terrain[i];
   if (raise) {

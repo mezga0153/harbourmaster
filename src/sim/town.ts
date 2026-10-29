@@ -13,8 +13,14 @@ import { Build, Deco, isPublicRoad, isTownBuilding, Terrain } from './types';
 /** Marks a road the town laid, in `GameMap.orient`; the player cannot touch it. */
 export const TOWN = 128;
 
+/**
+ * The highway past the west edge of the map runs north to south along
+ * here, joining the port's road to the town's.
+ */
+export const HIGHWAY_X = -3.5;
+
 /** Towns laid out under older rules are cleared and laid out again when a save loads. */
-export const TOWN_LAYOUT = 2;
+export const TOWN_LAYOUT = 3;
 
 export const TOWN_STAGES = [
   { name: 'Fishing village', from: 0 },
@@ -101,6 +107,8 @@ export interface Town {
   stage: number;
   /** TOWN_LAYOUT when it was laid out. */
   layout: number;
+  /** Where its road leaves the map for the highway, or -1. */
+  gate: number;
 }
 
 /** Steps for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
@@ -155,6 +163,8 @@ function playerBuilt(map: GameMap, i: number): boolean {
 /** Open land the town may take: off the beach and clear of the port. */
 function free(map: GameMap, i: number): boolean {
   if (i < 0 || map.build[i] !== Build.None || !map.isLand(i)) return false;
+  // Out in the country past the port's land, with a field's width to spare.
+  if (map.yOf(i) <= map.limit) return false;
   const x = map.xOf(i);
   const y = map.yOf(i);
   for (let dy = -2; dy <= 2; dy++) {
@@ -431,7 +441,7 @@ function route(
     for (let nd = 0; nd < 4; nd++) {
       if (onRail && nd !== d) continue;
       const j = step(map, i, nd);
-      if (j < 0 || !map.isLand(j) || used.has(j)) continue;
+      if (j < 0 || !map.isLand(j) || used.has(j) || map.yOf(j) <= map.limit) continue;
       const b = map.build[j];
       let c: number;
       // Joins the trucks' road well inland of the port, leaving it room to grow.
@@ -456,8 +466,6 @@ function route(
         if (near[j] < 10) c += (10 - near[j]) * 1.5;
         // Keep off the line's side, where a siding may go one day.
         if (map.neighbors4(j).some((m) => map.build[m] === Build.Rail)) c += 2;
-        // The map edge only when there is no other way out.
-        if (x === 0 && !roads[j]) c += 1000;
       } else continue;
       if (nd !== d && i !== from) c += 2;
       const next = cost[s] + c;
@@ -476,38 +484,28 @@ function route(
 }
 
 /**
- * The country road from the town out to the road the trucks come in on,
- * by way of a spot off to one side so it bends rather than running
- * straight; without a way through, to the edge of the map. Returns the
- * tiles after `from`.
+ * The town's road out to the highway beyond the west edge of the map, by
+ * way of a spot off to one side so it bends rather than running straight.
+ * Returns the tiles after `from`, the last on the edge, or [] when there is
+ * no way through.
  */
-function countryRoute(map: GameMap, from: number, seed: number): number[] {
+function highwayRoute(map: GameMap, from: number, seed: number): number[] {
   const roads = truckRoads(map);
   const near = portDistance(map);
-  const out = (i: number) =>
-    (roads[i] === 1 && map.build[i] !== Build.Crossing) || map.xOf(i) === 0;
-  // Halfway to the nearest truck road, pushed off to one side.
-  let to = -1;
-  for (let i = 0; i < roads.length; i++) {
-    if (roads[i] && (to < 0 || dist(map, i, from) < dist(map, to, from))) to = i;
-  }
+  const out = (i: number) => map.xOf(i) === 0 && map.yOf(i) > map.limit;
+  const fx = map.xOf(from);
+  const fy = map.yOf(from);
+  // Halfway to the edge, pushed off up or down the coast.
+  const side = (hash01(seed, fx, fy) * 2 - 1) * Math.min(10, fx / 3);
+  const wx = Math.round(fx / 2);
+  const wy = Math.round(Math.max(map.limit + 3, Math.min(map.h - 3, fy + side)));
   let way = -1;
-  if (to >= 0) {
-    const fx = map.xOf(from);
-    const fy = map.yOf(from);
-    const vx = map.xOf(to) - fx;
-    const vy = map.yOf(to) - fy;
-    const len = Math.hypot(vx, vy);
-    const side = (hash01(seed, fx, fy) * 2 - 1) * Math.min(12, len / 3);
-    const wx = Math.round(fx + vx / 2 - (vy / len) * side);
-    const wy = Math.round(fy + vy / 2 + (vx / len) * side);
-    for (let r = 0; r <= 5 && way < 0; r++) {
-      for (let dy = -r; dy <= r && way < 0; dy++) {
-        for (let dx = -r; dx <= r && way < 0; dx++) {
-          if (!map.inBounds(wx + dx, wy + dy)) continue;
-          const i = map.idx(wx + dx, wy + dy);
-          if (map.build[i] === Build.None && map.isLand(i) && near[i] > 3) way = i;
-        }
+  for (let r = 0; r <= 5 && way < 0; r++) {
+    for (let dy = -r; dy <= r && way < 0; dy++) {
+      for (let dx = -r; dx <= r && way < 0; dx++) {
+        if (!map.inBounds(wx + dx, wy + dy)) continue;
+        const i = map.idx(wx + dx, wy + dy);
+        if (map.build[i] === Build.None && map.isLand(i) && map.yOf(i) > map.limit) way = i;
       }
     }
   }
@@ -521,10 +519,6 @@ function countryRoute(map: GameMap, from: number, seed: number): number[] {
   return route(map, from, out, near, roads, seed, new Set());
 }
 
-function dist(map: GameMap, a: number, b: number): number {
-  return Math.hypot(map.xOf(a) - map.xOf(b), map.yOf(a) - map.yOf(b));
-}
-
 /**
  * Found the fishing village on the coast, as far from the port as there is
  * room, with a street along the shore, a chapel, a fish market, fish sheds
@@ -533,15 +527,14 @@ function dist(map: GameMap, a: number, b: number): number {
  * room for a town.
  */
 export function foundTown(map: GameMap, name: string, touch: (i: number) => void): Town | null {
-  const near = portDistance(map);
   let best = -1;
   let bestScore = -Infinity;
-  for (let cy = 10; cy < map.h - 10; cy++) {
+  for (let cy = map.limit + 8; cy < map.h - 7; cy++) {
     let shore = -1;
     for (let x = 0; x < map.w && shore < 0; x++) if (!map.isLand(map.idx(x, cy))) shore = x;
     if (shore < 24) continue;
     const c = map.idx(shore - 3, cy);
-    if (!free(map, c) || near[c] < B.TOWN_MIN_DISTANCE) continue;
+    if (!free(map, c)) continue;
     let room = 0;
     for (let dy = -9; dy <= 9; dy++) {
       for (let dx = -9; dx <= 9; dx++) {
@@ -551,7 +544,8 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
         if (free(map, map.idx(x, y))) room++;
       }
     }
-    const score = room + Math.min(near[c], 50) * 3;
+    // Room to grow, and well out past the port's land.
+    const score = room + (cy - map.limit) * 0.5;
     if (score > bestScore) {
       bestScore = score;
       best = c;
@@ -571,6 +565,7 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
     jobs: 0,
     stage: 0,
     layout: TOWN_LAYOUT,
+    gate: -1,
   };
   const street = (i: number) => {
     if (i < 0) return;
@@ -586,8 +581,10 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
       street(i);
     }
   }
-  // …and the country road inland, out to the trucks' road.
-  for (const i of countryRoute(map, best, best ^ 0x2c1)) street(i);
+  // …and the road inland, out to the highway past the edge of the map.
+  const out = highwayRoute(map, best, best ^ 0x2c1);
+  for (const i of out) street(i);
+  if (out.length > 0) t.gate = out[out.length - 1];
 
   // Fish sheds on the beach below the village, doors to the sea.
   const cx = map.xOf(best);
@@ -606,7 +603,7 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
           const n = step(map, i, d);
           return n >= 0 && map.ocean[n];
         });
-        if (sea === undefined || near[i] < 3) continue;
+        if (sea === undefined || map.yOf(i) <= map.limit) continue;
         place(map, i, Build.FishShed, sea, touch);
         sheds++;
       }

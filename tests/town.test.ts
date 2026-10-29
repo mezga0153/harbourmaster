@@ -1,19 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { crossingClosed, railColumn } from '../src/sim/railway';
-import { bulldozeError, placementError } from '../src/sim/rules';
+import { bulldozeError, OUTSIDE, placementError, terraformError } from '../src/sim/rules';
 import type { GameMap } from '../src/sim/map';
-import { isTownStreet, TOWN_LAYOUT, TOWN_STAGES, townHomes } from '../src/sim/town';
-import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY } from '../src/sim/types';
+import { isTownStreet, ownedByTown, TOWN_LAYOUT, TOWN_STAGES, townHomes } from '../src/sim/town';
+import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, TOWN_BAND } from '../src/sim/types';
 import { World } from '../src/sim/world';
 
-const dist = (m: GameMap, a: number, b: number) =>
-  Math.hypot(m.xOf(a) - m.xOf(b), m.yOf(a) - m.yOf(b));
-
-/** Public road the trucks can drive along from the highway. */
-function truckRoads(m: GameMap): Set<number> {
-  const seen = new Set([m.entry]);
-  const queue = [m.entry];
+/** Public road joined to `from`. */
+function roadsFrom(m: GameMap, from: number): Set<number> {
+  const seen = new Set([from]);
+  const queue = [from];
   while (queue.length > 0) {
     for (const n of m.neighbors4(queue.pop()!)) {
       if (!seen.has(n) && isPublicRoad(m.build[n])) {
@@ -103,13 +100,12 @@ describe('Town', () => {
     expect(townHomes(m)).toBeGreaterThanOrEqual(B.TOWN_START);
     expect(m.build.some((b) => b === Build.Chapel)).toBe(true);
     expect(m.build.some((b) => b === Build.FishMarket)).toBe(true);
-    // Well away from the port, with a road the trucks can drive in on.
+    // Out in the country past the port's land, with a road to the highway off the map's edge.
     for (let i = 0; i < m.build.length; i++) {
-      const b = m.build[i];
-      const port = b !== Build.None && !isPublicRoad(b) && b !== Build.Rail && !isTownBuilding(b);
-      if (port) expect(dist(m, i, t.centre)).toBeGreaterThanOrEqual(B.TOWN_MIN_DISTANCE);
+      if (ownedByTown(m, i)) expect(m.yOf(i)).toBeGreaterThan(m.limit);
     }
-    expect(truckRoads(m).has(t.centre)).toBe(true);
+    expect(m.xOf(t.gate)).toBe(0);
+    expect(roadsFrom(m, t.gate).has(t.centre)).toBe(true);
   });
 
   it.each([1, 3, 7, 99])('lays streets that never run two wide (seed %i)', (seed) => {
@@ -147,7 +143,46 @@ describe('Town', () => {
     const loaded = World.fromSave(save);
     expect(loaded.town!.layout).toBe(TOWN_LAYOUT);
     expect(townHomes(loaded.map)).toBeGreaterThanOrEqual(homes);
-    expect(truckRoads(loaded.map).has(loaded.town!.centre)).toBe(true);
+    expect(roadsFrom(loaded.map, loaded.town!.gate).has(loaded.town!.centre)).toBe(true);
+  });
+
+  it('adds the country past the port to a save from before it', () => {
+    const world = World.create(5);
+    const save = world.toSave();
+    const n = save.map.w * 96;
+    // As saved before: 96 rows, no town, no line.
+    for (const key of ['terrain', 'depth', 'ocean', 'deco', 'build', 'orient'] as const) {
+      save.map[key] = save.map[key].slice(0, n);
+    }
+    save.map.h = 96;
+    delete save.map.limit;
+    save.map.build = save.map.build.map((b) =>
+      isTownBuilding(b) || b === Build.Rail ? Build.None : b === Build.Crossing ? Build.Road : b,
+    );
+    delete save.town;
+    delete save.rail;
+    const loaded = World.fromSave(save);
+    const m = loaded.map;
+    expect(m.h).toBe(96 + TOWN_BAND);
+    expect(m.limit).toBe(96);
+    expect(m.yOf(loaded.town!.centre)).toBeGreaterThan(96);
+    const x = railColumn(m);
+    for (let y = 0; y < m.h; y++)
+      expect([Build.Rail, Build.Crossing]).toContain(m.build[m.idx(x, y)]);
+    for (let k = 0; k < 200; k++) loaded.step();
+  });
+
+  it('cannot be built on, cleared or dredged by the player', () => {
+    const world = World.create(7);
+    world.cash = 1_000_000;
+    const m = world.map;
+    const field = m.build.findIndex(
+      (b, i) => b === Build.None && m.isLand(i) && m.yOf(i) > m.limit,
+    );
+    expect(placementError(m, 'road', field)).toBe(OUTSIDE);
+    expect(terraformError(m, field, false)).toBe(OUTSIDE);
+    world.command({ type: 'build', kind: 'road', tiles: [field] });
+    expect(m.build[field]).toBe(Build.None);
   });
 
   it('grows with the port into a city, and keeps clear of it', () => {
@@ -173,7 +208,7 @@ describe('Town', () => {
       }
     }
     const home = m.build.findIndex((b) => b === Build.House || b === Build.Flats);
-    expect(bulldozeError(m, home)).toBe('This belongs to the town');
+    expect(bulldozeError(m, home)).toBe(OUTSIDE);
   });
 
   it('grows from jobs and goods shipped, and shrinks back without them', () => {

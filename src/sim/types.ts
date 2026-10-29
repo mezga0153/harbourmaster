@@ -1,6 +1,8 @@
 export const TICKS_PER_SECOND = 10;
 export const TICKS_PER_DAY = 600;
 export const MAP_SIZE = 96;
+/** Rows of country along the south edge, past the port's land, where the town is. */
+export const TOWN_BAND = 36;
 
 export const Terrain = { Water: 0, Sand: 1, Grass: 2, Rock: 3 } as const;
 export type TerrainCode = (typeof Terrain)[keyof typeof Terrain];

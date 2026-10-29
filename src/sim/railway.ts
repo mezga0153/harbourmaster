@@ -54,7 +54,8 @@ export function railColumn(map: GameMap): number {
  * has already built on. Returns the tiles changed.
  */
 export function layRailway(map: GameMap): number[] {
-  if (railColumn(map) >= 0) return [];
+  const laid = railColumn(map);
+  if (laid >= 0) return continueLine(map, laid);
   let best = -1;
   let bestScore = -Infinity;
   for (let x = 3; x <= Math.min(16, map.w - 1); x++) {
@@ -100,6 +101,27 @@ export function layRailway(map: GameMap): number[] {
     map.build[i] = map.build[i] === Build.Road ? Build.Crossing : Build.Rail;
     // A cutting through rock.
     if (map.terrain[i] === Terrain.Rock) map.terrain[i] = Terrain.Grass;
+    map.deco[i] = Deco.None;
+    changed.push(i);
+  }
+  return changed;
+}
+
+/**
+ * Carry a line laid on an older, shorter map on down the rows added since,
+ * on an embankment where it meets the sea.
+ */
+function continueLine(map: GameMap, x: number): number[] {
+  const changed: number[] = [];
+  for (let y = 0; y < map.h; y++) {
+    const i = map.idx(x, y);
+    if (map.build[i] === Build.Rail || map.build[i] === Build.Crossing) continue;
+    map.build[i] = map.build[i] === Build.Road ? Build.Crossing : Build.Rail;
+    if (!map.isLand(i) || map.terrain[i] === Terrain.Rock) {
+      map.terrain[i] = Terrain.Grass;
+      map.ocean[i] = 0;
+      map.depth[i] = 0;
+    }
     map.deco[i] = Deco.None;
     changed.push(i);
   }

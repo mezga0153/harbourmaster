@@ -12,7 +12,7 @@ import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY, footprint } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
-import { TOWN } from '../sim/town';
+import { HIGHWAY_X, TOWN } from '../sim/town';
 import { Build, isDock, isPublicRoad, isTownBuilding } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
@@ -85,7 +85,7 @@ export class Structures {
 
   constructor(private map: GameMap) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
-    this.group.add(this.highway(), this.mainLine());
+    this.group.add(this.highway(), this.mainLine(), this.boundary());
   }
 
   apply(changes: TileChange[]): void {
@@ -858,21 +858,44 @@ export class Structures {
     return this.map.inBounds(x, y) && this.map.isLand(this.map.idx(x, y));
   }
 
-  /** Scenery roads continuing off the map: the highway from the truck entry, and the town's. */
+  /**
+   * Past the west edge of the map: the highway running north to south, and
+   * the roads off the map's edge joining it, the trucks' and the town's.
+   */
   private highway(): Object3D {
     const g = new Group();
+    const hx = HIGHWAY_X;
+    const top = landTop(this.map.terrain[this.map.entry]);
+    const len = this.map.h + 2 * MARGIN;
+    g.add(box(1, 0.05, len, C.asphalt, hx, top, this.map.h / 2));
+    for (let z = -MARGIN; z < this.map.h + MARGIN; z++) {
+      g.add(box(0.05, 0.01, 0.26, C.marking, hx, top + 0.05, z + 0.25));
+    }
     for (let y = 0; y < this.map.h; y++) {
       const i = this.map.idx(0, y);
       if (!isPublicRoad(this.map.build[i])) continue;
+      const w = -(hx + 0.5);
+      g.add(box(w, 0.05, 1, C.asphalt, -w / 2, landTop(this.map.terrain[i]), y + 0.5));
+    }
+    return bake(g);
+  }
+
+  /** Stakes and a painted line where the port's land ends and the country begins. */
+  private boundary(): Object3D {
+    const g = new Group();
+    const z = this.map.limit;
+    if (z >= this.map.h) return g;
+    for (let x = 0; x < this.map.w; x++) {
+      const i = this.map.idx(x, z - 1);
+      if (!this.map.isLand(i) || !this.map.isLand(i + this.map.w)) continue;
       const top = landTop(this.map.terrain[i]);
-      g.add(box(MARGIN, 0.05, 1, C.asphalt, -MARGIN / 2, top, y + 0.5));
-      if (i !== this.map.entry) continue;
-      for (let x = -MARGIN; x < 0; x++) {
-        for (const o of [0.25, 0.75])
-          g.add(box(0.26, 0.01, 0.05, C.marking, x + o, top + 0.05, y + 0.5));
+      g.add(box(0.5, 0.012, 0.05, C.marking, x + 0.5, top, z));
+      if (x % 3 === 0) {
+        g.add(cyl(0.025, 0.24, C.marking, x + 0.1, top, z));
+        g.add(cyl(0.027, 0.06, C.funnel, x + 0.1, top + 0.18, z));
       }
     }
-    return g;
+    return bake(g);
   }
 
   /** The main line running on past both ends of the map. */

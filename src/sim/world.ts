@@ -26,13 +26,14 @@ import {
   type Terms,
 } from './contracts';
 import { GameMap, type MapData } from './map';
-import { generateMap } from './mapgen';
+import { extendMap, generateMap } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
 import {
   BUSINESSES,
   clearTown,
   foundTown,
+  HIGHWAY_X,
   TOWN_LAYOUT,
   growTown,
   population,
@@ -263,6 +264,10 @@ interface Truck extends Agent {
   state: 'toBay' | 'loading' | 'toTown' | 'unloading' | 'leaving';
   /** A business in town it is delivering part of its load to, and how much. */
   drop?: number;
+  /** Off the map: the highway round to the town's road, as x, y pairs still to drive. */
+  round?: number[];
+  /** The way on into town, once round on the highway. */
+  then?: number[];
   dropCount?: number;
   contractId: number;
   company: string;
@@ -635,7 +640,9 @@ export class World {
   }
 
   static fromSave(s: SaveData): World {
-    const world = new World(s.seed, GameMap.fromData(s.map), new Rng(s.rng));
+    // Saves from before the country past the port's land get it added on.
+    const map = extendMap(GameMap.fromData(s.map), s.seed);
+    const world = new World(s.seed, map, new Rng(s.rng));
     world.tick = s.tick;
     world.cash = s.cash;
     world.speed = s.speed;
@@ -670,6 +677,8 @@ export class World {
     for (const y of s.yards ?? []) world.yards.set(y.idx, { ...y, boxes: [...y.boxes] });
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     if (s.rail) world.rail = structuredClone(s.rail);
+    // The line runs on through any country added to the map since.
+    layRailway(world.map);
     if (s.town === undefined) world.settle();
     else if (s.town) world.relay({ ...s.town });
     return world;
@@ -683,6 +692,7 @@ export class World {
       local: old.local ?? 0,
       wants: old.wants ?? townWants(this.map),
       layout: old.layout ?? 1,
+      gate: old.gate ?? -1,
     };
     this.town = t;
     if (t.layout >= TOWN_LAYOUT) return;
@@ -694,7 +704,13 @@ export class World {
       return;
     }
     // Same people and trade, new streets: built straight back up to size.
-    this.town = { ...t, centre: fresh.centre, layout: TOWN_LAYOUT, wants: fresh.wants };
+    this.town = {
+      ...t,
+      centre: fresh.centre,
+      gate: fresh.gate,
+      layout: TOWN_LAYOUT,
+      wants: fresh.wants,
+    };
     for (let k = 0; k < 3000 && townHomes(this.map) < homes; k++) {
       if (!growTown(this.town, this.map, () => {})) break;
     }
@@ -1902,7 +1918,7 @@ export class World {
       return n;
     };
     const north = Math.max(4, row - 10);
-    const south = Math.min(m.h - 5, row + 10);
+    const south = Math.min(m.limit - 5, row + 10);
     this.anchorageTile = m.idx(x, open(north) >= open(south) ? north : south);
     return this.anchorageTile;
   }
@@ -1991,7 +2007,8 @@ export class World {
   private seaEdgeTiles(): number[] {
     const out: number[] = [];
     const x = this.map.w - 1;
-    for (let y = 1; y < this.map.h - 1; y++) {
+    // Off the port's own coast, not the country's past it.
+    for (let y = 1; y < this.map.limit - 1; y++) {
       const i = this.map.idx(x, y);
       if (this.boatCost(i) === 1) out.push(i);
     }
@@ -4793,7 +4810,9 @@ export class World {
   /** A dock at this bay no truck is using or heading for, or -1. */
   private freeDock(bay: Bay): number {
     const taken = new Set(
-      this.trucks.filter((t) => t.bayIdx === bay.idx && t.state !== 'leaving').map((t) => t.goal),
+      this.trucks
+        .filter((t) => t.bayIdx === bay.idx && (t.state === 'toBay' || t.state === 'loading'))
+        .map((t) => t.goal),
     );
     return this.loadingDocks(bay).find((d) => !taken.has(d)) ?? -1;
   }
@@ -4960,6 +4979,10 @@ export class World {
         return;
       }
       case 'toTown': {
+        if (t.round) {
+          if (this.driveRound(t)) t.round = undefined;
+          return;
+        }
         const r = this.move(
           t,
           this.truckCost(t.goal, t.bayIdx),
@@ -4968,7 +4991,17 @@ export class World {
           this.level,
         );
         if (r === 'blocked') this.headOut(t);
-        else if (r === 'arrived') {
+        else if (r === 'arrived' && t.then && this.town) {
+          // Out on the highway: round past the edge of the map and in on the town's road.
+          const m = this.map;
+          const gate = this.town.gate;
+          const ey = m.yOf(m.entry) + 0.5;
+          const gy = m.yOf(gate) + 0.5;
+          t.round = [HIGHWAY_X, ey, HIGHWAY_X, gy, m.xOf(gate) + 0.5, gy];
+          t.path = t.then;
+          t.goal = t.then.length > 0 ? t.then[t.then.length - 1] : gate;
+          t.then = undefined;
+        } else if (r === 'arrived') {
           t.state = 'unloading';
           t.timer = 0;
         }
@@ -5029,7 +5062,14 @@ export class World {
     const count = Math.min(t.cargo, Math.floor(town.wants[kind]));
     if (count <= 0) return false;
     const m = this.map;
-    let best: number[] | null = null;
+    const here = this.tileOf(t);
+    // Out to the highway and round to the town's road, unless the roads join up on the map.
+    const out =
+      town.gate >= 0
+        ? findPath(m.w, m.h, here, m.entry, this.truckCost(m.entry, t.bayIdx), false)
+        : null;
+    const round = Math.abs(m.yOf(town.gate) - m.yOf(m.entry)) + 2 * Math.abs(HIGHWAY_X);
+    let best: { path: number[]; then?: number[]; len: number } | null = null;
     let drop = -1;
     for (let i = 0; i < m.build.length; i++) {
       const def = BUSINESSES[m.build[i]];
@@ -5038,36 +5078,67 @@ export class World {
       const front = frontOf(m, i, m.orient[i] & 3);
       if (front < 0 || !isPublicRoad(m.build[front])) continue;
       const cost = this.truckCost(front, t.bayIdx);
-      const path = findPath(m.w, m.h, this.tileOf(t), front, cost, false);
-      if (path && (!best || path.length < best.length)) {
-        best = path;
+      const direct = findPath(m.w, m.h, here, front, cost, false);
+      if (direct && (!best || direct.length < best.len)) {
+        best = { path: direct, len: direct.length };
+        drop = i;
+      }
+      const inn = out && findPath(m.w, m.h, town.gate, front, cost, false);
+      const len = out && inn ? out.length + round + inn.length : Infinity;
+      if (out && inn && (!best || len < best.len)) {
+        best = { path: out, then: inn, len };
         drop = i;
       }
     }
     if (!best) return false;
     town.wants[kind] -= count;
     t.state = 'toTown';
-    t.path = best;
-    t.goal = best.length > 0 ? best[best.length - 1] : this.tileOf(t);
+    t.path = best.path;
+    t.then = best.then;
+    t.goal = best.path.length > 0 ? best.path[best.path.length - 1] : here;
     t.drop = drop;
     t.dropCount = count;
     return true;
   }
 
-  /** Off to the highway and away. */
+  /** Along the highway past the edge of the map, from the port's road round to the town's. */
+  private driveRound(t: Truck): boolean {
+    const r = t.round!;
+    let budget = B.TRUCK_SPEED;
+    while (budget > 1e-6 && r.length > 0) {
+      const dx = r[0] - t.x;
+      const dy = r[1] - t.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 1e-6) t.dir = Math.atan2(dy, dx);
+      if (d <= budget) {
+        t.x = r[0];
+        t.y = r[1];
+        r.splice(0, 2);
+        budget -= d;
+      } else {
+        t.x += (dx / d) * budget;
+        t.y += (dy / d) * budget;
+        budget = 0;
+      }
+    }
+    return r.length === 0;
+  }
+
+  /** Off to the highway and away: from town, by the town's own road. */
   private headOut(t: Truck): void {
-    t.state = 'leaving';
-    t.goal = this.map.entry;
-    const path = findPath(
-      this.map.w,
-      this.map.h,
-      this.tileOf(t),
-      this.map.entry,
-      this.truckCost(this.map.entry, t.bayIdx),
-      false,
-    );
-    if (path) t.path = path;
-    else this.removeTruck(t);
+    const m = this.map;
+    const here = this.tileOf(t);
+    const gate = this.town?.gate ?? -1;
+    const exits = gate >= 0 && m.yOf(here) > m.limit ? [gate, m.entry] : [m.entry];
+    for (const exit of exits) {
+      const path = findPath(m.w, m.h, here, exit, this.truckCost(exit, t.bayIdx), false);
+      if (!path) continue;
+      t.state = 'leaving';
+      t.goal = exit;
+      t.path = path;
+      return;
+    }
+    this.removeTruck(t);
   }
 
   private removeTruck(t: Truck): void {

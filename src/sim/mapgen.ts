@@ -2,7 +2,7 @@ import { BOAT_DRAFT, MAX_JETTY_DEPTH } from './balance';
 import { GameMap } from './map';
 import { fbm } from './noise';
 import { Rng } from './rng';
-import { Build, Deco, MAP_SIZE, Terrain } from './types';
+import { Build, Deco, MAP_SIZE, Terrain, TOWN_BAND } from './types';
 
 export interface GeneratedMap {
   map: GameMap;
@@ -12,12 +12,13 @@ export interface GeneratedMap {
 
 /**
  * Seeded coastline: land on the low-x side, open sea on the high-x side.
- * See plan.md §11, Map generation.
+ * The port's land is `size` square; `band` more rows of the same coast run
+ * on past it to the south, where the town is. See plan.md §11, Map generation.
  */
-export function generateMap(seed: number, size = MAP_SIZE): GeneratedMap {
+export function generateMap(seed: number, size = MAP_SIZE, band = TOWN_BAND): GeneratedMap {
   const W = size;
-  const H = size;
-  const map = new GameMap(W, H);
+  const H = size + band;
+  const map = new GameMap(W, H, size);
   const rng = new Rng(seed ^ 0x9e3779b9);
 
   // Wobbly shoreline per row, then 2D noise for bays, headlands and islands.
@@ -71,8 +72,8 @@ export function generateMap(seed: number, size = MAP_SIZE): GeneratedMap {
 
 /** Find a row where a small jetty fits and lay out road, bay, path and jetty. */
 function layoutStart(map: GameMap): number {
-  const { w: W, h: H } = map;
-  const cy = H >> 1;
+  const { w: W } = map;
+  const cy = map.limit >> 1;
   const isOcean = (x: number, y: number) => map.inBounds(x, y) && map.ocean[map.idx(x, y)] === 1;
   const firstOcean = (r: number) => {
     for (let x = 0; x < W; x++) if (isOcean(x, r)) return x;
@@ -83,7 +84,7 @@ function layoutStart(map: GameMap): number {
   let shoreX = -1;
   for (let k = 0; k < 60 && row < 0; k++) {
     const r = cy + (k % 2 === 0 ? k / 2 : -(k + 1) / 2);
-    if (r < 3 || r > H - 4) continue;
+    if (r < 3 || r > map.limit - 4) continue;
     const xw = firstOcean(r);
     if (xw < 16 || xw > W - 12) continue;
     const xl = xw - 1;
@@ -144,6 +145,28 @@ function layoutStart(map: GameMap): number {
   map.entry = map.idx(0, row);
 
   return map.idx(shoreX, row);
+}
+
+/**
+ * A map from a save made before the country past the port's land: the
+ * same port, with that country added on from the map it was made from.
+ */
+export function extendMap(old: GameMap, seed: number): GameMap {
+  const fresh = generateMap(seed).map;
+  if (old.h >= fresh.h || old.w !== fresh.w) return old;
+  const map = new GameMap(old.w, fresh.h, old.h);
+  const n = old.w * old.h;
+  for (const key of ['terrain', 'depth', 'ocean', 'deco', 'build', 'orient'] as const) {
+    map[key].set(old[key]);
+    map[key].set(fresh[key].subarray(n), n);
+  }
+  // Nothing of the start site lies out there, but clear anything built just in case.
+  for (let i = n; i < map.build.length; i++) {
+    map.build[i] = Build.None;
+    map.orient[i] = 0;
+  }
+  map.entry = old.entry;
+  return map;
 }
 
 function floodFill(

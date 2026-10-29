@@ -11,6 +11,8 @@ export interface MapData {
   build: number[];
   orient: number[];
   entry: number;
+  /** Rows the player may build on; older saves have none past them. */
+  limit?: number;
 }
 
 /**
@@ -36,6 +38,8 @@ export class GameMap {
   constructor(
     readonly w: number,
     readonly h: number,
+    /** Rows from the top that are the port's land; past them is country the player cannot build on. */
+    readonly limit = h,
   ) {
     const n = w * h;
     this.terrain = new Uint8Array(n);
@@ -60,6 +64,11 @@ export class GameMap {
 
   inBounds(x: number, y: number): boolean {
     return x >= 0 && y >= 0 && x < this.w && y < this.h;
+  }
+
+  /** On the port's land, where the player can build. */
+  buildable(i: number): boolean {
+    return this.yOf(i) < this.limit;
   }
 
   isLand(i: number): boolean {
@@ -100,11 +109,12 @@ export class GameMap {
       build: Array.from(this.build),
       orient: Array.from(this.orient),
       entry: this.entry,
+      limit: this.limit,
     };
   }
 
   static fromData(d: MapData): GameMap {
-    const m = new GameMap(d.w, d.h);
+    const m = new GameMap(d.w, d.h, d.limit ?? d.h);
     m.terrain.set(d.terrain);
     m.depth.set(d.depth);
     m.ocean.set(d.ocean);
