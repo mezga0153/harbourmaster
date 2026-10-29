@@ -2123,6 +2123,73 @@ describe('Container Port tier', () => {
     return { byStacker, byItself, stackerJobs };
   }
 
+  it('keeps reach stackers and trucks from driving through each other', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world);
+    expect(t).not.toBeNull();
+    withTug(world, t!.crane);
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 12,
+        cratesMax: 12,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    add(
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 3,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    const depot = world.map.build.findIndex((c) => c === Build.Depot);
+    for (let k = 0; k < 2; k++) world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    // Each on the right-hand side of the road, as it is shown.
+    const lane = (o: { x: number; y: number; dir: number }, d: number) => [
+      o.x - Math.sin(o.dir) * d,
+      o.y + Math.cos(o.dir) * d,
+    ];
+    let through = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
+      world.step();
+      const vs = [
+        ...world.people
+          .filter((p) => p.kind === 'stacker' && p.path.length > 0 && !p.squeeze)
+          .map((p) => ({ o: p, at: lane(p, B.MACHINE_LANE), len: B.MACHINE_LENGTH.stacker })),
+        ...world.trucks
+          .filter((q) => q.path.length > 0 && q.state !== 'parked' && !q.round)
+          .map((q) => ({ o: q, at: lane(q, B.TRUCK_LANE), len: world['lengthOf'](q) })),
+      ];
+      for (const a of vs) {
+        for (const b of vs) {
+          if (a === b || Math.cos(a.o.dir - b.o.dir) < 0.7) continue;
+          const [dx, dy] = [b.at[0] - a.at[0], b.at[1] - a.at[1]];
+          const along = Math.abs(dx * Math.cos(a.o.dir) + dy * Math.sin(a.o.dir));
+          const across = Math.abs(dy * Math.cos(a.o.dir) - dx * Math.sin(a.o.dir));
+          if (across < 0.25 && along < (a.len + b.len) / 2 - 0.3) through++;
+        }
+      }
+    }
+    expect(world.stats.containers).toBeGreaterThan(0);
+    expect(through).toBe(0);
+  });
+
   it('has reach stackers load the trucks at a container yard, unless a yard gantry does', () => {
     const stackers = truckLoading(false);
     expect(stackers.byStacker).toBeGreaterThan(0);

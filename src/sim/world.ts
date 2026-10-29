@@ -213,6 +213,8 @@ interface Dockhand extends Agent {
    */
   truckId?: number;
   truckLoad?: boolean;
+  /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
+  blocker?: number;
 }
 
 interface Crane {
@@ -589,6 +591,13 @@ function isMachine(p: { kind: string }): boolean {
 /** Reach stackers and terminal tractors move containers; everyone else crates. */
 function isBoxy(p: { kind: string }): boolean {
   return p.kind === 'stacker' || p.kind === 'tractor';
+}
+
+/** What drives the port's roads in traffic: trucks, and the reach stackers and terminal tractors. */
+type Vehicle = Truck | Dockhand;
+
+function isTruck(o: Vehicle): o is Truck {
+  return 'contractId' in o;
 }
 
 /** Where slot `k` lies on a feeder's deck: its bay from the stern, row across and tier up. */
@@ -4509,7 +4518,8 @@ export class World {
   /**
    * Where a terminal tractor waits for a crane to lift a container onto it
    * or off it: in the bay between a gantry crane's legs; beside a harbour
-   * crane on the quay, along it, clear of the crane and its stack.
+   * crane on the quay, along it, clear of the crane and its stack, on a
+   * side no other tractor has if it can.
    */
   private craneSpot(p: Dockhand, c: Crane, drop = false): number {
     // A stacker at a gantry crane goes along it to the stack it works: the
@@ -4524,14 +4534,16 @@ export class World {
     const m = this.map;
     const a = this.quayHeading(c);
     const [dx, dy] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+    const sides: number[] = [];
     for (const sign of [1, -1]) {
       const x = m.xOf(c.idx) + dx * sign;
       const y = m.yOf(c.idx) + dy * sign;
       if (!m.inBounds(x, y)) continue;
       const t = m.idx(x, y);
-      if (Number.isFinite(this.driveCost(t)) && !isCrane(m.build[t])) return t;
+      if (Number.isFinite(this.driveCost(t)) && !isCrane(m.build[t])) sides.push(t);
     }
-    return this.pickTile(c);
+    // The side no other tractor has, if one is free.
+    return sides.find((t) => !this.spotTaken(t, p)) ?? sides[0] ?? this.pickTile(c);
   }
 
   /** Which way the lane under a yard's gantry runs, as a heading; see gantryLane. */
@@ -6091,7 +6103,16 @@ export class World {
   private walk(p: Dockhand) {
     const before = this.tileOf(p);
     const laneBefore = laneOf(p.dir);
-    const enter = (i: number) => p.squeeze || this.laneFree(i, laneOf(this.headingTo(p, i)));
+    const boxy = isBoxy(p);
+    // Where another machine works, it waits its turn short of it; a reach
+    // stacker or tractor otherwise keeps its distance in traffic (see
+    // roomAhead), anyone else to their side of the tile.
+    const junction = boxy ? this.mayEnter(p) : undefined;
+    const enter = (i: number) =>
+      !(boxy && i === p.goal && this.workingAt(i, p)) &&
+      (junction
+        ? p.squeeze || junction(i)
+        : p.squeeze || this.laneFree(i, laneOf(this.headingTo(p, i))));
     let r: ReturnType<World['move']>;
     if (isMachine(p)) {
       // An empty tank still crawls home on the reserve.
@@ -6105,7 +6126,14 @@ export class World {
       // A tractor finds a new way round as it drives, never turning about short.
       const repath =
         p.kind === 'tractor' ? () => this.pathFor(p, this.tileOf(p), p.goal) : undefined;
-      r = this.move(p, this.driveCost, true, () => this.drive(p, speed), enter, repath);
+      const room = () =>
+        boxy && !p.squeeze
+          ? Math.min(this.roomAhead(p) - B.TRUCK_GAP, this.toStopLine(p))
+          : Infinity;
+      const [x0, y0] = [p.x, p.y];
+      r = this.move(p, this.driveCost, true, () => this.drive(p, speed, room()), enter, repath);
+      // Held up behind something, it is waiting as at a tile it may not enter.
+      if (r === 'moving' && p.x === x0 && p.y === y0) r = 'waiting';
     } else {
       const pace = paceFactor(p.skill, p.morale, p.energy);
       r = this.move(p, this.walkCost, true, () => this.walkSpeed() * pace, enter);
@@ -6130,7 +6158,8 @@ export class World {
     if (r === 'waiting') {
       p.blocked++;
       if (working) this.jam.waiting++;
-      this.resolveJam(p);
+      if (boxy) this.resolveHold(p);
+      else this.resolveJam(p);
     } else if (r === 'moving') {
       if (working) this.jam.moving++;
     } else {
@@ -6161,6 +6190,109 @@ export class World {
   private tileBusy(i: number): boolean {
     const o = this.occupancy;
     return o[i * 4] + o[i * 4 + 1] + o[i * 4 + 2] + o[i * 4 + 3] >= this.laneCap(i);
+  }
+
+  /**
+   * A reach stacker or tractor held up in traffic: after a while it looks
+   * for a way round whatever is standing in its way, and if it is still
+   * held up long after, it squeezes on past, so nothing is stuck for good.
+   */
+  private resolveHold(p: Dockhand): void {
+    if (p.blocked === B.REROUTE_AFTER * 2) {
+      const base = this.driveCost;
+      const standing = this.standingTiles();
+      const cost: CostFn = (i) => base(i) + (standing.has(i) ? 8 : 0);
+      const m = this.map;
+      const path =
+        p.kind === 'tractor'
+          ? findDrivePath(m.w, m.h, this.tileOf(p), this.tileBehind(p), p.goal, cost, (i) =>
+              this.roomToTurn(i),
+            )
+          : findPath(m.w, m.h, this.tileOf(p), p.goal, cost, true);
+      if (path) p.path = path;
+    } else if (p.blocked >= B.TRUCK_SQUEEZE_AFTER) p.squeeze = true;
+  }
+
+  /** Tiles where a truck or port machine is standing a while: loading, unloading or at work. */
+  private standingTiles(): Set<number> {
+    const out = new Set<number>();
+    for (const o of this.trucks) if (this.docked(o)) out.add(this.tileOf(o));
+    for (const q of this.people) {
+      if (isBoxy(q) && (q.state === 'picking' || q.state === 'dropping')) out.add(this.tileOf(q));
+    }
+    return out;
+  }
+
+  /** A machine standing idle in someone's way drives off home to park now, rather than in a while. */
+  private makeWay(o: Vehicle): void {
+    if (!isTruck(o) && o.state === 'idle' && o.path.length === 0) o.timer = B.PARK_AFTER;
+  }
+
+  /** The port machines that drive in traffic, wherever they are other than parked at their depot. */
+  private machinesOnRoad(): Dockhand[] {
+    return this.people.filter(
+      (q) => isBoxy(q) && !(q.state === 'idle' && this.map.build[this.tileOf(q)] === Build.Depot),
+    );
+  }
+
+  /**
+   * Room to the back of whatever is nearest ahead of a reach stacker or
+   * tractor, in its lane going its way or across it: a truck, or another
+   * machine. Infinity if nothing is.
+   */
+  private roomAhead(p: Dockhand): number {
+    // Held up in a ring of machines and trucks each waiting on the next,
+    // the lowest numbered of them squeezes on through.
+    if (p.blocked > B.TRUCK_RING_AFTER && this.inRing(p)) {
+      p.blocker = undefined;
+      return Infinity;
+    }
+    p.blocker = undefined;
+    let best = Infinity;
+    const others: Vehicle[] = [
+      ...this.trucks.filter((o) => this.onRoad(o) || this.docked(o)),
+      ...this.machinesOnRoad(),
+    ];
+    for (const o of others) {
+      if (o === p) continue;
+      const along = this.onWay(p, o);
+      if (along < 0 || (o.path.length > 0 && o.id > p.id && this.onWay(o, p) >= 0)) continue;
+      this.makeWay(o);
+      const gap = along - (this.vehicleLength(p) + this.vehicleLength(o)) / 2;
+      if (gap < best) {
+        best = gap;
+        p.blocker = o.id;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Another reach stacker or terminal tractor at tile `i` to pick a load up
+   * there or set one down, or pulling up onto it to: the place is its, and
+   * `p` waits its turn short of it.
+   */
+  private workingAt(i: number, p: Dockhand): Dockhand | undefined {
+    return this.people.find(
+      (q) =>
+        q !== p &&
+        isBoxy(q) &&
+        this.tileOf(q) === i &&
+        (q.state === 'picking' ||
+          q.state === 'dropping' ||
+          ((q.state === 'toPickup' || q.state === 'toDrop') && q.goal === i)),
+    );
+  }
+
+  /** Whether another reach stacker or terminal tractor works at tile `i`, or is on its way to. */
+  private spotTaken(i: number, p: Dockhand): boolean {
+    return this.people.some(
+      (q) =>
+        q !== p &&
+        isBoxy(q) &&
+        (((q.state === 'picking' || q.state === 'dropping') && this.tileOf(q) === i) ||
+          ((q.state === 'toPickup' || q.state === 'toDrop') && q.goal === i)),
+    );
   }
 
   private headingTo(a: Agent, i: number): number {
@@ -7421,7 +7553,8 @@ export class World {
    * or quay beside its edge, never among them, facing a stack it can reach
    * from there; for `drop`, one with room for another, for `pick` one with
    * a container on top that `ok` lets through (`exports` for exports). The
-   * nearest it can get to from `from`, or -1.
+   * nearest it can get to from `from`, one no other machine has if it can
+   * be, or -1.
    */
   private stackSide(
     p: Dockhand,
@@ -7442,7 +7575,11 @@ export class World {
       if (!fits) return;
       for (const s of this.stackSides(b, t)) if (!spots.includes(s)) spots.push(s);
     });
-    spots.sort((x, y) => this.dist(from, x) - this.dist(from, y));
+    spots.sort(
+      (x, y) =>
+        Number(this.spotTaken(x, p)) - Number(this.spotTaken(y, p)) ||
+        this.dist(from, x) - this.dist(from, y),
+    );
     return spots.slice(0, 6).find((s) => this.pathFor(p, from, s)) ?? -1;
   }
 
@@ -7511,7 +7648,8 @@ export class World {
   /**
    * Where a terminal tractor stands for a yard's gantry to lift a container
    * off it or on: in the lane its rails run along, nearest the gantry,
-   * clear of where the trucks load if it can be; -1 if it cannot get there.
+   * clear of other machines and where the trucks load if it can be; -1 if
+   * it cannot get there.
    */
   private tractorSpot(p: Dockhand, yard: Bay, from: number): number {
     const lane = this.gantryLane(yard);
@@ -7519,6 +7657,7 @@ export class World {
     const trucks = new Set<number>(this.storeSpots(yard));
     const order = [...lane.keys()].sort(
       (a, b) =>
+        Number(this.spotTaken(a, p)) - Number(this.spotTaken(b, p)) ||
         Number(trucks.has(a)) - Number(trucks.has(b)) ||
         Math.abs(lane.get(a)!) - Math.abs(lane.get(b)!),
     );
@@ -9345,8 +9484,14 @@ export class World {
   }
 
   /** On the road and moving, rather than standing in a queue or at a line. */
-  private rolling(o: Truck): boolean {
+  private rolling(o: Vehicle): boolean {
+    if (!isTruck(o)) return o.path.length > 0 && o.blocked === 0;
     return this.onRoad(o) && o.path.length > 0 && (o.held ?? 0) === 0;
+  }
+
+  /** Trucks on the road and the port machines driving among them. */
+  private traffic(): Vehicle[] {
+    return [...this.trucks.filter((o) => this.onRoad(o)), ...this.machinesOnRoad()];
   }
 
   /** How far a truck may drive this tick: its speed, short of a safe gap behind the one ahead. */
@@ -9370,11 +9515,11 @@ export class World {
    * level crossing with the barriers down): a long truck stops with its
    * nose at the line, not in the junction. Infinity if none is near.
    */
-  private toStopLine(t: Truck): number {
+  private toStopLine(t: Vehicle): number {
     if (t.path.length === 0) return Infinity;
     const m = this.map;
     const here = this.tileOf(t);
-    const half = this.lengthOf(t) / 2;
+    const half = this.vehicleLength(t) / 2;
     const enter = this.mayEnter(t);
     let d = Math.hypot(m.xOf(t.path[0]) + 0.5 - t.x, m.yOf(t.path[0]) + 0.5 - t.y);
     for (let k = 0; k < t.path.length && d - 0.5 < half + 1.5; k++) {
@@ -9414,20 +9559,33 @@ export class World {
         t.blocker = o.id;
       }
     }
+    // And behind a reach stacker or tractor in its way, as behind a truck.
+    for (const o of this.machinesOnRoad()) {
+      const along = this.onWay(t, o);
+      if (along < 0 || (o.path.length > 0 && o.id > t.id && this.onWay(o, t) >= 0)) continue;
+      const gap = along - (this.lengthOf(t) + this.vehicleLength(o)) / 2;
+      this.makeWay(o);
+      if (gap < best) {
+        best = gap;
+        t.blocker = o.id;
+      }
+    }
     return best;
   }
 
   /**
-   * Whether a truck is in a ring of trucks each held up behind the next,
-   * back round to it, and the lowest numbered of them: the one to go.
+   * Whether a truck or machine is in a ring of trucks and machines each
+   * held up behind the next, back round to it, and the lowest numbered of
+   * them: the one to go.
    */
-  private inRing(t: Truck): boolean {
-    const by = new Map(this.trucks.map((o) => [o.id, o]));
-    let at: Truck | undefined = t;
+  private inRing(t: Vehicle): boolean {
+    const by = new Map<number, Vehicle>(this.trucks.map((o) => [o.id, o]));
+    for (const q of this.people) if (isBoxy(q)) by.set(q.id, q);
+    let at: Vehicle | undefined = t;
     let low = t.id;
     for (let k = 0; k < 12 && at?.blocker !== undefined; k++) {
       at = by.get(at.blocker);
-      if (!at || (at.held ?? 0) === 0) return false;
+      if (!at || this.heldFor(at) === 0) return false;
       if (at === t) return t.id === low;
       low = Math.min(low, at.id);
     }
@@ -9454,6 +9612,67 @@ export class World {
     if (along < 0 || along > reach) return -1;
     if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - dir) < -0.2) return -1;
     return along;
+  }
+
+  /**
+   * How far along its way truck or machine `t` comes up to truck or
+   * machine `o`: round its corners and across its diagonals, in its lane
+   * and not coming the other way on its own side of the road, a little
+   * past the end of its way; -1 if it does not.
+   */
+  private onWay(t: Vehicle, o: Vehicle): number {
+    const m = this.map;
+    const reach = 3 + this.vehicleLength(t);
+    const lane = isTruck(t) ? B.TRUCK_LANE : B.MACHINE_LANE;
+    const [ox, oy] = this.roadPos(o);
+    let x = t.x;
+    let y = t.y;
+    let dir = t.dir;
+    let run = 0;
+    for (let k = 0; k <= t.path.length && run < reach; k++) {
+      // Past the end of its way, only as far as its own front reaches.
+      const last = k === t.path.length;
+      const on = last ? this.vehicleLength(t) / 2 + B.TRUCK_GAP : 0;
+      const nx = last ? x + Math.cos(dir) * on : m.xOf(t.path[k]) + 0.5;
+      const ny = last ? y + Math.sin(dir) * on : m.yOf(t.path[k]) + 0.5;
+      const len = Math.hypot(nx - x, ny - y);
+      if (len < 1e-6) continue;
+      const hx = (nx - x) / len;
+      const hy = (ny - y) / len;
+      dir = Math.atan2(hy, hx);
+      const dx = ox - (x - hy * lane);
+      const dy = oy - (y + hx * lane);
+      const along = dx * hx + dy * hy;
+      const across = Math.abs(dy * hx - dx * hy);
+      // Clear of each other side by side; round a corner, what is just
+      // short of it only if it has turned that way already.
+      const facing = Math.cos(o.dir - dir);
+      const from = k > 0 && facing > 0.7 ? -0.3 : 0;
+      if (along >= from && along <= len && across <= 0.3 && facing >= -0.2) {
+        return run + Math.max(0, along);
+      }
+      run += len;
+      x = nx;
+      y = ny;
+    }
+    return -1;
+  }
+
+  /** Where a truck or machine is on the road: on the right-hand side of it, as each is shown. */
+  private roadPos(o: Vehicle): [number, number] {
+    if (isTruck(o)) return this.lanePos(o);
+    const lane = B.MACHINE_LANE;
+    return [o.x - Math.sin(o.dir) * lane, o.y + Math.cos(o.dir) * lane];
+  }
+
+  /** How long a truck or machine is, in tiles. */
+  private vehicleLength(o: Vehicle): number {
+    return isTruck(o) ? this.lengthOf(o) : B.MACHINE_LENGTH[o.kind as 'stacker' | 'tractor'];
+  }
+
+  /** How long a truck or machine has been held up, in ticks. */
+  private heldFor(o: Vehicle): number {
+    return isTruck(o) ? (o.held ?? 0) : o.blocked;
   }
 
   /** Which way a truck is going: towards the next tile on its way, or the way it faces. */
@@ -9565,13 +9784,13 @@ export class World {
     return [m.xOf(b) - m.xOf(a), m.yOf(b) - m.yOf(a)];
   }
 
-  /** Whether a truck about to drive onto junction `i` has room to drive off it again. */
-  private roomPast(t: Truck, i: number): boolean {
+  /** Whether a truck or machine about to drive onto junction `i` has room to drive off it again. */
+  private roomPast(t: Vehicle, i: number): boolean {
     const exit = t.path[1];
     if (exit === undefined) return true;
     const [ex, ey] = this.heading(i, exit);
-    for (const o of this.trucks) {
-      if (o === t || !this.onRoad(o) || this.rolling(o)) continue;
+    for (const o of this.traffic()) {
+      if (o === t || this.rolling(o)) continue;
       const tile = this.tileOf(o);
       if (tile !== exit && tile !== i) continue;
       // Standing just past it in the lane we want, or still on it going our way.
@@ -9585,28 +9804,28 @@ export class World {
    * order at any moment, so that one of them does, which turns over every
    * few seconds so that both get to.
    */
-  private goesFirst(a: Truck, b: Truck, i: number): boolean {
+  private goesFirst(a: Vehicle, b: Vehicle, i: number): boolean {
     const turn = Math.floor(this.tick / B.TRUCK_TAKE_TURNS) + i;
     return (turn & 1) === 0 ? a.id < b.id : a.id > b.id;
   }
 
   /**
-   * Whether a truck may drive on into tile `i`: the level crossing is open,
-   * and at a junction, or coming out of parking, the rules of the road let
-   * it.
+   * Whether a truck, or a port machine in traffic, may drive on into tile
+   * `i`: the level crossing is open, and at a junction, or coming out of
+   * parking, the rules of the road let it.
    */
-  private mayEnter(t: Truck): (i: number) => boolean {
+  private mayEnter(t: Vehicle): (i: number) => boolean {
     return (i) => {
       const m = this.map;
       // Its nose already over the line: it is committed, and goes on
       // rather than stop across the junction.
       const d = Math.hypot(m.xOf(i) + 0.5 - t.x, m.yOf(i) + 0.5 - t.y);
-      if (d - 0.5 < this.lengthOf(t) / 2 - 0.05 && i === t.path[0]) return true;
+      if (d - 0.5 < this.vehicleLength(t) / 2 - 0.05 && i === t.path[0]) return true;
       if (!this.level(i)) return false;
       const here = this.tileOf(t);
       const fromParking = m.build[here] === Build.Parking && m.build[i] !== Build.Parking;
       if (!this.junctions()[i] && !fromParking) return true;
-      const held = t.held ?? 0;
+      const held = this.heldFor(t);
       if (held > B.TRUCK_SQUEEZE_AFTER * 2) return true;
       if (!this.roomPast(t, i)) return false;
       if (held > B.TRUCK_SQUEEZE_AFTER) return true;
@@ -9619,8 +9838,8 @@ export class World {
       const rank = fromParking ? 0 : this.roadRank(here);
       const cx = m.xOf(i) + 0.5;
       const cy = m.yOf(i) + 0.5;
-      for (const o of this.trucks) {
-        if (o === t || !this.onRoad(o) || o.path.length === 0) continue;
+      for (const o of this.traffic()) {
+        if (o === t || o.path.length === 0) continue;
         const ox = Math.cos(o.dir);
         const oy = Math.sin(o.dir);
         const there = this.tileOf(o);

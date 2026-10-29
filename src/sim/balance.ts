@@ -115,6 +115,10 @@ export const TRUCK_LANE = 0.18;
 export const TRUCK_GAP = 0.25;
 /** Ticks trucks held up behind each other in a ring wait before the lowest numbered goes on. */
 export const TRUCK_RING_AFTER = 40;
+/** How long reach stackers and terminal tractors are, in tiles, for the room they keep in traffic. */
+export const MACHINE_LENGTH = { stacker: 0.8, tractor: 0.9 };
+/** How far right of the middle of the road reach stackers and terminal tractors drive (as entities.ts shows them). */
+export const MACHINE_LANE = 0.2;
 /** A truck's length in tiles: a container truck by how many it carries, a crate truck by its size. */
 export function truckLength(capacity: number, boxes: boolean): number {
   // A container truck pulls a trailer for each, coupled one behind another.
