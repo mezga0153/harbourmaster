@@ -2135,6 +2135,21 @@ describe('Container Port tier', () => {
     expect(world.yards.has(tiles[0])).toBe(false);
   });
 
+  it('sends a container ship to a berth under a gantry crane before a harbour crane', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    const m = world.map;
+    const from = m.idx(m.w - 1, m.yOf(m.entry) - 10);
+    const berths = world['freeBerths'](from, B.FEEDER_DRAFT, true, true);
+    expect(berths.length).toBeGreaterThan(1);
+    // Say the furthest of them were under a gantry: it goes there.
+    const far = berths[berths.length - 1].berth;
+    world['gantryReaches'] = (n: number) => n === far;
+    expect(world['freeBerths'](from, B.FEEDER_DRAFT, true, true)[0].berth).toBe(far);
+  });
+
   it('lifts containers with a gantry crane into the bay between its legs, for the stackers', () => {
     const world = World.create(7);
     world.tier = 2;

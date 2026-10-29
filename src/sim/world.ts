@@ -2745,6 +2745,14 @@ export class World {
     return false;
   }
 
+  /** Whether a gantry crane works this berth. */
+  private gantryReaches(berth: number): boolean {
+    for (const c of this.cranes.values()) {
+      if (c.kind === 'gantry' && this.craneFront(c).some((t) => this.near(t, berth))) return true;
+    }
+    return false;
+  }
+
   /** Within a tile of each other, diagonals too. */
   private near(a: number, b: number): boolean {
     const m = this.map;
@@ -2832,8 +2840,17 @@ export class World {
         );
         if (busy) continue;
         // The harbour master sends boats to the best-equipped free berth:
-        // under a crane first, then a quay forklifts can reach.
-        const bonus = craned ? 200 : m.build[j] === Build.Jetty ? 0 : 100;
+        // under a crane first, then a quay forklifts can reach; a container
+        // ship under a gantry crane rather than a slower harbour crane.
+        const bonus = needCrane
+          ? this.gantryReaches(n)
+            ? 200
+            : 0
+          : craned
+            ? 200
+            : m.build[j] === Build.Jetty
+              ? 0
+              : 100;
         const d = Math.abs(nx - m.xOf(from)) + Math.abs(ny - m.yOf(from)) - bonus;
         out.push({ berth: n, jetty: j, d, craned });
       }
