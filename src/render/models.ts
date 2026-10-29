@@ -19,7 +19,13 @@ export interface Model {
   limbs?: Limbs;
   /** Articulated trucks: the trailer, swinging behind the tractor. */
   trailer?: Trailer;
+  /** Forklifts: the carriage that runs up and down the mast, with the forks and the load. */
+  forks?: Object3D;
 }
+
+/** Forklifts: how high the forks ride empty and with a load, above the ground. */
+export const FORKS_EMPTY = 0.05;
+export const FORKS_LOADED = 0.12;
 
 /**
  * Paints a container can come in, as [column, row] of a shaded swatch in
@@ -167,24 +173,29 @@ export function forklift(): Model {
     for (const z of [-0.13, 0.13]) body.add(box(0.02, 0.26, 0.02, C.chassis, x, 0.2, z));
   }
   body.add(box(0.26, 0.02, 0.3, C.chassis, -0.05, 0.46));
-  // Mast and forks.
-  body.add(box(0.03, 0.42, 0.03, C.chassis, 0.16, 0.06, -0.09));
-  body.add(box(0.03, 0.42, 0.03, C.chassis, 0.16, 0.06, 0.09));
-  body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, -0.07));
-  body.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0.06, 0.07));
+  // The mast, and the carriage that runs up and down it with the forks:
+  // down on the ground to go under a pallet, up a little to drive with it.
+  body.add(box(0.03, 0.47, 0.03, C.chassis, 0.16, 0.01, -0.09));
+  body.add(box(0.03, 0.47, 0.03, C.chassis, 0.16, 0.01, 0.09));
+  const forks = new Group();
+  forks.position.set(0, FORKS_EMPTY, 0);
+  forks.add(box(0.02, 0.1, 0.22, C.chassis, 0.185, 0));
+  forks.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0, -0.07));
+  forks.add(box(0.26, 0.015, 0.04, C.chassis, 0.29, 0, 0.07));
   // Crates ride on a pallet, which shows with the first of them.
   const crates: Object3D[] = [];
   for (let layer = 0; layer < 2; layer++) {
     for (const z of [-0.08, 0.08]) {
-      const c = crate(0.15, 0.3, 0.1 + layer * 0.15, z);
+      const c = crate(0.15, 0.3, 0.04 + layer * 0.15, z);
       c.visible = false;
-      body.add(c);
+      forks.add(c);
       crates.push(c);
     }
   }
   crates[0].add(box(0.2, 0.025, 0.34, C.wood, 0, -0.025, 0.08));
+  body.add(forks);
   root.add(body);
-  return { root, crates, body };
+  return { root, crates, body, forks };
 }
 
 /** A reach stacker: heavy yellow carrier with a boom that grips one container. */

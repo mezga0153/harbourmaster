@@ -5825,6 +5825,13 @@ export class World {
     return Math.max(1, Math.round(base * traitDef(p.trait).handling));
   }
 
+  /** How far through picking a load up or setting one down a worker is, 0 to 1. */
+  private handlingPhase(p: Dockhand): number | undefined {
+    if (p.state !== 'picking' && p.state !== 'dropping') return undefined;
+    const total = this.handlingTicks(p, p.state === 'picking' ? B.PICK_TICKS : B.DROP_TICKS);
+    return clamp(1 - p.timer / total, 0, 1);
+  }
+
   private changeMorale(p: Dockhand, delta: number): void {
     if (isMachine(p)) return;
     const scaled = delta < 0 ? delta * traitDef(p.trait).moraleLoss : delta;
@@ -8691,6 +8698,7 @@ export class World {
           lifts.get(p.id),
         ),
         moving: p.path.length > 0,
+        handling: this.handlingPhase(p),
         name: p.name,
         activity:
           p.blocked > 3

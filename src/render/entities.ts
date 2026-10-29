@@ -7,6 +7,8 @@ import { TICKS_PER_SECOND } from '../sim/types';
 import {
   alertMarker,
   boat,
+  FORKS_EMPTY,
+  FORKS_LOADED,
   forklift,
   person,
   paintLoad,
@@ -39,6 +41,22 @@ interface Entry {
   /** Articulated trucks: where the trailer's axles and the fifth wheel were last frame. */
   axle?: [number, number];
   hitch?: [number, number];
+  /** Forklifts' forks, or a dockhand's hands: how far down to the ground, 0 to 1. */
+  down?: number;
+  /** Forklifts turning about: where from, which way to, see turnAbout. */
+  about?: About;
+  /** Forklifts: how far off their way they were when they turned off it part way round. */
+  slip?: { x: number; y: number; yaw: number; left: number };
+}
+
+interface About {
+  x: number;
+  y: number;
+  dir: number;
+  path: TurnAbout;
+  /** The sim tick of the snapshot it started in, so it starts once. */
+  tick: number;
+  done: boolean;
 }
 
 /** Furthest a trailer folds against its tractor, either way: 80°. */
@@ -56,6 +74,15 @@ const WATERLINE = 0.45;
 /** How quickly a wake builds up and dies away, per game second. */
 const WAKE_RISE = 0.45;
 const WAKE_FALL = 0.3;
+
+/**
+ * How far through picking a load up or setting it down the forks, or a
+ * dockhand's hands, are down on the ground; and how quickly they go down
+ * and come back up, per game second.
+ */
+const DOWN_BY = 0.5;
+const DOWN_RATE = 4;
+const UP_RATE = 3;
 
 /** A wake barely shows while a boat is just getting under way. */
 function wakeStrength(way: number): number {
@@ -131,6 +158,88 @@ export interface Wake {
   beam: number;
   /** Waterline length: where the hull ends and the open wake begins. */
   length: number;
+}
+
+/** Forklifts: how far to the right of the middle of the way they keep. */
+const FORK_KEEP = 0.16;
+/** Forklifts turning about: the tighter of the two arcs they go round. */
+const TIGHT_ARC = 0.15;
+/** How far off the way it is going a forklift has to face to turn about. */
+const TURN_FROM = (Math.PI * 2) / 3;
+/**
+ * How far it drives on straight after, catching up with where it would be
+ * had it not had to go round: it goes not much faster than usual.
+ */
+const RUN_OUT = 0.8;
+
+/** Game seconds a forklift takes to ease onto a way it turned onto part way round. */
+const SLIP_TIME = 0.3;
+
+/** Where a forklift turning about is and which way it faces; see turnAbout. */
+export interface TurnAbout {
+  /** How far along its way it goes while it turns about. */
+  reach: number;
+  /**
+   * Given how far along the way it has gone from where it stood: how far
+   * ahead of that point and to the right of the middle of the way it is,
+   * and which way it faces, against the way it is going.
+   */
+  at(s: number): { ahead: number; right: number; face: number };
+}
+
+/**
+ * A forklift that sets off the way its tail points, as when it drives away
+ * from a load it has just picked up or set down, does not spin round on the
+ * spot: it backs out with its tail swinging round until it is side on to
+ * its way, then pulls forward round onto it, keeping to its own side, and
+ * drives on a little to catch up. It starts facing `face` against the way
+ * it is going (more than a right angle off), on its own side of where it
+ * faced, and ends facing ahead. Whichever way it turns, the arc it backs out
+ * on or the one it pulls forward round is wide enough to cross from one side
+ * of the way to the other.
+ */
+export function turnAbout(face: number): TurnAbout {
+  const quarter = Math.PI / 2;
+  // Worked out turning left, from a face between straight back and side on
+  // to the left; the other way round is the same, mirrored.
+  const mirror = face > 0 && face < Math.PI - 0.01;
+  const f0 = mirror ? -face : face > 0 ? face - Math.PI * 2 : face;
+  const keep = mirror ? -FORK_KEEP : FORK_KEEP;
+  const c = Math.max(0.05, -Math.cos(f0));
+  const back = keep > 0 ? (keep * (1 + c) + TIGHT_ARC) / c : TIGHT_ARC;
+  const pull = keep > 0 ? TIGHT_ARC : back * c - keep * (1 + c);
+  const x0 = -keep * Math.sin(f0);
+  const y0 = keep * Math.cos(f0);
+  const x1 = x0 + back * (Math.sin(f0) + 1);
+  const y1 = y0 - back * Math.cos(f0);
+  const backLength = back * (-quarter - f0);
+  const turned = backLength + pull * quarter;
+  const length = turned + RUN_OUT;
+  const reach = x1 + pull + RUN_OUT;
+  return {
+    reach,
+    at(s: number) {
+      const d = Math.max(0, Math.min(reach, s));
+      const l = (d / reach) * length;
+      let x: number;
+      let y: number;
+      let f: number;
+      if (l < backLength) {
+        f = f0 + l / back;
+        x = x0 + back * (Math.sin(f0) - Math.sin(f));
+        y = y0 + back * (Math.cos(f) - Math.cos(f0));
+      } else if (l < turned) {
+        f = -quarter + (l - backLength) / pull;
+        x = x1 + pull * (1 + Math.sin(f));
+        y = y1 - pull * Math.cos(f);
+      } else {
+        f = 0;
+        x = x1 + pull + (l - turned);
+        y = y1 - pull;
+      }
+      return { ahead: x - d, right: mirror ? -y : y, face: mirror ? -f : f };
+    },
+  };
 }
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
@@ -306,13 +415,40 @@ export class Entities {
         }
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
-        const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
-        const rx = x - Math.sin(dir) * keep;
-        const ry = y + Math.cos(dir) * keep;
+        const keep = cur.kind === 'forklift' ? FORK_KEEP : 0.2;
+        const going = e.about && !e.about.done ? e.about : null;
+        const about = cur.kind === 'forklift' ? this.turningAbout(e, prev, x, y) : null;
+        // Once round, it faces the way it is going, not part way between.
+        const way = about ? about.dir : dir;
+        let rx = x - Math.sin(way) * keep;
+        let ry = y + Math.cos(way) * keep;
+        let yaw = way;
+        if (about && !about.done) {
+          [rx, ry, yaw] = aboutAt(about, x, y);
+        } else if (going) {
+          // It turned off its way before it was round: it eases from where
+          // it had got to onto its own side of the new way.
+          const [ax, ay, ayaw] = aboutAt(going, x, y);
+          e.slip = { x: ax - rx, y: ay - ry, yaw: lerpAngle(yaw, ayaw, 1) - yaw, left: 1 };
+        }
+        if (e.slip) {
+          const f = e.slip.left * e.slip.left;
+          rx += e.slip.x * f;
+          ry += e.slip.y * f;
+          yaw += e.slip.yaw * f;
+          e.slip.left -= dt / SLIP_TIME;
+          if (e.slip.left <= 0) e.slip = undefined;
+        }
+        root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
         if (e.model.trailer) this.trail(e, e.model.trailer, x, y, dir, cur.moving, dt);
+      }
+      if (cur.kind === 'forklift' || cur.kind === 'dockhand') {
+        const down = this.lower(e, prev, t, dt);
+        const forks = e.model.forks;
+        if (forks) forks.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
       }
       if (cur.kind === 'dockhand') pose(e.model, cur.moving, cur.load > 0, time * 12 + id);
       if (e.alert) {
@@ -364,6 +500,56 @@ export class Entities {
     e.axle = [hx - Math.cos(a) * t.length, hy - Math.sin(a) * t.length];
     e.hitch = [hx, hy];
     t.root.rotation.y = bend;
+  }
+
+  /**
+   * A forklift setting off back the way it faces turns about (see
+   * turnAbout) until it has gone far enough along its way, or turns off it;
+   * returns where it started and which way it is going, or null. One that
+   * is round before the next snapshot comes is returned until then, done.
+   */
+  private turningAbout(e: Entry, prev: EntityView, x: number, y: number): About | null {
+    const cur = e.view;
+    const face = lerpAngle(cur.dir, prev.dir, 1) - cur.dir;
+    const moved = cur.x !== prev.x || cur.y !== prev.y;
+    if (Math.abs(face) > TURN_FROM && moved && e.about?.tick !== this.lastTick) {
+      const path = turnAbout(face);
+      e.about = { x: prev.x, y: prev.y, dir: cur.dir, path, tick: this.lastTick, done: false };
+    }
+    const about = e.about;
+    if (!about) return null;
+    if (about.done) return about.tick === this.lastTick ? about : null;
+    const along = (x - about.x) * Math.cos(about.dir) + (y - about.y) * Math.sin(about.dir);
+    // Round, or turning off its way before it is: it goes on as usual.
+    if (along >= about.path.reach || Math.abs(lerpAngle(about.dir, cur.dir, 1) - about.dir) > 0.1) {
+      about.done = true;
+    }
+    return about;
+  }
+
+  /**
+   * Forks, or a dockhand's hands, go down to the ground over the first part
+   * of picking a load up or setting it down, so they are there by the time
+   * the load leaves where it was and shows on them, or leaves them and
+   * shows where it is set down; then they come back up. Returns how far
+   * down they are, 0 to 1.
+   */
+  private lower(e: Entry, prev: EntityView, t: number, dt: number): number {
+    const cur = e.view;
+    let goal = 0;
+    if (cur.handling !== undefined) {
+      const from = prev.handling;
+      const p =
+        from !== undefined && from <= cur.handling
+          ? from + (cur.handling - from) * t
+          : cur.handling;
+      const f = Math.min(1, p / DOWN_BY);
+      goal = f * f * (3 - 2 * f);
+    }
+    const was = e.down ?? 0;
+    const step = dt * (goal > was ? DOWN_RATE : UP_RATE);
+    e.down = was + Math.max(-step, Math.min(step, goal - was));
+    return e.down;
   }
 
   /** Leave a wake to settle where it lies. */
@@ -430,6 +616,18 @@ export class Entities {
   worldPositions(): { view: EntityView; pos: Vector3 }[] {
     return [...this.entries.values()].map((e) => ({ view: e.view, pos: e.model.root.position }));
   }
+}
+
+/** Where a forklift turning about is, at a point of the way, and which way it faces. */
+function aboutAt(about: About, x: number, y: number): [number, number, number] {
+  const ux = Math.cos(about.dir);
+  const uy = Math.sin(about.dir);
+  const at = about.path.at((x - about.x) * ux + (y - about.y) * uy);
+  return [
+    x + ux * at.ahead - uy * at.right,
+    y + uy * at.ahead + ux * at.right,
+    about.dir + at.face,
+  ];
 }
 
 function lerpAngle(a: number, b: number, t: number): number {

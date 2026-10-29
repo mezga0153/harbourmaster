@@ -59,6 +59,11 @@ export interface EntityView {
   /** Crates carried. */
   load: number;
   moving: boolean;
+  /**
+   * Workers picking a load up or setting one down: how far through, 0 to 1.
+   * The load leaves where it was, or shows where it goes, as it ends.
+   */
+  handling?: number;
   name: string;
   activity: string;
   /** Per-entity paint colour index (trucks, boats). */
