@@ -69,7 +69,6 @@ import {
   terraformCost,
   terraformError,
   machinePlacementError,
-  nearCrane,
   placementCost,
   placementError,
   ROTATABLE,
@@ -77,6 +76,9 @@ import {
   STORE_COST,
   STORE_LABEL,
   STORE_TIER,
+  loadingSpots,
+  truckCost,
+  truckReach,
   walkableAt,
 } from './rules';
 import { MACHINES } from './machines';
@@ -5351,18 +5353,8 @@ export class World {
   private storeSpots(a: Bay): number[] {
     const cached = this.spotCache.get(a.idx);
     if (cached) return cached;
-    const m = this.map;
-    const reach = this.truckReach();
-    const spots = new Set<number>();
-    for (const t of a.tiles!) {
-      for (const n of m.neighbors4(t)) {
-        if (reach[n] < 0 || m.store[n] || m.build[n] === Build.Crossing) continue;
-        if (m.build[n] === Build.Gate) continue;
-        spots.add(n);
-      }
-    }
     const most = Math.max(1, Math.floor(a.tiles!.length / B.STORE_TILES_PER_TRUCK));
-    const out = [...spots].sort((p, q) => reach[p] - reach[q] || p - q).slice(0, most);
+    const out = loadingSpots(this.map, a.tiles!, this.truckReach()).slice(0, most);
     this.spotCache.set(a.idx, out);
     return out;
   }
@@ -5372,25 +5364,8 @@ export class World {
    * -1: public roads, and port roads and quays through a port gate.
    */
   private truckReach(): Int32Array {
-    if (this.reachCache) return this.reachCache;
-    const m = this.map;
-    const cost = this.truckCost(-1);
-    const dist = new Int32Array(m.build.length).fill(-1);
-    const queue: number[] = [];
-    if (Number.isFinite(cost(m.entry))) {
-      dist[m.entry] = 0;
-      queue.push(m.entry);
-    }
-    for (let k = 0; k < queue.length; k++) {
-      const cur = queue[k];
-      for (const n of m.neighbors4(cur)) {
-        if (dist[n] >= 0 || !Number.isFinite(cost(n, cur))) continue;
-        dist[n] = dist[cur] + 1;
-        queue.push(n);
-      }
-    }
-    this.reachCache = dist;
-    return dist;
+    this.reachCache ??= truckReach(this.map);
+    return this.reachCache;
   }
 
   /** Tiles trucks drive from the highway to load at a bay, or Infinity. */
@@ -5433,23 +5408,7 @@ export class World {
    * that touches a road. Storage areas they load beside, never drive into.
    */
   private truckCost(target: number, home = -1): CostFn {
-    const m = this.map;
-    const way = (i: number): 'road' | 'port' | 'gate' | null => {
-      const b = m.build[i];
-      if (m.store[i] || nearCrane(m, i)) return null;
-      if (isPublicRoad(b)) return 'road';
-      if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(m, i) ? null : 'port';
-      if (b === Build.Gate) return 'gate';
-      const a = anchorOf(m, i);
-      return a === target || a === home ? 'gate' : null;
-    };
-    return (i, from) => {
-      const here = way(i);
-      if (!here) return Infinity;
-      const there = from === undefined || from < 0 ? null : way(from);
-      const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
-      return jump ? Infinity : 1;
-    };
+    return truckCost(this.map, target, home);
   }
 
   private spawnTrucks(): void {

@@ -25,6 +25,15 @@ const OK = new Color(0x5fdc7a);
 const BAD = new Color(0xff5a4f);
 const ROUTE = new Color(0x4fb3ff);
 
+/** What a tinted tile shows: ground kept for machines, a crane's reach, where trucks load. */
+export type HintKind = 'zone' | 'reach' | 'spot';
+const HINT: Record<HintKind, Color> = {
+  zone: new Color(0xff4a3d),
+  reach: new Color(0x4fb3ff),
+  spot: new Color(0xf5c02a),
+};
+export type Hints = { kind: HintKind; tiles: number[] }[];
+
 /** Hover outline, build previews and the selection ring. */
 export class Overlay {
   readonly group = new Group();
@@ -33,6 +42,9 @@ export class Overlay {
   private ring: Mesh;
   private arrow: Mesh;
   private reach: InstancedMesh;
+  /** Tiles tinted to explain a tool in hand or what is selected; see setHints. */
+  private hints: InstancedMesh;
+  private hintSets: Record<'tool' | 'selection', Hints> = { tool: [], selection: [] };
   /** The marked ways in and out, through the buoys in order. */
   private channels: LineSegments[];
   /** Where a selected boat plots it will be, and the boat it is giving way to. */
@@ -96,6 +108,14 @@ export class Overlay {
     this.reach.count = 0;
     this.reach.frustumCulled = false;
 
+    this.hints = new InstancedMesh(
+      plane,
+      new MeshBasicMaterial({ transparent: true, opacity: 0.32, depthWrite: false }),
+      MAX_GHOSTS,
+    );
+    this.hints.count = 0;
+    this.hints.frustumCulled = false;
+
     this.channels = [0x3fd06a, 0xff6a5c].map((color) => {
       const line = new LineSegments(
         new BufferGeometry(),
@@ -136,6 +156,7 @@ export class Overlay {
       this.ring,
       this.arrow,
       this.reach,
+      this.hints,
       ...this.channels,
       ...this.plots,
     );
@@ -199,6 +220,30 @@ export class Overlay {
     this.reach.count = k;
     this.reach.instanceMatrix.needsUpdate = true;
     if (this.reach.instanceColor) this.reach.instanceColor.needsUpdate = true;
+  }
+
+  /**
+   * Tint tiles to explain how things work: for the tool in hand (a crane's
+   * machines-only ground and reach, where trucks would load beside storage)
+   * or for what is selected. Each source keeps its own set.
+   */
+  setHints(map: GameMap, source: 'tool' | 'selection', hints: Hints): void {
+    this.hintSets[source] = hints;
+    const m = new Matrix4();
+    let k = 0;
+    for (const { kind, tiles } of [...this.hintSets.tool, ...this.hintSets.selection]) {
+      for (const i of tiles) {
+        if (k >= MAX_GHOSTS) break;
+        const x = map.xOf(i);
+        const y = map.yOf(i);
+        m.makeTranslation(x, surfaceY(map, x, y) + 0.035, y);
+        this.hints.setMatrixAt(k, m);
+        this.hints.setColorAt(k++, HINT[kind]);
+      }
+    }
+    this.hints.count = k;
+    this.hints.instanceMatrix.needsUpdate = true;
+    if (this.hints.instanceColor) this.hints.instanceColor.needsUpdate = true;
   }
 
   /** Arrow on tile `i` pointing the way a building faces (0 +x, 1 +y, …). */

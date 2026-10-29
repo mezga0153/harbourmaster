@@ -53,6 +53,8 @@ export interface Preview {
   /** Money spent (negative) or refunded (positive). */
   value: number;
   error: string | null;
+  /** How what is being built will work, shown under the cost. */
+  note?: string;
 }
 
 export const snapshot = signal<Snapshot | null>(null);

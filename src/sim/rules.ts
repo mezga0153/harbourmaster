@@ -1,5 +1,6 @@
 import * as B from './balance';
 import type { GameMap } from './map';
+import type { CostFn } from './path';
 import { ownedByTown } from './town';
 import {
   Build,
@@ -8,6 +9,7 @@ import {
   isBuoy,
   isCrane,
   isDock,
+  isPublicRoad,
   isTownBuilding,
   Store,
   STORE_CODE,
@@ -696,4 +698,97 @@ export function buoyGates(map: GameMap, out: boolean): { a: number; b: number }[
   const gates: { a: number; b: number }[] = [];
   for (let k = 0; k < buoys.length; k += 2) gates.push({ a: buoys[k], b: buoys[k + 1] ?? -1 });
   return gates;
+}
+
+/**
+ * Trucks drive on public roads, and on port roads once they are through a
+ * port gate: never straight from one to the other. A truck bay is only
+ * enterable as the destination, or the one being left, from any side of it
+ * that touches a road. Storage areas they load beside, never drive into, and
+ * they keep off machines-only ground.
+ */
+export function truckCost(map: GameMap, target = -1, home = -1): CostFn {
+  const way = (i: number): 'road' | 'port' | 'gate' | null => {
+    const b = map.build[i];
+    if (map.store[i] || nearCrane(map, i)) return null;
+    if (isPublicRoad(b)) return 'road';
+    if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(map, i) ? null : 'port';
+    if (b === Build.Gate) return 'gate';
+    const a = anchorOf(map, i);
+    return a === target || a === home ? 'gate' : null;
+  };
+  return (i, from) => {
+    const here = way(i);
+    if (!here) return Infinity;
+    const there = from === undefined || from < 0 ? null : way(from);
+    const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
+    return jump ? Infinity : 1;
+  };
+}
+
+/**
+ * How far trucks drive from the highway to each tile they can get to, or
+ * -1: public roads, and port roads and quays through a port gate.
+ */
+export function truckReach(map: GameMap): Int32Array {
+  const cost = truckCost(map);
+  const dist = new Int32Array(map.build.length).fill(-1);
+  const queue: number[] = [];
+  if (Number.isFinite(cost(map.entry))) {
+    dist[map.entry] = 0;
+    queue.push(map.entry);
+  }
+  for (let k = 0; k < queue.length; k++) {
+    const cur = queue[k];
+    for (const n of map.neighbors4(cur)) {
+      if (dist[n] >= 0 || !Number.isFinite(cost(n, cur))) continue;
+      dist[n] = dist[cur] + 1;
+      queue.push(n);
+    }
+  }
+  return dist;
+}
+
+/**
+ * Tiles beside a storage area where trucks can stand to load, nearest the
+ * highway first: road they can reach, not a level crossing or a port gate,
+ * nor storage itself.
+ */
+export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): number[] {
+  const area = new Set(tiles);
+  const spots = new Set<number>();
+  for (const t of tiles) {
+    for (const n of map.neighbors4(t)) {
+      if (area.has(n) || reach[n] < 0 || map.store[n]) continue;
+      if (map.build[n] === Build.Crossing || map.build[n] === Build.Gate) continue;
+      spots.add(n);
+    }
+  }
+  return [...spots].sort((p, q) => reach[p] - reach[q] || p - q);
+}
+
+/** Tiles round a crane at `i` kept for port machines, and those a jib crane reaches storage in. */
+export function craneGround(
+  map: GameMap,
+  kind: 'jibCrane' | 'harbourCrane' | 'gantryCrane',
+  i: number,
+  facing: number,
+): { zone: number[]; reach: number[] } {
+  const tiles = footprint(map, kind, i, facing).filter((t) => t >= 0);
+  const around = (r: number) => {
+    const out = new Set<number>();
+    for (const t of tiles) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const x = map.xOf(t) + dx;
+          const y = map.yOf(t) + dy;
+          if (map.inBounds(x, y)) out.add(map.idx(x, y));
+        }
+      }
+    }
+    return out;
+  };
+  const zone = around(1);
+  const reach = kind === 'jibCrane' ? [...around(B.JIB_REACH)].filter((t) => !zone.has(t)) : [];
+  return { zone: [...zone], reach };
 }

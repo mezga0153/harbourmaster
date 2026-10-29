@@ -338,6 +338,12 @@ function InfoPanel({ actions }: { actions: Actions }) {
           title={bay.warehouse ? 'Crate storage' : bay.large ? 'Large truck bay' : 'Truck bay'}
           onClose={close}
         />
+        {bay.tiles && (
+          <p class="muted">
+            Dockhands and forklifts bring crates here, and jib cranes close by swing them straight
+            in. Trucks load from the road beside it, on the yellow tiles.
+          </p>
+        )}
         <dl class="props">
           <dt>Crates waiting</dt>
           <dd>
@@ -374,7 +380,12 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <span class={`dot ${c.busy ? 'live' : ''}`} />
           {c.why}
         </p>
-        <p class="muted">{CRANE_NOTE[c.kind]}</p>
+        <p class="muted">
+          {CRANE_NOTE[c.kind]}{' '}
+          {c.kind === 'jib'
+            ? 'Red on the map: machines only. Blue: as far as it reaches into storage.'
+            : 'Red on the map: machines only.'}
+        </p>
         <dl class="props">
           <dt>{c.kind === 'gantry' ? 'Between its legs' : 'Landing stack'}</dt>
           <dd>
@@ -400,7 +411,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
         <p class="muted">
           Reach stackers stack containers here from the cranes. Once customs have cleared them,
-          about half a day later, container trucks load them from the road beside the yard.
+          about half a day later, container trucks load them from the road beside the yard, on the
+          yellow tiles.
         </p>
         <dl class="props">
           <dt>Containers</dt>
@@ -497,6 +509,7 @@ function PreviewTip() {
       {!p.rotatable && <span class="muted">{p.count === 1 ? '1 tile' : `${p.count} tiles`}</span>}
       <strong class={p.value < 0 ? 'neg' : 'pos'}>{money(p.value)}</strong>
       {p.rotatable && <span class="muted">Right-click to rotate</span>}
+      {p.note && <span class="muted">{p.note}</span>}
     </div>
   );
 }

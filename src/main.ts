@@ -5,8 +5,10 @@ import { loadAssets } from './render/assets';
 import { Renderer } from './render/renderer';
 import { isMachineKind } from './sim/machines';
 import { GameMap } from './sim/map';
-import { buoyGates, driveNetwork } from './sim/rules';
-import { isBay } from './sim/types';
+import type { Hints } from './render/overlay';
+import * as B from './sim/balance';
+import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from './sim/rules';
+import { Build, isBay } from './sim/types';
 import { App, type Actions } from './ui/App';
 import { pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
@@ -36,6 +38,7 @@ render(h(App, { actions }), hud);
 selection.subscribe((s) => {
   renderer.select(s?.type === 'entity' ? s.id : null);
   showReach();
+  showGround();
 });
 tool.subscribe(() => showChannels());
 
@@ -70,6 +73,38 @@ function showReach(): void {
     else if (net.has(i)) route.push(i);
   }
   renderer.overlay.setReach(m, route, bays, cutOff);
+}
+
+/**
+ * With a crane selected, its machines-only ground and a jib crane's reach;
+ * with storage, where the trucks load beside it.
+ */
+function showGround(): void {
+  if (!map) return;
+  const m = map;
+  const s = selection.peek();
+  const snap = snapshot.peek();
+  let hints: Hints = [];
+  if (s?.type === 'crane') {
+    const b = m.build[s.idx];
+    const kind =
+      b === Build.JibCrane ? 'jibCrane' : b === Build.Gantry ? 'gantryCrane' : 'harbourCrane';
+    const { zone, reach } = craneGround(m, kind, s.idx, m.orient[s.idx] & 3);
+    hints = [
+      { kind: 'reach', tiles: reach },
+      { kind: 'zone', tiles: zone },
+    ];
+  } else if (s?.type === 'bay' || s?.type === 'yard') {
+    const area =
+      s.type === 'bay'
+        ? snap?.bays.find((b) => b.idx === s.idx)?.tiles
+        : snap?.yards.find((y) => y.idx === s.idx)?.tiles;
+    if (area) {
+      const most = Math.max(1, Math.floor(area.length / B.STORE_TILES_PER_TRUCK));
+      hints = [{ kind: 'spot', tiles: loadingSpots(m, area, truckReach(m)).slice(0, most) }];
+    }
+  }
+  renderer.overlay.setHints(m, 'selection', hints);
 }
 
 /** With a boat selected, show where it plots it will be, and the boat it gives way to. */
@@ -117,6 +152,7 @@ function handle(msg: WorkerMessage): void {
   renderer.applyTiles(msg.tiles, treesChanged, terrainChanged, seaChanged);
   if (msg.tiles.length > 0) {
     showReach();
+    showGround();
     showChannels();
   }
   renderer.applySnapshot(msg.snapshot);

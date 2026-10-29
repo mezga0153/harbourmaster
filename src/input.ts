@@ -19,6 +19,9 @@ import {
   ROTATABLE,
   STORE_COST,
   storeError,
+  craneGround,
+  loadingSpots,
+  truckReach,
 } from './sim/rules';
 import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
@@ -40,6 +43,13 @@ import {
 import { categoryOf, TOOL_KEYS } from './ui/tools';
 
 type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
+
+/** What the tints round a crane being placed mean. */
+const CRANE_NOTES: Partial<Record<string, string>> = {
+  jibCrane: 'Red: machines only. Blue: crate storage here is filled straight from the boats',
+  harbourCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
+  gantryCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
+};
 
 const SPEED_KEYS: Record<string, number> = { '1': 1, '2': 2, '3': 4, '4': 8 };
 
@@ -279,6 +289,7 @@ export class Input {
     const map = this.getMap();
     const t = tool.value;
     if (!map) return;
+    this.renderer.overlay.setHints(map, 'tool', []);
     if (t === 'select' || i === null) {
       this.renderer.overlay.setGhosts(map, [], []);
       this.renderer.overlay.setArrow(map, null, 0);
@@ -288,6 +299,7 @@ export class Input {
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
     if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
+    if (t === 'jibCrane' || t === 'harbourCrane') this.showCraneGround(map, t, i, 0);
     if (t === 'dredge' || t === 'reclaim') {
       return this.previewTerraform(map, this.tilesFor(i), t === 'reclaim');
     }
@@ -336,6 +348,7 @@ export class Input {
       rotatable: false,
       value,
       error: pending.size === 0 ? error : null,
+      note: CRANE_NOTES[t],
     };
   }
 
@@ -381,12 +394,39 @@ export class Input {
     const each = on ? -STORE_COST[kind] : Math.floor(STORE_COST[kind] * B.BULLDOZE_REFUND);
     this.renderer.overlay.setGhosts(map, tiles, ok);
     this.renderer.overlay.setArrow(map, null, 0);
+    // Where trucks would stand to load, beside what is being marked out.
+    const marked = tiles.filter((_, k) => ok[k]);
+    const spots = on && count > 0 ? loadingSpots(map, marked, truckReach(map)) : [];
+    this.renderer.overlay.setHints(map, 'tool', [{ kind: 'spot', tiles: spots }]);
+    const note =
+      !on || count === 0
+        ? undefined
+        : spots.length > 0
+          ? 'Trucks load from the yellow tiles beside it'
+          : kind === 'crates'
+            ? 'No road beside it for trucks: forklifts will take its crates on'
+            : 'No road beside it: container trucks could not collect from it';
     preview.value = {
       count,
       rotatable: false,
       value: count * each,
       error: count > 0 ? null : storeError(map, tiles[0], kind, on),
+      note,
     };
+  }
+
+  /** A crane's machines-only ground in red, and how far a jib crane reaches storage in blue. */
+  private showCraneGround(
+    map: GameMap,
+    kind: 'jibCrane' | 'harbourCrane' | 'gantryCrane',
+    i: number,
+    facing: number,
+  ): void {
+    const { zone, reach } = craneGround(map, kind, i, facing);
+    this.renderer.overlay.setHints(map, 'tool', [
+      { kind: 'reach', tiles: reach },
+      { kind: 'zone', tiles: zone },
+    ]);
   }
 
   /** Same rounds as the sim, so a channel dug inland from the shore fits. */
@@ -424,6 +464,7 @@ export class Input {
   private previewBuilding(map: GameMap, kind: BuildKind, i: number): void {
     const f = rotation.value ?? bestFacing(map, kind, i);
     this.facing = f;
+    if (kind === 'gantryCrane') this.showCraneGround(map, kind, i, f);
     const tiles = footprint(map, kind, i, f).filter((t) => t >= 0);
     const error = placementError(map, kind, i, undefined, f);
     this.renderer.overlay.setGhosts(
@@ -437,6 +478,7 @@ export class Input {
       rotatable: true,
       value: -placementCost(map, kind, i),
       error,
+      note: CRANE_NOTES[kind],
     };
   }
 
