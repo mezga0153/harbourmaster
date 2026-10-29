@@ -9318,20 +9318,20 @@ export class World {
       // inside the port, or is not sent yet.
       const boxy = haulier.terms.cargo === 'container';
       const served = !boxy || this.handlerFree(bay);
-      const to = served
-        ? this.dockFor(
-            bay,
-            (d, avoid) =>
-              this.drivePath(m.entry, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
-            B.truckLength(haulier.terms.capacity, boxy),
-          )
-        : null;
-      const spot = to ? to.dock : -1;
-      // No way to any free spot at all, rather than only past a truck there.
-      if (served && !to && !this.dockRouted && this.freeDockSet(bay).size > 0) {
+      const to = this.dockFor(
+        bay,
+        (d, avoid) => this.drivePath(m.entry, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
+        B.truckLength(haulier.terms.capacity, boxy),
+      );
+      // No way to any free spot at all, rather than only past a truck there:
+      // not sent, even to wait, as none could ever load there.
+      if (!to && !this.dockRouted && this.freeDockSet(bay).size > 0) {
         this.cutOff(bay, this.dockTurn);
         continue;
       }
+      const spot = served && to ? to.dock : -1;
+      // Waiting for a reach stacker, as for a spot, only a few queue in the parking.
+      if (spot < 0 && this.queuedAt(bay) >= this.loadingDocks(bay).length) continue;
       const wide = needsWideSpace(haulier.terms.capacity, boxy);
       const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
       // A bay beside it may have just sent a truck to the spot they share.
@@ -9435,6 +9435,8 @@ export class World {
         if (this.collectable(bay) === 0 && (t.idle += 10) >= B.TRUCK_GIVE_UP) {
           return this.leavePark(t);
         }
+        // A yard no truck can load at and drive away from again: it goes.
+        if (bay.noAccess) return this.leavePark(t);
         if (t.boxes && !this.handlerFree(bay, t)) return;
         const to = this.dockFor(
           bay,
@@ -9446,7 +9448,7 @@ export class World {
           // gives up in a while, and the bay shows why.
           if (!this.dockRouted && this.freeDockSet(bay).size > 0) {
             this.cutOff(bay, this.dockTurn);
-            if ((t.idle += 10) >= B.TRUCK_GIVE_UP) this.leavePark(t);
+            this.leavePark(t);
           }
           return;
         }
@@ -10525,6 +10527,15 @@ export class World {
     return undefined;
   }
 
+  /** What a truck waiting in the parking to load is waiting for. */
+  private parkedWords(t: Truck): string {
+    const bay = this.dest(t.bayIdx);
+    if (bay && t.boxes && !this.handlerFree(bay, t)) {
+      return 'Parked, waiting for a free reach stacker to load it';
+    }
+    return 'Parked, waiting for a loading spot';
+  }
+
   private truckWhy(t: Truck): string | undefined {
     if (t.exports && t.state === 'parked' && this.tick >= (t.papers ?? Infinity)) {
       const store = t.boxes ? 'container yard' : 'crate storage';
@@ -10539,6 +10550,22 @@ export class World {
       return free
         ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.`
         : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken. More tiles along the side trucks use give more spots.`;
+    }
+    if (t.state === 'parked' && !t.exports) {
+      const bay = this.dest(t.bayIdx);
+      if (!bay) return undefined;
+      const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage' : 'truck bay';
+      if (bay.noAccess) return bay.noAccessWhy;
+      if (!t.boxes || this.handlerFree(bay, t)) {
+        const going = this.trucks.filter(
+          (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || this.docked(o)),
+        ).length;
+        return this.freeDockSet(bay, this.lengthOf(t)).size === 0
+          ? `Every loading spot at the ${what} is taken: ${going} ${going === 1 ? 'truck is' : 'trucks are'} loading there or on the way.${bay.tiles ? ' A truck longer than a tile takes the spots either side of it too.' : ''}${bay.yard ? " A longer yard along the gantry's lane gives more spots." : ''}`
+          : `Spots at the ${what} are free, but trucks on their way in go first, so it would not stand in their way.`;
+      }
+      const stackers = this.people.filter((p) => p.kind === 'stacker').length;
+      return `This yard has no yard gantry: reach stackers load its trucks, and ${stackers === 0 ? 'there are none' : `all ${stackers} are busy`}. More reach stackers, or a yard gantry here, load trucks sooner.`;
     }
     if (t.state !== 'loading') return undefined;
     const bay = this.dest(t.bayIdx);
@@ -10854,7 +10881,7 @@ export class World {
                 : t.state === 'toPark'
                   ? 'Driving to the parking'
                   : t.state === 'parked'
-                    ? 'Parked, waiting for a loading spot'
+                    ? this.parkedWords(t)
                     : t.state === 'toBay'
                       ? 'Driving to the truck bay'
                       : t.state === 'loading'

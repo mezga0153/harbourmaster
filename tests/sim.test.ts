@@ -1555,6 +1555,29 @@ describe('Rules of the road', () => {
     expect(coming.state).toBe('toBay');
   });
 
+  it('sends a truck waiting to load at a bay none can use away, saying why', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const bay = [...world.bays.values()][0];
+    bay.crates.push(10, 10, 10);
+    const park = m.idx(30, 30);
+    m.build[park] = Build.Parking;
+    const t = truck(world, 30.5, 30.5, 0);
+    Object.assign(t, { state: 'parked', bayIdx: bay.idx, park });
+    world.tick = 10 - (t.id % 10);
+    world['updateTruck'](t);
+    expect(t.state).toBe('parked');
+    expect(world['parkedWords'](t)).toBe('Parked, waiting for a loading spot');
+    // Cut off from it, as by a dead end trucks cannot turn round in.
+    world['cutOff'](bay, true);
+    expect(world['truckWhy'](t)).toMatch(/not drive away again/);
+    world.tick += 10;
+    world['updateTruck'](t);
+    // Off out of the port, or gone already where it cannot drive.
+    expect(world.trucks.includes(t) && (t.state as string) === 'parked').toBe(false);
+  });
+
   it("drives on past where a truck bound for another bay's spot will stand", () => {
     const world = World.create(7);
     world.trucks.length = 0;
