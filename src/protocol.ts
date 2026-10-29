@@ -193,6 +193,9 @@ export interface BayView {
   warehouse: boolean;
   /** Crates waiting here to go out on a ship. */
   exports: number;
+  /** Storage for cargo going out; by a crane, either way, one at a time. */
+  outgoing: boolean;
+  byCrane: boolean;
   tiles?: number[];
   noAccess: boolean;
 }
@@ -204,6 +207,8 @@ export interface YardView {
   cleared: number;
   /** Containers waiting here to go out on a ship. */
   exports: number;
+  outgoing: boolean;
+  byCrane: boolean;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

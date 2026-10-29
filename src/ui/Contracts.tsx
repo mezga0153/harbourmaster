@@ -482,7 +482,9 @@ function OfferCard({
     const ships = (s?.contracts ?? []).some(
       (c) => c.terms.kind === 'fishery' && c.terms.vessel === (t.cargo ? 'feeder' : 'coaster'),
     );
-    const stores = t.cargo ? (s?.yards.length ?? 0) > 0 : (s?.bays ?? []).some((b) => b.tiles);
+    const stores = t.cargo
+      ? (s?.yards ?? []).some((y) => y.outgoing || y.byCrane)
+      : (s?.bays ?? []).some((b) => b.tiles && (b.outgoing || b.byCrane));
     checks.push(
       <Check ok={ships}>
         {ships
@@ -491,8 +493,8 @@ function OfferCard({
       </Check>,
       <Check ok={stores}>
         {stores
-          ? `${t.cargo ? 'Container yards' : 'Crate storage'} to keep it in`
-          : `Needs ${t.cargo ? 'a container yard' : 'crate storage'} to keep it in`}
+          ? `${t.cargo ? 'A container yard' : 'Crate storage'} for cargo going out`
+          : `Needs ${t.cargo ? 'a container yard' : 'crate storage'} marked out for cargo going out`}
       </Check>,
       <Check ok={true}>Its trucks need parking outside the port for a day of paperwork</Check>,
     );

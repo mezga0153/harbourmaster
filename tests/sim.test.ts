@@ -926,6 +926,51 @@ describe('Buildings', () => {
     expect(world.bays.get(at + 2)!.crates).toEqual([40]);
   });
 
+  it('keeps storage for cargo coming in apart from storage for cargo going out', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const at = besideRoad(world, 2);
+    const row = [at, at + 1, at + 2, at + 3];
+    world.command({ type: 'bulldoze', tiles: row });
+    world.command({ type: 'build', kind: 'portRoad', tiles: row });
+    world.command({ type: 'store', tiles: [at, at + 1], kind: 'crates', on: true });
+    world.command({ type: 'store', tiles: [at + 2, at + 3], kind: 'cratesOut', on: true });
+    // Touching, but two areas, one each way.
+    const into = world.bays.get(at)!;
+    const out = world.bays.get(at + 2)!;
+    expect(m.store[at + 2]).toBe(Store.CratesOut);
+    expect(out.outgoing).toBe(true);
+    expect([world['takesImports'](into), world['takesExports'](into)]).toEqual([true, false]);
+    expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
+  });
+
+  it('lets storage by a crane change from in to out only once it is empty', () => {
+    const world = World.create(7);
+    world.boats.length = 0;
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const jetty = [...Array(m.w).keys()]
+      .map((x) => m.idx(x, r))
+      .filter((i) => m.build[i] === Build.Jetty);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [jetty[jetty.length - 1]] });
+    const at = jetty[jetty.length - 2];
+    world.command({ type: 'store', tiles: [at], kind: 'crates', on: true });
+    const area = world.bays.get(at)!;
+    expect(world['byCrane'](area)).toBe(true);
+    // Empty, it takes either.
+    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([true, true]);
+    area.crates.push(20);
+    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([true, false]);
+    area.crates.length = 0;
+    (area.exports ??= []).push(20);
+    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([false, true]);
+  });
+
   it('turns warehouses and container yards from older saves into storage areas', () => {
     const world = World.create(7);
     const m = world.map;
@@ -1876,6 +1921,13 @@ describe('Container Port tier', () => {
       tiles: [m.idx(x, r + 1), m.idx(x + 1, r + 1)],
     });
     expect(m.build[m.idx(x, r + 1)]).toBe(Build.Parking);
+    // A yard for containers going out beside the one for those coming in, by the road.
+    const corner = t.yard - 2;
+    const out = [corner, corner + 1, corner + m.w, corner + m.w + 1];
+    world.command({ type: 'bulldoze', tiles: out });
+    world.command({ type: 'build', kind: 'portRoad', tiles: out });
+    world.command({ type: 'store', tiles: out, kind: 'boxesOut', on: true });
+    expect(world.yards.get(corner)?.outgoing).toBe(true);
     const add = world['addContract'].bind(world);
     add(
       {
@@ -1934,10 +1986,10 @@ describe('Container Port tier', () => {
     expect(t).not.toBeNull();
     const m = world.map;
     const r = m.yOf(m.entry);
-    // Crate storage where the container yard was, by the public road.
+    // Storage for crates going out where the container yard was, by the public road.
     const store = world.yards.get(t.yard)!.tiles!;
     world.command({ type: 'store', tiles: store, kind: 'boxes', on: false });
-    world.command({ type: 'store', tiles: store, kind: 'crates', on: true });
+    world.command({ type: 'store', tiles: store, kind: 'cratesOut', on: true });
     expect(world.bays.has(store[0])).toBe(true);
     const free = (i: number) => m.terrain[i] === Terrain.Grass && m.build[i] === Build.None;
     const x = [...Array(m.w).keys()].find(

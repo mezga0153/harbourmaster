@@ -68,9 +68,25 @@ export const Deco = { None: 0, Tree: 1 } as const;
  * What a port road or quay tile is marked out to store, in `GameMap.store`.
  * Tiles of one kind that touch make one storage area.
  */
-export const Store = { None: 0, Crates: 1, Boxes: 2 } as const;
-export type StoreKind = 'crates' | 'boxes';
-export const STORE_CODE: Record<StoreKind, number> = { crates: Store.Crates, boxes: Store.Boxes };
+export const Store = { None: 0, Crates: 1, Boxes: 2, CratesOut: 3, BoxesOut: 4 } as const;
+/** Storage for cargo coming in off the ships, or (`Out`) going out on them. */
+export type StoreKind = 'crates' | 'boxes' | 'cratesOut' | 'boxesOut';
+export const STORE_CODE: Record<StoreKind, number> = {
+  crates: Store.Crates,
+  boxes: Store.Boxes,
+  cratesOut: Store.CratesOut,
+  boxesOut: Store.BoxesOut,
+};
+
+/** Storage for containers, coming in or going out. */
+export function storesBoxes(code: number): boolean {
+  return code === Store.Boxes || code === Store.BoxesOut;
+}
+
+/** Storage for cargo going out on the ships. */
+export function storesOutgoing(code: number): boolean {
+  return code === Store.CratesOut || code === Store.BoxesOut;
+}
 
 export type BuildKind =
   | 'road'

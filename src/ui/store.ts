@@ -3,10 +3,12 @@ import type { Snapshot } from '../protocol';
 import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
 
 /** Tools that mark port roads and quays out as storage. */
-export const STORE_TOOLS = { crateStore: 'crates', boxStore: 'boxes' } as const satisfies Record<
-  string,
-  StoreKind
->;
+export const STORE_TOOLS = {
+  crateStore: 'crates',
+  crateOutStore: 'cratesOut',
+  boxStore: 'boxes',
+  boxOutStore: 'boxesOut',
+} as const satisfies Record<string, StoreKind>;
 export type StoreTool = keyof typeof STORE_TOOLS;
 
 export function isStoreTool(t: string): t is StoreTool {

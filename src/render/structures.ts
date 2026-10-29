@@ -13,7 +13,14 @@ import { EXTENSION, FACING, machinesOnly, ON_QUAY } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
-import { Build, isDock, isPublicRoad, isTownBuilding, Store } from '../sim/types';
+import {
+  Build,
+  isDock,
+  isPublicRoad,
+  isTownBuilding,
+  storesBoxes,
+  storesOutgoing,
+} from '../sim/types';
 import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
 import { C } from './palette';
@@ -867,7 +874,9 @@ export class Structures {
    */
   private storage(g: Group, i: number, y: number): void {
     const code = this.map.store[i];
-    const boxes = code === Store.Boxes;
+    const boxes = storesBoxes(code);
+    // Storage for cargo going out is outlined in blue.
+    const line = storesOutgoing(code) ? C.sign : boxes ? C.stripe : C.marking;
     const same = (dx: number, dy: number) => {
       const n = this.offset(i, dx, dy);
       return n >= 0 && this.map.store[n] === code;
@@ -875,7 +884,7 @@ export class Structures {
     for (const [dx, dy] of DIRS) {
       if (same(dx, dy)) continue;
       const [x, z, w, d] = dx ? [0.5 + dx * 0.45, 0.5, 0.04, 1] : [0.5, 0.5 + dy * 0.45, 1, 0.04];
-      g.add(box(w, 0.006, d, boxes ? C.stripe : C.marking, x, y, z));
+      g.add(box(w, 0.006, d, line, x, y, z));
     }
     const stack: BayStack = { crates: [], boxes: [] };
     if (boxes) {

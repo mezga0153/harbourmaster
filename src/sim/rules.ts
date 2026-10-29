@@ -11,7 +11,6 @@ import {
   isDock,
   isPublicRoad,
   isTownBuilding,
-  Store,
   STORE_CODE,
   Terrain,
   type BuildCode,
@@ -210,21 +209,28 @@ export function machinesOnly(map: GameMap, i: number): boolean {
 export const STORE_COST: Record<StoreKind, number> = {
   crates: B.CRATE_STORE_COST,
   boxes: B.BOX_STORE_COST,
+  cratesOut: B.CRATE_STORE_COST,
+  boxesOut: B.BOX_STORE_COST,
 };
 
 export const STORE_TIER: Record<StoreKind, number> = {
   crates: B.CRATE_STORE_TIER,
   boxes: B.BOX_STORE_TIER,
+  cratesOut: B.CRATE_STORE_TIER,
+  boxesOut: B.BOX_STORE_TIER,
 };
 
 export const STORE_LABEL: Record<StoreKind, string> = {
-  crates: 'Crate storage',
-  boxes: 'Container yard',
+  crates: 'Crate storage, in',
+  boxes: 'Container yard, in',
+  cratesOut: 'Crate storage, out',
+  boxesOut: 'Container yard, out',
 };
 
 export function storeKindAt(map: GameMap, i: number): StoreKind | null {
   const s = map.store[i];
-  return s === Store.Crates ? 'crates' : s === Store.Boxes ? 'boxes' : null;
+  for (const [kind, code] of Object.entries(STORE_CODE)) if (code === s) return kind as StoreKind;
+  return null;
 }
 
 /** Whether a tile can be marked out as storage, or cleared of it, with `on` false. */

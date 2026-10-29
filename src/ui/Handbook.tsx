@@ -204,6 +204,12 @@ export const TOPICS: Record<TopicId, Topic> = {
           tiles. Marking out or selecting storage shows where, in yellow.
         </p>
         <p>
+          Cargo coming in and cargo going out are kept apart: storage is marked out for one or the
+          other, <b>in</b> or <b>out</b>, and the out kind is outlined in blue. The exception is
+          storage by a crane, on its machines-only ground, which loads and unloads: it takes cargo
+          either way, but one way at a time, and must be emptied before it switches.
+        </p>
+        <p>
           Storage beside a jib crane fills straight from the boats. Where trucks cannot reach it,
           forklifts take its crates on.
         </p>

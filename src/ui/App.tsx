@@ -348,20 +348,36 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader
           kicker={bay.tiles ? 'Storage' : 'Building'}
-          title={bay.warehouse ? 'Crate storage' : bay.large ? 'Large truck bay' : 'Truck bay'}
+          title={
+            bay.warehouse
+              ? `Crate storage${bay.byCrane ? ', by a crane' : bay.outgoing ? ': out' : ': in'}`
+              : bay.large
+                ? 'Large truck bay'
+                : 'Truck bay'
+          }
           onClose={close}
         />
         {bay.tiles && (
           <p class="muted">
-            Dockhands and forklifts bring crates here, and jib cranes close by swing them straight
-            in. Trucks load from the road beside it, on the yellow tiles. <More topic="storage" />
+            {bay.byCrane
+              ? 'By a crane, it takes crates either way: coming in off the boats, or going out on them. But one way at a time: it empties before it switches.'
+              : bay.outgoing
+                ? 'For crates going out: shippers’ trucks unload here from the road beside it, and the crates go on to the coasters.'
+                : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from the road beside it, on the yellow tiles.'}{' '}
+            <More topic="storage" />
           </p>
         )}
         <dl class="props">
-          <dt>Crates waiting</dt>
+          <dt>{bay.outgoing && !bay.byCrane ? 'Crates in' : 'Crates waiting'}</dt>
           <dd>
-            {bay.stock} / {bay.capacity}
+            {bay.stock + bay.exports} / {bay.capacity}
           </dd>
+          {bay.exports > 0 && (
+            <>
+              <dt>To ship out</dt>
+              <dd>{bay.exports}</dd>
+            </>
+          )}
           {bay.tiles && (
             <>
               <dt>Area</dt>
@@ -422,7 +438,18 @@ function InfoPanel({ actions }: { actions: Actions }) {
     if (!yard) return null;
     return (
       <aside class="side panel">
-        <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
+        <InfoHeader
+          kicker="Storage"
+          title={`Container yard${yard.byCrane ? ', by a crane' : yard.outgoing ? ': out' : ': in'}`}
+          onClose={close}
+        />
+        {(yard.byCrane || yard.outgoing) && (
+          <p class="muted">
+            {yard.byCrane
+              ? 'By a crane, it takes containers either way, but one way at a time: it empties before it switches.'
+              : 'For containers going out: shippers’ trucks unload here, and reach stackers take them to the crane over the feeder.'}
+          </p>
+        )}
         <p class="muted">
           Reach stackers stack containers here from the cranes. Customs clear them a day after their
           ship has been unloaded, and then container trucks load them from the road beside the yard,
@@ -431,8 +458,14 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <dl class="props">
           <dt>Containers</dt>
           <dd>
-            {yard.boxes} / {yard.capacity}
+            {yard.boxes + yard.exports} / {yard.capacity}
           </dd>
+          {yard.exports > 0 && (
+            <>
+              <dt>To ship out</dt>
+              <dd>{yard.exports}</dd>
+            </>
+          )}
           <dt>Cleared by customs</dt>
           <dd>{yard.cleared}</dd>
           {yard.pending > 0 && (
