@@ -1959,7 +1959,7 @@ export class Structures {
         // free for the stackers and tractors to come in under it.
         const stack: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [0.65, 0.35]) {
+          for (const z of [0.55, 0.25]) {
             for (const x of [0.5, 1.5]) {
               const c = container(i * 5 + stack.length, x, y + layer * BOX_HEIGHT, z);
               c.visible = false;
