@@ -292,7 +292,9 @@ export interface Snapshot {
 
 export type SimEvent =
   | { kind: 'message'; text: string; tone: 'info' | 'good' | 'bad' }
-  | { kind: 'money'; amount: number; x: number; y: number };
+  | { kind: 'money'; amount: number; x: number; y: number }
+  /** Something the advisor explains, the first time it matters. */
+  | { kind: 'tip'; id: string };
 
 export interface TileChange {
   i: number;

@@ -1508,6 +1508,43 @@ button.chip.on {
   bottom: 12px;
 }
 
+/* The advisor's card, bottom left, clear of the build bar and the hover tip. */
+.advisor {
+  position: absolute;
+  left: 12px;
+  bottom: 104px;
+  width: min(340px, calc(100vw - 24px));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  border-left: 3px solid var(--accent);
+}
+
+.advisor p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.advisor-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.advisor-head .kicker {
+  margin: 0;
+  color: var(--accent);
+}
+
+.advisor-head .muted {
+  margin-left: auto;
+  font-size: 11px;
+}
+
 /* Floating money */
 
 .floaters {

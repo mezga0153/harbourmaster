@@ -108,6 +108,21 @@ describe('World', () => {
     expect(b.snapshot()).toEqual(a.snapshot());
   });
 
+  it('has the advisor explain each thing once a game, even across a save', () => {
+    const world = World.create(7);
+    const tips = (w: World) => w.drainEvents().flatMap((e) => (e.kind === 'tip' ? [e.id] : []));
+    expect(tips(world)).toEqual(['welcome']);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    world['tip']('cranes');
+    world['tip']('cranes');
+    expect(tips(world)).toEqual(['cranes']);
+    const loaded = World.fromSave(world.toSave());
+    loaded['tip']('cranes');
+    loaded['tip']('customs');
+    expect(tips(loaded)).toEqual(['customs']);
+  });
+
   it('builds, charges and refunds', () => {
     const world = World.create(5);
     const m = world.map;

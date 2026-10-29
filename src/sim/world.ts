@@ -370,6 +370,8 @@ export interface SaveData {
   rail?: RailState;
   /** State of the town and railway's own random numbers. */
   scenery?: number;
+  /** Advisor tips already given; see tip(). */
+  tips?: string[];
 }
 
 function emptyLedger(): Ledger {
@@ -641,6 +643,8 @@ export class World {
   private coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
   private dockKey = new Map<number, number>();
+  /** Advisor tips already given, so each comes once a game. */
+  tipsSeen = new Set<string>();
   private warnedOffice = false;
   private warnedBigTrucks = false;
   private warnedBoxTrucks = false;
@@ -696,6 +700,7 @@ export class World {
     world.addOffer('haulier');
     world.events = [];
     world.message('Welcome to your new port! Boats will bring crates to the jetty.', 'info');
+    world.tip('welcome');
     return world;
   }
 
@@ -791,6 +796,7 @@ export class World {
       });
     }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
+    world.tipsSeen = new Set(s.tips ?? []);
     if (s.rail) world.rail = structuredClone(s.rail);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
@@ -865,6 +871,7 @@ export class World {
       town: this.town,
       rail: this.rail,
       scenery: this.scenery.state,
+      tips: [...this.tipsSeen],
     });
   }
 
@@ -960,6 +967,9 @@ export class World {
         });
         if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
+        if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
+          this.tip('cranes');
+        }
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
         if (kind === 'gantryCrane') this.addCrane(i, 'gantry');
       }
@@ -1020,6 +1030,7 @@ export class World {
       spent += B.FORKLIFT_ONLY_COST;
       this.map.orient[i] ^= FORKLIFT_ONLY;
       this.dirty.add(i);
+      if (on) this.tip('machinesOnly');
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     else if (firstError) this.message(firstError, 'bad');
@@ -1055,6 +1066,7 @@ export class World {
       changed = true;
     }
     if (changed) this.rebuildStores();
+    if (changed && on) this.tip(kind === 'boxes' ? 'yards' : 'storage');
     if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
     else if (firstError) this.message(firstError, 'bad');
   }
@@ -1375,6 +1387,7 @@ export class World {
       `The port is now a ${next.name}! New buildings and machines are unlocked.`,
       'good',
     );
+    this.tip(`tier${this.tier}`);
     this.addOffer('fishery');
   }
 
@@ -2589,6 +2602,7 @@ export class World {
       }
     }
     const hands = needCrane || this.people.some((q) => q.kind === 'dockhand');
+    if (!hands && cranes && out.some((b) => !b.craned)) this.tip('noHands');
     return out
       .filter((b) => hands || !cranes || b.craned)
       .sort((a, b) => a.d - b.d || a.berth - b.berth);
@@ -2809,8 +2823,12 @@ export class World {
                 ? 'crates on pallets'
                 : 'crates';
           this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
+          if (b.vessel === 'coaster') this.tip('pallets');
           if (b.vessel === 'coaster' && !this.people.some((p) => p.kind === 'forklift')) {
-            this.message('Pallets can only be unloaded by forklifts. Buy one at a depot.', 'bad');
+            this.message(
+              'Pallets wait on the quay until a forklift takes them on. Buy one at a depot.',
+              'bad',
+            );
           }
         }
         return;
@@ -4418,6 +4436,7 @@ export class World {
     });
     p.kind = kind;
     p.capacity = spec.capacity;
+    this.tip(kind === 'stacker' ? 'stackers' : 'forklifts');
     p.home = depot;
     this.moneyAt(-spec.price, depot);
     this.message(`A new ${spec.label.toLowerCase()} is ready at the depot.`, 'good');
@@ -4814,6 +4833,8 @@ export class World {
         (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         // Customs clear a container a while after it is stacked in the yard.
         if (boxy) this.readyList(bay).push(...p.cargoFees.map(() => this.tick + B.CUSTOMS_TICKS));
+        if (boxy) this.tip('customs');
+        if (bay.pile) this.tip('landed');
         bayIncoming(bay, boxy, -p.planned);
         // Landed on the quay, a crate has not been handled yet.
         if (boxy) this.stats.containers += p.carrying;
@@ -5458,6 +5479,7 @@ export class World {
             )
           : undefined);
       if (!haulier) {
+        if (hauliers.some((h) => (h.returns?.length ?? 0) > 0)) this.tip('roundTrip');
         const stuck = hauliers.some(
           (h) => h.terms.capacity > B.TRUCK_CAPACITY && (out.get(h.id) ?? 0) < h.terms.fleet,
         );
@@ -5780,6 +5802,13 @@ export class World {
 
   private message(text: string, tone: 'info' | 'good' | 'bad'): void {
     this.events.push({ kind: 'message', text, tone });
+  }
+
+  /** Have the advisor explain something, the first time it comes up in a game. */
+  private tip(id: string): void {
+    if (this.tipsSeen.has(id)) return;
+    this.tipsSeen.add(id);
+    this.events.push({ kind: 'tip', id });
   }
 
   private moneyAt(amount: number, i: number): void {

@@ -84,6 +84,13 @@ export function togglePanel(name: PanelName): void {
   panel.value = panel.value === name ? null : name;
 }
 
+/** Advisor tips waiting to be read, the first showing; see Advisor.tsx. */
+export const advice = signal<string[]>([]);
+
+export function advise(id: string): void {
+  if (!advice.value.includes(id)) advice.value = [...advice.value, id];
+}
+
 let nextMessageId = 1;
 
 export function pushMessage(text: string, tone: Message['tone']): void {

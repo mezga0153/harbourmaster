@@ -10,7 +10,7 @@ import * as B from './sim/balance';
 import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from './sim/rules';
 import { Build, isBay } from './sim/types';
 import { App, type Actions } from './ui/App';
-import { pushMessage, seed, selection, snapshot, tool } from './ui/store';
+import { advise, pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
 
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
@@ -160,6 +160,7 @@ function handle(msg: WorkerMessage): void {
   showPlots();
   for (const ev of msg.events) {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
+    else if (ev.kind === 'tip') advise(ev.id);
     else renderer.showMoney(ev.amount, ev.x, ev.y);
   }
 }

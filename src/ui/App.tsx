@@ -7,6 +7,7 @@ import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
 import { dayProgress, duration, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
+import { Advisor } from './Advisor';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
 import { isMachineKind, MACHINES } from '../sim/machines';
@@ -74,6 +75,7 @@ export function App({ actions }: { actions: Actions }) {
       )}
       <PreviewTip />
       <HoverTip />
+      <Advisor />
       <BuildBar />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}

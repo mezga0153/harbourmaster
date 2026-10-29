@@ -1,0 +1,123 @@
+import * as B from '../sim/balance';
+import { TICKS_PER_DAY } from '../sim/types';
+import { advice, openHandbook } from './store';
+import { Icon } from './icons';
+
+interface Tip {
+  title: string;
+  text: string;
+  /** The handbook page with more. */
+  topic: string;
+}
+
+const hours = (ticks: number) => Math.round((ticks * 24) / TICKS_PER_DAY);
+
+/**
+ * What the advisor says the first time each thing comes up in a game. The
+ * sim decides when (see World.tip); this is what is said.
+ */
+const TIPS: Record<string, Tip> = {
+  welcome: {
+    title: 'Welcome, harbourmaster',
+    text: 'Boats bring crates to your jetty. Dockhands lift them off and carry them to the truck bay, and hauliers’ trucks take them away: you are paid as each truck leaves. Select anything to see what it is doing.',
+    topic: 'start',
+  },
+  pallets: {
+    title: 'Crates on pallets',
+    text: 'Coasters bring their crates on pallets. Dockhands or a jib crane lift them off, but only forklifts take them on from the quay, unless a jib crane swings them straight into crate storage.',
+    topic: 'boats',
+  },
+  cranes: {
+    title: 'Machines only round a crane',
+    text: 'The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. What a crane lands, forklifts or reach stackers take on.',
+    topic: 'cranes',
+  },
+  forklifts: {
+    title: 'Forklifts',
+    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats. Dockhands set crates down on the quay for them, and jib cranes stack them; the forklifts take it on to the bays and storage.`,
+    topic: 'machines',
+  },
+  stackers: {
+    title: 'Reach stackers',
+    text: 'Reach stackers take containers from the harbour and gantry cranes to a container yard. They drive only on port roads and quays.',
+    topic: 'machines',
+  },
+  landed: {
+    title: 'Cargo landed on the quay',
+    text: 'With forklifts about, dockhands set what they lift off a boat down on the quay beside it, and the forklifts take it on four at a time.',
+    topic: 'dockhands',
+  },
+  storage: {
+    title: 'Crate storage',
+    text: `Trucks load from the road beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane within ${B.JIB_REACH} tiles fills it straight from the boats; where no truck can get to it, forklifts take its crates on.`,
+    topic: 'storage',
+  },
+  yards: {
+    title: 'Container yards',
+    text: 'Reach stackers bring containers here from the cranes, and container trucks load from the road beside the yard, shown in yellow, once customs have cleared them.',
+    topic: 'storage',
+  },
+  customs: {
+    title: 'Customs',
+    text: `Containers wait in the yard about ${hours(B.CUSTOMS_TICKS)} hours for customs to clear them before a truck may take them. Build yards to hold that much: when they fill, the cranes stop.`,
+    topic: 'containers',
+  },
+  noHands: {
+    title: 'Nobody to unload by hand',
+    text: 'With no dockhands, boats only take berths under a jib crane and wait at anchor for one. Hire dockhands, or build more jib cranes.',
+    topic: 'boats',
+  },
+  roundTrip: {
+    title: 'Trucks on their rounds',
+    text: `A truck that leaves is away about ${hours(B.TRUCK_ROUND_TRIP)} hours before its haulier can send it again, so cargo waits in the bays and storage meanwhile. More trucks, or bigger ones, take more away.`,
+    topic: 'trucks',
+  },
+  machinesOnly: {
+    title: 'Machines only',
+    text: 'People on foot and the hauliers’ trucks keep off ground marked for machines, outlined in red, so forklifts do not queue behind dockhands. Mind that dockhands can still get to the boats.',
+    topic: 'machinesOnly',
+  },
+  tier1: {
+    title: 'Coastal Wharf',
+    text: 'Quays reach deeper water for coasters, forklifts and jib cranes speed up the work, and storage can be marked out on port roads and quays.',
+    topic: 'machines',
+  },
+  tier2: {
+    title: 'Container Port',
+    text: 'Feeder ships bring containers. Cranes lift them, reach stackers take them to container yards, and after customs, container trucks take them away.',
+    topic: 'containers',
+  },
+};
+
+/** The advisor's card, one tip at a time, until each is read. */
+export function Advisor() {
+  const id = advice.value.find((t) => t in TIPS);
+  if (!id) return null;
+  const tip = TIPS[id];
+  const done = () => (advice.value = advice.value.filter((t) => t !== id));
+  return (
+    <div class="advisor panel" role="status">
+      <div class="advisor-head">
+        <Icon name="book" />
+        <span class="kicker">Advisor</span>
+        {advice.value.length > 1 && <span class="muted">{advice.value.length - 1} more</span>}
+      </div>
+      <strong>{tip.title}</strong>
+      <p>{tip.text}</p>
+      <div class="actions">
+        <button
+          class="btn"
+          onClick={() => {
+            openHandbook(tip.topic);
+            done();
+          }}
+        >
+          Read more
+        </button>
+        <button class="btn primary" onClick={done}>
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
