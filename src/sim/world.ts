@@ -3039,6 +3039,8 @@ export class World {
    * A ship that claims water to turn in as it pulls out lets a boat in that
    * water go first if it has been ready to leave longer: first ready, first
    * out, so no boat waits out one ship after another.
+   * One that is itself waiting on the fairway, its tug or room to turn is
+   * not waited for: the rest go on round it.
    */
   private letsGoFirst(b: Boat): boolean {
     const v = B.VESSELS[b.vessel];
@@ -3052,6 +3054,8 @@ export class World {
         o.crates === 0 &&
         o.reserved === 0 &&
         o.timer > b.timer &&
+        // Not one that cannot go anyway, held up by something else.
+        (o.holdUp === undefined || o.holdUp === 'others') &&
         Math.hypot(o.x - b.x, o.y - b.y) < reach,
     );
   }
