@@ -409,10 +409,7 @@ interface Bay {
   noAccess: boolean;
   /** A container yard, marked out for containers. */
   yard?: boolean;
-  /**
-   * Storage for cargo going out on the ships, not coming in. Storage by a
-   * crane takes either, one way at a time; see takesImports.
-   */
+  /** Storage for cargo going out on the ships, not coming in. */
   outgoing?: boolean;
   /**
    * Cargo dockhands have lifted off a boat and set down on the quay beside
@@ -813,6 +810,8 @@ export class World {
   unloadedAt = new Map<number, number>();
   private warnedOffice = false;
   private warnedParking = false;
+  /** When the player was last told no storage for exports of this kind has room. */
+  private warnedOutFull = { crates: -Infinity, boxes: -Infinity };
   private warnedBigTrucks = false;
   private warnedBoxTrucks = false;
   private warnedStuck = false;
@@ -6243,6 +6242,20 @@ export class World {
     return null;
   }
 
+  /** Say, at most once a day, that shippers' trucks are waiting because no outgoing storage has room. */
+  private outgoingFull(boxes: boolean): void {
+    const kind = boxes ? 'boxes' : 'crates';
+    if (this.tick - this.warnedOutFull[kind] < TICKS_PER_DAY) return;
+    this.warnedOutFull[kind] = this.tick;
+    const stores = [...(boxes ? this.yards : this.bays).values()].filter((b) => b.outgoing);
+    this.message(
+      stores.length === 0
+        ? `Shippers' trucks are waiting with ${boxes ? 'containers' : 'crates'} to ship: mark out ${boxes ? 'a container yard' : 'crate storage'} for cargo going out.`
+        : `Outgoing ${boxes ? 'container yards are' : 'crate storage is'} full: shippers' trucks are waiting in parking. Mark out more, or get ships loading.`,
+      'bad',
+    );
+  }
+
   /** A heap on the quay, or storage, being collected from: exports from container yards too. */
   private stock(i: number): Bay | undefined {
     return this.piles.get(i) ?? this.bays.get(i) ?? this.yards.get(i);
@@ -6390,23 +6403,16 @@ export class World {
   }
 
   /**
-   * Whether cargo coming in may go here: truck bays, storage for incoming,
-   * or storage by a crane holding no exports.
+   * Whether cargo coming in may go here: truck bays, and storage marked out
+   * for cargo coming in, by a crane or not.
    */
   private takesImports(b: Bay): boolean {
-    if (!b.tiles) return true;
-    if (this.byCrane(b)) return outHeld(b) + (b.outReserved ?? 0) === 0;
-    return !b.outgoing;
+    return !b.tiles || !b.outgoing;
   }
 
-  /** Whether exports may go here: storage for outgoing, or by a crane holding no imports. */
+  /** Whether exports may go here: only storage marked out for cargo going out. */
   private takesExports(b: Bay): boolean {
-    if (!b.tiles) return false;
-    if (this.byCrane(b)) {
-      const held = b.crates.length + b.boxes.length + b.incoming + b.boxIncoming;
-      return held + (b.reserved ?? 0) === 0;
-    }
-    return !!b.outgoing;
+    return !!b.tiles && !!b.outgoing;
   }
 
   /** Trucks can get to this bay or storage area to load. */
@@ -7154,7 +7160,10 @@ export class World {
         if (t.exports) {
           if (this.tick < (t.papers ?? 0) || (this.tick + t.id) % 10 !== 0) return;
           const to = this.exportStore(t);
-          if (!to) return;
+          if (!to) {
+            this.outgoingFull(t.boxes);
+            return;
+          }
           // Containers wait parked until the yard's gantry or a stacker is free.
           if (t.boxes && !this.handlerFree(to.store, t)) return;
           to.store.exportIncoming = (to.store.exportIncoming ?? 0) + t.cargo;

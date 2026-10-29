@@ -359,11 +359,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
         />
         {bay.tiles && (
           <p class="muted">
-            {bay.byCrane
-              ? 'By a crane, it takes crates either way: coming in off the boats, or going out on them. But one way at a time: it empties before it switches.'
-              : bay.outgoing
-                ? 'For crates going out: shippers’ trucks unload here, from inside the port, and the crates go on to the coasters.'
-                : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from inside the port, on the yellow tiles.'}{' '}
+            {bay.outgoing
+              ? 'For crates going out: shippers’ trucks unload here, from inside the port, and the crates go on to the coasters.'
+              : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from inside the port, on the yellow tiles.'}{' '}
             <More topic="storage" />
           </p>
         )}
@@ -509,14 +507,13 @@ function InfoPanel({ actions }: { actions: Actions }) {
       <aside class="side panel">
         <InfoHeader
           kicker="Storage"
-          title={`Container yard${yard.byCrane ? ', by a crane' : yard.outgoing ? ': out' : ': in'}`}
+          title={`Container yard${yard.outgoing ? ': out' : ': in'}${yard.byCrane ? ', by a crane' : ''}`}
           onClose={close}
         />
-        {(yard.byCrane || yard.outgoing) && (
+        {yard.outgoing && (
           <p class="muted">
-            {yard.byCrane
-              ? 'By a crane, it takes containers either way, but one way at a time: it empties before it switches.'
-              : 'For containers going out: shippers’ trucks unload here, and reach stackers take them to the crane over the feeder.'}
+            For containers going out: shippers’ trucks unload here, and reach stackers take them to
+            the crane over the feeder.
           </p>
         )}
         <p class="muted">

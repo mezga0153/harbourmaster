@@ -993,7 +993,7 @@ describe('Buildings', () => {
     expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
   });
 
-  it('lets storage by a crane change from in to out only once it is empty', () => {
+  it('keeps storage by a crane to the way it is marked out, in or out', () => {
     const world = World.create(7);
     world.boats.length = 0;
     world.tier = 1;
@@ -1009,13 +1009,26 @@ describe('Buildings', () => {
     world.command({ type: 'store', tiles: [at], kind: 'crates', on: true });
     const area = world.bays.get(at)!;
     expect(world['byCrane'](area)).toBe(true);
-    // Empty, it takes either.
-    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([true, true]);
-    area.crates.push(20);
+    // Marked for cargo coming in, it takes no exports even when empty.
     expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([true, false]);
-    area.crates.length = 0;
-    (area.exports ??= []).push(20);
-    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([false, true]);
+    // Marked for cargo going out, no imports.
+    world.command({ type: 'store', tiles: [at], kind: 'crates', on: false });
+    world.command({ type: 'store', tiles: [at], kind: 'cratesOut', on: true });
+    const out = world.bays.get(at)!;
+    expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
+  });
+
+  it('warns, once a day, when shippers find no outgoing storage with room', () => {
+    const world = World.create(7);
+    const said = () =>
+      world.drainEvents().filter((e) => e.kind === 'message' && /going out/.test(e.text)).length;
+    world.drainEvents();
+    world['outgoingFull'](true);
+    world['outgoingFull'](true);
+    expect(said()).toBe(1);
+    world.tick += TICKS_PER_DAY;
+    world['outgoingFull'](true);
+    expect(said()).toBe(1);
   });
 
   it('turns warehouses and container yards from older saves into storage areas', () => {

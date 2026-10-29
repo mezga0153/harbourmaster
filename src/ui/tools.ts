@@ -101,7 +101,7 @@ export const CATEGORIES: Category[] = [
         icon: 'warehouse',
         label: 'Crate storage: in',
         note: `${money(B.CRATE_STORE_COST)}/tile`,
-        hint: `Drag out an area on port roads or quays to store crates coming in off the ships, ${B.CRATES_PER_STORE_TILE} a tile. Storage by a crane takes cargo either way, one way at a time. Forklifts and dockhands bring crates, jib cranes within ${B.JIB_REACH} tiles swing them straight in, and trucks load fast from a port road or quay beside it, inside the port through a port gate, big trucks too: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Where trucks cannot get to it, forklifts take the crates on. Drag over marked tiles to clear them`,
+        hint: `Drag out an area on port roads or quays to store crates coming in off the ships, ${B.CRATES_PER_STORE_TILE} a tile. Forklifts and dockhands bring crates, jib cranes within ${B.JIB_REACH} tiles swing them straight in, and trucks load fast from a port road or quay beside it, inside the port through a port gate, big trucks too: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Where trucks cannot get to it, forklifts take the crates on. Drag over marked tiles to clear them`,
         tier: B.CRATE_STORE_TIER,
       },
       {
@@ -122,7 +122,7 @@ export const CATEGORIES: Category[] = [
         label: 'Container yard: in',
         key: 'V',
         note: `${money(B.BOX_STORE_COST)}/tile`,
-        hint: `Drag out an area on port roads or quays to stack containers coming in off the ships, ${B.BOXES_PER_STORE_TILE} a tile. A yard by a crane takes containers either way, one way at a time. Reach stackers bring them from the cranes, they wait for customs, a day from when their ship is unloaded, and container trucks load from a port road or quay beside it, inside the port through a port gate: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
+        hint: `Drag out an area on port roads or quays to stack containers coming in off the ships, ${B.BOXES_PER_STORE_TILE} a tile. Reach stackers bring them from the cranes, they wait for customs, a day from when their ship is unloaded, and container trucks load from a port road or quay beside it, inside the port through a port gate: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
         tier: B.BOX_STORE_TIER,
       },
       {
