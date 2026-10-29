@@ -111,8 +111,13 @@ export const WORKERS_PER_SPOT = 2; // sent to the same loading spot at once
 export const TRUCK_SPEED = 0.7;
 /** Trucks drive this far right of the middle of the road, in tiles. */
 export const TRUCK_LANE = 0.18;
-/** Distance a truck keeps behind the one ahead of it, centre to centre, in tiles. */
-export const TRUCK_GAP = 0.9;
+/** Room a truck keeps behind the one ahead of it, bumper to bumper, in tiles. */
+export const TRUCK_GAP = 0.25;
+/** A truck's length in tiles: a container truck by how many it carries, a crate truck by its size. */
+export function truckLength(capacity: number, boxes: boolean): number {
+  if (boxes) return 0.55 + 0.63 * capacity;
+  return capacity > 6 ? 1.33 : capacity >= 6 ? 1.03 : 0.84;
+}
 /**
  * Trucks and port machines: ticks to get up to speed from standing, and to
  * brake to a stand from full speed; and the share of full speed they take

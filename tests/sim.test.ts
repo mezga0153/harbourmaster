@@ -3,7 +3,7 @@ import * as B from '../src/sim/balance';
 import { GameMap } from '../src/sim/map';
 import { makeOffer } from '../src/sim/contracts';
 import { generateMap } from '../src/sim/mapgen';
-import { findPath } from '../src/sim/path';
+import { findDrivePath, findPath } from '../src/sim/path';
 import {
   anchorOf,
   bestFacing,
@@ -927,13 +927,20 @@ describe('Buildings', () => {
     expect(m.build[m.idx(x, r + 1)]).toBe(Build.Gate);
     const inside = [m.idx(x, r + 2), m.idx(x, r + 3), m.idx(x + 1, r + 3), m.idx(x + 2, r + 3)];
     world.command({ type: 'build', kind: 'portRoad', tiles: inside });
+    // With room at the end for the trucks to turn round in: two wide each way.
+    const turn = [m.idx(x + 3, r + 3), m.idx(x + 2, r + 4), m.idx(x + 3, r + 4)];
+    world.command({ type: 'bulldoze', tiles: turn });
+    world.command({ type: 'build', kind: 'portRoad', tiles: turn });
+    expect(turn.every((i) => m.build[i] === Build.PortRoad)).toBe(true);
     let together = false;
     let loadTime = 0;
     for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
       world.step();
       const loading = world.trucks.filter((k) => k.bayIdx === at && k.state === 'loading');
       // Both on the port road inside.
-      for (const k of loading) expect(inside).toContain(m.idx(Math.floor(k.x), Math.floor(k.y)));
+      for (const k of loading) {
+        expect([...inside, ...turn]).toContain(m.idx(Math.floor(k.x), Math.floor(k.y)));
+      }
       if (loading.length === 2 && loading[0].goal !== loading[1].goal) together = true;
       if (loading.length > 0) loadTime++;
     }
@@ -1242,6 +1249,22 @@ describe('Rules of the road', () => {
     return t;
   }
 
+  it('never turns a truck about on a road one tile wide, only where there is room', () => {
+    // A dead end one wide, and the same with a block two wide at its end.
+    const w = 8;
+    const h = 4;
+    const road = new Set([8, 9, 10, 11, 12]);
+    const cost = (i: number) => (road.has(i) ? 1 : Infinity);
+    const nowhere = () => false;
+    // Heading east along it, it cannot come back west.
+    expect(findDrivePath(w, h, 9, 8, 8, cost, nowhere)).toBeNull();
+    // Starting either way, it can.
+    expect(findDrivePath(w, h, 9, -1, 8, cost, nowhere)).toEqual([8]);
+    // With room to turn at the end it goes on, comes round and back.
+    const back = findDrivePath(w, h, 9, 8, 8, cost, (i) => i === 12);
+    expect(back).toEqual([10, 11, 12, 11, 10, 9, 8]);
+  });
+
   it('keeps its distance behind a truck going its way, but passes one coming the other way', () => {
     const world = World.create(7);
     world.trucks.length = 0;
@@ -1260,7 +1283,7 @@ describe('Rules of the road', () => {
     expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
     // Further ahead, it closes up to the gap and no closer, braking as it does.
     b.dir = 0;
-    b.x = 10.5 + B.TRUCK_GAP + 0.3;
+    b.x = 10.5 + B.truckLength(6, false) + B.TRUCK_GAP + 0.3;
     const closing = pace();
     expect(closing).toBeGreaterThan(0);
     expect(closing).toBeLessThan(0.3);
@@ -1825,6 +1848,10 @@ describe('Container Port tier', () => {
     const round = [corner - 1 - m.w, corner - m.w, corner + 1 - m.w];
     world.command({ type: 'bulldoze', tiles: round });
     world.command({ type: 'build', kind: 'portRoad', tiles: round });
+    // Room for the trucks to turn round in at the spur: two wide each way.
+    const turn = [corner - 2, corner - 2 - m.w];
+    world.command({ type: 'bulldoze', tiles: turn });
+    world.command({ type: 'build', kind: 'portRoad', tiles: turn });
     const depot = m.idx(start, r - 3);
     world.command({ type: 'bulldoze', tiles: [depot] });
     world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
@@ -1993,6 +2020,11 @@ describe('Container Port tier', () => {
       expect(spot).toBeGreaterThanOrEqual(0);
       world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
       expect(m.build[spot]).toBe(Build.YardGantry);
+      // The gantry closes the road round the yard: room beside its lane for
+      // the trucks to turn round and drive back out.
+      const turn = [yard.idx - 2 * m.w - 1, yard.idx - 2 * m.w];
+      world.command({ type: 'bulldoze', tiles: turn });
+      world.command({ type: 'build', kind: 'portRoad', tiles: turn });
     }
     world['addContract'](
       {

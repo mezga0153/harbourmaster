@@ -56,6 +56,10 @@ function terminal(world: World): number {
   const round = [corner - 1 - m.w, corner - m.w, corner + 1 - m.w];
   world.command({ type: 'bulldoze', tiles: round });
   world.command({ type: 'build', kind: 'portRoad', tiles: round });
+  // Room for the trucks to turn round in at the spur: two wide each way.
+  const turn = [corner - 2, corner - 2 - m.w];
+  world.command({ type: 'bulldoze', tiles: turn });
+  world.command({ type: 'build', kind: 'portRoad', tiles: turn });
   const depot = m.idx(start, r - 3);
   world.command({ type: 'bulldoze', tiles: [depot] });
   world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });

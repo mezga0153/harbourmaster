@@ -48,7 +48,7 @@ import {
   type Town,
 } from './town';
 import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trait } from './staff';
-import { findPath, type CostFn } from './path';
+import { findDrivePath, findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import {
   anchorOf,
@@ -99,6 +99,7 @@ import {
   Build,
   Deco,
   isBay,
+  isTownBuilding,
   isBuoy,
   isDock,
   isPublicRoad,
@@ -858,6 +859,8 @@ export class World {
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
   private junctionCache: Uint8Array | null = null;
+  /** Where trucks can turn about; see turnable. */
+  private turnCache: Uint8Array | null = null;
   /** Where port machines can drive from their depots; see machineGround. */
   private machineCache: Set<number> | null = null;
   /** The parking lots, and whether each works; see parkingLots. */
@@ -1160,6 +1163,7 @@ export class World {
     this.reachCache = null;
     this.lotsCache = null;
     this.junctionCache = null;
+    this.turnCache = null;
     this.machineCache = null;
     switch (cmd.type) {
       case 'build':
@@ -6839,7 +6843,11 @@ export class World {
       .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
       .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
     for (const store of stores) {
-      const to = this.dockFor(store, (d) => this.routeFrom(t, d, this.truckCost(store.idx, -1, t)));
+      const to = this.dockFor(
+        store,
+        (d) => this.routeFrom(t, d, this.truckCost(store.idx, -1, t)),
+        this.lengthOf(t),
+      );
       if (to) return { store, ...to };
     }
     return null;
@@ -8000,6 +8008,8 @@ export class World {
   /** A dock at this bay no truck is using or heading for, or -1. */
   /** Whether the last dockFor found a way to any free spot, through a truck or not. */
   private dockRouted = false;
+  /** Whether it found one it could get to but not turn round from to leave. */
+  private dockTurn = false;
 
   /** Standing at a loading spot, loading or unloading. */
   private docked(o: Truck): boolean {
@@ -8015,17 +8025,27 @@ export class World {
   private dockFor(
     bay: Bay,
     route: (dock: number) => number[] | null,
+    len = 1,
   ): { dock: number; path: number[] } | null {
     const m = this.map;
     const standing = this.trucks.filter((o) => this.docked(o));
-    const free = this.loadingDocks(bay).filter((d) => this.freeDockSet(bay).has(d));
+    const open = this.freeDockSet(bay, len);
+    const free = this.loadingDocks(bay).filter((d) => open.has(d));
     this.dockRouted = false;
     // The furthest in first, so those that come after stop short of it
     // rather than having to get past.
     let best: { dock: number; path: number[] } | null = null;
+    this.dockTurn = false;
     for (const dock of free) {
       const path = route(dock);
       if (!path) continue;
+      // It has to be able to drive away again, never backing out.
+      const came = path.length >= 2 ? path[path.length - 2] : -1;
+      const out = this.drivePath(dock, came, m.entry, this.truckCost(m.entry, bay.idx));
+      if (!out) {
+        this.dockTurn = true;
+        continue;
+      }
       this.dockRouted = true;
       const through = path.some((i, k) => {
         const prev = k > 0 ? path[k - 1] : -1;
@@ -8042,18 +8062,34 @@ export class World {
     return best;
   }
 
-  /** The loading spots at a bay no truck is at or on its way to. */
-  private freeDockSet(bay: Bay): Set<number> {
-    const taken = new Set(
-      this.trucks
-        .filter(
-          (t) =>
-            t.bayIdx === bay.idx &&
-            (t.state === 'toBay' || t.state === 'loading' || t.state === 'delivering'),
-        )
-        .map((t) => t.goal),
+  /**
+   * The loading spots at a bay no truck is at or on its way to, nor so close
+   * along the lane to one that is that a truck `len` long would not fit
+   * between: a long truck at a spot reaches over the next.
+   */
+  private freeDockSet(bay: Bay, len = 1): Set<number> {
+    const m = this.map;
+    const at = this.trucks.filter(
+      (t) => t.state === 'toBay' || t.state === 'loading' || t.state === 'delivering',
     );
-    return new Set(this.loadingDocks(bay).filter((d) => !taken.has(d)));
+    const taken = new Set(at.filter((t) => t.bayIdx === bay.idx).map((t) => t.goal));
+    const crowds = (d: number) =>
+      at.some((o) => {
+        if (o.goal === d) return o.bayIdx !== bay.idx;
+        // Which way it lies there: as it stands, or as it will come in.
+        const prev = o.path.length >= 2 ? o.path[o.path.length - 2] : this.behind(o);
+        const dir = this.docked(o)
+          ? o.dir
+          : prev >= 0
+            ? Math.atan2(m.yOf(o.goal) - m.yOf(prev), m.xOf(o.goal) - m.xOf(prev))
+            : o.dir;
+        const dx = m.xOf(d) - m.xOf(o.goal);
+        const dy = m.yOf(d) - m.yOf(o.goal);
+        const along = Math.abs(dx * Math.cos(dir) + dy * Math.sin(dir));
+        const across = Math.abs(dy * Math.cos(dir) - dx * Math.sin(dir));
+        return across < 0.5 && along < (len + this.lengthOf(o)) / 2 - 0.05;
+      });
+    return new Set(this.loadingDocks(bay).filter((d) => !taken.has(d) && !crowds(d)));
   }
 
   private freeDock(bay: Bay): number {
@@ -8150,7 +8186,7 @@ export class World {
     const cost = truckCost(m, target, -1, new Set(space.tiles));
     let best: { path: number[]; via: number } | null = null;
     for (const [k, end] of space.ends.entries()) {
-      const way = findPath(m.w, m.h, from, end, cost, false);
+      const way = this.drivePath(from, -1, end, cost);
       if (!way || (best && way.length >= best.path.length - 1)) continue;
       const first = k === 0 ? space.tiles[0] : space.tiles[space.tiles.length - 1];
       best = { path: [...way, first], via: end };
@@ -8174,7 +8210,6 @@ export class World {
    * always forwards, on across it and out onto the road on the far side.
    */
   private routeFrom(t: Truck, goal: number, cost: CostFn): number[] | null {
-    const m = this.map;
     const here = this.tileOf(t);
     let from = here;
     let prefix: number[] = [];
@@ -8192,7 +8227,9 @@ export class World {
       }
     }
     if (from === goal) return prefix;
-    const rest = findPath(m.w, m.h, from, goal, cost, false);
+    const came =
+      prefix.length >= 2 ? prefix[prefix.length - 2] : prefix.length === 1 ? here : this.behind(t);
+    const rest = this.drivePath(from, came, goal, cost);
     return rest ? [...prefix, ...rest] : null;
   }
 
@@ -8280,12 +8317,16 @@ export class World {
       const boxy = haulier.terms.cargo === 'container';
       const served = !boxy || this.handlerFree(bay);
       const to = served
-        ? this.dockFor(bay, (d) => findPath(m.w, m.h, m.entry, d, this.truckCost(bay.idx), false))
+        ? this.dockFor(
+            bay,
+            (d) => this.drivePath(m.entry, -1, d, this.truckCost(bay.idx)),
+            B.truckLength(haulier.terms.capacity, boxy),
+          )
         : null;
       const spot = to ? to.dock : -1;
       // No way to any free spot at all, rather than only past a truck there.
       if (served && !to && !this.dockRouted && this.freeDockSet(bay).size > 0) {
-        this.cutOff(bay);
+        this.cutOff(bay, this.dockTurn);
         continue;
       }
       const wide = needsWideSpace(haulier.terms.capacity, boxy);
@@ -8328,14 +8369,16 @@ export class World {
   }
 
   /** No truck can get to this bay: say so once, and try again in a while. */
-  private cutOff(bay: Bay): void {
+  private cutOff(bay: Bay, turn = false): void {
     // Crate storage out of the trucks' way is a buffer the forklifts empty.
     if (!bay.noAccess && !bay.warehouse) {
       const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage area' : 'truck bay';
       this.message(
-        bay.tiles
-          ? `Trucks cannot reach a ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
-          : `Trucks cannot reach a ${what}: it needs a public road to the highway, or port roads from a port gate.`,
+        turn
+          ? `Trucks could get to a ${what} but not drive away again: they never turn about on a road one tile wide. Give them a way on, a junction, or a block of road two wide to turn in.`
+          : bay.tiles
+            ? `Trucks cannot reach a ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
+            : `Trucks cannot reach a ${what}: it needs a public road to the highway, or port roads from a port gate.`,
         'bad',
       );
     }
@@ -8353,6 +8396,7 @@ export class World {
           false,
           this.pace(t),
           this.mayEnter(t),
+          this.truckReroute(t),
         );
         if (r === 'blocked' || this.map.build[t.park ?? -1] !== Build.Parking) {
           return this.removeTruck(t);
@@ -8391,7 +8435,11 @@ export class World {
           return this.leavePark(t);
         }
         if (t.boxes && !this.handlerFree(bay, t)) return;
-        const to = this.dockFor(bay, (d) => this.routeFrom(t, d, this.truckCost(bay.idx, -1, t)));
+        const to = this.dockFor(
+          bay,
+          (d) => this.routeFrom(t, d, this.truckCost(bay.idx, -1, t)),
+          this.lengthOf(t),
+        );
         if (!to) return;
         const { dock, path } = to;
         t.park = undefined;
@@ -8408,6 +8456,7 @@ export class World {
           false,
           this.pace(t),
           this.mayEnter(t),
+          this.truckReroute(t),
         );
         if (r === 'blocked') {
           if (t.exports) bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - t.cargo);
@@ -8486,6 +8535,7 @@ export class World {
           false,
           this.pace(t),
           this.mayEnter(t),
+          this.truckReroute(t),
         );
         if (r === 'blocked') this.headOut(t);
         else if (r === 'arrived' && t.then && this.town) {
@@ -8522,7 +8572,7 @@ export class World {
       }
       case 'leaving': {
         const cost = this.truckCost(this.map.entry, t.bayIdx, t);
-        const r = this.move(t, cost, false, this.pace(t), this.mayEnter(t));
+        const r = this.move(t, cost, false, this.pace(t), this.mayEnter(t), this.truckReroute(t));
         if (r === 'arrived' || r === 'blocked') this.removeTruck(t);
         return;
       }
@@ -8583,7 +8633,7 @@ export class World {
     return [o.x - Math.sin(o.dir) * B.TRUCK_LANE, o.y + Math.cos(o.dir) * B.TRUCK_LANE];
   }
 
-  /** Distance to the nearest truck ahead in the same lane, going the same way; Infinity if none. */
+  /** Room to the back of the nearest truck ahead in the same lane, going the same way; Infinity if none. */
   private gapAhead(t: Truck): number {
     let best = Infinity;
     for (const o of this.trucks) {
@@ -8592,7 +8642,8 @@ export class World {
       const along = this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
-      best = Math.min(best, along);
+      // Bumper to bumper: half of each truck's length off the middles.
+      best = Math.min(best, along - (this.lengthOf(t) + this.lengthOf(o)) / 2);
     }
     return best;
   }
@@ -8602,6 +8653,7 @@ export class World {
    * other way on its own side of the road; -1 if it is not.
    */
   private ahead(t: Truck, o: Truck): number {
+    const reach = 3 + this.lengthOf(t);
     const hx = Math.cos(t.dir);
     const hy = Math.sin(t.dir);
     const [tx, ty] = this.lanePos(t);
@@ -8609,9 +8661,14 @@ export class World {
     const dx = ox - tx;
     const dy = oy - ty;
     const along = dx * hx + dy * hy;
-    if (along < 0 || along > 3) return -1;
+    if (along < 0 || along > reach) return -1;
     if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - t.dir) < -0.2) return -1;
     return along;
+  }
+
+  /** How long a truck is, in tiles. */
+  private lengthOf(t: Truck): number {
+    return B.truckLength(t.capacity, t.boxes);
   }
 
   /**
@@ -8638,6 +8695,63 @@ export class World {
     }
     this.junctionCache = out;
     return out;
+  }
+
+  /**
+   * Where a truck has room to come round and go back the way it came: a
+   * junction, where it can back into the side road; a block of road two
+   * wide each way; a truck bay or business it drives into; and the highway
+   * off the edge of the map. Nowhere else does it turn about on the spot.
+   * Cleared when the port changes.
+   */
+  private turnable(i: number): boolean {
+    if (!this.turnCache) {
+      const m = this.map;
+      const road = truckCost(m);
+      const ok = (x: number, y: number) => m.inBounds(x, y) && Number.isFinite(road(m.idx(x, y)));
+      const out = new Uint8Array(m.build.length);
+      const junctions = this.junctions();
+      for (let k = 0; k < m.build.length; k++) {
+        const b = m.build[k];
+        if (k === m.entry || k === this.town?.gate || isBay(b) || isTownBuilding(b)) {
+          out[k] = 1;
+          continue;
+        }
+        if (!Number.isFinite(road(k))) continue;
+        const ways = m.neighbors4(k).filter((n) => Number.isFinite(road(n))).length;
+        const x = m.xOf(k);
+        const y = m.yOf(k);
+        const open = [-1, 1].some((dx) =>
+          [-1, 1].some((dy) => ok(x + dx, y) && ok(x, y + dy) && ok(x + dx, y + dy)),
+        );
+        if (junctions[k] || ways >= 3 || open) out[k] = 1;
+      }
+      this.turnCache = out;
+    }
+    return this.turnCache[i] === 1;
+  }
+
+  /** A truck's way from `from`, having come from `cameFrom` (-1: either way), never turning about where it cannot. */
+  private drivePath(from: number, cameFrom: number, goal: number, cost: CostFn): number[] | null {
+    const m = this.map;
+    return findDrivePath(m.w, m.h, from, cameFrom, goal, cost, (i) => this.turnable(i));
+  }
+
+  /** A truck's new way to its goal when the old one is blocked: never turning about where it cannot. */
+  private truckReroute(t: Truck): (cost: CostFn) => number[] | null {
+    return (cost) => this.drivePath(this.tileOf(t), this.behind(t), t.goal, cost);
+  }
+
+  /** The tile a truck has just come from, by the way it faces. */
+  private behind(t: Truck): number {
+    const m = this.map;
+    const here = this.tileOf(t);
+    const dx = Math.round(Math.cos(t.dir));
+    const dy = Math.round(Math.sin(t.dir));
+    if (Math.abs(dx) + Math.abs(dy) !== 1) return -1;
+    const x = m.xOf(here) - dx;
+    const y = m.yOf(here) - dy;
+    return m.inBounds(x, y) ? m.idx(x, y) : -1;
   }
 
   /** How much a road's traffic has priority: public road over port road, both over parking. */
@@ -8745,7 +8859,8 @@ export class World {
     const cx = m.xOf(m.entry) + 0.5;
     const cy = m.yOf(m.entry) + 0.5;
     return this.trucks.every(
-      (o) => !this.onRoad(o) || Math.hypot(o.x - cx, o.y - cy) > B.TRUCK_GAP + 0.2,
+      (o) =>
+        !this.onRoad(o) || Math.hypot(o.x - cx, o.y - cy) > this.lengthOf(o) + B.TRUCK_GAP + 0.2,
     );
   }
 
@@ -8783,7 +8898,7 @@ export class World {
     // Out to the highway and round to the town's road, unless the roads join up on the map.
     const out =
       town.gate >= 0
-        ? findPath(m.w, m.h, here, m.entry, this.truckCost(m.entry, t.bayIdx), false)
+        ? this.drivePath(here, this.behind(t), m.entry, this.truckCost(m.entry, t.bayIdx))
         : null;
     const round = Math.abs(m.yOf(town.gate) - m.yOf(m.entry)) + 2 * Math.abs(HIGHWAY_X);
     let best: { path: number[]; then?: number[]; len: number } | null = null;
@@ -8795,12 +8910,12 @@ export class World {
       const front = frontOf(m, i, m.orient[i] & 3);
       if (front < 0 || !isPublicRoad(m.build[front])) continue;
       const cost = this.truckCost(front, t.bayIdx);
-      const direct = findPath(m.w, m.h, here, front, cost, false);
+      const direct = this.drivePath(here, this.behind(t), front, cost);
       if (direct && (!best || direct.length < best.len)) {
         best = { path: direct, len: direct.length };
         drop = i;
       }
-      const inn = out && findPath(m.w, m.h, town.gate, front, cost, false);
+      const inn = out && this.drivePath(town.gate, -1, front, cost);
       const len = out && inn ? out.length + round + inn.length : Infinity;
       if (out && inn && (!best || len < best.len)) {
         best = { path: out, then: inn, len };
@@ -8877,6 +8992,8 @@ export class World {
     diagonal: boolean,
     speedAt: (i: number) => number,
     canEnter?: (i: number) => boolean,
+    /** Finding a new way when the old one is blocked; a plain path search if not given. */
+    repath?: (cost: CostFn) => number[] | null,
   ): 'moving' | 'arrived' | 'blocked' | 'waiting' {
     const w = this.map.w;
     let budget = speedAt(this.tileOf(a));
@@ -8890,7 +9007,11 @@ export class World {
       }
       if (!Number.isFinite(cost(next, this.tileOf(a)))) {
         const p =
-          repaths++ < 1 ? findPath(w, this.map.h, this.tileOf(a), a.goal, cost, diagonal) : null;
+          repaths++ < 1
+            ? repath
+              ? repath(cost)
+              : findPath(w, this.map.h, this.tileOf(a), a.goal, cost, diagonal)
+            : null;
         if (!p) {
           a.path = [];
           return 'blocked';

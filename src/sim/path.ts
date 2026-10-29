@@ -80,6 +80,79 @@ export function findPath(
   return path.reverse();
 }
 
+/**
+ * A* for a vehicle that cannot turn about on the spot: no going straight
+ * back the way it came, except on a tile where `canTurn` says there is room
+ * to come round. It sets off from `start` having come from `cameFrom`
+ * (-1: either way). Orthogonal moves only; like findPath otherwise.
+ */
+export function findDrivePath(
+  w: number,
+  h: number,
+  start: number,
+  cameFrom: number,
+  goal: number,
+  cost: CostFn,
+  canTurn: (i: number) => boolean,
+): number[] | null {
+  if (start === goal) return [];
+  if (!Number.isFinite(cost(goal))) return null;
+  // State: tile × the direction it was entered by (4 = none, at the start).
+  const n = w * h * 5;
+  const g = new Float32Array(n).fill(Infinity);
+  const came = new Int32Array(n).fill(-1);
+  const closed = new Uint8Array(n);
+  const heap = new MinHeap();
+  const gx = goal % w;
+  const gy = Math.floor(goal / w);
+  const heuristic = (i: number) => Math.abs((i % w) - gx) + Math.abs(Math.floor(i / w) - gy);
+  const dirOf = (a: number, b: number) => {
+    const d = b - a;
+    return d === 1 ? 0 : d === -1 ? 1 : d === w ? 2 : 3;
+  };
+  const startDir = cameFrom >= 0 ? dirOf(cameFrom, start) : 4;
+  const s0 = start * 5 + startDir;
+  g[s0] = 0;
+  heap.push(s0, heuristic(start));
+  let end = -1;
+  while (heap.size > 0) {
+    const cur = heap.pop();
+    if (closed[cur]) continue;
+    closed[cur] = 1;
+    const tile = Math.floor(cur / 5);
+    if (tile === goal) {
+      end = cur;
+      break;
+    }
+    const din = cur % 5;
+    const cx = tile % w;
+    const cy = Math.floor(tile / w);
+    for (const [dx, dy] of DIRS4) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const ni = ny * w + nx;
+      const dout = dirOf(tile, ni);
+      // Straight back the way it came, only where it has room to turn.
+      if (din < 4 && (din ^ 1) === dout && !canTurn(tile)) continue;
+      const c = cost(ni, tile);
+      if (!Number.isFinite(c)) continue;
+      const ns = ni * 5 + dout;
+      if (closed[ns]) continue;
+      const ng = g[cur] + c;
+      if (ng < g[ns]) {
+        g[ns] = ng;
+        came[ns] = cur;
+        heap.push(ns, ng + heuristic(ni));
+      }
+    }
+  }
+  if (end < 0) return null;
+  const path: number[] = [];
+  for (let s = end; s !== s0; s = came[s]) path.push(Math.floor(s / 5));
+  return path.reverse();
+}
+
 export class MinHeap {
   private items: number[] = [];
   private keys: number[] = [];
