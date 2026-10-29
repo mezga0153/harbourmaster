@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { Vector3 } from 'three';
-import { Entities, turnAbout } from '../src/render/entities';
-import { settle } from '../src/render/structures';
+import { Group, Vector3, type Object3D } from 'three';
+import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN } from '../src/sim/balance';
+import { placementError } from '../src/sim/rules';
+import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { Entities, turnAbout } from '../src/render/entities';
+import { settle, Structures } from '../src/render/structures';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -90,5 +93,97 @@ describe('Dockhands handling crates', () => {
       }
     }
     expect(handed).toBeGreaterThan(4);
+  });
+});
+
+describe('Jib cranes', () => {
+  it('lift each crate off the boat on the hook and set it down on the stack, never showing it nowhere', () => {
+    // The starting jetty paved into a quay, a jib crane on its end, a
+    // forklift to take on what it lands, and no dockhands to unload the
+    // boats by hand.
+    const world = World.create(7);
+    world.boats.length = 0;
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const jetty = [...m.build.keys()].filter((i) => m.yOf(i) === r && m.build[i] === Build.Jetty);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    const paths = [...m.build.keys()].filter((i) => m.build[i] === Build.Footpath);
+    world.command({ type: 'build', kind: 'portRoad', tiles: paths });
+    const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+    world.command({ type: 'build', kind: 'office', tiles: [office] });
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    const depot = m.build.findIndex((_, i) => !placementError(m, 'depot', i));
+    world.command({ type: 'build', kind: 'depot', tiles: [depot] });
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    for (const p of world.people.filter((q) => q.kind === 'dockhand')) {
+      world.command({ type: 'fire', id: p.id });
+    }
+    const crane = world.cranes.get(tip)!;
+    for (let t = 0; t < TICKS_PER_DAY * 4 && !crane.busy; t++) world.step();
+    expect(crane.busy).toBe(true);
+
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    const scene = new Group();
+    scene.add(structures.group, entities.group);
+    const parts = (structures as unknown as { cranes: Map<number, any> }).cranes.get(tip)!;
+    const jib = parts.jib;
+    const place = (): Object3D => parts.stack[jib.place];
+    const hook = new Vector3();
+    const at = new Vector3();
+    // How far the hook is from coming down square on top of a crate.
+    const off = (o: Object3D) => {
+      parts.hook.getWorldPosition(hook);
+      o.getWorldPosition(at);
+      const size = o.children[0].scale.x * o.getWorldScale(new Vector3()).x;
+      const flat = Math.hypot(hook.x - at.x, hook.z - at.z);
+      return Math.max(flat, Math.abs(hook.y - 0.05 - (at.y + size)));
+    };
+    let now = 0;
+    let lifts = 0;
+    let was = 0;
+    let taken = '';
+    for (let tick = 0; tick < 120 && crane.stack.length < 9; tick++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      structures.setCranes(s.cranes);
+      for (let f = 0; f < 6; f++) {
+        const dt = 1 / 60;
+        now += dt * 1000;
+        entities.update(now, now / 1000);
+        structures.update(dt, now / 1000);
+        scene.updateMatrixWorld(true);
+        if (!jib.work) continue;
+        const deck: Object3D = entities.slotObject(jib.boat, jib.slot)!;
+        // On the boat, on the hook or on the stack: never on none of them.
+        expect(deck.visible || jib.load.visible || place().visible).toBe(true);
+        const p = jib.phase;
+        if (was < CRANE_LIFT_TAKEN && p >= CRANE_LIFT_TAKEN) {
+          expect(off(deck)).toBeLessThan(0.02);
+          expect(deck.visible).toBe(false);
+          expect(jib.load.visible).toBe(true);
+          taken = jib.key;
+          lifts++;
+        }
+        // Unless the forklift has taken from the stack meanwhile, and the
+        // next place on it has moved.
+        if (was < CRANE_LIFT_SET && p >= CRANE_LIFT_SET && jib.key === taken) {
+          expect(off(place())).toBeLessThan(0.02);
+          expect(place().visible).toBe(true);
+          expect(jib.load.visible).toBe(false);
+        }
+        was = p;
+      }
+    }
+    expect(lifts).toBeGreaterThanOrEqual(5);
   });
 });

@@ -609,6 +609,11 @@ export class Entities {
     return !!this.entries.get(id)?.model.crates[k]?.visible;
   }
 
+  /** The crate or container in slot `k` of a boat or vehicle, shown or not. */
+  slotObject(id: number, k: number): Object3D | undefined {
+    return this.entries.get(id)?.model.crates[k];
+  }
+
   /** Where a truck's container slot `k` is in the world, or null. */
   slotPosition(id: number, k: number, out: Vector3): Vector3 | null {
     const slot = this.entries.get(id)?.model.crates[k];

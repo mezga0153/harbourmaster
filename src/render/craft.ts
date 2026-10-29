@@ -360,12 +360,13 @@ export function coasterShip(seed: number, company: number, crate: Crate): Craft 
     root.add(cyl(0.025, 0.75, C.chassis, 0.85, deck));
     root.add(box(0.012, 0.012, beam * 0.7, C.chassis, 0.85, deck + 0.6, 0));
   }
-  // Pallets of crates: six along, three abreast, two high.
+  // Pallets of crates: six along, three abreast, two high, each crate on
+  // its own pallet as a crane lifts it.
   const slots = slotGrid(
     root,
-    (x, sy, z, k) => {
+    (x, sy, z) => {
       const c = crate(0.18, x, sy + 0.025, z);
-      if (k < 18) c.add(box(0.2, 0.025, 0.2, C.wood, 0, -0.025, 0));
+      c.add(box(0.2, 0.025, 0.2, C.wood, 0, -0.025, 0));
       return c;
     },
     spread(-0.58, 0.62, 6),

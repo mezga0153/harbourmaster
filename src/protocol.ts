@@ -114,6 +114,17 @@ export interface CraneView {
   workSlot?: number;
   workLook?: number;
   workPhase?: number;
+  /**
+   * Jib cranes at work: the crate storage (by its first tile) or the pile on
+   * the quay (by its tile) the crate goes into or comes from, else its
+   * landing stack; the crate's place there; and whether it is on a pallet.
+   */
+  workStore?: number;
+  workPile?: number;
+  workPlace?: number;
+  workPallet?: boolean;
+  /** Jib cranes: the crates on the landing stack are on pallets. */
+  pallets?: boolean;
 }
 
 export interface TierProgress {

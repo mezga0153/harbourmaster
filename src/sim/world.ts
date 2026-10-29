@@ -233,6 +233,27 @@ interface Crane {
   liftSlot?: number;
 }
 
+/**
+ * A jib crane's lift: a crate off `boat`, or with `load` an export on board
+ * it, into or out of crate storage `store` or the pile on the quay `pile`,
+ * else onto its own landing stack.
+ */
+interface JibJob {
+  boat: Boat;
+  load: boolean;
+  store?: Bay;
+  pile?: Bay;
+}
+
+/** A jib crane's lift for the view: which slot on the boat, which place at the other end. */
+interface JibLift extends JibJob {
+  slot: number;
+  place: number;
+  phase: number;
+  /** The crate is on a pallet, as a coaster's are. */
+  pallet: boolean;
+}
+
 type Vessel = keyof typeof B.VESSELS;
 
 /** A berth, the dock tile it lies against, and the vessel lying there. */
@@ -868,6 +889,8 @@ export class World {
   private stillFor = new WeakMap<Boat, number>();
   /** Boats coming alongside, lining up, casting off or pulling out. Not saved. */
   private handling = new WeakSet<Boat>();
+  /** What each jib crane at work is lifting this tick, for the view. Not saved. */
+  private jibJobs = new WeakMap<Crane, JibJob>();
   private buoyCache: Uint8Array | null = null;
   private frontCache: Int32Array | null = null;
   private coordinated = new Set<number>();
@@ -6557,6 +6580,7 @@ export class World {
     );
     if (!ship) return;
     let take: (() => number) | null = null;
+    let from: { store?: Bay; pile?: Bay } = {};
     if (boxes) {
       if (c.outStack?.length) {
         const k = c.liftSlot;
@@ -6579,6 +6603,7 @@ export class World {
       const pile = [...this.piles.values()].find(
         (q) => q.out && q.crates.length - (q.reserved ?? 0) > 0 && this.inJibReach(c, q.idx),
       );
+      from = store ? { store } : pile ? { pile } : {};
       if (store) take = () => store.exports!.shift()!;
       else if (pile) {
         take = () => {
@@ -6591,6 +6616,7 @@ export class World {
     if (!take) return;
     const m = this.map;
     c.busy = true;
+    if (!boxes) this.jibJobs.set(c, { boat: ship, load: true, ...from });
     c.angle = Math.atan2(ship.y - (m.yOf(c.idx) + 0.5), ship.x - (m.xOf(c.idx) + 0.5));
     if (++c.timer < craneTicks(c)) return;
     c.timer = 0;
@@ -7318,6 +7344,7 @@ export class World {
    */
   private updateCrane(c: Crane): void {
     c.busy = false;
+    this.jibJobs.delete(c);
     const boxes = c.kind !== 'jib';
     const store = boxes
       ? undefined
@@ -7343,6 +7370,7 @@ export class World {
       if (c.liftSlot < 0) return;
     }
     c.busy = true;
+    if (!boxes) this.jibJobs.set(c, { boat, load: false, store });
     c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
     if (++c.timer < craneTicks(c)) return;
     c.timer = 0;
@@ -7372,11 +7400,13 @@ export class World {
 
   /**
    * What a container crane is lifting, for the view: off a ship's deck or
-   * onto it, which slot, how it looks and how far through the lift it is.
+   * onto it, which slot, how it looks and how far through the lift it is;
+   * for a jib crane, see jibWork.
    */
-  private craneWork(c: Crane): Partial<CraneView> {
+  private craneWork(c: Crane, jibs: Map<Crane, JibLift>): Partial<CraneView> {
+    if (c.kind === 'jib') return this.jibWork(c, jibs.get(c));
     const k = c.liftSlot;
-    if (c.kind === 'jib' || !c.busy || k === undefined || k < 0) return {};
+    if (!c.busy || k === undefined || k < 0) return {};
     const b = this.boats.find((q) => q.id === c.liftBoat);
     if (!b) return {};
     const unload = this.liftingFrom(c, b);
@@ -7387,6 +7417,81 @@ export class World {
       workLook: unload ? boxLookOf(b.id, k) : this.outLooks(c)[0],
       workPhase: c.timer / craneTicks(c),
     };
+  }
+
+  /**
+   * What a jib crane is lifting, for the view: off a boat or on board it,
+   * the slot on its deck, where at the other end the crate goes or comes
+   * from, and how far through the lift it is; and whether its landing stack
+   * is of pallets, counting one being set down on it.
+   */
+  private jibWork(c: Crane, lift: JibLift | undefined): Partial<CraneView> {
+    const toStack = !!lift && !lift.load && !lift.store;
+    const pallets = c.stack.length > 0 ? !!c.pallets : toStack && lift!.pallet;
+    if (!lift) return { pallets };
+    return {
+      working: lift.load ? 'load' : 'unload',
+      workBoat: lift.boat.id,
+      workSlot: lift.slot,
+      workPhase: lift.phase,
+      workStore: lift.store?.idx,
+      workPile: lift.pile?.idx,
+      workPlace: lift.place,
+      workPallet: lift.pallet,
+      pallets,
+    };
+  }
+
+  /**
+   * The crates jib cranes are part way through lifting, by crane: which
+   * slot on the boat's deck (the top one unloading, the next free loading)
+   * and which place in storage, on the quay or on its landing stack (the
+   * next free one, or the last taking an export), each crane at the same
+   * boat or store its own.
+   */
+  private jibLifts(): Map<Crane, JibLift> {
+    const lifts = new Map<Crane, JibLift>();
+    const ahead = new Map<object, number>();
+    const nth = (key: object) => {
+      const n = ahead.get(key) ?? 0;
+      ahead.set(key, n + 1);
+      return n;
+    };
+    for (const c of this.cranes.values()) {
+      const job = c.kind === 'jib' && c.busy ? this.jibJobs.get(c) : undefined;
+      if (!job) continue;
+      const { boat: b, load, store, pile } = job;
+      const aboard = b.crates + (b.out ?? 0);
+      const slot = load ? aboard + nth(b) : aboard - 1 - nth(b);
+      const there = store
+        ? store.crates.length + (store.exports?.length ?? 0)
+        : pile
+          ? pile.crates.length
+          : c.stack.length;
+      const key = store ?? pile ?? c;
+      const place = load ? there - 1 - nth(key) : there + nth(key);
+      if (slot < 0 || place < 0) continue;
+      const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
+      lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
+    }
+    return lifts;
+  }
+
+  /**
+   * Crates jib cranes have set down at `where` (a boat, a store or a
+   * crane's landing stack) and taken from it, that the counts do not have
+   * yet: the sim moves each at the end of the lift, the view as the hook
+   * takes it and sets it down.
+   */
+  private jibMoved(lifts: Map<Crane, JibLift>, where: object): { set: number; taken: number } {
+    let set = 0;
+    let taken = 0;
+    for (const [c, l] of lifts) {
+      const [from, to] = l.load ? [l.store ?? l.pile, l.boat] : [l.boat, l.store ?? c];
+      if (from === where && l.phase >= B.CRANE_LIFT_TAKEN) taken++;
+      if (to === where && l.phase >= B.CRANE_LIFT_SET) set++;
+    }
+    return { set, taken };
   }
 
   /**
@@ -8685,6 +8790,8 @@ export class World {
     const entities: EntityView[] = [];
     const staff: StaffView[] = [];
     const lifts = this.gantryLifts();
+    const jibs = this.jibLifts();
+    const moved = (where: object) => this.jibMoved(jibs, where);
     for (const p of this.people) {
       entities.push({
         id: p.id,
@@ -8747,7 +8854,9 @@ export class World {
         x: b.x,
         y: b.y,
         dir: b.dir,
-        ...(b.vessel === 'feeder' ? this.deckView(b) : { load: b.crates + (b.out ?? 0) }),
+        ...(b.vessel === 'feeder'
+          ? this.deckView(b)
+          : { load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken }),
         moving: b.path.length > 0,
         name: b.company,
         activity:
@@ -8857,12 +8966,12 @@ export class World {
     }
     const bays: BayView[] = [...this.bays.values()].map((b) => ({
       idx: b.idx,
-      stock: b.crates.length,
+      stock: b.crates.length + moved(b).set,
       boxes: b.boxes.length,
       capacity: bayCap(b),
       large: b.large,
       warehouse: !!b.warehouse,
-      exports: b.exports?.length ?? 0,
+      exports: (b.exports?.length ?? 0) - moved(b).taken,
       outgoing: !!b.outgoing,
       byCrane: this.byCrane(b),
       tiles: b.tiles && [...b.tiles],
@@ -8934,7 +9043,7 @@ export class World {
       }),
       piles: [...this.piles.values()].map((p) => ({
         idx: p.idx,
-        crates: p.crates.length,
+        crates: p.crates.length - moved(p).taken,
         pallets: !!p.pallets,
         out: !!p.out,
       })),
@@ -8953,7 +9062,7 @@ export class World {
       cranes: [...this.cranes.values()].map((c) => ({
         idx: c.idx,
         kind: c.kind,
-        stack: c.stack.length,
+        stack: c.stack.length + moved(c).set,
         out: c.outStack?.length ?? 0,
         looks: c.kind === 'jib' ? undefined : [...this.stackLooks(c), ...this.outLooks(c)],
         max: craneStack(c),
@@ -8961,7 +9070,7 @@ export class World {
         busy: c.busy,
         stores: c.kind === 'jib' ? this.jibStores(c).length : 0,
         why: this.craneWhy(c),
-        ...this.craneWork(c),
+        ...this.craneWork(c, jibs),
       })),
       town: this.town && {
         name: this.town.name,
