@@ -163,11 +163,14 @@ export interface OfferView {
 /** Crates per day: what the fisheries send versus what the port can move. */
 export interface Capacity {
   demand: number;
+  /** Crates a day lifted off the boats (dockhands, jib cranes) and moved on from the quay (forklifts, or dockhands carrying); unloading is the lesser. */
+  off: number;
+  moved: number;
   unloading: number;
   trucking: number;
   /** Berths deep enough for a coaster. */
   deepBerths: number;
-  /** Coasters' crates come on pallets, which only forklifts unload. */
+  /** Coasters' crates come on pallets, which only forklifts take on from the quay. */
   pallets: { demand: number; unloading: number };
   /** Share of worker travel time lost waiting for each other yesterday. */
   congestion: number;
@@ -266,6 +269,17 @@ export interface Snapshot {
   contracts: ContractView[];
   offers: OfferView[];
   capacity: Capacity;
+  /** Cargo waiting along the way from boat to truck, right now. */
+  stock: {
+    /** Crates on the quay and on jib cranes' landing stacks. */
+    landed: number;
+    /** Crates in truck bays and crate storage. */
+    stored: number;
+    /** Containers set down by the cranes, for the stackers. */
+    boxLanded: number;
+    boxCustoms: number;
+    boxCleared: number;
+  };
   progress: TierProgress;
   cranes: CraneView[];
   depots: { idx: number; forklifts: number }[];

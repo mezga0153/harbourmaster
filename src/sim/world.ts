@@ -1656,6 +1656,8 @@ export class World {
       demand: Math.round(demand),
       unloading: Math.round(unloading),
       trucking: this.truckingWith(null),
+      off: Math.round(off * (1 - this.congestion)),
+      moved: Math.round(on * (1 - this.congestion)),
       deepBerths: this.berthCount(B.COASTER_DRAFT, true),
       pallets: {
         demand: Math.round(palletDemand),
@@ -5917,6 +5919,23 @@ export class World {
       : 'No container ship alongside.';
   }
 
+  /** Cargo waiting at each step from boat to truck, for the cargo flow. */
+  private waitingCargo(): Snapshot['stock'] {
+    const cranes = [...this.cranes.values()];
+    const yards = [...this.yards.values()];
+    const boxes = yards.reduce((n, y) => n + y.boxes.length, 0);
+    const cleared = yards.reduce((n, y) => n + this.cleared(y), 0);
+    return {
+      landed:
+        [...this.piles.values()].reduce((n, p) => n + p.crates.length, 0) +
+        cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + c.stack.length, 0),
+      stored: [...this.bays.values()].reduce((n, b) => n + b.crates.length, 0),
+      boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + c.stack.length, 0),
+      boxCustoms: boxes - cleared,
+      boxCleared: cleared,
+    };
+  }
+
   snapshot(): Snapshot {
     const entities: EntityView[] = [];
     const staff: StaffView[] = [];
@@ -6095,6 +6114,7 @@ export class World {
       })),
       contracts,
       capacity: this.capacity(),
+      stock: this.waitingCargo(),
       docks: {
         total: this.docks().length,
         coordinated: this.docks().filter((g) => g.coordinated).length,

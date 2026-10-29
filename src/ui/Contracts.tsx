@@ -138,11 +138,14 @@ function Kpi({
   value,
   demand,
   hint,
+  below,
 }: {
   label: string;
   value: number;
   demand?: number;
   hint: string;
+  /** What is waiting after this step. */
+  below?: string;
 }) {
   const tone =
     demand === undefined ? '' : value >= demand * 1.1 ? 'good' : value >= demand ? 'warn' : 'bad';
@@ -153,6 +156,7 @@ function Kpi({
         {value}
         <span class="muted">/day</span>
       </span>
+      {below && <span class="kpi-below">{below}</span>}
     </div>
   );
 }
@@ -173,58 +177,95 @@ function DockAlert() {
 
 function ContainerSummary({ cap }: { cap: Capacity }) {
   const b = cap.boxes;
+  const stock = snapshot.value?.stock;
   const tier = snapshot.value?.progress.tier ?? 0;
   if (tier < 2 && b.demand === 0) return null;
   const short =
     b.demand > 0 && b.berths === 0
       ? 'No feeder berth: needs a harbour or gantry crane on a 2-wide quay in 4 m of water.'
       : b.demand > b.lifting
-        ? 'Containers bottleneck: lifting. Build another harbour crane, or a gantry crane: several can work one ship.'
+        ? 'Containers bottleneck: lifting them off the ships. Build another harbour crane, or a gantry crane: several can work one ship.'
         : b.demand > b.moving
-          ? 'Containers bottleneck: moving. Buy reach stackers.'
+          ? 'Containers bottleneck: moving them from the cranes to the yards. Buy reach stackers.'
           : b.demand > b.trucking
             ? 'Containers bottleneck: trucking. Sign a container haulier, and mark out container yards beside a public road or behind a port gate.'
             : null;
   return (
     <>
-      <div class="kpis four">
-        <Kpi label="Containers" value={b.demand} hint="Containers per day your lines send" />
-        <Kpi label="Lifting" value={b.lifting} demand={b.demand} hint="Harbour and gantry cranes" />
-        <Kpi label="Moving" value={b.moving} demand={b.demand} hint="Reach stackers" />
-        <Kpi label="Trucking" value={b.trucking} demand={b.demand} hint="Container trucks" />
+      <h3 class="flow-title">Containers, ship to truck</h3>
+      <div class="kpis four flow">
+        <Kpi label="Arriving" value={b.demand} hint="Containers per day your lines send" />
+        <Kpi
+          label="Lifted"
+          value={b.lifting}
+          demand={b.demand}
+          hint="Harbour and gantry cranes lift containers off the ships"
+          below={stock && `${stock.boxLanded} by the cranes`}
+        />
+        <Kpi
+          label="Moved"
+          value={b.moving}
+          demand={b.demand}
+          hint="Reach stackers take them from the cranes to the container yards"
+          below={stock && `${stock.boxCustoms} in customs`}
+        />
+        <Kpi
+          label="Trucked"
+          value={b.trucking}
+          demand={b.demand}
+          hint="Container trucks take them away once customs clear them, about half a day after they reach a yard"
+          below={stock && `${stock.boxCleared} cleared`}
+        />
       </div>
       {short && <p class="note bad">{short}</p>}
     </>
   );
 }
 
+/**
+ * The way cargo goes from boat to truck, a step at a time: how much each
+ * step can handle a day, what is waiting after it, and the step holding
+ * everything up.
+ */
 function Summary({ cap }: { cap: Capacity }) {
+  const stock = snapshot.value?.stock;
   const jammed = cap.congestion >= 0.15;
   const short =
-    cap.demand > cap.unloading
+    cap.demand > cap.off
       ? jammed
-        ? 'Bottleneck: unloading, and workers are queueing on narrow walkways. More staff will not help much: widen jetties and paths, add berths, or use cranes and forklifts.'
-        : 'Bottleneck: unloading. Hire dockhands to lift cargo off the boats, build jib cranes, or buy forklifts to take it on from the quay.'
-      : cap.demand > cap.trucking
-        ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare.'
-        : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
-          ? 'Running close to capacity. Expand before signing more.'
-          : null;
+        ? 'Bottleneck: lifting cargo off the boats, and workers are queueing on narrow walkways. More staff will not help much: widen jetties and paths, add berths, or build jib cranes.'
+        : 'Bottleneck: lifting cargo off the boats. Hire dockhands, or build jib cranes. Forklifts cannot unload boats.'
+      : cap.demand > cap.moved
+        ? 'Bottleneck: moving cargo on from the quay. Buy forklifts to take what is landed to the bays, or mark out crate storage within reach of the jib cranes.'
+        : cap.demand > cap.trucking
+          ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare. Trucks are away a while on each round.'
+          : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
+            ? 'Running close to capacity. Expand before signing more.'
+            : null;
   return (
     <div class="summary">
-      <div class="kpis">
+      <h3 class="flow-title">Crates, boat to truck</h3>
+      <div class="kpis four flow">
         <Kpi label="Arriving" value={cap.demand} hint="Crates per day your contracts send" />
         <Kpi
-          label="Unloading"
-          value={cap.unloading}
+          label="Off boats"
+          value={cap.off}
           demand={cap.demand}
-          hint="Crates per day your dockhands and forklifts can carry to the bays"
+          hint="Dockhands and jib cranes lift crates off the boats. Forklifts cannot"
+          below={stock && `${stock.landed} on the quay`}
         />
         <Kpi
-          label="Trucking"
+          label="Moved on"
+          value={cap.moved}
+          demand={cap.demand}
+          hint="Forklifts take what is landed to the bays and storage; without forklifts, dockhands carry it all the way"
+          below={stock && `${stock.stored} in store`}
+        />
+        <Kpi
+          label="Trucked"
           value={cap.trucking}
           demand={cap.demand}
-          hint="Crates per day your hauliers can take away"
+          hint="Crates per day your hauliers can take away, each truck away a while on its round"
         />
       </div>
       {cap.congestion >= 0.05 && (
