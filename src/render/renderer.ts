@@ -21,6 +21,7 @@ import { Entities } from './entities';
 import { Overlay } from './overlay';
 import { C } from './palette';
 import { Structures } from './structures';
+import { Trains } from './trains';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
 
@@ -42,6 +43,7 @@ interface MapLayers {
   water: Water;
   structures: Structures;
   entities: Entities;
+  trains: Trains;
   scenery: Group;
   seabed: Mesh;
   seabedDetail: Object3D;
@@ -108,6 +110,7 @@ export class Renderer {
     const water = new Water(map, SUN_DIR);
     const structures = new Structures(map);
     const entities = new Entities(map);
+    const trains = new Trains(map);
     const scenery = new Group();
     const trees = buildTrees(map);
     const land = buildLand(map);
@@ -116,7 +119,7 @@ export class Renderer {
     const seabedDetail = buildSeabedDetail(map);
     scenery.add(seabed, seabedDetail, land, rocks, trees);
     const root = new Group();
-    root.add(water.mesh, scenery, structures.group, entities.group);
+    root.add(water.mesh, scenery, structures.group, entities.group, trains.group);
     this.scene.add(root);
     this.layers = {
       map,
@@ -124,6 +127,7 @@ export class Renderer {
       water,
       structures,
       entities,
+      trains,
       scenery,
       seabed,
       seabedDetail,
@@ -187,6 +191,7 @@ export class Renderer {
   applySnapshot(s: Snapshot): void {
     if (!this.layers) return;
     this.layers.entities.push(s.entities, performance.now(), s.tick);
+    this.layers.trains.push(s.train, s.speed, performance.now());
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
     this.layers.structures.setCranes(s.cranes);
@@ -282,6 +287,7 @@ export class Renderer {
       );
       this.layers.entities.update(now, time);
       this.layers.water.setWakes(this.layers.entities.wakes());
+      this.layers.structures.setTrain(this.layers.trains.update(now));
       this.layers.structures.update(dt, time);
       (this.layers.seabed.userData.time as { value: number }).value = time;
       const pos =

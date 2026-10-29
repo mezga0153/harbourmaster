@@ -11,6 +11,8 @@ import { PortPanel } from './Port';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
+import { RailwayPanel, TownPanel } from './Town';
+import { TOWN_STAGES } from '../sim/town';
 import { Icon, type IconName } from './icons';
 import { BULLDOZE_TOOL, CATEGORIES, SELECT_TOOL, type Category, type ToolDef } from './tools';
 import {
@@ -32,6 +34,8 @@ export interface Actions {
   send(cmd: Command): void;
   setSpeed(speed: number): void;
   togglePause(): void;
+  /** Point the camera at a tile. */
+  focus(x: number, y: number): void;
 }
 
 const SPEEDS = [
@@ -142,6 +146,21 @@ function TopBar({ actions }: { actions: Actions }) {
         <Stat icon="box" label="Crates" title="Crates handled so far" priority={3}>
           {s.stats.cratesHandled.toLocaleString('en-US')}
         </Stat>
+        {s.town && (
+          <button
+            class={`stat-button ${selection.value?.type === 'town' ? 'on' : ''}`}
+            onClick={() => {
+              const open = selection.value?.type === 'town';
+              selection.value = open ? null : { type: 'town' };
+              if (!open) actions.focus(s.town!.x + 0.5, s.town!.y + 0.5);
+            }}
+            title={`${s.town.name}: ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast`}
+          >
+            <Stat icon="town" label="Town" title="" priority={2}>
+              {s.town.population.toLocaleString('en-US')}
+            </Stat>
+          </button>
+        )}
       </div>
 
       <div class="topbar-center">
@@ -261,6 +280,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!sel || !s) return null;
   const close = () => (selection.value = null);
+
+  if (sel.type === 'town') return <TownPanel actions={actions} />;
+  if (sel.type === 'railway') return <RailwayPanel />;
 
   if (sel.type === 'depot') {
     const depot = s.depots.find((d) => d.idx === sel.idx);

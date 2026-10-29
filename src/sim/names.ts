@@ -63,3 +63,36 @@ const LAST = [
 export function randomName(rng: Rng): string {
   return `${rng.pick(FIRST)} ${rng.pick(LAST)}`;
 }
+
+const TOWN_START = [
+  'Salt',
+  'Gull',
+  'Kelp',
+  'Herring',
+  'Brine',
+  'Cod',
+  'Shell',
+  'Tern',
+  'Wrack',
+  'Mackerel',
+  'Pebble',
+  'Driftwood',
+];
+const TOWN_END = [
+  'by',
+  'haven',
+  'mouth',
+  'combe',
+  'wick',
+  'sea',
+  'ness',
+  'port',
+  ' Bay',
+  'stead',
+  ' Cove',
+  'holm',
+];
+
+export function townName(rng: Rng): string {
+  return `${rng.pick(TOWN_START)}${rng.pick(TOWN_END)}`;
+}

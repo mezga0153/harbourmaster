@@ -1,15 +1,30 @@
-import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
+import {
+  BoxGeometry,
+  ConeGeometry,
+  Group,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  type Object3D,
+} from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY, footprint } from '../sim/rules';
 import { hash01 } from '../sim/noise';
-import { Build, isDock } from '../sim/types';
+import { crossingClosed, railColumn, type Train } from '../sim/railway';
+import { TOWN } from '../sim/town';
+import { Build, isDock, isPublicRoad, isTownBuilding } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
+import { bake, pavements, townBuilding } from './town';
 
 const LIGHT = 0xfff2b0;
+const BALLAST = 0x9b9284;
+const STEEL = 0x8d939b;
+const LAMP_RED = 0xff3b2f;
+const unitBox = new BoxGeometry(1, 1, 1);
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 
 /** The pointed top of a green buoy. */
@@ -29,6 +44,15 @@ interface GateParts {
   /** The barrier arm, pivoting up about its post. */
   boom: Object3D;
   open: boolean;
+  angle: number;
+}
+
+interface CrossingParts {
+  /** Barrier arms, each lifting about its post; `sign` is which way is up. */
+  arms: { arm: Object3D; sign: number }[];
+  /** Red lamps, flashing in turn while the barriers are down. */
+  lamps: Object3D[];
+  y: number;
   angle: number;
 }
 
@@ -56,10 +80,12 @@ export class Structures {
   private gates = new Map<number, GateParts>();
   /** Buoys, bobbing on the swell. */
   private buoys = new Map<number, Object3D>();
+  private crossings = new Map<number, CrossingParts>();
+  private train: Train | null = null;
 
   constructor(private map: GameMap) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
-    this.group.add(this.highway());
+    this.group.add(this.highway(), this.mainLine());
   }
 
   apply(changes: TileChange[]): void {
@@ -95,8 +121,20 @@ export class Structures {
     }
   }
 
+  /** Where the train is this frame, for the level crossings' barriers. */
+  setTrain(train: Train | null): void {
+    this.train = train;
+  }
+
   /** Per-frame animation: slew cranes towards their boats, bob the hooks, lift barriers. */
   update(dt: number, time: number): void {
+    for (const c of this.crossings.values()) {
+      const closed = crossingClosed(this.train, c.y);
+      c.angle += ((closed ? 0 : 1.45) - c.angle) * Math.min(1, dt * 3);
+      for (const { arm, sign } of c.arms) arm.rotation.x = sign * c.angle;
+      const blink = Math.floor(time * 3) % 2;
+      c.lamps.forEach((l, k) => (l.visible = closed && k % 2 === blink));
+    }
     for (const [i, buoy] of this.buoys) {
       buoy.position.y = Math.sin(time * 1.7 + i * 0.37) * 0.025;
       buoy.rotation.z = Math.sin(time * 1.3 + i) * 0.08;
@@ -143,9 +181,12 @@ export class Structures {
       this.cranes.delete(i);
       this.gates.delete(i);
       this.buoys.delete(i);
+      this.crossings.delete(i);
     }
     let obj = this.make(i);
-    if (FACES.has(this.map.build[i]) && obj) obj = turn(obj, this.map.orient[i]);
+    if ((FACES.has(this.map.build[i]) || isTownBuilding(this.map.build[i])) && obj) {
+      obj = turn(obj, this.map.orient[i]);
+    }
     // A yard laid out on a quay stands on the quay's walls and piles.
     if (this.map.orient[i] & ON_QUAY) {
       const both = new Group();
@@ -179,9 +220,15 @@ export class Structures {
     switch (code) {
       case Build.Road: {
         g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
-        const ew =
-          this.is(i, 1, 0, Build.Road) || this.is(i, -1, 0, Build.Road) || i === this.map.entry;
-        const ns = this.is(i, 0, 1, Build.Road) || this.is(i, 0, -1, Build.Road);
+        if (this.map.orient[i] & TOWN) {
+          // A town street: pavements, and a lamp now and then.
+          const open = DIRS.map(([dx, dy]) => this.streetAt(i, dx, dy));
+          pavements(g, top, open, hash01(i, 5, 5) < 0.3);
+          return bake(g);
+        }
+        const road = [Build.Road, Build.Crossing];
+        const ew = this.is(i, 1, 0, ...road) || this.is(i, -1, 0, ...road) || i === this.map.entry;
+        const ns = this.is(i, 0, 1, ...road) || this.is(i, 0, -1, ...road);
         if (ew !== ns) {
           for (const o of [0.25, 0.75]) {
             const [x, z, w, d] = ew ? [o, 0.5, 0.26, 0.05] : [0.5, o, 0.05, 0.26];
@@ -190,6 +237,17 @@ export class Structures {
         }
         return g;
       }
+      case Build.Rail:
+        this.track(
+          g,
+          top,
+          !this.is(i, 0, 1, Build.Rail, Build.Crossing) &&
+            !this.is(i, 0, -1, Build.Rail, Build.Crossing),
+        );
+        return g;
+      case Build.Crossing:
+        this.crossing(g, i, top);
+        return g;
       case Build.Office: {
         // Harbour office: two storeys, a control room on top, radio mast and flag.
         g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
@@ -556,7 +614,84 @@ export class Structures {
         return g;
       }
     }
-    return null;
+    return townBuilding(code, top, hash01(i, 11, 3));
+  }
+
+  /** Whether the street on `i` carries on to dx, dy: another road, or off the map edge. */
+  private streetAt(i: number, dx: number, dy: number): boolean {
+    const x = this.map.xOf(i) + dx;
+    const y = this.map.yOf(i) + dy;
+    if (!this.map.inBounds(x, y)) return dx < 0;
+    return isPublicRoad(this.map.build[this.map.idx(x, y)]);
+  }
+
+  /** Ballast, sleepers and rails, along z (or along x). */
+  private track(g: Group, top: number, alongX = false): void {
+    const put = (w: number, h: number, d: number, color: number, x: number, y: number, z: number) =>
+      g.add(alongX ? box(d, h, w, color, z, y, x) : box(w, h, d, color, x, y, z));
+    put(0.64, 0.05, 1, BALLAST, 0.5, top, 0.5);
+    for (const z of [0.17, 0.5, 0.83]) put(0.54, 0.025, 0.11, C.woodDark, 0.5, top + 0.05, z);
+    for (const x of [0.35, 0.65]) put(0.03, 0.03, 1, STEEL, x, top + 0.075, 0.5);
+  }
+
+  /**
+   * A road over the line on the level: the road runs along x and the rails
+   * along z, with a barrier and flashing lamps on each side of the line.
+   */
+  private crossing(g: Group, i: number, top: number): void {
+    g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
+    g.add(box(0.44, 0.012, 1, C.quayWall, 0.5, top + 0.05, 0.5));
+    for (const x of [0.35, 0.65]) g.add(box(0.03, 0.02, 1, STEEL, x, top + 0.05, 0.5));
+    const town = (this.map.orient[i] & TOWN) !== 0;
+    if (town) pavements(g, top, [true, true, false, false], false);
+    const arms: CrossingParts['arms'] = [];
+    const lamps: Object3D[] = [];
+    // One barrier each side of the line, across the lane coming towards it.
+    for (const [px, pz, sign] of [
+      [0.1, 0.9, 1],
+      [0.9, 0.1, -1],
+    ] as const) {
+      g.add(box(0.05, 0.3, 0.05, C.cabin, px, top + 0.05, pz));
+      const cross = [0.785, -0.785].map((a) => {
+        const b = box(0.012, 0.012, 0.14, C.funnel, px, top + 0.3, pz);
+        b.rotation.x = a;
+        return b;
+      });
+      g.add(...cross);
+      for (const dz of [-0.045, 0.045]) {
+        const lamp = box(
+          0.035,
+          0.035,
+          0.035,
+          LAMP_RED,
+          px + (px < 0.5 ? -0.03 : 0.03),
+          top + 0.22,
+          pz + dz,
+        );
+        lamp.visible = false;
+        g.add(lamp);
+        lamps.push(lamp);
+      }
+      const arm = new Group();
+      arm.position.set(px + (px < 0.5 ? 0.04 : -0.04), top + 0.14, pz);
+      // Red and white along its length, pointing across the road.
+      for (let k = 0; k < 6; k++) {
+        arm.add(
+          box(
+            0.02,
+            0.025,
+            0.12,
+            k % 2 ? C.marking : C.funnel,
+            0,
+            -0.0125,
+            -sign * (0.06 + k * 0.12),
+          ),
+        );
+      }
+      g.add(arm);
+      arms.push({ arm, sign });
+    }
+    this.crossings.set(i, { arms, lamps, y: this.map.yOf(i), angle: 1.45 });
   }
 
   /** Yellow edge lines and a forklift sign painted on forklift-only paving. */
@@ -712,16 +847,46 @@ export class Structures {
     return this.map.inBounds(x, y) && this.map.isLand(this.map.idx(x, y));
   }
 
-  /** Scenery road continuing off the map from the truck entry. */
+  /** Scenery roads continuing off the map: the highway from the truck entry, and the town's. */
   private highway(): Object3D {
     const g = new Group();
-    const ey = this.map.yOf(this.map.entry);
-    const top = landTop(this.map.terrain[this.map.entry]);
-    g.add(box(MARGIN, 0.05, 1, C.asphalt, -MARGIN / 2, top, ey + 0.5));
-    for (let x = -MARGIN; x < 0; x++) {
-      for (const o of [0.25, 0.75])
-        g.add(box(0.26, 0.01, 0.05, C.marking, x + o, top + 0.05, ey + 0.5));
+    for (let y = 0; y < this.map.h; y++) {
+      const i = this.map.idx(0, y);
+      if (!isPublicRoad(this.map.build[i])) continue;
+      const top = landTop(this.map.terrain[i]);
+      g.add(box(MARGIN, 0.05, 1, C.asphalt, -MARGIN / 2, top, y + 0.5));
+      if (i !== this.map.entry) continue;
+      for (let x = -MARGIN; x < 0; x++) {
+        for (const o of [0.25, 0.75])
+          g.add(box(0.26, 0.01, 0.05, C.marking, x + o, top + 0.05, y + 0.5));
+      }
     }
+    return g;
+  }
+
+  /** The main line running on past both ends of the map. */
+  private mainLine(): Object3D {
+    const g = new Group();
+    const x = railColumn(this.map);
+    if (x < 0) return g;
+    const sleepers = new InstancedMesh(unitBox, mat(C.woodDark), MARGIN * 3 * 2);
+    const m = new Matrix4();
+    let n = 0;
+    for (const [from, y] of [
+      [-MARGIN, 0],
+      [this.map.h, this.map.h - 1],
+    ] as const) {
+      const top = landTop(this.map.terrain[this.map.idx(x, y)]);
+      g.add(box(0.64, 0.05, MARGIN, BALLAST, x + 0.5, top, from + MARGIN / 2));
+      for (const o of [0.35, 0.65])
+        g.add(box(0.03, 0.03, MARGIN, STEEL, x + o, top + 0.075, from + MARGIN / 2));
+      for (let k = 0; k < MARGIN * 3; k++) {
+        m.makeScale(0.54, 0.025, 0.11).setPosition(x + 0.5, top + 0.0625, from + (k + 0.5) / 3);
+        sleepers.setMatrixAt(n++, m);
+      }
+    }
+    sleepers.receiveShadow = true;
+    g.add(sleepers);
     return g;
   }
 }

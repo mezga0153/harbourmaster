@@ -27,6 +27,19 @@ export const Build = {
   /** Channel buoys: green marks the way in, red the way out. */
   BuoyIn: 17,
   BuoyOut: 18,
+  /** The main line, which trains run along. Not the player's to move. */
+  Rail: 19,
+  /** A public road crossing the railway, with barriers that come down for trains. */
+  Crossing: 20,
+  // The town's buildings, which it builds and rebuilds itself; see town.ts.
+  Cottage: 21,
+  House: 22,
+  Shop: 23,
+  Flats: 24,
+  Tower: 25,
+  Chapel: 26,
+  FishShed: 27,
+  Park: 28,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -56,6 +69,16 @@ export type MachineKind = 'forklift' | 'stacker';
 /** A channel buoy; boats sail past it, so the water stays open. */
 export function isBuoy(code: number): boolean {
   return code === Build.BuoyIn || code === Build.BuoyOut;
+}
+
+/** Built and kept by the town, never the player. */
+export function isTownBuilding(code: number): boolean {
+  return code >= Build.Cottage && code <= Build.Park;
+}
+
+/** Public roads trucks drive along, level crossings included. */
+export function isPublicRoad(code: number): boolean {
+  return code === Build.Road || code === Build.Crossing;
 }
 
 /** Where trucks collect crates: a truck bay of either size, or a warehouse. */

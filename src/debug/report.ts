@@ -1,4 +1,5 @@
 import type { Snapshot } from '../protocol';
+import { TOWN_STAGES } from '../sim/town';
 import { TICKS_PER_DAY } from '../sim/types';
 
 // A plain-text picture of a running game, for reading outside the browser:
@@ -32,6 +33,19 @@ export function report(s: Snapshot, x: ReportExtras): string {
     `Stats: ${JSON.stringify(s.stats)}`,
   );
   if (x.view) lines.push(`Player: ${x.view}`);
+  if (s.town) {
+    const t = s.town;
+    lines.push(
+      `Town: ${t.name} (${TOWN_STAGES[t.stage].name}) at (${t.x},${t.y}) · ${t.population} people, ` +
+        `${t.homes} homes · supports ${t.target} (jobs ${t.jobs}, goods ${t.goods}/day)`,
+    );
+  }
+  if (s.train) {
+    const t = s.train;
+    lines.push(
+      `Train: ${t.cars.join(' ')} heading ${t.dir > 0 ? '+y' : '-y'}, front at y=${t.head.toFixed(1)}`,
+    );
+  }
 
   section(
     'Contracts',

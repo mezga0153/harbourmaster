@@ -20,7 +20,8 @@ import {
 } from './sim/rules';
 import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
-import type { BuildKind } from './sim/types';
+import { ownedByTown } from './sim/town';
+import { Build, isTownBuilding, type BuildKind } from './sim/types';
 import {
   hover,
   openCategory,
@@ -211,6 +212,14 @@ export class Input {
       selection.value = { type: 'depot', idx: i };
     } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {
       selection.value = { type: 'yard', idx: i };
+    } else if (i !== null && map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) {
+      selection.value = { type: 'town' };
+    } else if (
+      i !== null &&
+      map &&
+      (map.build[i] === Build.Rail || map.build[i] === Build.Crossing)
+    ) {
+      selection.value = { type: 'railway' };
     } else selection.value = null;
   }
 

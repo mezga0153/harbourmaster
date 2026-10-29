@@ -225,6 +225,18 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M12 10v4.5M12 17.5v.5" />
     </>
   ),
+  town: (
+    <>
+      <path d="M2 21h20M4 21V11l4-3 4 3v10M12 21V5h8v16" />
+      <path d="M15 9h2M15 13h2M15 17h2M7 15h2" />
+    </>
+  ),
+  train: (
+    <>
+      <rect x="5" y="3" width="14" height="14" rx="3" />
+      <path d="M5 10h14M9 17l-2.5 4M15 17l2.5 4M8.5 13.5v.5M15.5 13.5v.5" />
+    </>
+  ),
   contract: (
     <>
       <path d="M6 3h9l4 4v14H6z" />

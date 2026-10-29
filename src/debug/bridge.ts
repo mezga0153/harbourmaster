@@ -60,7 +60,9 @@ export function startBridge({ worker, send, renderer, map }: Hooks): void {
             const e = s.entities.find((q) => q.id === sel.id);
             return e ? `${e.kind} #${e.id} ${e.name}` : `entity #${sel.id}`;
           })()
-        : `${sel.type} at (${sel.idx % w},${Math.floor(sel.idx / w)})`;
+        : 'idx' in sel
+          ? `${sel.type} at (${sel.idx % w},${Math.floor(sel.idx / w)})`
+          : sel.type;
     const t = renderer.cam.target;
     return (
       `selected ${picked} · tool ${tool.peek()} · panel ${panel.peek() ?? 'none'}` +

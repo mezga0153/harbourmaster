@@ -169,6 +169,7 @@ export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 /** Container yard: a 2×2 stacking area that buffers containers for the trucks. */
 export const YARD_BOXES = 24;
 export const TREE_CLEAR_COST = 10;
+export const CROSSING_COST = 150; // a public road over the railway, with barriers
 /** Painting a port road or quay tile forklift-only, or back. */
 export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;
@@ -194,3 +195,12 @@ export const DOCK_FRONT_RANGE = 5;
 export const DOCK_FRONT_COST = 3;
 /** What sailing over a buoy's tile costs a route, against 1 for open water. */
 export const BUOY_DETOUR = 8;
+
+// The town that grows up around the port. See town.ts.
+export const TOWN_START = 40; // people in the fishing village when the port opens
+export const TOWN_BASE = 30; // who would live there without the port
+export const TOWN_PER_JOB = 12; // people each job at the port or its hauliers keeps in town
+export const TOWN_PER_GOODS = 3; // people per crate a day the port sends out by road
+export const CONTAINER_GOODS = 8; // a container counts as this many crates of goods
+export const TOWN_GROWTH = 0.2; // share of the gap to what the port supports closed each day
+export const TOWN_BUILD_TICKS = 25; // the town's builders finish one job this often

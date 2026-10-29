@@ -1,11 +1,13 @@
 import * as B from './balance';
 import type { GameMap } from './map';
+import { ownedByTown } from './town';
 import {
   Build,
   Deco,
   isBay,
   isBuoy,
   isDock,
+  isTownBuilding,
   Terrain,
   type BuildCode,
   type BuildKind,
@@ -298,6 +300,13 @@ export function placementError(
       .some((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
     return atWater ? null : 'Put the crane at the quay edge, next to open water';
   }
+  if (ownedByTown(map, i)) return 'This belongs to the town';
+  // A public road crosses the railway on the level.
+  if (map.build[i] === Build.Rail) {
+    if (kind !== 'road') return 'The railway is in the way';
+    const along = map.neighbors4(i).some((n) => map.build[n] === Build.Crossing);
+    return along ? 'Roads cross the railway straight over, not along it' : null;
+  }
   // A jetty can be paved over into a quay and a port path into a port road;
   // nothing else is built over.
   const upgrade =
@@ -459,6 +468,7 @@ export function machinePlacementError(map: GameMap, i: number): string | null {
 }
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {
+  if (kind === 'road' && map.build[i] === Build.Rail) return B.CROSSING_COST;
   const base = kind === 'quay' && !map.isLand(i) ? B.QUAY_COST_WATER : BUILDABLES[kind].cost;
   // Upgrading: what is there already is worth what bulldozing it would pay.
   const old = kindOfCode(map.build[i]);
@@ -481,11 +491,14 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   const empty = map.build[i] === Build.None && map.deco[i] === Deco.None;
   if (empty && map.terrain[i] !== Terrain.Rock) return 'Nothing to clear';
   if (i === map.entry) return 'The main road cannot be removed';
+  if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
+  if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
   return null;
 }
 
 /** Money gained (positive) or spent (negative) by bulldozing a tile. */
 export function bulldozeValue(map: GameMap, i: number): number {
+  if (map.build[i] === Build.Crossing) return Math.floor(B.CROSSING_COST * B.BULLDOZE_REFUND);
   const kind = kindOfCode(map.build[i]);
   if (kind === 'quay') return Math.floor(placementCost(map, 'quay', i) * B.BULLDOZE_REFUND);
   if (kind) return Math.floor(BUILDABLES[kind].cost * B.BULLDOZE_REFUND);

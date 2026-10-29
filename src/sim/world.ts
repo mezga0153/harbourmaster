@@ -26,7 +26,18 @@ import {
 } from './contracts';
 import { GameMap, type MapData } from './map';
 import { generateMap } from './mapgen';
-import { randomName } from './names';
+import { randomName, townName } from './names';
+import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
+import {
+  foundTown,
+  growTown,
+  population,
+  townDay,
+  townHomes,
+  townStageUp,
+  townTarget,
+  type Town,
+} from './town';
 import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trait } from './staff';
 import { findPath, type CostFn } from './path';
 import { Rng } from './rng';
@@ -64,6 +75,7 @@ import {
   isBay,
   isBuoy,
   isDock,
+  isPublicRoad,
   Terrain,
   TICKS_PER_DAY,
   type BuildKind,
@@ -294,6 +306,11 @@ export interface SaveData {
   trucks: Truck[];
   bays: Bay[];
   yards?: Bay[];
+  /** Older saves have no town or railway; one is laid out when they load. */
+  town?: Town | null;
+  rail?: RailState;
+  /** State of the town and railway's own random numbers. */
+  scenery?: number;
 }
 
 function emptyLedger(): Ledger {
@@ -424,6 +441,14 @@ export class World {
   bays = new Map<number, Bay>();
   /** Container yards, by their main tile. */
   yards = new Map<number, Bay>();
+  /** The town up the coast, which grows with the port. */
+  town: Town | null = null;
+  rail: RailState;
+  /**
+   * The town and the trains draw their own random numbers, so they never
+   * change what happens at the port.
+   */
+  readonly scenery: Rng;
 
   private anchorageTile = -1;
   /** Ticks today with a full truck bay, for the advisor. Not saved. */
@@ -457,11 +482,20 @@ export class World {
     readonly rng: Rng,
   ) {
     this.occupancy = new Uint8Array(map.w * map.h * 4);
+    this.scenery = new Rng(seed ^ 0x7a3c1);
+    this.rail = newRail(this.scenery);
+  }
+
+  /** Lay the railway and found the town, on a new map or one from an older save. */
+  private settle(): void {
+    layRailway(this.map);
+    this.town = foundTown(this.map, townName(this.scenery), () => {});
   }
 
   static create(seed: number): World {
     const { map, spawn } = generateMap(seed);
     const world = new World(seed, map, new Rng(seed));
+    world.settle();
     for (let i = 0; i < map.build.length; i++) {
       if (isBay(map.build[i]) && anchorOf(map, i) === i) world.addBay(i);
     }
@@ -552,6 +586,10 @@ export class World {
       });
     }
     for (const y of s.yards ?? []) world.yards.set(y.idx, { ...y, boxes: [...y.boxes] });
+    if (s.scenery !== undefined) world.scenery.state = s.scenery;
+    if (s.rail) world.rail = structuredClone(s.rail);
+    if (s.town !== undefined) world.town = s.town && { ...s.town };
+    else world.settle();
     return world;
   }
 
@@ -583,6 +621,9 @@ export class World {
       trucks: this.trucks,
       bays: [...this.bays.values()],
       yards: [...this.yards.values()],
+      town: this.town,
+      rail: this.rail,
+      scenery: this.scenery.state,
     });
   }
 
@@ -665,7 +706,9 @@ export class World {
         footprint(this.map, kind, i, f).forEach((t, k) => {
           // A yard laid out on a quay remembers it, to leave it when cleared.
           const quay = this.map.build[t] === Build.Quay ? ON_QUAY : 0;
-          this.map.build[t] = def.code;
+          // A road over the railway is a level crossing.
+          const crossing = def.code === Build.Road && this.map.build[t] === Build.Rail;
+          this.map.build[t] = crossing ? Build.Crossing : def.code;
           this.map.orient[t] = (ROTATABLE.has(kind) ? partOrient(f, k) : 0) | quay;
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
@@ -819,6 +862,9 @@ export class World {
         // Taking down a crane leaves the quay it stood on.
         this.cranes.delete(i);
         this.map.build[i] = Build.Quay;
+      } else if (this.map.build[i] === Build.Crossing) {
+        // Taking up a level crossing leaves the line.
+        this.map.build[i] = Build.Rail;
       } else if (this.map.build[i] !== Build.None) {
         if (isBay(this.map.build[i])) this.removeBay(i);
         if (this.map.build[i] === Build.Yard) this.removeYard(i);
@@ -845,6 +891,16 @@ export class World {
       this.message(`Debug: +$${cmd.cash.toLocaleString('en-US')}`, 'good');
     }
     if (cmd.tier !== undefined) this.tier = cmd.tier;
+    if (cmd.town !== undefined && this.town) {
+      // Build the town up to size at once.
+      const t = this.town;
+      t.demand = cmd.town;
+      for (let k = 0; k < 3000 && townHomes(this.map) < t.demand; k++) {
+        if (!growTown(t, this.map, (i) => this.dirty.add(i))) break;
+        townStageUp(t, this.map);
+      }
+    }
+    if (cmd.train) this.rail.nextTrain = this.tick;
     if (cmd.containers) {
       const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
       let line = false;
@@ -1296,6 +1352,29 @@ export class World {
     for (const p of this.people) this.updateDockhand(p);
     if (this.tick % 10 === 0) this.spawnTrucks();
     for (const t of [...this.trucks]) this.updateTruck(t);
+    stepRail(this.rail, this.scenery, this.tick, this.map.h, this.town?.stage ?? 0);
+    if (this.town && this.tick % B.TOWN_BUILD_TICKS === 0) this.buildTown(this.town);
+  }
+
+  // ── The town ──────────────────────────────────────────────
+
+  /** The town's builders keep up with the people moving in. */
+  private buildTown(t: Town): void {
+    if (townHomes(this.map) < t.demand) {
+      const built = growTown(t, this.map, (i) => this.dirty.add(i));
+      // A new street can join up roads.
+      if (built) this.gateCache = null;
+    }
+    const stage = townStageUp(t, this.map);
+    if (stage) {
+      const a = /^[aeiou]/i.test(stage) ? 'an' : 'a';
+      this.message(`${t.name} has grown into ${a} ${stage.toLowerCase()}.`, 'good');
+    }
+  }
+
+  /** People working at the port and driving for its hauliers. */
+  private jobs(): number {
+    return this.people.length + this.hauliers().reduce((n, h) => n + h.terms.fleet, 0);
   }
 
   private wageBill(): number {
@@ -1345,6 +1424,7 @@ export class World {
   }
 
   private newDay(): void {
+    if (this.town) townDay(this.town, this.jobs());
     this.checkMorale();
     this.raiseRequests();
     this.refreshCandidates();
@@ -4270,7 +4350,7 @@ export class World {
     const m = this.map;
     const way = (i: number): 'road' | 'port' | 'gate' | null => {
       const b = m.build[i];
-      if (b === Build.Road) return 'road';
+      if (isPublicRoad(b)) return 'road';
       if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(m, i) ? null : 'port';
       if (b === Build.Gate) return 'gate';
       const a = anchorOf(m, i);
@@ -4377,7 +4457,7 @@ export class World {
     switch (t.state) {
       case 'toBay': {
         if (!bay) return this.truckLeave(t);
-        const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED);
+        const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED, this.level);
         if (r === 'blocked') return this.removeTruck(t);
         if (r === 'arrived') t.state = 'loading';
         return;
@@ -4399,19 +4479,24 @@ export class World {
         if (full || bored) this.truckLeave(t);
         return;
       }
-      case 'leaving':
+      case 'leaving': {
         const cost = this.truckCost(this.map.entry, t.bayIdx);
-        if (this.move(t, cost, false, () => B.TRUCK_SPEED) !== 'moving') {
-          this.removeTruck(t);
-        }
+        const r = this.move(t, cost, false, () => B.TRUCK_SPEED, this.level);
+        if (r === 'arrived' || r === 'blocked') this.removeTruck(t);
         return;
+      }
     }
   }
+
+  /** Trucks stop at a level crossing while the barriers are down. */
+  private level = (i: number): boolean =>
+    this.map.build[i] !== Build.Crossing || !crossingClosed(this.rail.train, this.map.yOf(i));
 
   private truckLeave(t: Truck): void {
     const bay = this.dest(t.bayIdx);
     if (bay) bay.nextTruckTick = this.tick + 30;
     if (t.cargo > 0) {
+      if (this.town) this.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
       const income = t.value;
       this.book('cargo', income);
       this.stats.earned += income;
@@ -4692,6 +4777,18 @@ export class World {
         angle: c.angle,
         busy: c.busy,
       })),
+      town: this.town && {
+        name: this.town.name,
+        stage: this.town.stage,
+        population: population(this.town, this.map),
+        homes: townHomes(this.map),
+        target: Math.round(townTarget(this.town)),
+        jobs: this.town.jobs,
+        goods: Math.round(this.town.goods),
+        x: this.map.xOf(this.town.centre),
+        y: this.map.yOf(this.town.centre),
+      },
+      train: this.rail.train && { ...this.rail.train, cars: [...this.rail.train.cars] },
       offers: this.offers.map((o) => ({
         id: o.id,
         terms: o.terms,

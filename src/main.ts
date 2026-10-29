@@ -30,6 +30,7 @@ const actions: Actions = {
   send,
   setSpeed: (s) => input.setSpeed(s),
   togglePause: () => input.togglePause(),
+  focus: (x, y) => renderer.cam.target.set(x, 0, y),
 };
 render(h(App, { actions }), hud);
 selection.subscribe((s) => {

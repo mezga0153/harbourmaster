@@ -2,6 +2,7 @@
 
 import type { Terms } from './sim/contracts';
 import type { MapData } from './sim/map';
+import type { Train } from './sim/railway';
 import type { SaveData } from './sim/world';
 import type { Candidate, Trait } from './sim/staff';
 import type { BuildKind, MachineKind } from './sim/types';
@@ -25,7 +26,17 @@ export type Command =
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
   /** Dev server only: jump ahead for testing. */
-  | { type: 'debug'; cash?: number; tier?: number; coaster?: boolean; containers?: boolean }
+  | {
+      type: 'debug';
+      cash?: number;
+      tier?: number;
+      coaster?: boolean;
+      containers?: boolean;
+      /** People wanting to live in town. */
+      town?: number;
+      /** Send the next train now. */
+      train?: boolean;
+    }
   /** Dev server only: post the whole game state back, for the debug bridge. */
   | { type: 'dumpSave' };
 
@@ -167,6 +178,22 @@ export interface Stats {
   penalties: number;
 }
 
+export interface TownView {
+  name: string;
+  /** Index into TOWN_STAGES. */
+  stage: number;
+  population: number;
+  homes: number;
+  /** People the port's jobs and trade would support. */
+  target: number;
+  jobs: number;
+  /** Crates' worth of goods sent out by road a day, lately. */
+  goods: number;
+  /** The chapel square the town grows out from. */
+  x: number;
+  y: number;
+}
+
 export interface Snapshot {
   tick: number;
   cash: number;
@@ -199,6 +226,9 @@ export interface Snapshot {
   depots: { idx: number; forklifts: number }[];
   /** Jetty and quay structures, and how many the harbour office coordinates. */
   docks: { total: number; coordinated: number; offices: number };
+  town: TownView | null;
+  /** The train passing along the main line, if one is. */
+  train: Train | null;
 }
 
 export type SimEvent =
