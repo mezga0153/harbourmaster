@@ -782,6 +782,12 @@ export class Entities {
     return slot ? slot.getWorldPosition(out) : null;
   }
 
+  /** Which way a truck's, tractor's or ship's container slot `k` lies, as a turn about y. */
+  slotTurn(id: number, k: number): number | null {
+    const slot = this.entries.get(id)?.model.crates[k];
+    return slot ? turnOf(slot) : null;
+  }
+
   worldPositions(): { view: EntityView; pos: Vector3 }[] {
     return [...this.entries.values()].map((e) => ({ view: e.view, pos: e.model.root.position }));
   }
@@ -808,4 +814,11 @@ function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+/** Which way an object's +x points in the world, as a turn about y. */
+export function turnOf(o: Object3D): number {
+  o.updateWorldMatrix(true, false);
+  const e = o.matrixWorld.elements;
+  return Math.atan2(-e[2], e[0]);
 }
