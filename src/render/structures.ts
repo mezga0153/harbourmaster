@@ -1604,7 +1604,7 @@ export class Structures {
           return g;
         }
         if (machinesOnly(this.map, i)) {
-          this.machinesMarking(g, i, QUAY_Y);
+          this.machinesOutline(g, i, QUAY_Y);
           return g;
         }
         for (const o of [0.15, 0.6]) {
@@ -1743,7 +1743,7 @@ export class Structures {
         if (this.map.store[i]) {
           this.storage(g, i, QUAY_Y);
           this.machinesOutline(g, i, QUAY_Y);
-        } else if (machinesOnly(this.map, i)) this.machinesMarking(g, i, QUAY_Y);
+        } else if (machinesOnly(this.map, i)) this.machinesOutline(g, i, QUAY_Y);
         return g;
       }
       case Build.HarbourCrane: {
@@ -2407,13 +2407,6 @@ export class Structures {
       }
     }
     this.stacks.set(i, stack);
-  }
-
-  /** Paving kept for port machines: the red outline, and a forklift sign painted on it. */
-  private machinesMarking(g: Group, i: number, y: number): void {
-    this.machinesOutline(g, i, y);
-    g.add(box(0.22, 0.006, 0.12, C.stripe, 0.46, y, 0.5));
-    g.add(box(0.06, 0.006, 0.2, C.stripe, 0.6, y, 0.5));
   }
 
   /** A red line round the edge of an area kept for port machines, if `i` is in one. */
