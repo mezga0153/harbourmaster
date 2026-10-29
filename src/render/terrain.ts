@@ -173,7 +173,8 @@ export function buildSeabed(map: GameMap): Mesh {
   };
   const mesh = new Mesh(geo, material);
   mesh.userData.time = time;
-  mesh.receiveShadow = true;
+  // Shadows fall on the water over it (see Water), not on the bottom too.
+  mesh.receiveShadow = false;
   return mesh;
 }
 
@@ -286,10 +287,8 @@ export function buildSeabedDetail(map: GameMap): Group {
   });
   weedMesh.count = weed.length;
 
-  for (const mesh of [rockMesh, weedMesh]) {
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  }
+  // Under the water, like the seabed itself: shadows fall on the surface.
+  for (const mesh of [rockMesh, weedMesh]) group.add(mesh);
   return group;
 }
 

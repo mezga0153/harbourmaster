@@ -53,6 +53,8 @@ const fragmentShader = /* glsl */ `
   #include <common>
   #include <packing>
   #include <shadowmap_pars_fragment>
+  // Set by three for every object; the lit materials declare it themselves.
+  uniform bool receiveShadow;
   #include <shadowmask_pars_fragment>
   uniform sampler2D uField; // r: depth, g: distance to shore (first few tiles)
   uniform sampler2D uDist; // r: distance to the nearest land, in tiles
