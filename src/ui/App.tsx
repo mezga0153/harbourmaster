@@ -368,9 +368,11 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <Meter value={bay.stock / bay.capacity} />
         {bay.noAccess && (
           <p class="note bad">
-            {bay.tiles
-              ? 'Trucks cannot load here: forklifts take the crates on to storage or a truck bay they can reach. Trucks load storage from inside the port: a port road or quay beside it, through a port gate, and not beside the machines-only ground round a crane.'
-              : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
+            {bay.noAccessWhy && !bay.tiles
+              ? bay.noAccessWhy
+              : bay.tiles
+                ? 'Trucks cannot load here: forklifts take the crates on to storage or a truck bay they can reach. Trucks load storage from inside the port: a port road or quay beside it, through a port gate, and not beside the machines-only ground round a crane.'
+                : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
           </p>
         )}
       </aside>
@@ -456,6 +458,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <span class={`dot ${c.busy ? 'live' : ''}`} />
           {c.why}
         </p>
+        {c.trouble && <p class="note bad">{c.trouble}</p>}
         <p class="muted">
           {CRANE_NOTE[c.kind]}{' '}
           {c.kind === 'jib'
@@ -543,8 +546,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <Meter value={yard.boxes / yard.capacity} />
         {yard.noAccess && (
           <p class="note bad">
-            Container trucks cannot reach this yard. They load from inside the port: a port road or
-            quay beside it, through a port gate, and not beside machines-only ground.
+            {yard.noAccessWhy ??
+              'Container trucks cannot reach this yard. They load from inside the port: a port road or quay beside it, through a port gate, and not beside machines-only ground.'}
           </p>
         )}
       </aside>

@@ -14,10 +14,11 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { EntityView, Snapshot, TileChange } from '../protocol';
+import type { EntityView, ProblemView, Snapshot, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { IsoCamera } from './camera';
 import { Entities } from './entities';
+import { alertMarker } from './models';
 import { Overlay } from './overlay';
 import { C } from './palette';
 import { Structures } from './structures';
@@ -126,7 +127,7 @@ export class Renderer {
     const seabedDetail = buildSeabedDetail(map);
     scenery.add(seabed, seabedDetail, land, rocks, trees);
     const root = new Group();
-    root.add(water.mesh, scenery, structures.group, entities.group, trains.group);
+    root.add(water.mesh, scenery, structures.group, entities.group, trains.group, this.marks);
     this.scene.add(root);
     this.layers = {
       map,
@@ -205,6 +206,51 @@ export class Renderer {
     this.layers.structures.setPiles(s.piles);
     this.layers.structures.setCranes(s.cranes);
     this.layers.structures.setGates(s.entities.filter((e) => e.kind === 'truck'));
+    this.setProblems(s.problems ?? []);
+  }
+
+  /** Red marks over what cannot work as it is built: see ProblemView. */
+  private marks = new Group();
+  private problems: ProblemView[] = [];
+
+  private setProblems(list: ProblemView[]): void {
+    this.problems = list;
+    while (this.marks.children.length < list.length) {
+      const mark = alertMarker();
+      mark.scale.setScalar(3.4);
+      this.marks.add(mark);
+    }
+    this.marks.children.forEach((mark, k) => {
+      const p = list[k];
+      mark.visible = !!p;
+      if (p) {
+        mark.position.set(p.x, p.h, p.y);
+        mark.userData.h = p.h;
+      }
+    });
+  }
+
+  /** The red mark nearest a point on the screen, within reach of a click. */
+  pickProblem(clientX: number, clientY: number): ProblemView | null {
+    const rect = this.canvas.getBoundingClientRect();
+    let best: ProblemView | null = null;
+    let bestD = 30;
+    this.problems.forEach((p, k) => {
+      const mark = this.marks.children[k];
+      if (!mark) return;
+      const s = this.tmp
+        .copy(mark.position)
+        .setY(mark.position.y + 0.25)
+        .project(this.cam.camera);
+      const sx = rect.left + ((s.x + 1) / 2) * rect.width;
+      const sy = rect.top + ((1 - s.y) / 2) * rect.height;
+      const d = Math.hypot(sx - clientX, sy - clientY);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    });
+    return best;
   }
 
   select(id: number | null): void {
@@ -300,6 +346,10 @@ export class Renderer {
       this.layers.water.setStirs(this.layers.entities.stirs());
       this.layers.structures.setTrain(this.layers.trains.update(now));
       this.layers.structures.update(dt, time);
+      // The red marks bob above what is wrong.
+      for (const mark of this.marks.children) {
+        mark.position.y = (mark.userData.h ?? 1.1) + Math.sin(time * 4) * 0.08;
+      }
       (this.layers.seabed.userData.time as { value: number }).value = time;
       const pos =
         this.selectedId !== null

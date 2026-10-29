@@ -137,6 +137,8 @@ export interface CraneView {
   stores: number;
   /** What it is doing, or why it is not. */
   why: string;
+  /** Why no ship can ever come alongside it, if none can. */
+  trouble?: string;
   /**
    * Container cranes at work: lifting a container off a ship's deck or an
    * export onto it, the ship, the deck slot, how the container looks, and
@@ -267,6 +269,8 @@ export interface BayView {
   byCrane: boolean;
   tiles?: number[];
   noAccess: boolean;
+  /** Why trucks cannot reach it, when they cannot. */
+  noAccessWhy?: string;
 }
 
 export interface YardView {
@@ -310,6 +314,8 @@ export interface YardView {
   capacity: number;
   tiles: number[];
   noAccess: boolean;
+  /** Why trucks cannot reach it, when they cannot. */
+  noAccessWhy?: string;
 }
 
 export interface ParkingView {
@@ -362,6 +368,21 @@ export interface TownView {
   y: number;
 }
 
+/**
+ * Something on the map that cannot work as it is: a red mark over it, and
+ * what is wrong, shown when it is picked.
+ */
+export interface ProblemView {
+  /** Where the mark stands, in tiles, and how high: over the top of what is wrong. */
+  x: number;
+  y: number;
+  h: number;
+  text: string;
+  /** What picking it selects. */
+  type: 'crane' | 'bay' | 'yard' | 'parking';
+  idx: number;
+}
+
 export interface Snapshot {
   tick: number;
   cash: number;
@@ -409,6 +430,8 @@ export interface Snapshot {
   };
   progress: TierProgress;
   cranes: CraneView[];
+  /** Things that cannot work as they are, for red marks on the map. */
+  problems: ProblemView[];
   depots: { idx: number; forklifts: number }[];
   /** Jetty and quay structures, and how many the harbour office coordinates. */
   docks: {

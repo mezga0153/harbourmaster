@@ -4,6 +4,7 @@ import type {
   Command,
   ContractView,
   CraneView,
+  ProblemView,
   EntityView,
   HandAt,
   Ledger,
@@ -466,6 +467,8 @@ interface Bay {
   incoming: number;
   nextTruckTick: number;
   noAccess: boolean;
+  /** Why trucks cannot reach it, as the player was told; see cutOff. */
+  noAccessWhy?: string;
   /** A container yard, marked out for containers. */
   yard?: boolean;
   /** Storage for cargo going out on the ships, not coming in. */
@@ -8913,19 +8916,16 @@ export class World {
 
   /** No truck can get to this bay: say so once, and try again in a while. */
   private cutOff(bay: Bay, turn = false): void {
+    const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage area' : 'truck bay';
+    const why = turn
+      ? `Trucks could get to this ${what} but not drive away again: they never turn about on a road one tile wide. Give them a way on, a junction, or a block of road two wide to turn in.`
+      : bay.tiles
+        ? `Trucks cannot reach this ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
+        : `Trucks cannot reach this ${what}: it needs a public road to the highway, or port roads from a port gate.`;
     // Crate storage out of the trucks' way is a buffer the forklifts empty.
-    if (!bay.noAccess && !bay.warehouse) {
-      const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage area' : 'truck bay';
-      this.message(
-        turn
-          ? `Trucks could get to a ${what} but not drive away again: they never turn about on a road one tile wide. Give them a way on, a junction, or a block of road two wide to turn in.`
-          : bay.tiles
-            ? `Trucks cannot reach a ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
-            : `Trucks cannot reach a ${what}: it needs a public road to the highway, or port roads from a port gate.`,
-        'bad',
-      );
-    }
+    if (!bay.noAccess && !bay.warehouse) this.message(why, 'bad');
     bay.noAccess = true;
+    bay.noAccessWhy = why;
     bay.nextTruckTick = this.tick + 100;
   }
 
@@ -9844,7 +9844,7 @@ export class World {
         return 'Landing stack full: waiting for a forklift to take it away. Dockhands keep off the ground round a crane.';
       }
       if (c.stack.length > 0) return 'Waiting for a forklift to collect its landing stack.';
-      return 'No boat lying under it.';
+      return this.berthTrouble(c) ? 'No boat can come alongside it.' : 'No boat lying under it.';
     }
     if (c.busy) return 'Lifting containers off the ship.';
     if (full) {
@@ -9854,7 +9854,104 @@ export class World {
     }
     return c.stack.length > 0
       ? 'Waiting for reach stackers to take the containers to a yard.'
-      : 'No container ship alongside.';
+      : this.berthTrouble(c)
+        ? 'No container ship can come alongside it.'
+        : 'No container ship alongside.';
+  }
+
+  /**
+   * Why no ship can ever come alongside this crane, as the harbour master
+   * would see it, or null if one could and there is simply none there now.
+   * A jib crane takes any boat; a container crane a feeder, against a quay
+   * two wide, with room for its hull and water deep enough.
+   */
+  private berthTrouble(c: Crane): string | null {
+    const m = this.map;
+    const feeder = c.kind !== 'jib';
+    const draft = feeder ? B.FEEDER_DRAFT : B.BOAT_DRAFT;
+    const water = this.boatCostFor(draft);
+    const what = feeder ? 'a container ship' : 'a boat';
+    let deepest = -1;
+    let office = false;
+    let wide = false;
+    let room = false;
+    // Berths it reaches, against the docks round it, as the harbour master
+    // looks for them (see freeBerths).
+    const front = feeder ? this.craneFront(c) : [c.idx];
+    const reaches = (n: number) => front.some((f) => this.near(f, n));
+    const docks: number[] = [];
+    for (const f of front) {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const x = m.xOf(f) + dx;
+          const y = m.yOf(f) + dy;
+          if (m.inBounds(x, y) && isDock(m.build[m.idx(x, y)])) docks.push(m.idx(x, y));
+        }
+      }
+    }
+    for (const j of new Set(docks)) {
+      for (const n of m.neighbors4(j)) {
+        if (m.ocean[n] !== 1 || m.build[n] !== Build.None || !reaches(n)) continue;
+        deepest = Math.max(deepest, m.depth[n]);
+        if (!this.dockInUse(j)) continue;
+        office = true;
+        if (feeder && !this.wideQuay(j, n)) continue;
+        wide = true;
+        if (!this.footprint(n, j, this.boatHalf(feeder))) continue;
+        room = true;
+        if (water(n) === 1) return null;
+      }
+    }
+    if (deepest < 0) return `No open water beside it for ${what} to lie in.`;
+    if (!office) {
+      return 'No ship will come: this quay is not run by a harbour office. Build one nearby.';
+    }
+    if (!wide)
+      return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
+    if (!room) return `No room alongside for ${what}'s hull: clear the water along the quay.`;
+    return `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`;
+  }
+
+  /**
+   * Everything on the map that cannot work as it is built, for a red mark
+   * over it: a crane no ship can come alongside, storage or a truck bay the
+   * trucks cannot reach, parking no truck can use.
+   */
+  private problems(): ProblemView[] {
+    const m = this.map;
+    const out: ProblemView[] = [];
+    const middle = (tiles: number[]) => ({
+      x: tiles.reduce((n, i) => n + m.xOf(i) + 0.5, 0) / tiles.length,
+      y: tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length,
+    });
+    for (const c of this.cranes.values()) {
+      const text = this.berthTrouble(c);
+      const h = c.kind === 'jib' ? 1.7 : c.kind === 'gantry' ? 2.9 : 2.3;
+      if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
+    }
+    for (const b of [...this.bays.values(), ...this.yards.values()]) {
+      // Crate storage the trucks cannot reach is still a buffer the forklifts empty.
+      if (!b.noAccess || b.warehouse || (b.tiles && !b.yard)) continue;
+      out.push({
+        ...middle(b.tiles ?? [b.idx]),
+        h: 1.2,
+        text: b.noAccessWhy ?? 'Trucks cannot reach it.',
+        type: b.yard ? 'yard' : 'bay',
+        idx: b.idx,
+      });
+    }
+    for (const lot of this.parkingLots()) {
+      const why = this.lotTrouble(lot);
+      if (why)
+        out.push({
+          ...middle(lot.tiles),
+          h: 0.9,
+          text: `Not in use: ${why}.`,
+          type: 'parking',
+          idx: lot.tiles[0],
+        });
+    }
+    return out;
   }
 
   /** Cargo waiting at each step from boat to truck, for the cargo flow. */
@@ -10070,6 +10167,7 @@ export class World {
       byCrane: this.byCrane(b),
       tiles: b.tiles && [...b.tiles],
       noAccess: b.noAccess,
+      noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({
       id: c.id,
@@ -10123,7 +10221,9 @@ export class World {
         capacity: bayCap(y),
         tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,
+        noAccessWhy: y.noAccess ? y.noAccessWhy : undefined,
       })),
+      problems: this.problems(),
       parking: this.parkingLots().map((lot) => {
         const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
         return {
@@ -10162,6 +10262,7 @@ export class World {
         busy: c.busy,
         stores: c.kind === 'jib' ? this.jibStores(c).length : 0,
         why: this.craneWhy(c),
+        trouble: this.berthTrouble(c) ?? undefined,
         ...this.craneWork(c, jibs),
       })),
       town: this.town && {

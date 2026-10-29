@@ -235,6 +235,12 @@ export class Input {
   private selectAt(cx: number, cy: number, at: number | null): void {
     const map = this.getMap();
     const i = at !== null && map ? anchorOf(map, at) : at;
+    // A red mark over something wrong picks that, to say what is wrong.
+    const problem = this.renderer.pickProblem(cx, cy);
+    if (problem) {
+      selection.value = { type: problem.type, idx: problem.idx };
+      return;
+    }
     const ent = this.renderer.pickEntity(cx, cy);
     const s = snapshot.value;
     // A storage area is picked from any of its tiles.
