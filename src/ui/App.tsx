@@ -726,7 +726,7 @@ function ToolCard({
   const picture = thumbnail(t.tool);
   return (
     <button
-      class={`card ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
+      class={`build-card ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
       onClick={() => (locked ? (panel.value = 'port') : (tool.value = active ? 'select' : t.tool))}
       onMouseEnter={() => onHover(t)}
       onMouseLeave={() => onHover(null)}
@@ -735,7 +735,7 @@ function ToolCard({
       aria-pressed={active}
       aria-label={t.label}
     >
-      <span class="card-picture">
+      <span class="build-picture">
         {picture ? <img src={picture} alt="" draggable={false} /> : <Icon name={t.icon} />}
         {locked && (
           <span class="lock">
@@ -744,8 +744,8 @@ function ToolCard({
         )}
         {!locked && t.key && <kbd>{t.key}</kbd>}
       </span>
-      <span class="card-label">{t.label}</span>
-      <span class="card-cost">{price}</span>
+      <span class="build-label">{t.label}</span>
+      <span class="build-cost">{price}</span>
     </button>
   );
 }

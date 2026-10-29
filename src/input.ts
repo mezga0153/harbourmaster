@@ -156,9 +156,13 @@ export class Input {
     const i = this.renderer.pickTile(e.clientX, e.clientY);
 
     if (mode === 'pan' && !this.moved && this.button === 2) {
-      // Right-click turns a building being placed, Theme Hospital style.
+      // Right-click turns a building being placed, Theme Hospital style;
+      // otherwise it puts the tool down and closes the build menu.
       if (ROTATABLE.has(tool.value as BuildKind)) this.rotate();
-      else tool.value = 'select';
+      else {
+        tool.value = 'select';
+        openCategory.value = null;
+      }
       return;
     }
     if (mode === 'select' && !this.moved) this.selectAt(e.clientX, e.clientY, i);
