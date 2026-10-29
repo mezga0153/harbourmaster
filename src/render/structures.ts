@@ -31,6 +31,7 @@ import {
   CRANE_LIFT_TAKEN,
   CRANE_TICKS,
   GANTRY_RAILS,
+  GANTRY_STACK,
   GANTRY_TICKS,
   HARBOUR_CRANE_TICKS,
   YARD_GANTRY_TICKS,
@@ -2043,13 +2044,15 @@ export class Structures {
         trolley.add(rope, hook);
         carriage.add(trolley);
         g.add(carriage);
-        // Its stack, along the quay at the shipside, two deep and four high,
-        // clear of the legs: behind it the bay between the legs is left
-        // free for the stackers and tractors to come in under it.
+        // Its stack along the quay at the shipside, the length of its rails,
+        // two deep and two high, clear of the front legs: landward of it the
+        // rest of the quay under it is left for the stackers and tractors.
         const stack: Object3D[] = [];
-        for (let layer = 0; layer < 4; layer++) {
+        const cols = GANTRY_RAILS;
+        for (let layer = 0; layer < GANTRY_STACK / (cols * 2); layer++) {
           for (const z of [0.55, 0.25]) {
-            for (const x of [0.5, 1.5]) {
+            for (let a = 0; a < cols; a++) {
+              const x = a - (GANTRY_RAILS / 2 - 1) + 0.5;
               const c = container(i * 5 + stack.length, x, y + layer * BOX_HEIGHT, z);
               c.visible = false;
               g.add(c);

@@ -467,7 +467,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <More topic="cranes" />
         </p>
         <dl class="props">
-          <dt>{c.kind === 'gantry' ? 'Between its legs' : 'Landing stack'}</dt>
+          <dt>{c.kind === 'gantry' ? 'Along the quay' : 'Landing stack'}</dt>
           <dd>
             {c.stack} / {c.max} {c.kind === 'jib' ? 'crates' : 'containers'}
           </dd>
@@ -608,7 +608,7 @@ const CRANE_NOTE = {
   harbour:
     'Lifts containers off a feeder ship alongside onto a stack beside it, for the reach stackers. Slow, but several can work one ship. The ground round it is for port machines only.',
   gantry:
-    'Ship-to-shore crane: runs along the ship lifting containers off quickly, and sets them down at the shipside between its legs, along with exports brought for it to put on board. Reach stackers collect from there, and it lifts them onto terminal tractors waiting under it; never the hauliers’ trucks. The ground round it is for port machines only.',
+    'Ship-to-shore crane: runs along the ship lifting containers off quickly, and sets them down at the shipside along its rails, with exports brought for it to put on board. Reach stackers collect from there, from the quay behind, and it lifts them onto terminal tractors waiting under it; never the hauliers’ trucks. The ground round it is for port machines only.',
 };
 
 function PreviewTip() {

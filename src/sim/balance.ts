@@ -270,7 +270,11 @@ export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
  */
 export const GANTRY_COST = 30000;
 export const GANTRY_TICKS = 16;
-export const GANTRY_STACK = 16;
+/**
+ * Containers a gantry crane sets down along the quay at the shipside, the
+ * length of its rails (see GANTRY_RAILS), two deep and two high.
+ */
+export const GANTRY_STACK = 24;
 /** Quay a gantry crane's rails run along, centred on it: the length of a container ship. */
 export const GANTRY_RAILS = 6;
 export const GANTRY_RUNNING_COST = 300;

@@ -132,8 +132,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           reach stackers. They are slow, but several can work one ship.
         </p>
         <p>
-          <b>Gantry cranes</b> stand on 2×2 of quay and lift containers quickly into the bay between
-          their legs, {B.GANTRY_STACK} at most. Only reach stackers collect from there.
+          <b>Gantry cranes</b> stand on 2×2 of quay and run on rails along it, lifting containers
+          quickly onto the quay at the shipside along their rails, {B.GANTRY_STACK} at most. Reach
+          stackers collect from there, from the quay behind, and they lift them straight onto
+          terminal tractors waiting under them.
         </p>
         <p>
           <b>Yard gantries</b> span a container yard from beside it and lift containers on and off

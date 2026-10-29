@@ -2259,19 +2259,20 @@ describe('Container Port tier', () => {
     const [{ at, f }] = gantryPier(world, t.crane);
     world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
     const c = world.cranes.get(at)!;
-    // One stack filled first, four high, then the next begun.
+    // One stack filled first, two high, then the next begun.
     for (let k = 0; k < 5; k++) {
       c.stack.push(100 + k);
       (c.stackFrom ??= []).push(-1);
     }
+    const across = B.GANTRY_RAILS * 2;
     const places = world['cranePlaces'](c).stack;
-    expect(places).toEqual([0, 4, 8, 12, 1]);
-    // The top of the full stack comes off first; those under it wait.
+    expect(places).toEqual([0, across, 1, across + 1, 2]);
+    // The highest with none on it comes off first; one under another waits.
     expect(world['craneTop'](c, false)).toBe(3);
     c.stack.splice(3, 1);
     c.stackFrom!.splice(3, 1);
     places.splice(3, 1);
-    expect(world['craneTop'](c, false)).toBe(2);
+    expect(world['craneTop'](c, false)).toBe(1);
     expect(world['craneTop'](c, false)).not.toBe(0);
   });
 

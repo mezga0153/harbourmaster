@@ -96,7 +96,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Gantry,
     label: 'Gantry crane',
     cost: B.GANTRY_COST,
-    hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down in the bay between its legs, ${B.GANTRY_STACK} at most, where reach stackers or terminal tractors collect them, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. It runs on rails along the quay to each bay of the ship in turn, so it needs ${B.GANTRY_RAILS} tiles of clear quay edge, the length of a ship, kept for its rails, and the ground a tile round them is for port machines only. Put two side by side along one berth and they share the rails and the ship out between them, working it twice as fast. $${B.GANTRY_RUNNING_COST}/day to run`,
+    hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down along the quay at the shipside, the length of its rails, ${B.GANTRY_STACK} at most, where reach stackers collect them from behind and it lifts them onto terminal tractors under it, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. It runs on rails along the quay to each bay of the ship in turn, so it needs ${B.GANTRY_RAILS} tiles of clear quay edge, the length of a ship, kept for its rails, and the ground a tile round them is for port machines only. Put two side by side along one berth and they share the rails and the ship out between them, working it twice as fast. $${B.GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   tugBerth: {

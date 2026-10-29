@@ -62,6 +62,7 @@ import {
   bulldozeValue,
   footprint,
   gantryGround,
+  gantryRails,
   gantryOver,
   harbourCentre,
   partOrient,
@@ -389,6 +390,12 @@ interface Boat extends Agent {
   /** Ticks left squeezing past other boats after being wedged in. */
   squeeze?: number;
   /**
+   * Ticks it has been beside the clear water off a moored boat's bow or
+   * stern, and the tick that was last counted; see giveWay.
+   */
+  keptFor?: number;
+  keptTick?: number;
+  /**
    * Water a ship pulling out of its berth keeps to itself, as circles (x, y,
    * radius): the lane along the dock it runs out by and the water it turns
    * in at the end of it, then just that, until it has come round onto its
@@ -603,10 +610,10 @@ function yardPlace(k: number): { tile: number; stack: number; tier: number } {
 
 /**
  * Stacks side by side on a container crane's landing stack: a gantry
- * crane's two along and two deep, a harbour crane's two.
+ * crane's along its rails, two deep, a harbour crane's two.
  */
 function craneStacks(c: Crane): number {
-  return c.kind === 'gantry' ? 4 : 2;
+  return c.kind === 'gantry' ? B.GANTRY_RAILS * 2 : 2;
 }
 
 /** Ticks a crane takes to lift one crate or container. */
@@ -4424,6 +4431,17 @@ export class World {
     return { crane: c.idx, along: this.quayHeading(c) };
   }
 
+  /**
+   * Where a machine stands to work a place on a gantry crane's stack: on
+   * the landward row of its rails, behind the stack the place is in.
+   */
+  private besideStack(c: Crane, place: number): number {
+    const m = this.map;
+    const along = (place % craneStacks(c)) % B.GANTRY_RAILS;
+    const back = gantryRails(m, c.idx, m.orient[c.idx] & 3)[along * 2 + 1];
+    return back >= 0 && Number.isFinite(this.driveCost(back)) ? back : this.pickTile(c);
+  }
+
   /** Which way the quay edge a container crane stands on runs, as a heading. */
   private quayHeading(c: Crane): number {
     const m = this.map;
@@ -4441,7 +4459,15 @@ export class World {
    * or off it: in the bay between a gantry crane's legs; beside a harbour
    * crane on the quay, along it, clear of the crane and its stack.
    */
-  private craneSpot(p: Dockhand, c: Crane): number {
+  private craneSpot(p: Dockhand, c: Crane, drop = false): number {
+    // A stacker at a gantry crane goes along it to the stack it works: the
+    // export on top it takes, or the next place for one it brings.
+    if (p.kind === 'stacker' && c.kind === 'gantry') {
+      const place = drop
+        ? this.nextCranePlace(c, true)
+        : this.cranePlaces(c).stack[this.craneTop(c, false)];
+      return place === undefined || place < 0 ? this.pickTile(c) : this.besideStack(c, place);
+    }
     if (p.kind !== 'tractor' || c.kind !== 'harbour') return this.pickTile(c);
     const m = this.map;
     const a = this.quayHeading(c);
@@ -5510,6 +5536,12 @@ export class World {
     let makeWay = -1;
     /** Brought up short by a boat lying still. */
     let stopped = false;
+    // Held up a while beside the clear water off moored boats' ends, it goes
+    // on past them minding only their hulls, until it is clear of them all:
+    // counted however it creeps meanwhile, so it does not stop again at
+    // every nudge forward.
+    const patient = (b.keptFor ?? 0) < B.KEEP_CLEAR_PATIENCE;
+    let byEnds = false;
     // Wedged in for most of a day: a last resort so the harbour never locks
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
@@ -5553,10 +5585,12 @@ export class World {
       // Held up by that alone a while, it goes on past, clear of the hull.
       // Running out along the dock it passes the berths beside it like
       // one casting off, minding only their hulls.
-      const kept =
-        still && b.berthing !== 'out' && (b.held ?? 0) < B.KEEP_CLEAR_PATIENCE
+      const ends =
+        still && b.berthing !== 'out'
           ? this.inWay(me, { ...other, half: other.half + B.BERTH_END_GAP }, look)
           : null;
+      if (ends !== null) byEnds = true;
+      const kept = patient ? ends : null;
       const ahead = kept !== null && kept > 0 ? kept : this.inWay(me, other, look);
       if (ahead !== null) {
         const gap = ahead - me.half;
@@ -5590,6 +5624,10 @@ export class World {
       const lead = head === o.id ? o : this.boats.find((q) => q.id === head);
       if (!lead || lead === b || !this.outranks(lead, b)) continue;
       if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = head;
+    }
+    if (b.keptTick !== this.tick) {
+      b.keptTick = this.tick;
+      b.keptFor = byEnds ? (b.keptFor ?? 0) + 1 : 0;
     }
     return { speed, makeWay, still: stopped && speed <= 0.05 };
   }
@@ -6312,7 +6350,7 @@ export class World {
           // Which container off a crane's stack it takes, from the top as
           // it pulls up, whatever is set down beside it meanwhile.
           const crane = this.cranes.get(p.craneIdx);
-          const top = crane && crane.kind !== 'jib' ? this.craneTop(crane, false) : -1;
+          const top = crane && crane.kind !== 'jib' ? this.craneTop(crane, false, p) : -1;
           p.takeAt = top >= 0 ? this.cranePlaces(crane!).stack[top] : undefined;
         }
         return;
@@ -6339,7 +6377,7 @@ export class World {
         }
         if (p.toCrane !== undefined && p.toCrane >= 0) {
           const crane = this.cranes.get(p.toCrane);
-          if (!crane || !this.headTo(p, this.craneSpot(p, crane))) this.retargetCrate(p);
+          if (!crane || !this.headTo(p, this.craneSpot(p, crane, true))) this.retargetCrate(p);
           else p.state = 'toDrop';
           return;
         }
@@ -6703,7 +6741,7 @@ export class World {
         const room = this.exportRoom(c);
         if (room <= 0) continue;
         if (!this.boats.some((b) => this.wantsLoad(b) && this.craneReaches(c, b))) continue;
-        if (this.pathFor(p, from, this.craneSpot(p, c))) return { crane: c, room };
+        if (this.pathFor(p, from, this.craneSpot(p, c, true))) return { crane: c, room };
       }
       return null;
     }
@@ -7738,7 +7776,7 @@ export class World {
           p.state = 'toDrop';
           return;
         }
-      } else if (target.crane && this.headTo(p, this.craneSpot(p, target.crane))) {
+      } else if (target.crane && this.headTo(p, this.craneSpot(p, target.crane, true))) {
         target.crane.outReserved = (target.crane.outReserved ?? 0) + p.planned;
         p.toCrane = target.crane.idx;
         p.state = 'toDrop';
@@ -8011,18 +8049,25 @@ export class World {
   }
 
   /**
-   * The container (with `out`, the export) on a gantry crane's stack with
-   * none on it, highest first, to take next; -1 if none. Any other crane's
-   * comes off in turn.
+   * The container (with `out`, the export) on a crane's stack with none on
+   * it, highest first, to take next, at the stack a stacker `by` stands at
+   * if one there will do; -1 if none. A jib crane's come off in turn.
    */
-  private craneTop(c: Crane, out: boolean): number {
+  private craneTop(c: Crane, out: boolean, by?: Dockhand): number {
     if (c.kind === 'jib') return (out ? (c.outStack?.length ?? 0) : c.stack.length) > 0 ? 0 : -1;
     const places = this.cranePlaces(c);
     const used = new Set([...places.stack, ...places.out]);
+    // A stacker standing along a gantry crane takes one from the stack it is at.
+    const at = by?.kind === 'stacker' && c.kind === 'gantry' ? this.tileOf(by) : -1;
+    const near = (k: number) => at < 0 || this.besideStack(c, k) === at;
+    const anyNear = (out ? places.out : places.stack).some(
+      (k) => near(k) && !used.has(k + craneStacks(c)),
+    );
     let best = -1;
     let high = -1;
     (out ? places.out : places.stack).forEach((k, i) => {
       if (used.has(k + craneStacks(c))) return;
+      if (anyNear && !near(k)) return;
       if (k > high) {
         best = i;
         high = k;
