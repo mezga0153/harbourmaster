@@ -424,10 +424,14 @@ export function placementError(
     }
     // Its rails run the length of a ship along the edge: clear quay, or
     // another gantry crane sharing them.
+    // The landward rail may run on port road behind the quay too.
     const rails = gantryRails(map, i, facing);
     const clear = (t: number) => quay(t) || (t >= 0 && map.build[t] === Build.Gantry);
+    const paved = (t: number) =>
+      clear(t) || (t >= 0 && map.build[t] === Build.PortRoad && !map.store[t]);
     const edge = rails.filter((_, k) => k % 2 === 0);
-    if (!rails.every(clear) || !edge.every(sea)) {
+    const back = rails.filter((_, k) => k % 2 === 1);
+    if (!edge.every(clear) || !back.every(paved) || !edge.every(sea)) {
       return `A gantry crane runs on rails along ${B.GANTRY_RAILS} tiles of clear quay edge, the length of a container ship: clear the quay either side of it`;
     }
     return null;
