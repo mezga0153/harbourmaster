@@ -2475,6 +2475,39 @@ describe('Container Port tier', () => {
     expect(working).toBeGreaterThan(0);
   });
 
+  it('has a yard gantry see one lift through before it starts on the next', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const yard = { idx: 5, yard: true, boxes: [], crates: [] } as never;
+    world.yards.set(5, yard);
+    world['yardGantry'] = () => true;
+    const truckId = world.nextId++;
+    const t = { id: truckId, boxes: true, bayIdx: 5, state: 'delivering', cargo: 1, timer: 0 };
+    world.trucks.push(t as never);
+    world['gantryTruck'] = () => t as never;
+    // A truck it has started lifting an export off.
+    expect(world['gantryElsewhere'](t as never, yard)).toBe(false);
+    // A tractor pulls up to set a container down: it waits for that lift.
+    const tractorId = world.nextId++;
+    const tractor = {
+      id: tractorId,
+      kind: 'tractor',
+      state: 'dropping',
+      bayIdx: 5,
+      cargoFees: [100],
+      planned: 1,
+      timer: B.YARD_GANTRY_TICKS,
+    } as never;
+    world.people.push(tractor);
+    expect(world['gantryFor'](tractor)).toBe(false);
+    expect(world['gantryWork'](yard).workTruck).toBe(truckId);
+    // Then it is the tractor's turn, and the truck waits for that.
+    world['gantryDone'](yard, truckId);
+    expect(world['gantryFor'](tractor)).toBe(true);
+    expect(world['gantryElsewhere'](t as never, yard)).toBe(true);
+    expect(world['gantryWork'](yard).workTruck).toBe(tractorId);
+  });
+
   it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {
     const world = feederPort(true);
     const yard = [...world.yards.values()][0];

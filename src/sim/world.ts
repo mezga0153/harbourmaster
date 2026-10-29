@@ -460,6 +460,8 @@ interface Truck extends Agent {
   coming?: number;
   /** Container trucks: how each container on board looks, in load order. */
   looks?: number[];
+  /** How the container a yard gantry is lifting onto it looks, from when it took it up. */
+  lifting?: number;
   taking?: number;
   idle: number;
   timer: number;
@@ -507,6 +509,8 @@ interface Bay {
   exports?: number[];
   /** Exports on their way here by truck. */
   exportIncoming?: number;
+  /** Container yards: the truck or tractor its gantry is part way through a lift for; see gantryFor. */
+  gantryOn?: number;
   /** Exports promised to workers on their way to take them on board. */
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
@@ -4295,8 +4299,10 @@ export class World {
    */
   private gantryWork(y: Bay): GantryWork {
     if (!this.yardGantry(y)) return {};
-    // A terminal tractor first: it lifts one off for the yard, or exports on.
-    const p = this.gantryTractor(y);
+    // The one it is part way through a lift for; or, with none, a terminal
+    // tractor first: it lifts one off for the yard, or exports on.
+    const on = this.gantryHolder(y);
+    const p = on ? (isTruck(on) ? undefined : on) : this.gantryTractor(y);
     if (p) {
       const workAt = this.gantryLane(y)?.get(p.goal) ?? 0;
       const lift = { workAt, workTruck: p.id, workSlot: 0 };
@@ -4307,7 +4313,7 @@ export class World {
       const top = Math.max(0, this.yardTop(y, true));
       return { working: 'load', workLook: this.exportLooks(y)[top], workPhase, ...lift };
     }
-    const t = this.gantryTruck(y);
+    const t = on && isTruck(on) ? on : this.gantryTruck(y);
     if (!t) return {};
     const workAt = this.gantryLane(y)?.get(t.goal) ?? 0;
     const workPhase = (t.timer % B.YARD_GANTRY_TICKS) / B.YARD_GANTRY_TICKS;
@@ -4322,8 +4328,7 @@ export class World {
         workPhase,
       };
     }
-    const at = this.clearTop(y);
-    const look = this.boxLooks(y)[at];
+    const look = t.lifting ?? this.boxLooks(y)[this.clearTop(y)];
     return {
       working: 'load',
       workLook: look,
@@ -4653,14 +4658,59 @@ export class World {
     };
   }
 
-  /** At a yard with a gantry, waiting while it works another truck or a tractor. */
+  /**
+   * At a yard with a gantry, waiting while it works another truck or a
+   * tractor; else it has the gantry lift for it. Between lifts, a tractor
+   * goes first, then the trucks in turn.
+   */
   private gantryElsewhere(t: Truck, bay: Bay): boolean {
-    return (
-      t.boxes &&
-      !!bay.yard &&
-      this.yardGantry(bay) &&
-      (this.gantryTractor(bay) !== undefined || this.gantryTruck(bay) !== t)
-    );
+    if (!t.boxes || !bay.yard || !this.yardGantry(bay)) return false;
+    const on = this.gantryHolder(bay);
+    if (on) return on !== t;
+    if (this.gantryTractor(bay) !== undefined || this.gantryTruck(bay) !== t) return true;
+    bay.gantryOn = t.id;
+    // Loading, the container it takes up, whatever customs clear meanwhile.
+    t.lifting = t.state === 'loading' ? this.boxLooks(bay)[this.clearTop(bay)] : undefined;
+    return false;
+  }
+
+  /**
+   * The truck or tractor a yard's gantry is part way through a lift for,
+   * still there; it lifts for one at a time and sees each lift through,
+   * so a container it has taken up is set down where it was going.
+   */
+  private gantryHolder(y: Bay): Vehicle | undefined {
+    const id = y.gantryOn;
+    if (id === undefined) return undefined;
+    const t = this.trucks.find((q) => q.id === id);
+    const p = t ? undefined : this.people.find((q) => q.id === id);
+    const there = t
+      ? t.bayIdx === y.idx && (t.state === 'loading' || t.state === 'delivering')
+      : !!p &&
+        p.kind === 'tractor' &&
+        ((p.state === 'picking' && p.stockIdx === y.idx) ||
+          (p.state === 'dropping' && p.bayIdx === y.idx));
+    if (!there) y.gantryOn = undefined;
+    return there ? (t ?? p) : undefined;
+  }
+
+  /**
+   * Whether a tractor picking up or setting down at a yard has its gantry
+   * lifting for it, taking it on if it is free; true anywhere else.
+   */
+  private gantryFor(p: Dockhand): boolean {
+    if (p.kind !== 'tractor') return true;
+    const y = this.yards.get(p.state === 'picking' ? p.stockIdx : p.bayIdx);
+    if (!y || !this.yardGantry(y)) return true;
+    const on = this.gantryHolder(y);
+    if (on) return on === p;
+    y.gantryOn = p.id;
+    return true;
+  }
+
+  /** A lift done: the gantry is free for the next. */
+  private gantryDone(bay: Bay | undefined, id: number): void {
+    if (bay?.gantryOn === id) bay.gantryOn = undefined;
   }
 
   /** Ticks a truck takes to load or unload one at a bay or yard: a yard gantry lifts at its own pace. */
@@ -6580,7 +6630,10 @@ export class World {
         return;
       }
       case 'picking': {
+        // At a yard, its gantry lifts for one at a time.
+        if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
+        this.gantryDone(this.yards.get(p.stockIdx), p.id);
         const fees = this.takeFromSource(p);
         if (fees.length === 0) return this.cancelJob(p);
         // Fewer than planned: hand back the spare room in the bay.
@@ -6624,7 +6677,9 @@ export class World {
         return;
       }
       case 'dropping': {
+        if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
+        this.gantryDone(this.yards.get(p.bayIdx), p.id);
         if (this.dropOutbound(p)) return;
         const bay = this.dest(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
@@ -9403,6 +9458,7 @@ export class World {
         }
         if (this.gantryElsewhere(t, bay)) return;
         if (++t.timer % this.truckTicks(t, bay) !== 0) return;
+        this.gantryDone(bay, t.id);
         this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
@@ -9417,6 +9473,7 @@ export class World {
         const every = this.truckTicks(t, bay);
         if (t.cargo < t.capacity && this.gantryElsewhere(t, bay)) return;
         if (++t.timer % every !== 0) return;
+        this.gantryDone(bay, t.id);
         // Containers at a yard with no gantry go on by reach stacker: it
         // waits while one is on its way.
         // With nothing more here for it, it goes with what it has rather
@@ -9431,8 +9488,11 @@ export class World {
           return;
         }
         const stock = t.boxes ? bay.boxes : bay.crates;
-        // Containers only once customs have cleared them, whichever those are.
-        const at = t.boxes && bay.yard ? this.clearTop(bay) : 0;
+        // Containers only once customs have cleared them, whichever those
+        // are: under a gantry, the one it took up.
+        const lifted = t.lifting === undefined ? -1 : this.boxLooks(bay).indexOf(t.lifting);
+        t.lifting = undefined;
+        const at = t.boxes && bay.yard ? (lifted >= 0 ? lifted : this.clearTop(bay)) : 0;
         if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
           if (t.boxes && bay.yard) this.yardSlots(bay).boxes.splice(at, 1);
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
