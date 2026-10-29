@@ -6852,7 +6852,11 @@ export class World {
     const cached = this.spotCache.get(a.idx);
     if (cached) return cached;
     const most = Math.max(1, Math.floor(a.tiles!.length / B.STORE_TILES_PER_TRUCK));
-    const out = loadingSpots(this.map, a.tiles!, this.truckReach()).slice(0, most);
+    const spots = loadingSpots(this.map, a.tiles!, this.truckReach());
+    // At a yard with a gantry, trucks load under it, where it reaches out
+    // over the lane beside the yard: it lifts their containers there.
+    const under = a.yard ? spots.filter((s) => this.map.build[s] === Build.YardGantry) : [];
+    const out = under.length > 0 ? under : spots.slice(0, most);
     this.spotCache.set(a.idx, out);
     return out;
   }

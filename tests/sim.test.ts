@@ -2029,8 +2029,8 @@ describe('Container Port tier', () => {
     expect(placementError(m, 'yardGantry', spot)).toBeNull();
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
     expect(m.build[spot]).toBe(Build.YardGantry);
-    // The trucks still reach the yard, from under the gantry too.
-    expect(world['storeSpots'](yard)).toContain(spot);
+    // The trucks load under the gantry, where it reaches out of the yard.
+    expect(world['storeSpots'](yard)).toEqual([spot]);
     world['addContract'](
       {
         kind: 'haulier',

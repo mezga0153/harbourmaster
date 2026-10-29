@@ -6,6 +6,7 @@ import {
   Matrix4,
   Mesh,
   type Object3D,
+  Vector3,
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
@@ -66,6 +67,8 @@ interface CrossingParts {
 }
 
 interface YardGantryParts {
+  /** The gantry, laid out along +z from its tile into the yard. */
+  frame: Object3D;
   /** Runs along the beam, along +z of the frame: out over the yard, back over the lane. */
   trolley: Object3D;
   /** Hoist rope from the trolley, scaled to its length, and the spreader on its end. */
@@ -73,9 +76,11 @@ interface YardGantryParts {
   spreader: Object3D;
   /** The container on the spreader, shown while it carries one. */
   load: Object3D;
-  /** How far along the beam the far legs stand, and how far the spreader lowers. */
+  /** How far along the beam the far legs stand, and how far down a truck's deck is. */
   far: number;
-  lift: number;
+  laneDrop: number;
+  /** Where in the yard the container it is moving is, in the frame; see slotFor. */
+  pick: { x: number; z: number; drop: number } | null;
   work: 'load' | 'unload' | null;
   look: number;
   /** How far through a lift, 0 to 1. */
@@ -254,12 +259,14 @@ export class Structures {
   ): void {
     for (const y of yards) {
       this.fill(y.tiles, y.boxes + y.exports, true, y.looks);
-      // Its gantry, at work or not.
+      // Its gantry, at work or not, and where in the yard the container
+      // it is moving lies, or for one coming off a truck, where it goes.
       const tiles = new Set(y.tiles);
       for (const [i, g] of this.yardGantries) {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
         g.work = y.working ?? null;
         if (y.workLook !== undefined) g.look = y.workLook;
+        g.pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
       }
     }
   }
@@ -270,35 +277,77 @@ export class Structures {
    * sets it down on the truck; unloading a shipper's truck, the other way
    * round. Idle, it waits over the middle with the spreader up.
    */
+  /**
+   * Where on its beam a yard gantry takes the container it is loading on a
+   * truck (the slot it lies in, by `look`), or puts one off a truck (the
+   * next free slot): along the beam, across it, and how far down.
+   */
+  private slotFor(
+    g: YardGantryParts,
+    tiles: number[],
+    work: 'load' | 'unload',
+    look?: number,
+  ): YardGantryParts['pick'] {
+    const order = tiles.length > 0 ? (this.slots.get(tiles[0]) ?? []) : [];
+    let k = work === 'load' ? (look === undefined ? -1 : order.indexOf(look)) : order.length;
+    if (k < 0) return null;
+    let slot: Object3D | undefined;
+    for (const t of tiles) {
+      const items = this.stacks.get(t)?.boxes ?? [];
+      if (k < items.length) {
+        slot = items[k];
+        break;
+      }
+      k -= items.length;
+    }
+    if (!slot) return null;
+    g.frame.updateWorldMatrix(true, false);
+    slot.updateWorldMatrix(true, false);
+    const at = g.frame.worldToLocal(slot.getWorldPosition(new Vector3()));
+    // The spreader comes down onto its top; the container hangs below it.
+    const drop = g.trolley.position.y - (at.y + BOX_HEIGHT + 0.04);
+    return { x: Math.max(-0.38, Math.min(0.38, at.x)), z: at.z, drop };
+  }
+
   private runYardGantry(g: YardGantryParts, dt: number): void {
     // One lift a cycle, as long as one takes in the game.
     const cycle = YARD_GANTRY_TICKS / TICKS_PER_SECOND;
     g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
-    const stacks = Math.max(0.8, g.far * 0.6);
-    const lane = 0.05;
+    let x = 0;
     let z = Math.max(0.6, g.far / 2);
     let drop = 0.2;
     let carry = false;
     if (g.work) {
-      const [from, to] = g.work === 'load' ? [stacks, lane] : [lane, stacks];
+      // Between the container in the yard and the truck in the lane under
+      // the gantry, where it reaches out over the edge of the yard.
+      const yard = g.pick ?? { x: 0, z: Math.max(0.8, g.far * 0.6), drop: g.laneDrop };
+      const lane = { x: 0, z: 0, drop: g.laneDrop };
+      const [from, to] = g.work === 'load' ? [yard, lane] : [lane, yard];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
-      const dip = (t: number) => 0.2 + (g.lift - 0.2) * Math.sin(t * Math.PI);
+      const dip = (t: number, depth: number) => 0.2 + (depth - 0.2) * Math.sin(t * Math.PI);
       if (p < 0.25) {
-        z = from;
-        drop = dip(p / 0.25);
+        x = from.x;
+        z = from.z;
+        drop = dip(p / 0.25, from.drop);
         carry = p > 0.125;
       } else if (p < 0.5) {
-        z = from + (to - from) * ease((p - 0.25) / 0.25);
+        const t = ease((p - 0.25) / 0.25);
+        x = from.x + (to.x - from.x) * t;
+        z = from.z + (to.z - from.z) * t;
         carry = true;
       } else if (p < 0.75) {
-        z = to;
-        drop = dip((p - 0.5) / 0.25);
+        x = to.x;
+        z = to.z;
+        drop = dip((p - 0.5) / 0.25, to.drop);
         carry = p < 0.625;
       } else {
-        z = to + (from - to) * ease((p - 0.75) / 0.25);
+        const t = ease((p - 0.75) / 0.25);
+        x = to.x + (from.x - to.x) * t;
+        z = to.z + (from.z - to.z) * t;
       }
     }
+    g.trolley.position.x += (x - g.trolley.position.x) * Math.min(1, dt * 10);
     g.trolley.position.z += (z - g.trolley.position.z) * Math.min(1, dt * 10);
     g.rope.scale.y = drop;
     g.rope.position.y = -drop / 2;
@@ -787,12 +836,15 @@ export class Structures {
         trolley.add(rope, spreader);
         frame.add(trolley);
         this.yardGantries.set(i, {
+          frame,
           trolley,
           rope,
           spreader,
           load,
           far,
-          lift: h - 0.15,
+          // Down to a truck's deck in the lane under it, set down there.
+          laneDrop: h - 0.28 - BOX_HEIGHT,
+          pick: null,
           work: null,
           look: 0,
           phase: 0,
