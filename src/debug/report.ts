@@ -55,7 +55,9 @@ export function report(s: Snapshot, x: ReportExtras): string {
       const what =
         t.kind === 'haulier'
           ? `haulier ${t.fleet}×${t.capacity}${t.cargo ? ' containers' : ''}`
-          : `fishery ${t.vessel}`;
+          : t.kind === 'shipper'
+            ? `shipper ${t.perDay}/day${t.cargo ? ' containers' : ''}`
+            : `fishery ${t.vessel}`;
       return `- ${t.name}: ${what}, satisfaction ${Math.round(k.satisfaction)}, active ${k.active}, waiting ${k.waiting}`;
     }),
   );

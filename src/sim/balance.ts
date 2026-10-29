@@ -37,6 +37,10 @@ export const BIG_TRUCK_CAPACITY = 8;
 export const STARTER_HAULIER_FEE = 20; // per day
 export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more crates
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
+/** Ticks a shipper's truck spends parked outside the port on its paperwork before it may come in: a day. */
+export const PAPERWORK_TICKS = TICKS_PER_DAY;
+/** Ticks an unloaded ship waits for exports to be brought to it before it leaves without. */
+export const LOAD_WAIT = 300;
 /** A tile of truck parking, one truck to a tile. */
 export const PARKING_COST = 60;
 /** Ticks a truck is away once it leaves the port, on its round and back, before its haulier can send it again. */

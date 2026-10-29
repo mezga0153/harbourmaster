@@ -30,7 +30,30 @@ export interface HaulierTerms {
   cargo?: 'container';
 }
 
-export type Terms = FisheryTerms | HaulierTerms;
+/**
+ * A shipper sends goods in by truck to go out on the ships: crates on the
+ * coasters, containers on the feeders.
+ */
+export interface ShipperTerms {
+  kind: 'shipper';
+  name: string;
+  color: number;
+  /** Ships containers rather than crates. */
+  cargo?: 'container';
+  /** Crates or containers sent in a day. */
+  perDay: number;
+  /** A truck's load. */
+  capacity: number;
+  /** Paid for each crate or container as it goes on board a ship. */
+  fee: number;
+}
+
+export type Terms = FisheryTerms | HaulierTerms | ShipperTerms;
+
+/** Rough income a shipper brings per day if everything it sends is shipped. */
+export function shipperDailyValue(t: ShipperTerms): number {
+  return t.perDay * t.fee;
+}
 
 export interface Contract {
   id: number;
@@ -85,6 +108,21 @@ const CONTAINER_LINES = [
 
 const CONTAINER_HAULIERS = ['Box Haul Ltd', 'Twenty Foot Transport', 'Steel Box Logistics'];
 
+const SHIPPERS = [
+  'Harbour Mills',
+  'Northshore Canning',
+  'Valley Timber Co.',
+  'Brightwater Brewery',
+  'Saltworks Ltd',
+  'Copperhill Works',
+];
+
+const CONTAINER_SHIPPERS = [
+  'Ironbridge Manufacturing',
+  'Westcliff Textiles',
+  'Fenwick Machine Tools',
+];
+
 /**
  * Once every name in a list is taken, firms are named after a place and
  * their trade, so offers never dry up in a big port.
@@ -115,6 +153,8 @@ const TRADES = {
   feeder: ['Container Line', 'Box Lines', 'Feeder Services'],
   haulier: ['Haulage', 'Freight', 'Transport', 'Logistics'],
   boxHaulier: ['Box Haulage', 'Container Transport'],
+  shipper: ['Mills', 'Works', 'Exports'],
+  boxShipper: ['Manufacturing', 'Export Co.'],
 };
 
 const HAULIERS = [
@@ -177,6 +217,7 @@ export function makeOffer(
   containersHandled = 0,
 ): Offer | null {
   const roll = rng.next();
+  if (kind === 'shipper') return makeShipper(rng, id, tick, takenNames, tier, roll);
   const feeder = kind === 'fishery' && tier >= 2 && roll < 0.4;
   const coaster = kind === 'fishery' && !feeder && tier >= 1 && roll < 0.7;
   const boxTrucks = kind === 'haulier' && tier >= 2 && roll < 0.35;
@@ -191,7 +232,18 @@ export function makeOffer(
           : HAULIERS;
   let names = pool.filter((n) => !takenNames.has(n));
   if (names.length === 0) {
-    const trade = TRADES[feeder ? 'feeder' : coaster ? 'coaster' : boxTrucks ? 'boxHaulier' : kind];
+    const trade =
+      TRADES[
+        feeder
+          ? 'feeder'
+          : coaster
+            ? 'coaster'
+            : boxTrucks
+              ? 'boxHaulier'
+              : kind === 'fishery'
+                ? 'fishery'
+                : 'haulier'
+      ];
     names = PLACES.flatMap((p) => trade.map((t) => `${p} ${t}`)).filter((n) => !takenNames.has(n));
   }
   if (names.length === 0) return null;
@@ -279,4 +331,49 @@ export function makeOffer(
     dailyFee: fleet * perTruck + rng.int(0, 2) * 5,
   };
   return { id, terms, signingFee: fleet * 150, expires };
+}
+
+/**
+ * A shipper's offer: crates for the coasters from the Coastal Wharf on,
+ * containers for the feeders from the Container Port on. Null before then,
+ * or when every name is taken.
+ */
+function makeShipper(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+  tier: number,
+  roll: number,
+): Offer | null {
+  if (tier < 1) return null;
+  const boxes = tier >= 2 && roll < 0.4;
+  let names = (boxes ? CONTAINER_SHIPPERS : SHIPPERS).filter((n) => !takenNames.has(n));
+  if (names.length === 0) {
+    const trade = TRADES[boxes ? 'boxShipper' : 'shipper'];
+    names = PLACES.flatMap((p) => trade.map((t) => `${p} ${t}`)).filter((n) => !takenNames.has(n));
+  }
+  if (names.length === 0) return null;
+  const name = rng.pick(names);
+  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const terms: ShipperTerms = boxes
+    ? {
+        kind: 'shipper',
+        name,
+        color: rng.int(0, 4),
+        cargo: 'container',
+        perDay: rng.int(4, 9),
+        capacity: rng.int(1, B.CONTAINER_TRUCK_CAPACITY),
+        fee: rng.int(90, 140),
+      }
+    : {
+        kind: 'shipper',
+        name,
+        color: rng.int(0, 4),
+        perDay: rng.int(8, 16),
+        capacity: B.TRUCK_CAPACITY,
+        fee: rng.int(14, 24),
+      };
+  const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 50) * 50;
+  return { id, terms, signingFee, expires };
 }

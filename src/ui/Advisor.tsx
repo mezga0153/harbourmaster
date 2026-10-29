@@ -72,6 +72,16 @@ const TIPS: Record<string, Tip> = {
     text: `A truck that leaves is away about ${hours(B.TRUCK_ROUND_TRIP)} hours before its haulier can send it again, so cargo waits in the bays and storage meanwhile. More trucks, or bigger ones, take more away.`,
     topic: 'trucks',
   },
+  parking: {
+    title: 'Parking for the shippers',
+    text: `A shipper's trucks park outside the port for about ${hours(B.PAPERWORK_TICKS)} hours of paperwork before they come in. Build truck parking joined to a public road, or they do not come.`,
+    topic: 'exports',
+  },
+  exports: {
+    title: 'Exports',
+    text: 'The shippers’ goods wait in storage for a ship. Coasters and feeders that have unloaded take them on board before they leave, and the shipper pays as each goes on.',
+    topic: 'exports',
+  },
   machinesOnly: {
     title: 'Machines only',
     text: 'People on foot and the hauliers’ trucks keep off ground marked for machines, outlined in red, so forklifts do not queue behind dockhands. Mind that dockhands can still get to the boats.',

@@ -79,6 +79,8 @@ export interface CraneView {
   idx: number;
   kind: 'jib' | 'harbour' | 'gantry';
   stack: number;
+  /** Container cranes: exports set down for it to lift on board. */
+  out: number;
   /** Most it sets down before waiting for them to be taken away. */
   max: number;
   angle: number;
@@ -187,6 +189,8 @@ export interface BayView {
   large: boolean;
   /** A crate storage area, and the tiles marked out for it. */
   warehouse: boolean;
+  /** Crates waiting here to go out on a ship. */
+  exports: number;
   tiles?: number[];
   noAccess: boolean;
 }
@@ -196,6 +200,8 @@ export interface YardView {
   boxes: number;
   /** Cleared by customs, so the trucks may take them. */
   cleared: number;
+  /** Containers waiting here to go out on a ship. */
+  exports: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   capacity: number;
@@ -207,6 +213,8 @@ export interface PileView {
   idx: number;
   crates: number;
   pallets: boolean;
+  /** Exports left by a ship, to go on board. */
+  out: boolean;
 }
 
 export interface Stats {
@@ -215,6 +223,8 @@ export interface Stats {
   boats: number;
   trucks: number;
   earned: number;
+  /** Crates and containers shipped out; older saves have none. */
+  exported?: number;
   /** Demurrage, breach penalties and contract buyouts paid. */
   penalties: number;
 }
@@ -275,6 +285,9 @@ export interface Snapshot {
     landed: number;
     /** Crates in truck bays and crate storage. */
     stored: number;
+    /** Exports waiting in the port for a ship. */
+    crateExports: number;
+    boxExports: number;
     /** Containers set down by the cranes, for the stackers. */
     boxLanded: number;
     boxCustoms: number;

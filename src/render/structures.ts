@@ -110,7 +110,8 @@ export class Structures {
     for (const v of views) {
       const c = this.cranes.get(v.idx);
       if (!c) continue;
-      c.stack.forEach((o, k) => (o.visible = k < v.stack));
+      // Exports set down for a container crane wait on its stack too.
+      c.stack.forEach((o, k) => (o.visible = k < v.stack + v.out));
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
     }
@@ -167,14 +168,14 @@ export class Structures {
     }
   }
 
-  setYards(yards: { boxes: number; tiles: number[] }[]): void {
-    for (const y of yards) this.fill(y.tiles, y.boxes, true);
+  setYards(yards: { boxes: number; exports: number; tiles: number[] }[]): void {
+    for (const y of yards) this.fill(y.tiles, y.boxes + y.exports, true);
   }
 
   setBays(bays: BayView[]): void {
     for (const b of bays) {
       if (b.tiles) {
-        this.fill(b.tiles, b.stock, false);
+        this.fill(b.tiles, b.stock + b.exports, false);
         continue;
       }
       const stack = this.stacks.get(b.idx);

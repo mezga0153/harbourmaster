@@ -21,6 +21,7 @@ export type TopicId =
   | 'storage'
   | 'trucks'
   | 'containers'
+  | 'exports'
   | 'money'
   | 'growth';
 
@@ -231,6 +232,12 @@ export const TOPICS: Record<TopicId, Topic> = {
             Trucks bound for the town's shops and works drop part of their load there, for a bonus.
           </li>
         </ul>
+        <p>
+          <b>Truck parking</b> is a place for trucks to wait, one to a tile. Parking joined to a
+          public road is outside the port: shippers' trucks wait there for their paperwork. Parking
+          joined to port roads, behind a gate, is inside: trucks queue there for a free loading spot
+          instead of going away.
+        </p>
       </>
     ),
   },
@@ -247,6 +254,33 @@ export const TOPICS: Record<TopicId, Topic> = {
           hours, before a truck may take it. Yards hold that day of traffic: when they fill, the
           stackers stop, then the cranes, and ships wait. Select a yard to see what is in customs
           and when the next one clears.
+        </p>
+      </>
+    ),
+  },
+  exports: {
+    title: 'Exports',
+    body: () => (
+      <>
+        <p>
+          Shippers send goods in by truck to go out on the ships: crates on the coasters, containers
+          on the feeders. They pay for each crate or container as it goes on board.
+        </p>
+        <ol>
+          <li>
+            A shipper's truck parks outside the port, on parking joined to a public road, for about{' '}
+            {hours(B.PAPERWORK_TICKS)} hours of paperwork. With nowhere to park, it does not come.
+          </li>
+          <li>Then it drives in and unloads into crate storage or a container yard.</li>
+          <li>
+            A coaster or feeder that has unloaded stays to take exports on board, until it is full
+            or nothing more comes for a while.
+          </li>
+        </ol>
+        <p>
+          Dockhands carry crates on board; forklifts bring them from storage to the quay beside the
+          ship for the dockhands, and jib cranes lift them on from storage within reach. Reach
+          stackers take containers to the crane over the feeder, which lifts them on board.
         </p>
       </>
     ),

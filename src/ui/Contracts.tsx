@@ -3,7 +3,12 @@ import { useState } from 'preact/hooks';
 import type { Capacity, ContractView, OfferView } from '../protocol';
 import { C } from '../render/palette';
 import * as B from '../sim/balance';
-import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
+import {
+  fisheryDailyCrates,
+  fisheryDailyValue,
+  shipperDailyValue,
+  type Terms,
+} from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
 import { duration, money } from './format';
@@ -31,6 +36,7 @@ function mood(satisfaction: number): { label: string; tone: string } {
 
 function kindLabel(t: Terms): string {
   if (t.kind === 'haulier') return t.cargo === 'container' ? 'Container haulier' : 'Haulier';
+  if (t.kind === 'shipper') return t.cargo === 'container' ? 'Container shipper' : 'Shipper';
   return t.vessel === 'feeder'
     ? 'Container line'
     : t.vessel === 'coaster'
@@ -39,7 +45,7 @@ function kindLabel(t: Terms): string {
 }
 
 function unit(t: Terms): string {
-  return (t.kind === 'haulier' ? t.cargo === 'container' : t.vessel === 'feeder')
+  return (t.kind === 'fishery' ? t.vessel === 'feeder' : t.cargo === 'container')
     ? 'containers'
     : 'crates';
 }
@@ -66,6 +72,18 @@ function Headline({ terms }: { terms: Terms }) {
         </span>
         <span class="pos">
           <strong>≈{money(fisheryDailyValue(terms))}</strong>/day
+        </span>
+      </div>
+    );
+  }
+  if (terms.kind === 'shipper') {
+    return (
+      <div class="headline">
+        <span>
+          <strong>≈{terms.perDay}</strong> {unit(terms)}/day out
+        </span>
+        <span class="pos">
+          <strong>≈{money(shipperDailyValue(terms))}</strong>/day
         </span>
       </div>
     );
@@ -97,6 +115,17 @@ function Facts({ rows }: { rows: [string, ComponentChildren][] }) {
 }
 
 function termRows(t: Terms): [string, ComponentChildren][] {
+  if (t.kind === 'shipper') {
+    return [
+      ['A truck', `every ${span(t.capacity / t.perDay)}`],
+      ['Load', `${t.capacity} ${unit(t)}`],
+      ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)} on board`],
+      [
+        'Needs',
+        `Parking outside the port, ${t.cargo ? 'container yards and feeders' : 'crate storage and coasters'}`,
+      ],
+    ];
+  }
   if (t.kind === 'haulier') {
     return [
       ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
@@ -222,6 +251,28 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
   );
 }
 
+/** Goods the shippers have sent in, waiting in the port for a ship to take them out. */
+function ExportSummary() {
+  const s = snapshot.value;
+  if (!s || !s.contracts.some((c) => c.terms.kind === 'shipper')) return null;
+  const { crateExports, boxExports } = s.stock;
+  const shipped = s.stats.exported ?? 0;
+  return (
+    <>
+      <h3 class="flow-title">
+        Exports, truck to ship <More topic="exports" label="How" />
+      </h3>
+      <p class="hint">
+        Waiting to ship: {crateExports} crate{crateExports === 1 ? '' : 's'}
+        {boxExports > 0 || s.progress.tier >= 2
+          ? `, ${boxExports} container${boxExports === 1 ? '' : 's'}`
+          : ''}
+        . {shipped.toLocaleString('en-US')} shipped so far.
+      </p>
+    </>
+  );
+}
+
 /**
  * The way cargo goes from boat to truck, a step at a time: how much each
  * step can handle a day, what is waiting after it, and the step holding
@@ -278,6 +329,7 @@ function Summary({ cap }: { cap: Capacity }) {
       )}
       {short && <p class="note bad">{short}</p>}
       <ContainerSummary cap={cap} />
+      <ExportSummary />
       <DockAlert />
     </div>
   );
@@ -300,6 +352,9 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
         <span class="muted">None</span>
       ),
     ]);
+  } else if (t.kind === 'shipper') {
+    rows.push(['Next truck', c.nextIn <= 0 ? 'Due now' : `in ${span(c.nextIn / TICKS_PER_DAY)}`]);
+    rows.push(['At the port', `${c.active} truck${c.active === 1 ? '' : 's'}`]);
   } else {
     rows.push(['At the port', `${c.active} of ${t.fleet}`]);
     rows.push([
@@ -421,6 +476,25 @@ function OfferCard({
           ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
           : 'Container trucks load at a container yard: mark one out on port road or quay beside a public road, or behind a port gate'}
       </Check>,
+    );
+  } else if (t.kind === 'shipper') {
+    const s = snapshot.value;
+    const ships = (s?.contracts ?? []).some(
+      (c) => c.terms.kind === 'fishery' && c.terms.vessel === (t.cargo ? 'feeder' : 'coaster'),
+    );
+    const stores = t.cargo ? (s?.yards.length ?? 0) > 0 : (s?.bays ?? []).some((b) => b.tiles);
+    checks.push(
+      <Check ok={ships}>
+        {ships
+          ? `${t.cargo ? 'Feeders' : 'Coasters'} call to take it out`
+          : `No ${t.cargo ? 'container line' : 'shipping line'} calls yet to take it out`}
+      </Check>,
+      <Check ok={stores}>
+        {stores
+          ? `${t.cargo ? 'Container yards' : 'Crate storage'} to keep it in`
+          : `Needs ${t.cargo ? 'a container yard' : 'crate storage'} to keep it in`}
+      </Check>,
+      <Check ok={true}>Its trucks need parking outside the port for a day of paperwork</Check>,
     );
   } else if (t.kind === 'fishery') {
     const after = cap.demand + Math.round(fisheryDailyCrates(t));
@@ -560,6 +634,7 @@ function Overview() {
   const s = snapshot.value!;
   const lines = s.contracts.filter((c) => c.terms.kind === 'fishery');
   const hauls = s.contracts.filter((c) => c.terms.kind === 'haulier');
+  const ships = s.contracts.filter((c) => c.terms.kind === 'shipper');
   let crates = 0;
   let boxes = 0;
   let income = 0;
@@ -569,6 +644,7 @@ function Overview() {
     else crates += fisheryDailyCrates(c.terms);
     income += fisheryDailyValue(c.terms);
   }
+  for (const c of ships) if (c.terms.kind === 'shipper') income += shipperDailyValue(c.terms);
   let fleet = 0;
   let fees = 0;
   for (const c of hauls) {
@@ -585,6 +661,7 @@ function Overview() {
   // The lines first, unhappiest at the top, then the hauliers.
   const rows = [
     ...lines.sort((a, b) => a.satisfaction - b.satisfaction),
+    ...ships.sort((a, b) => a.terms.name.localeCompare(b.terms.name)),
     ...hauls.sort((a, b) => a.terms.name.localeCompare(b.terms.name)),
   ];
   return (
@@ -645,7 +722,9 @@ function Overview() {
                 <td class="num">
                   {t.kind === 'fishery'
                     ? `≈${Math.round(fisheryDailyCrates(t))}/day`
-                    : `${t.fleet}×${t.capacity}`}
+                    : t.kind === 'shipper'
+                      ? `≈${t.perDay}/day out`
+                      : `${t.fleet}×${t.capacity}`}
                 </td>
                 <td class="num">
                   {t.kind === 'fishery' ? (

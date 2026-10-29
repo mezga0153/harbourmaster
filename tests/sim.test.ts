@@ -721,8 +721,14 @@ describe('Coastal Wharf tier', () => {
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    // Two tiles: room for a couple of boats' worth.
     const store = jetty[jetty.length - 3];
-    world.command({ type: 'store', tiles: [store], kind: 'crates', on: true });
+    world.command({
+      type: 'store',
+      tiles: [store, jetty[jetty.length - 2]],
+      kind: 'crates',
+      on: true,
+    });
     expect(world.map.store[store]).toBe(Store.Crates);
     fireDockhands(world);
     let stowed = 0;
@@ -738,7 +744,8 @@ describe('Coastal Wharf tier', () => {
     const handled = world.stats.cratesHandled;
     const trucked = world.stats.trucks;
     for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
-    expect(world.bays.get(store)!.crates.length).toBeLessThan(B.FORKLIFT_CAPACITY);
+    // At most the start of another load left, as boats keep landing more.
+    expect(world.bays.get(store)!.crates.length).toBeLessThanOrEqual(B.FORKLIFT_CAPACITY);
     expect(world.stats.cratesHandled).toBeGreaterThan(handled);
     expect(world.stats.trucks).toBeGreaterThan(trucked);
   });
@@ -1777,6 +1784,137 @@ describe('Container Port tier', () => {
     expect(stacked).toBeGreaterThan(0);
     expect(taken).toBeGreaterThan(0);
     expect(taken - stacked).toBeGreaterThanOrEqual(B.CUSTOMS_TICKS);
+  });
+
+  it('ships out exports: paperwork parked outside, into the yard, onto a feeder', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    // Parking off the public road, outside the port, south of it.
+    const r = m.yOf(m.entry);
+    const free = (i: number) => m.terrain[i] === Terrain.Grass && m.build[i] === Build.None;
+    const x = [...Array(m.w).keys()].find(
+      (x) =>
+        m.build[m.idx(x, r)] === Build.Road && free(m.idx(x, r + 1)) && free(m.idx(x + 1, r + 1)),
+    )!;
+    world.command({
+      type: 'build',
+      kind: 'parking',
+      tiles: [m.idx(x, r + 1), m.idx(x + 1, r + 1)],
+    });
+    expect(m.build[m.idx(x, r + 1)]).toBe(Build.Parking);
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 4,
+        cratesMax: 4,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    const shipper = add(
+      {
+        kind: 'shipper',
+        name: 'Test Exports',
+        color: 0,
+        cargo: 'container',
+        perDay: 6,
+        capacity: 2,
+        fee: 100,
+      },
+      world.tick + 10,
+      0,
+    );
+    const parkedAt = new Map<number, number>();
+    let early = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) {
+      world.step();
+      for (const truck of world.trucks) {
+        if (truck.contractId !== shipper.id) continue;
+        if (truck.state === 'parked' && !parkedAt.has(truck.id)) parkedAt.set(truck.id, world.tick);
+        const since = parkedAt.get(truck.id);
+        if (
+          truck.state === 'toBay' &&
+          since !== undefined &&
+          world.tick - since < B.PAPERWORK_TICKS
+        ) {
+          early++;
+        }
+      }
+    }
+    expect(parkedAt.size).toBeGreaterThan(0);
+    expect(early).toBe(0);
+    expect(world.stats.exported ?? 0).toBeGreaterThan(0);
+  });
+
+  it('has dockhands carry exported crates on board a coaster', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    // Crate storage where the container yard was, by the public road.
+    const store = world.yards.get(t.yard)!.tiles!;
+    world.command({ type: 'store', tiles: store, kind: 'boxes', on: false });
+    world.command({ type: 'store', tiles: store, kind: 'crates', on: true });
+    expect(world.bays.has(store[0])).toBe(true);
+    const free = (i: number) => m.terrain[i] === Terrain.Grass && m.build[i] === Build.None;
+    const x = [...Array(m.w).keys()].find(
+      (x) =>
+        m.build[m.idx(x, r)] === Build.Road && free(m.idx(x, r + 1)) && free(m.idx(x + 1, r + 1)),
+    )!;
+    world.command({
+      type: 'build',
+      kind: 'parking',
+      tiles: [m.idx(x, r + 1), m.idx(x + 1, r + 1)],
+    });
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'coaster',
+        name: 'Test Coasters',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 4,
+        cratesMax: 4,
+        fee: 20,
+      },
+      world.tick + TICKS_PER_DAY,
+      0,
+    );
+    add(
+      { kind: 'shipper', name: 'Test Exports', color: 0, perDay: 12, capacity: 6, fee: 20 },
+      world.tick + 10,
+      0,
+    );
+    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) world.step();
+    expect(world.stats.exported ?? 0).toBeGreaterThan(0);
+  });
+
+  it('keeps shippers away until there is parking outside the port', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    expect(terminal(world)).not.toBeNull();
+    world['addContract'](
+      { kind: 'shipper', name: 'Test Exports', color: 0, perDay: 10, capacity: 6, fee: 20 },
+      world.tick + 10,
+      0,
+    );
+    for (let k = 0; k < 200; k++) world.step();
+    expect(world.trucks.some((t) => t.exports)).toBe(false);
   });
 
   it('gives a container to the free stacker nearest the crane', () => {
