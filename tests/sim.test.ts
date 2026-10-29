@@ -2269,7 +2269,7 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
-    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
+    const { at } = placeGantry(world, gantryPier(world, t.crane));
     const c = world.cranes.get(at)!;
     // One stack filled first, two high, then the next begun.
     for (let k = 0; k < 5; k++) {
