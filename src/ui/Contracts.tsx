@@ -108,7 +108,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
         t.cargo
           ? 'Container yards'
           : t.capacity > B.TRUCK_CAPACITY
-            ? 'Large truck bays or warehouses'
+            ? 'Large truck bays or crate storage'
             : 'Any truck bay',
       ],
     ];
@@ -183,7 +183,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
         : b.demand > b.moving
           ? 'Containers bottleneck: moving. Buy reach stackers.'
           : b.demand > b.trucking
-            ? 'Containers bottleneck: trucking. Sign a container haulier and build container yards by a public road or behind a port gate.'
+            ? 'Containers bottleneck: trucking. Sign a container haulier, and mark out container yards beside a public road or behind a port gate.'
             : null;
   return (
     <>
@@ -368,7 +368,7 @@ function OfferCard({
       <Check ok={yards > 0}>
         {yards > 0
           ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
-          : 'Container trucks load at a container yard: build one by a public road or behind a port gate'}
+          : 'Container trucks load at a container yard: mark one out on port road or quay beside a public road, or behind a port gate'}
       </Check>,
     );
   } else if (t.kind === 'fishery') {

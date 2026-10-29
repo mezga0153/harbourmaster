@@ -1,9 +1,27 @@
 import { signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
-import type { BuildKind, MachineKind } from '../sim/types';
+import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
+
+/** Tools that mark port roads and quays out as storage. */
+export const STORE_TOOLS = { crateStore: 'crates', boxStore: 'boxes' } as const satisfies Record<
+  string,
+  StoreKind
+>;
+export type StoreTool = keyof typeof STORE_TOOLS;
+
+export function isStoreTool(t: string): t is StoreTool {
+  return t in STORE_TOOLS;
+}
 
 export type Tool =
-  'select' | BuildKind | MachineKind | 'bulldoze' | 'forkliftOnly' | 'dredge' | 'reclaim';
+  | 'select'
+  | BuildKind
+  | MachineKind
+  | StoreTool
+  | 'bulldoze'
+  | 'forkliftOnly'
+  | 'dredge'
+  | 'reclaim';
 
 export type Selection =
   | { type: 'entity'; id: number }

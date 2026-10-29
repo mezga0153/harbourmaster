@@ -34,6 +34,7 @@ export const TIERS: Tier[] = [
     unlocks: [
       'Concrete quay, up to 8 m deep',
       'Forklifts (4 crates a trip), forklift depots, port roads and forklift lanes',
+      'Crate storage marked out on port roads and quays',
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',
       'Large truck bays for big trucks',
@@ -49,7 +50,7 @@ export const TIERS: Tier[] = [
       'Mobile harbour cranes (on a 2-wide quay)',
       'Reach stackers',
       'Feeder ships with containers (4 m draft)',
-      'Container yards and container hauliers',
+      'Container yards marked out on port roads and quays, and container hauliers',
     ],
   },
   {
@@ -73,9 +74,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   jibCrane: 1,
   depot: 1,
   portRoad: 1,
-  containerYard: 2,
   portGate: 1,
-  warehouse: 1,
   buoyIn: 1,
   buoyOut: 1,
   office: 0,

@@ -23,8 +23,10 @@ export const Build = {
   LargeBay: 11,
   HarbourCrane: 12,
   PortRoad: 13,
+  /** Old saves only: now port road or quay marked out as a container yard. */
   Yard: 14,
   Gate: 15,
+  /** Old saves only: now port road marked out for crate storage. */
   Warehouse: 16,
   /** Channel buoys: green marks the way in, red the way out. */
   BuoyIn: 17,
@@ -52,6 +54,14 @@ export type BuildCode = (typeof Build)[keyof typeof Build];
 
 export const Deco = { None: 0, Tree: 1 } as const;
 
+/**
+ * What a port road or quay tile is marked out to store, in `GameMap.store`.
+ * Tiles of one kind that touch make one storage area.
+ */
+export const Store = { None: 0, Crates: 1, Boxes: 2 } as const;
+export type StoreKind = 'crates' | 'boxes';
+export const STORE_CODE: Record<StoreKind, number> = { crates: Store.Crates, boxes: Store.Boxes };
+
 export type BuildKind =
   | 'road'
   | 'footpath'
@@ -65,9 +75,7 @@ export type BuildKind =
   | 'largeBay'
   | 'harbourCrane'
   | 'portRoad'
-  | 'containerYard'
   | 'portGate'
-  | 'warehouse'
   | 'buoyIn'
   | 'buoyOut';
 
@@ -88,9 +96,9 @@ export function isPublicRoad(code: number): boolean {
   return code === Build.Road || code === Build.Crossing;
 }
 
-/** Where trucks collect crates: a truck bay of either size, or a warehouse. */
+/** A truck bay of either size, where trucks collect crates. */
 export function isBay(code: number): boolean {
-  return code === Build.TruckBay || code === Build.LargeBay || code === Build.Warehouse;
+  return code === Build.TruckBay || code === Build.LargeBay;
 }
 
 /** Tiles boats can moor alongside. */

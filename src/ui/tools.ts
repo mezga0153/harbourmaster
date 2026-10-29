@@ -95,10 +95,25 @@ export const CATEGORIES: Category[] = [
     tools: [
       { tool: 'truckBay', icon: 'truckBay', label: 'Truck bay', key: 'T' },
       { tool: 'largeBay', icon: 'bigTruck', label: 'Large truck bay', key: 'X' },
-      { tool: 'warehouse', icon: 'warehouse', label: 'Warehouse' },
+      {
+        tool: 'crateStore',
+        icon: 'warehouse',
+        label: 'Crate storage',
+        note: `${money(B.CRATE_STORE_COST)}/tile`,
+        hint: `Drag out an area on port roads or quays to store crates, ${B.CRATES_PER_STORE_TILE} a tile. Forklifts and dockhands bring crates, jib cranes close by swing them straight in, and trucks load fast from a public road beside it or a port road behind a port gate, big trucks too: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
+        tier: B.CRATE_STORE_TIER,
+      },
       { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
       { tool: 'harbourCrane', icon: 'bigCrane', label: 'Harbour crane', key: 'I' },
-      { tool: 'containerYard', icon: 'box', label: 'Container yard', key: 'V' },
+      {
+        tool: 'boxStore',
+        icon: 'box',
+        label: 'Container yard',
+        key: 'V',
+        note: `${money(B.BOX_STORE_COST)}/tile`,
+        hint: `Drag out an area on port roads or quays to stack containers, ${B.BOXES_PER_STORE_TILE} a tile. Reach stackers bring them from the cranes, and container trucks load from a public road beside it or a port road behind a port gate: one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. Drag over marked tiles to clear them`,
+        tier: B.BOX_STORE_TIER,
+      },
     ],
   },
   {

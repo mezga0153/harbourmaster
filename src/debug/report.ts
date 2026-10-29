@@ -82,17 +82,18 @@ export function report(s: Snapshot, x: ReportExtras): string {
     ),
   );
   section(
-    'Truck bays and warehouses',
+    'Truck bays and crate storage',
     s.bays.map(
       (b) =>
-        `- ${b.warehouse ? 'warehouse' : b.large ? 'large bay' : 'bay'} ${at(b.idx)}: ${b.stock}/${b.capacity} crates` +
+        `- ${b.tiles ? `crate storage (${b.tiles.length} tiles)` : b.large ? 'large bay' : 'bay'} ${at(b.idx)}: ${b.stock}/${b.capacity} crates` +
         `${b.boxes ? `, ${b.boxes} containers` : ''}${b.noAccess ? ', NO TRUCK ACCESS' : ''}`,
     ),
   );
   section(
     'Container yards',
     s.yards.map(
-      (y) => `- ${at(y.idx)}: ${y.boxes} containers${y.noAccess ? ', NO TRUCK ACCESS' : ''}`,
+      (y) =>
+        `- ${at(y.idx)} (${y.tiles.length} tiles): ${y.boxes}/${y.capacity} containers${y.noAccess ? ', NO TRUCK ACCESS' : ''}`,
     ),
   );
   section(

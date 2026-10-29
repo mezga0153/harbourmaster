@@ -9,11 +9,11 @@ import {
 } from 'three';
 import type { BayView, CraneView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY, footprint } from '../sim/rules';
+import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
-import { Build, isDock, isPublicRoad, isTownBuilding } from '../sim/types';
+import { Build, isDock, isPublicRoad, isTownBuilding, Store } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
 import { container, crate } from './models';
 import { C } from './palette';
@@ -157,18 +157,32 @@ export class Structures {
     }
   }
 
-  setYards(yards: { idx: number; boxes: number }[]): void {
-    for (const y of yards) {
-      this.stacks.get(y.idx)?.boxes.forEach((c, k) => (c.visible = k < y.boxes));
-    }
+  setYards(yards: { boxes: number; tiles: number[] }[]): void {
+    for (const y of yards) this.fill(y.tiles, y.boxes, true);
   }
 
   setBays(bays: BayView[]): void {
     for (const b of bays) {
+      if (b.tiles) {
+        this.fill(b.tiles, b.stock, false);
+        continue;
+      }
       const stack = this.stacks.get(b.idx);
       if (!stack) continue;
       stack.crates.forEach((c, k) => (c.visible = k < b.stock));
       stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
+    }
+  }
+
+  /** Show a storage area's goods, a tile's worth at a time from its first tile. */
+  private fill(tiles: number[], count: number, boxes: boolean): void {
+    let left = count;
+    for (const t of tiles) {
+      const stack = this.stacks.get(t);
+      if (!stack) continue;
+      const items = boxes ? stack.boxes : stack.crates;
+      items.forEach((o, k) => (o.visible = k < left));
+      left = Math.max(0, left - items.length);
     }
   }
 
@@ -271,6 +285,10 @@ export class Structures {
         // Same paving as the quays and flush with them, with a dashed white centre line.
         g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
+        if (this.map.store[i]) {
+          this.storage(g, i, QUAY_Y);
+          return g;
+        }
         if (this.map.orient[i] & FORKLIFT_ONLY) {
           this.forkliftMarking(g, along, QUAY_Y);
           return g;
@@ -356,7 +374,8 @@ export class Structures {
       }
       case Build.Quay: {
         this.quay(g, i);
-        if (this.map.orient[i] & FORKLIFT_ONLY) {
+        if (this.map.store[i]) this.storage(g, i, QUAY_Y);
+        else if (this.map.orient[i] & FORKLIFT_ONLY) {
           const along = this.is(i, 1, 0, Build.Quay) || this.is(i, -1, 0, Build.Quay);
           this.forkliftMarking(g, along, QUAY_Y);
         }
@@ -520,69 +539,6 @@ export class Structures {
         this.stacks.set(i, { crates, boxes: [] });
         return g;
       }
-      case Build.Yard: {
-        // 2×2 behind a gate onto the road at the front (+z): x 0..2, z -1..1.
-        // A lane along the gate where trucks load, then containers three
-        // along, four rows deep, two high.
-        // Laid out on a quay, the yard's paving sits on the quay deck.
-        const tiles = footprint(this.map, 'containerYard', i, this.map.orient[i] & 3);
-        const raised = tiles.some((t) => t >= 0 && this.map.orient[t] & ON_QUAY);
-        const floor = raised ? QUAY_Y : top;
-        const base = Math.min(
-          ...tiles.map((t) =>
-            t >= 0 && !(this.map.orient[t] & ON_QUAY) ? landTop(this.map.terrain[t]) : floor,
-          ),
-        );
-        g.add(box(2, floor + 0.05 - base, 2, C.quayTop, 1, base, 0));
-        const y = floor + 0.05;
-        g.add(box(1.9, 0.008, 0.04, C.stripe, 1, y, 0.3));
-        const boxes: Object3D[] = [];
-        for (let layer = 0; layer < 2; layer++) {
-          for (const z of [0.12, -0.2, -0.52, -0.84]) {
-            for (const x of [0.35, 1, 1.65]) {
-              const c = container(boxes.length * 7 + layer, x, y + layer * BOX_HEIGHT, z);
-              c.visible = false;
-              g.add(c);
-              boxes.push(c);
-            }
-          }
-        }
-        // Floodlight masts at the back corners and a gate sign.
-        for (const x of [0.06, 1.94]) {
-          g.add(cyl(0.02, 0.9, C.chassis, x, y, -0.94));
-          g.add(box(0.14, 0.05, 0.08, C.window, x, y + 0.9, -0.94));
-        }
-        g.add(cyl(0.02, 0.5, C.chassis, 0.06, y, 0.94));
-        g.add(box(0.04, 0.16, 0.22, C.sign, 0.06, y + 0.45, 0.94));
-        this.stacks.set(i, { crates: [], boxes });
-        return g;
-      }
-      case Build.Warehouse: {
-        // 2×2: a loading apron with two truck docks at the front (+z, z 0..1)
-        // and a clad shed behind (z -1..0), its roller doors onto the docks.
-        g.add(box(2, 0.06, 2, C.quayTop, 1, top, 0));
-        const y = top + 0.06;
-        for (const x of [0.04, 1, 1.96]) g.add(box(0.04, 0.008, 0.9, C.stripe, x, y, 0.5));
-        g.add(box(1.9, 0.62, 0.9, C.shed, 1, y, -0.5));
-        // Ribs on the cladding, a pale roof and a canopy over the docks.
-        for (let k = 0; k < 7; k++) {
-          const x = 0.1 + k * 0.3;
-          g.add(box(0.02, 0.62, 0.92, C.shedTrim, x, y, -0.5));
-        }
-        g.add(box(1.96, 0.04, 0.96, C.shedTrim, 1, y + 0.62, -0.5));
-        g.add(box(1.96, 0.025, 0.34, C.depotRoof, 1, y + 0.5, 0.12));
-        for (const x of [0.5, 1.5]) {
-          g.add(box(0.52, 0.42, 0.02, C.chassis, x, y, -0.04));
-          for (let k = 0; k < 5; k++) {
-            g.add(box(0.52, 0.012, 0.024, C.quayWall, x, y + 0.05 + k * 0.08, -0.03));
-          }
-          // Rubber bumpers either side of each door.
-          for (const s of [-1, 1]) g.add(box(0.05, 0.1, 0.04, C.tyre, x + s * 0.3, y, 0));
-        }
-        // Name board over the docks.
-        g.add(box(0.9, 0.14, 0.02, C.sign, 1, y + 0.66, -0.04));
-        return g;
-      }
       case Build.LargeBay: {
         // Two tiles: a truck lane (x 0..1) and a covered cargo yard beside it
         // (x 1..2), both opening onto the road at the front (+z).
@@ -703,6 +659,54 @@ export class Structures {
       arms.push({ arm, sign });
     }
     this.crossings.set(i, { arms, lamps, y: this.map.yOf(i), angle: 1.45 });
+  }
+
+  /**
+   * A tile marked out as storage: a line painted round the edge of the area,
+   * and the goods stacked on it, crates four high in four piles or containers
+   * two abreast and three high, lying along the area.
+   */
+  private storage(g: Group, i: number, y: number): void {
+    const code = this.map.store[i];
+    const boxes = code === Store.Boxes;
+    const same = (dx: number, dy: number) => {
+      const n = this.offset(i, dx, dy);
+      return n >= 0 && this.map.store[n] === code;
+    };
+    for (const [dx, dy] of DIRS) {
+      if (same(dx, dy)) continue;
+      const [x, z, w, d] = dx ? [0.5 + dx * 0.45, 0.5, 0.04, 1] : [0.5, 0.5 + dy * 0.45, 1, 0.04];
+      g.add(box(w, 0.006, d, boxes ? C.stripe : C.marking, x, y, z));
+    }
+    const stack: BayStack = { crates: [], boxes: [] };
+    if (boxes) {
+      const alongX = same(1, 0) || same(-1, 0) || !(same(0, 1) || same(0, -1));
+      for (let layer = 0; layer < 3; layer++) {
+        for (const o of [0.32, 0.68]) {
+          const [x, z] = alongX ? [0.5, o] : [o, 0.5];
+          const c = container(i * 7 + stack.boxes.length, x, y + layer * BOX_HEIGHT, z);
+          if (!alongX) c.rotation.y = Math.PI / 2;
+          c.visible = false;
+          g.add(c);
+          stack.boxes.push(c);
+        }
+      }
+    } else {
+      for (let layer = 0; layer < 4; layer++) {
+        for (const [x, z] of [
+          [0.29, 0.29],
+          [0.71, 0.29],
+          [0.29, 0.71],
+          [0.71, 0.71],
+        ]) {
+          const c = crate(0.2, x, y + layer * 0.2, z);
+          c.visible = false;
+          g.add(c);
+          stack.crates.push(c);
+        }
+      }
+    }
+    this.stacks.set(i, stack);
   }
 
   /** Yellow edge lines and a forklift sign painted on forklift-only paving. */
@@ -935,8 +939,6 @@ const DIRS = [
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([
   Build.Gate,
-  Build.Warehouse,
-  Build.Yard,
   Build.TruckBay,
   Build.LargeBay,
   Build.Depot,

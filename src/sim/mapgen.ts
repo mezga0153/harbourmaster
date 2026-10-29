@@ -156,7 +156,7 @@ export function extendMap(old: GameMap, seed: number): GameMap {
   if (old.h >= fresh.h || old.w !== fresh.w) return old;
   const map = new GameMap(old.w, fresh.h, old.h);
   const n = old.w * old.h;
-  for (const key of ['terrain', 'depth', 'ocean', 'deco', 'build', 'orient'] as const) {
+  for (const key of ['terrain', 'depth', 'ocean', 'deco', 'build', 'orient', 'store'] as const) {
     map[key].set(old[key]);
     map[key].set(fresh[key].subarray(n), n);
   }

@@ -5,13 +5,15 @@ import type { MapData } from './sim/map';
 import type { Train } from './sim/railway';
 import type { SaveData } from './sim/world';
 import type { Candidate, Trait } from './sim/staff';
-import type { BuildKind, MachineKind } from './sim/types';
+import type { BuildKind, MachineKind, StoreKind } from './sim/types';
 
 export type Command =
   | { type: 'build'; kind: BuildKind; tiles: number[]; facing?: number }
   | { type: 'bulldoze'; tiles: number[] }
   /** Mark port road and quay tiles forklift-only, or clear the mark. */
   | { type: 'forkliftOnly'; tiles: number[]; on: boolean }
+  /** Mark port road and quay tiles out as storage, or clear them. */
+  | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }
   /** Dredge (dig the seabed deeper, or the shore out into sea) or reclaim (fill it in). */
   | { type: 'terraform'; tiles: number[]; raise: boolean }
   | { type: 'hire'; candidateId: number }
@@ -168,7 +170,9 @@ export interface BayView {
   boxes: number;
   capacity: number;
   large: boolean;
+  /** A crate storage area, and the tiles marked out for it. */
   warehouse: boolean;
+  tiles?: number[];
   noAccess: boolean;
 }
 
@@ -226,7 +230,7 @@ export interface Snapshot {
   entities: EntityView[];
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */
-  yards: { idx: number; boxes: number; noAccess: boolean }[];
+  yards: { idx: number; boxes: number; capacity: number; tiles: number[]; noAccess: boolean }[];
   contracts: ContractView[];
   offers: OfferView[];
   capacity: Capacity;
@@ -252,6 +256,7 @@ export interface TileChange {
   build: number;
   orient: number;
   deco: number;
+  store: number;
 }
 
 export type WorkerMessage =

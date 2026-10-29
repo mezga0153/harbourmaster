@@ -156,6 +156,7 @@ describe('Town', () => {
     }
     save.map.h = 96;
     delete save.map.limit;
+    delete save.map.store;
     save.map.build = save.map.build.map((b) =>
       isTownBuilding(b) || b === Build.Rail ? Build.None : b === Build.Crossing ? Build.Road : b,
     );

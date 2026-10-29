@@ -66,7 +66,7 @@ function showReach(): void {
   const bays: number[] = [];
   const cutOff: number[] = [];
   for (let i = 0; i < m.build.length; i++) {
-    if (isBay(m.build[i])) (net.has(i) ? bays : cutOff).push(i);
+    if (isBay(m.build[i]) || m.store[i]) (net.has(i) ? bays : cutOff).push(i);
     else if (net.has(i)) route.push(i);
   }
   renderer.overlay.setReach(m, route, bays, cutOff);
@@ -112,6 +112,7 @@ function handle(msg: WorkerMessage): void {
     map.build[c.i] = c.build;
     map.orient[c.i] = c.orient;
     map.deco[c.i] = c.deco;
+    map.store[c.i] = c.store;
   }
   renderer.applyTiles(msg.tiles, treesChanged, terrainChanged, seaChanged);
   if (msg.tiles.length > 0) {

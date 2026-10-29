@@ -76,7 +76,6 @@ export function surfaceY(map: GameMap, x: number, y: number): number {
   ) {
     return QUAY_Y;
   }
-  if (b === Build.Yard && map.terrain[i] === Terrain.Water) return QUAY_Y + 0.05;
   const t = map.terrain[i];
   if (t === Terrain.Water) return 0;
   return TOP[t] + (b === Build.None ? 0 : b === Build.Footpath ? 0.03 : 0.05);

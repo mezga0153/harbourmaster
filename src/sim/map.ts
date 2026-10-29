@@ -10,6 +10,8 @@ export interface MapData {
   deco: number[];
   build: number[];
   orient: number[];
+  /** Older saves have no storage areas. */
+  store?: number[];
   entry: number;
   /** Rows the player may build on; older saves have none past them. */
   limit?: number;
@@ -32,6 +34,8 @@ export class GameMap {
    * the second tile of a two-tile building.
    */
   readonly orient: Uint8Array;
+  /** What a port road or quay tile is marked out to store; see `Store`. */
+  readonly store: Uint8Array;
   /** Road tile on the map edge where trucks enter and leave. */
   entry = 0;
 
@@ -48,6 +52,7 @@ export class GameMap {
     this.deco = new Uint8Array(n);
     this.build = new Uint8Array(n);
     this.orient = new Uint8Array(n);
+    this.store = new Uint8Array(n);
   }
 
   idx(x: number, y: number): number {
@@ -108,6 +113,7 @@ export class GameMap {
       deco: Array.from(this.deco),
       build: Array.from(this.build),
       orient: Array.from(this.orient),
+      store: Array.from(this.store),
       entry: this.entry,
       limit: this.limit,
     };
@@ -121,6 +127,7 @@ export class GameMap {
     m.deco.set(d.deco);
     m.build.set(d.build);
     m.orient.set(d.orient);
+    if (d.store) m.store.set(d.store);
     // Old forklift lanes are port roads marked forklift-only.
     for (let i = 0; i < m.build.length; i++) {
       if (m.build[i] === Build.ForkliftLane) {

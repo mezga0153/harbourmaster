@@ -280,17 +280,22 @@ describe('Playthrough', () => {
   // The bot keeps up on about half of all seeds, and which half shifts with
   // small changes to boat traffic (seeds 7 and 1234 have both tipped over),
   // so these three say little about balance on their own. When one tips,
-  // check the pass rate over a wider spread of seeds has not dropped.
-  it.each([2, 3, 99])('a sensible strategy grows the port (seed %i)', (seed) => {
-    const { w, log } = playthrough(seed, 30);
-    if (process.env.BALANCE) console.log(`seed ${seed}\n${log.join('\n')}`);
-    // Growth shows up as a bigger port, not necessarily more cash: the bot
-    // reinvests. It must stay solvent and handle several times the start.
-    expect(w.bankrupt).toBe(false);
-    expect(w.cash).toBeGreaterThan(1000);
-    // At least 2.5x the starting fishery. Crowding on narrow jetties keeps
-    // pure staff-scaling slow, so the bar is modest.
-    expect(w.capacity().demand).toBeGreaterThanOrEqual(25);
-    expect(w.contracts.every((c) => c.satisfaction >= 50)).toBe(true);
-  });
+  // check the pass rate over a wider spread of seeds has not dropped. A
+  // month of play takes a few seconds, longer with other suites alongside.
+  it.each([2, 3, 99])(
+    'a sensible strategy grows the port (seed %i)',
+    (seed) => {
+      const { w, log } = playthrough(seed, 30);
+      if (process.env.BALANCE) console.log(`seed ${seed}\n${log.join('\n')}`);
+      // Growth shows up as a bigger port, not necessarily more cash: the bot
+      // reinvests. It must stay solvent and handle several times the start.
+      expect(w.bankrupt).toBe(false);
+      expect(w.cash).toBeGreaterThan(1000);
+      // At least 2.5x the starting fishery. Crowding on narrow jetties keeps
+      // pure staff-scaling slow, so the bar is modest.
+      expect(w.capacity().demand).toBeGreaterThanOrEqual(25);
+      expect(w.contracts.every((c) => c.satisfaction >= 50)).toBe(true);
+    },
+    20_000,
+  );
 });

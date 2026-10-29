@@ -17,19 +17,23 @@ import {
   placementCost,
   placementError,
   ROTATABLE,
+  STORE_COST,
+  storeError,
 } from './sim/rules';
 import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
 import { ownedByTown } from './sim/town';
-import { Build, isTownBuilding, type BuildKind } from './sim/types';
+import { Build, isTownBuilding, STORE_CODE, type BuildKind } from './sim/types';
 import {
   hover,
+  isStoreTool,
   openCategory,
   panel,
   preview,
   rotation,
   selection,
   snapshot,
+  STORE_TOOLS,
   togglePanel,
   tool,
 } from './ui/store';
@@ -107,6 +111,7 @@ export class Input {
     else if (
       t === 'bulldoze' ||
       t === 'forkliftOnly' ||
+      isStoreTool(t) ||
       t === 'dredge' ||
       t === 'reclaim' ||
       (t in BUILDABLES && BUILDABLES[t as BuildKind].drag)
@@ -154,6 +159,8 @@ export class Input {
           this.send({ type: 'terraform', tiles, raise: t === 'reclaim' });
         } else if (t === 'forkliftOnly') {
           this.send({ type: 'forkliftOnly', tiles, on: this.marking(tiles[0]) });
+        } else if (isStoreTool(t)) {
+          this.send({ type: 'store', tiles, kind: STORE_TOOLS[t], on: this.storing(tiles[0]) });
         } else if (ROTATABLE.has(t as BuildKind)) {
           const kind = t as BuildKind;
           this.send({ type: 'build', kind, tiles: [tiles[0]], facing: this.facing });
@@ -205,8 +212,16 @@ export class Input {
     const map = this.getMap();
     const i = at !== null && map ? anchorOf(map, at) : at;
     const ent = this.renderer.pickEntity(cx, cy);
+    const s = snapshot.value;
+    // A storage area is picked from any of its tiles.
+    const store =
+      i === null
+        ? undefined
+        : (s?.bays.find((b) => b.tiles?.includes(i)) ?? s?.yards.find((y) => y.tiles.includes(i)));
     if (ent) selection.value = { type: 'entity', id: ent.id };
-    else if (i !== null && snapshot.value?.bays.some((b) => b.idx === i)) {
+    else if (store) {
+      selection.value = { type: 'warehouse' in store ? 'bay' : 'yard', idx: store.idx };
+    } else if (i !== null && snapshot.value?.bays.some((b) => b.idx === i)) {
       selection.value = { type: 'bay', idx: i };
     } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
       selection.value = { type: 'depot', idx: i };
@@ -223,7 +238,10 @@ export class Input {
     } else selection.value = null;
   }
 
-  /** Tiles covered by the current drag (an L-shaped line) or the hovered tile. */
+  /**
+   * Tiles covered by the current drag (an L-shaped line, or a rectangle for
+   * storage areas) or the hovered tile.
+   */
   private tilesFor(end: number | null): number[] {
     const map = this.getMap();
     if (!map || end === null) return [];
@@ -234,6 +252,12 @@ export class Input {
     const ex = map.xOf(end);
     const ey = map.yOf(end);
     const out: number[] = [];
+    if (isStoreTool(tool.value)) {
+      for (let y = Math.min(sy, ey); y <= Math.max(sy, ey); y++) {
+        for (let x = Math.min(sx, ex); x <= Math.max(sx, ex); x++) out.push(map.idx(x, y));
+      }
+      return out;
+    }
     const stepX = Math.sign(ex - sx) || 1;
     for (let x = sx; ; x += stepX) {
       out.push(map.idx(x, sy));
@@ -261,6 +285,7 @@ export class Input {
     }
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
+    if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
     if (t === 'dredge' || t === 'reclaim') {
       return this.previewTerraform(map, this.tilesFor(i), t === 'reclaim');
     }
@@ -332,6 +357,33 @@ export class Input {
       rotatable: false,
       value: -changed * B.FORKLIFT_ONLY_COST,
       error: ok.some(Boolean) ? null : forkliftOnlyError(map, tiles[0]),
+    };
+  }
+
+  /**
+   * A drag that starts on a tile already marked out as this storage clears
+   * it; any other marks it out.
+   */
+  private storing(first: number): boolean {
+    const map = this.getMap();
+    const t = tool.value;
+    if (!map || !isStoreTool(t)) return true;
+    return map.store[this.dragStart ?? first] !== STORE_CODE[STORE_TOOLS[t]];
+  }
+
+  private previewStore(map: GameMap, t: keyof typeof STORE_TOOLS, tiles: number[]): void {
+    const kind = STORE_TOOLS[t];
+    const on = this.storing(tiles[0]);
+    const ok = tiles.map((i) => !storeError(map, i, kind, on));
+    const count = ok.filter(Boolean).length;
+    const each = on ? -STORE_COST[kind] : Math.floor(STORE_COST[kind] * B.BULLDOZE_REFUND);
+    this.renderer.overlay.setGhosts(map, tiles, ok);
+    this.renderer.overlay.setArrow(map, null, 0);
+    preview.value = {
+      count,
+      rotatable: false,
+      value: count * each,
+      error: count > 0 ? null : storeError(map, tiles[0], kind, on),
     };
   }
 

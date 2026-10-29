@@ -334,8 +334,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
     return (
       <aside class="side panel">
         <InfoHeader
-          kicker="Building"
-          title={bay.warehouse ? 'Warehouse' : bay.large ? 'Large truck bay' : 'Truck bay'}
+          kicker={bay.tiles ? 'Storage' : 'Building'}
+          title={bay.warehouse ? 'Crate storage' : bay.large ? 'Large truck bay' : 'Truck bay'}
           onClose={close}
         />
         <dl class="props">
@@ -343,12 +343,21 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <dd>
             {bay.stock} / {bay.capacity}
           </dd>
+          {bay.tiles && (
+            <>
+              <dt>Area</dt>
+              <dd>
+                {bay.tiles.length} tile{bay.tiles.length === 1 ? '' : 's'}
+              </dd>
+            </>
+          )}
         </dl>
         <Meter value={bay.stock / bay.capacity} />
         {bay.noAccess && (
           <p class="note bad">
-            Trucks cannot reach this bay. It needs a public road to the highway, or port roads from
-            a port gate.
+            {bay.tiles
+              ? 'Trucks cannot reach this storage. It needs a public road beside it, or a port road or quay beside it behind a port gate.'
+              : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
           </p>
         )}
       </aside>
@@ -360,22 +369,26 @@ function InfoPanel({ actions }: { actions: Actions }) {
     if (!yard) return null;
     return (
       <aside class="side panel">
-        <InfoHeader kicker="Building" title="Container yard" onClose={close} />
+        <InfoHeader kicker="Storage" title="Container yard" onClose={close} />
         <p class="muted">
-          Reach stackers stack containers here from the harbour cranes, and container trucks collect
-          them at the gate.
+          Reach stackers stack containers here from the cranes, and container trucks load from the
+          road beside it.
         </p>
         <dl class="props">
           <dt>Containers</dt>
           <dd>
-            {yard.boxes} / {B.YARD_BOXES}
+            {yard.boxes} / {yard.capacity}
+          </dd>
+          <dt>Area</dt>
+          <dd>
+            {yard.tiles.length} tile{yard.tiles.length === 1 ? '' : 's'}
           </dd>
         </dl>
-        <Meter value={yard.boxes / B.YARD_BOXES} />
+        <Meter value={yard.boxes / yard.capacity} />
         {yard.noAccess && (
           <p class="note bad">
-            Container trucks cannot reach this yard. It needs a public road to the highway, or port
-            roads from a port gate.
+            Container trucks cannot reach this yard. It needs a public road beside it, or a port
+            road or quay beside it behind a port gate.
           </p>
         )}
       </aside>

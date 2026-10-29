@@ -8,9 +8,12 @@ import {
   isBuoy,
   isDock,
   isTownBuilding,
+  Store,
+  STORE_CODE,
   Terrain,
   type BuildCode,
   type BuildKind,
+  type StoreKind,
 } from './types';
 
 export interface Buildable {
@@ -93,25 +96,11 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Tired dockhands rest here, ${B.HUT_SLOTS} at a time`,
     drag: false,
   },
-  containerYard: {
-    code: Build.Yard,
-    label: 'Container yard',
-    cost: 2500,
-    hint: `Where containers are stored: reach stackers bring up to ${B.YARD_BOXES} from the harbour cranes and container trucks collect them. 2×2, on land or laid out on a quay; the gate faces a public road, or a port road or quay trucks reach through a port gate, and the stackers need a port road or quay alongside`,
-    drag: false,
-  },
   portGate: {
     code: Build.Gate,
     label: 'Port gate',
     cost: 400,
     hint: 'Lets the hauliers’ trucks into the port: they turn in off the public road at the front and drive on port roads to truck bays and container yards inside. Staff never leave through it',
-    drag: false,
-  },
-  warehouse: {
-    code: Build.Warehouse,
-    label: 'Warehouse',
-    cost: 2000,
-    hint: `Stores ${B.WAREHOUSE_CAPACITY} crates and loads trucks fast at two loading docks, big trucks too. 2×2; the docks face a public road, or a port road behind a port gate`,
     drag: false,
   },
   buoyIn: {
@@ -148,9 +137,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
 export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'truckBay',
   'largeBay',
-  'containerYard',
   'portGate',
-  'warehouse',
   'depot',
   'office',
   'breakHut',
@@ -162,7 +149,7 @@ export const EXTENSION = 4;
 const PART_SHIFT = 4;
 /** Marks a port road or quay tile that people on foot keep off. */
 export const FORKLIFT_ONLY = 8;
-/** Marks a container yard tile laid out on a quay, which it leaves behind. */
+/** Marks a building tile standing on a quay, which it leaves behind. */
 export const ON_QUAY = 64;
 
 export function forkliftOnly(map: GameMap, i: number): boolean {
@@ -179,6 +166,41 @@ export function forkliftOnlyError(map: GameMap, i: number): string | null {
   return b === Build.PortRoad || b === Build.Quay
     ? null
     : 'Only port roads and quays can be forklift-only';
+}
+
+/** What marking out storage costs a tile. */
+export const STORE_COST: Record<StoreKind, number> = {
+  crates: B.CRATE_STORE_COST,
+  boxes: B.BOX_STORE_COST,
+};
+
+export const STORE_TIER: Record<StoreKind, number> = {
+  crates: B.CRATE_STORE_TIER,
+  boxes: B.BOX_STORE_TIER,
+};
+
+export const STORE_LABEL: Record<StoreKind, string> = {
+  crates: 'Crate storage',
+  boxes: 'Container yard',
+};
+
+export function storeKindAt(map: GameMap, i: number): StoreKind | null {
+  const s = map.store[i];
+  return s === Store.Crates ? 'crates' : s === Store.Boxes ? 'boxes' : null;
+}
+
+/** Whether a tile can be marked out as storage, or cleared of it, with `on` false. */
+export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
+  const code = STORE_CODE[kind];
+  if (!on)
+    return map.store[i] === code ? null : `Not marked out as ${STORE_LABEL[kind].toLowerCase()}`;
+  if (map.store[i] === code) return 'Already marked out';
+  if (map.store[i]) return 'Marked out for other storage: clear that first';
+  const b = map.build[i];
+  return b === Build.PortRoad || b === Build.Quay
+    ? null
+    : 'Storage is marked out on port roads and quays';
 }
 
 /** Step towards the front for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
@@ -205,24 +227,12 @@ export function frontOf(map: GameMap, i: number, facing: number): number {
  * Parts of multi-tile buildings, as (right, forward) steps from the main
  * tile when looking out of the front. A large truck bay is two wide along
  * the road: the truck pulls into the first tile and the cargo sits on the
- * second. A container yard is 2×2 behind its gate.
+ * second.
  */
 const PARTS: Partial<Record<BuildKind, readonly (readonly [number, number])[]>> = {
   largeBay: [
     [0, 0],
     [1, 0],
-  ],
-  containerYard: [
-    [0, 0],
-    [1, 0],
-    [0, -1],
-    [1, -1],
-  ],
-  warehouse: [
-    [0, 0],
-    [1, 0],
-    [0, -1],
-    [1, -1],
   ],
 };
 
@@ -288,6 +298,9 @@ export function placementError(
 ): string | null {
   if (!map.buildable(i)) return OUTSIDE;
   const t = map.terrain[i];
+  if ((kind === 'harbourCrane' || kind === 'jibCrane') && map.store[i]) {
+    return 'Clear the storage marked out here first';
+  }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
     const water = map.neighbors4(i).find((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
@@ -317,11 +330,7 @@ export function placementError(
   const upgrade =
     (kind === 'quay' && map.build[i] === Build.Jetty) ||
     (kind === 'portRoad' && map.build[i] === Build.Footpath);
-  // A container yard can also be laid out on a quay.
-  const onQuay = (n: number) =>
-    kind === 'containerYard' && map.build[n] === Build.Quay && !forkliftOnly(map, n);
-  if (map.build[i] !== Build.None && !upgrade && !onQuay(i))
-    return 'Something is already built here';
+  if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
 
   if (kind === 'quay') {
     const nearWater = map.neighbors4(i).some((n) => map.ocean[n] === 1);
@@ -369,20 +378,17 @@ export function placementError(
     return connected ? null : 'A jetty must connect to the shore or another jetty';
   }
 
-  if (t === Terrain.Water && !onQuay(i)) return 'Must be built on land';
+  if (t === Terrain.Water) return 'Must be built on land';
   if (t === Terrain.Rock) return 'Rock is in the way';
   const clear = (n: number) =>
     n >= 0 &&
     map.buildable(n) &&
     !pending?.has(n) &&
-    (onQuay(n) ||
-      (map.build[n] === Build.None &&
-        map.terrain[n] !== Terrain.Water &&
-        map.terrain[n] !== Terrain.Rock));
+    map.build[n] === Build.None &&
+    map.terrain[n] !== Terrain.Water &&
+    map.terrain[n] !== Terrain.Rock;
   if (!footprint(map, kind, i, facing).slice(1).every(clear)) {
-    return kind === 'largeBay'
-      ? 'A large truck bay is two tiles wide: clear the tile beside it'
-      : `A ${BUILDABLES[kind].label.toLowerCase()} needs 2×2 clear tiles behind its front`;
+    return 'A large truck bay is two tiles wide: clear the tile beside it';
   }
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
@@ -394,20 +400,11 @@ export function placementError(
   if (kind === 'portGate') {
     return f === Build.Road ? null : 'The gate must face a public road, where the trucks turn in';
   }
-  if (kind === 'truckBay' || kind === 'largeBay' || kind === 'warehouse') {
+  if (kind === 'truckBay' || kind === 'largeBay') {
     return truckable ? null : 'The entrance must face a public road or a port road';
   }
   if (kind === 'depot') {
     return drivable(f) ? null : 'The garage door must face a port road or quay';
-  }
-  if (kind === 'containerYard') {
-    if (!truckable) return 'The gate must face a public road or a port road, for the trucks';
-    // The stackers come in from the port side.
-    const tiles = footprint(map, kind, i, facing);
-    const port = tiles.some((t) =>
-      map.neighbors4(t).some((n) => !tiles.includes(n) && drivable(map.build[n])),
-    );
-    return port ? null : 'It must touch a port road or quay, for the stackers';
   }
   if (kind === 'office') {
     const ok = walkableAt(map, front) || f === Build.Road;
@@ -429,8 +426,7 @@ export function drivable(code: number): boolean {
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
     isBay(code) ||
-    code === Build.Depot ||
-    code === Build.Yard
+    code === Build.Depot
   );
 }
 
@@ -507,8 +503,11 @@ export function bulldozeError(map: GameMap, i: number): string | null {
 export function bulldozeValue(map: GameMap, i: number): number {
   if (map.build[i] === Build.Crossing) return Math.floor(B.CROSSING_COST * B.BULLDOZE_REFUND);
   const kind = kindOfCode(map.build[i]);
-  if (kind === 'quay') return Math.floor(placementCost(map, 'quay', i) * B.BULLDOZE_REFUND);
-  if (kind) return Math.floor(BUILDABLES[kind].cost * B.BULLDOZE_REFUND);
+  const store = storeKindAt(map, i);
+  const marked = store ? Math.floor(STORE_COST[store] * B.BULLDOZE_REFUND) : 0;
+  if (kind === 'quay')
+    return Math.floor(placementCost(map, 'quay', i) * B.BULLDOZE_REFUND) + marked;
+  if (kind) return Math.floor(BUILDABLES[kind].cost * B.BULLDOZE_REFUND) + marked;
   if (map.deco[i] === Deco.Tree) return -B.TREE_CLEAR_COST;
   return map.terrain[i] === Terrain.Rock ? -B.ROCK_CLEAR_COST : 0;
 }

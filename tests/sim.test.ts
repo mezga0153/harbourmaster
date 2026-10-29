@@ -12,14 +12,13 @@ import {
   footprint,
   forkliftOnly,
   frontOf,
-  ON_QUAY,
   placementCost,
   placementError,
   terraformError,
   walkable,
   walkableAt,
 } from '../src/sim/rules';
-import { Build, Deco, Terrain, TICKS_PER_DAY } from '../src/sim/types';
+import { Build, Deco, Store, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { Rng } from '../src/sim/rng';
 import { World } from '../src/sim/world';
@@ -683,20 +682,41 @@ describe('Buildings', () => {
     expect(world.bays.size).toBe(bays);
   });
 
-  it('loads two trucks at once at a warehouse, faster than at a truck bay', () => {
+  /** A 2×2 patch of grass beside the public road, `side` rows off it; its top-left tile. */
+  function besideRoad(world: World, side = 1): number {
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const grass = (x: number, y: number) =>
+      m.inBounds(x, y) && m.terrain[m.idx(x, y)] === Terrain.Grass && m.build[m.idx(x, y)] === 0;
+    const x = [...Array(m.w).keys()].find(
+      (x) =>
+        m.build[m.idx(x, r)] === Build.Road &&
+        m.build[m.idx(x + 1, r)] === Build.Road &&
+        [0, 1].every((d) => grass(x, r + side + d) && grass(x + 1, r + side + d)),
+    )!;
+    return m.idx(x, r + side);
+  }
+
+  it('marks out crate storage on port roads, and loads trucks fast beside it', () => {
     const world = World.create(7);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'warehouse', i));
-    const f = bestFacing(m, 'warehouse', spot);
-    world.command({ type: 'build', kind: 'warehouse', tiles: [spot], facing: f });
-    const tiles = footprint(m, 'warehouse', spot, f);
-    expect(tiles.every((t) => m.build[t] === Build.Warehouse)).toBe(true);
-    expect(m.build[frontOf(m, spot, f)]).toBe(Build.Road);
-    const store = world.bays.get(spot)!;
+    const at = besideRoad(world);
+    const tiles = [at, at + 1, at + m.w, at + m.w + 1];
+    // Only on port roads and quays.
+    world.command({ type: 'store', tiles, kind: 'crates', on: true });
+    expect(tiles.every((t) => m.store[t] === 0)).toBe(true);
+    world.command({ type: 'build', kind: 'portRoad', tiles: [at, at + 1] });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [at + m.w, at + m.w + 1] });
+    const cash = world.cash;
+    world.command({ type: 'store', tiles, kind: 'crates', on: true });
+    expect(world.cash).toBe(cash - 4 * B.CRATE_STORE_COST);
+    expect(tiles.every((t) => m.store[t] === Store.Crates)).toBe(true);
+    const store = world.bays.get(at)!;
+    expect(store.tiles).toEqual(tiles);
     expect(store.large).toBe(true);
-    // Only the warehouse has crates, and a haulier with two trucks.
+    // Only the store has crates, and a haulier with two trucks.
     for (const b of world.bays.values()) b.crates.length = 0;
     store.crates.push(...Array(24).fill(20));
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
@@ -705,14 +725,83 @@ describe('Buildings', () => {
     let loadTime = 0;
     for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
       world.step();
-      const loading = world.trucks.filter((k) => k.bayIdx === spot && k.state === 'loading');
+      const loading = world.trucks.filter((k) => k.bayIdx === at && k.state === 'loading');
+      // Both on the public road beside it.
+      for (const k of loading)
+        expect(m.build[m.idx(Math.floor(k.x), Math.floor(k.y))]).toBe(Build.Road);
       if (loading.length === 2 && loading[0].goal !== loading[1].goal) together = true;
       if (loading.length > 0) loadTime++;
     }
     expect(together).toBe(true);
     expect(store.crates.length).toBe(0);
-    // 24 crates, two docks at a time, quicker per crate than by hand.
+    // 24 crates, two trucks at a time, quicker per crate than by hand.
     expect(loadTime).toBeLessThan((24 * B.BAY_LOAD_TICKS) / 2);
+  });
+
+  it('keeps what an area holds as it grows, joins up or shrinks', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const at = besideRoad(world, 2);
+    const row = [at, at + 1, at + 2];
+    world.command({ type: 'bulldoze', tiles: row });
+    world.command({ type: 'build', kind: 'portRoad', tiles: row });
+    world.command({ type: 'store', tiles: [at], kind: 'crates', on: true });
+    world.command({ type: 'store', tiles: [at + 2], kind: 'crates', on: true });
+    expect(world.bays.has(at) && world.bays.has(at + 2)).toBe(true);
+    world.bays.get(at)!.crates.push(...Array(10).fill(20));
+    world.bays.get(at + 2)!.crates.push(...Array(5).fill(30));
+    // The tile between joins them into one area.
+    world.command({ type: 'store', tiles: [at + 1], kind: 'crates', on: true });
+    expect(world.bays.has(at + 2)).toBe(false);
+    const area = world.bays.get(at)!;
+    expect(area.tiles).toEqual(row);
+    expect(area.crates).toHaveLength(15);
+    // Goods are stacked from the first tile on: clearing the middle splits
+    // it again and loses nothing.
+    world.command({ type: 'store', tiles: [at + 1], kind: 'crates', on: false });
+    expect(world.bays.get(at)!.crates).toHaveLength(15);
+    expect(world.bays.get(at + 2)!.crates).toHaveLength(0);
+    // Bulldozing the road under a full tile takes its crates with it.
+    world.bays.get(at)!.crates.push(...Array(B.CRATES_PER_STORE_TILE - 15).fill(20));
+    world.bays.get(at + 2)!.crates.push(40);
+    world.command({ type: 'bulldoze', tiles: [at] });
+    expect(world.bays.has(at)).toBe(false);
+    expect(m.store[at]).toBe(0);
+    expect(world.bays.get(at + 2)!.crates).toEqual([40]);
+  });
+
+  it('turns warehouses and container yards from older saves into storage areas', () => {
+    const world = World.create(7);
+    const m = world.map;
+    const at = besideRoad(world);
+    const tiles = [at, at + 1, at + m.w, at + m.w + 1];
+    const save = world.toSave();
+    for (const [k, t] of tiles.entries()) {
+      save.map.build[t] = Build.Warehouse;
+      save.map.orient[t] = k === 0 ? 3 : 3 | EXTENSION | (k << 4);
+    }
+    delete save.map.store;
+    save.bays.push({
+      idx: at,
+      large: true,
+      warehouse: true,
+      boxes: [],
+      boxIncoming: 0,
+      crates: Array(7).fill(20),
+      incoming: 0,
+      nextTruckTick: 0,
+      noAccess: false,
+    });
+    const loaded = World.fromSave(save);
+    const lm = loaded.map;
+    expect(tiles.every((t) => lm.build[t] === Build.PortRoad && lm.store[t] === Store.Crates)).toBe(
+      true,
+    );
+    const area = loaded.bays.get(at)!;
+    expect(area.tiles).toEqual(tiles);
+    expect(area.crates).toHaveLength(7);
   });
 
   it('lets trucks into the port only through a port gate', () => {
@@ -1239,18 +1328,21 @@ describe('Container Port tier', () => {
     }
     const crane = m.idx(end, r - 2);
     world.command({ type: 'build', kind: 'harbourCrane', tiles: [crane] });
-    // A 2×2 container yard with its gate on the public road and its side on
-    // the port road, where the stackers come in.
-    const yard = m.idx(start - 2, r - 1);
-    world.command({ type: 'bulldoze', tiles: [yard, yard + 1, yard - m.w, yard - m.w + 1] });
-    world.command({ type: 'build', kind: 'containerYard', tiles: [yard], facing: 1 });
+    // A 2×2 container yard marked out on port road, beside the public road
+    // where the trucks load and the port road the stackers come in by.
+    const corner = m.idx(start - 2, r - 2);
+    const area = [corner, corner + 1, corner + m.w, corner + m.w + 1];
+    world.command({ type: 'bulldoze', tiles: area });
+    world.command({ type: 'build', kind: 'portRoad', tiles: area });
+    world.command({ type: 'store', tiles: area, kind: 'boxes', on: true });
+    const yard = corner;
     const depot = m.idx(start, r - 3);
     world.command({ type: 'bulldoze', tiles: [depot] });
     world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
     const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
     world.command({ type: 'build', kind: 'office', tiles: [office] });
     world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
-    if (m.build[crane] !== Build.HarbourCrane || m.build[yard] !== Build.Yard) return null;
+    if (m.build[crane] !== Build.HarbourCrane || !world.yards.has(yard)) return null;
     if (!world.people.some((p) => p.kind === 'stacker')) return null;
     return { crane, yard };
   }
@@ -1349,29 +1441,31 @@ describe('Container Port tier', () => {
     expect(touching).toBe(0);
   });
 
-  it('lays out a container yard on a quay, and leaves the quay when cleared', () => {
+  it('marks out a container yard on a quay, and leaves the quay when cleared', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
     const m = world.map;
     const r = m.yOf(m.entry);
-    // Two quay tiles wide along the pier: a yard fits across it, its gate
-    // facing on along the pier.
     let x = 0;
     while (!(m.build[m.idx(x, r - 1)] === Build.Quay && !m.isLand(m.idx(x, r - 1)))) x++;
-    const spot = m.idx(x + 1, r - 1);
-    const tiles = footprint(m, 'containerYard', spot, 0);
+    const tiles = [
+      m.idx(x + 1, r - 2),
+      m.idx(x + 2, r - 2),
+      m.idx(x + 1, r - 1),
+      m.idx(x + 2, r - 1),
+    ];
     expect(tiles.every((t) => m.build[t] === Build.Quay)).toBe(true);
-    expect(placementError(m, 'containerYard', spot, undefined, 0)).toBeNull();
-    world.command({ type: 'build', kind: 'containerYard', tiles: [spot], facing: 0 });
-    expect(tiles.every((t) => m.build[t] === Build.Yard && (m.orient[t] & ON_QUAY) !== 0)).toBe(
-      true,
-    );
-    expect(world.yards.has(spot)).toBe(true);
-    world.command({ type: 'bulldoze', tiles: [tiles[3]] });
-    expect(tiles.every((t) => m.build[t] === Build.Quay && m.orient[t] === 0)).toBe(true);
-    expect(world.yards.has(spot)).toBe(false);
+    world.command({ type: 'store', tiles, kind: 'boxes', on: true });
+    expect(tiles.every((t) => m.store[t] === Store.Boxes)).toBe(true);
+    const yard = world.yards.get(tiles[0])!;
+    expect(yard.tiles).toHaveLength(4);
+    // Crates have no place in a container yard, nor a crane on one.
+    expect(placementError(m, 'jibCrane', tiles[2])).not.toBeNull();
+    world.command({ type: 'store', tiles, kind: 'boxes', on: false });
+    expect(tiles.every((t) => m.build[t] === Build.Quay && m.store[t] === 0)).toBe(true);
+    expect(world.yards.has(tiles[0])).toBe(false);
   });
 
   it('gives a container to the free stacker nearest the crane', () => {
@@ -1636,24 +1730,22 @@ describe('Container Port tier', () => {
     expect(collected).toBeGreaterThan(0);
   });
 
-  it('sends container trucks into a yard from any side on a public road', () => {
+  it('loads container trucks only from a road beside a yard', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const m = world.map;
-    // Take away the road in front of the yard's main gate tile, with a detour
-    // round it, so trucks can only come in through the other gate tile.
-    const gate = m.idx(m.xOf(t.yard), m.yOf(t.yard) + 1);
-    const detour = [gate - 1, gate - 1 + m.w, gate + m.w, gate + 1 + m.w, gate + 1];
-    world.command({ type: 'bulldoze', tiles: detour.filter((i) => m.build[i] !== Build.Road) });
-    world.command({ type: 'build', kind: 'road', tiles: detour });
-    world.command({ type: 'bulldoze', tiles: [gate] });
-    expect(m.build[gate]).toBe(Build.None);
-    expect(detour.every((i) => m.build[i] === Build.Road)).toBe(true);
     const yard = world.yards.get(t.yard)!;
+    // Take away the public road along the yard: with no road beside it,
+    // trucks cannot load.
+    const along = yard
+      .tiles!.flatMap((i) => m.neighbors4(i))
+      .filter((n) => m.build[n] === Build.Road);
+    expect(along.length).toBeGreaterThan(0);
     yard.boxes.push(100, 100);
+    world.command({ type: 'bulldoze', tiles: along });
     world['addContract'](
       {
         kind: 'haulier',
@@ -1667,6 +1759,11 @@ describe('Container Port tier', () => {
       0,
       0,
     );
+    for (let k = 0; k < 200; k++) world.step();
+    expect(yard.noAccess).toBe(true);
+    expect(yard.boxes.length).toBe(2);
+    // Lay the road back and they load from it.
+    world.command({ type: 'build', kind: 'road', tiles: along });
     for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
     expect(yard.noAccess).toBe(false);
     expect(yard.boxes.length).toBe(0);

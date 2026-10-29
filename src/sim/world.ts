@@ -72,6 +72,10 @@ import {
   placementCost,
   placementError,
   ROTATABLE,
+  storeError,
+  STORE_COST,
+  STORE_LABEL,
+  STORE_TIER,
   walkableAt,
 } from './rules';
 import { MACHINES } from './machines';
@@ -83,10 +87,13 @@ import {
   isBuoy,
   isDock,
   isPublicRoad,
+  Store,
+  STORE_CODE,
   Terrain,
   TICKS_PER_DAY,
   type BuildKind,
   type MachineKind,
+  type StoreKind,
 } from './types';
 
 export const SAVE_VERSION = 11;
@@ -298,8 +305,13 @@ interface Bay {
   incoming: number;
   nextTruckTick: number;
   noAccess: boolean;
-  /** A container yard: no trucks, only a buffer for containers. */
+  /** A container yard, marked out for containers. */
   yard?: boolean;
+  /**
+   * A storage area: the port road and quay tiles marked out for it, lowest
+   * first; its main tile is the first. Trucks load from beside it.
+   */
+  tiles?: number[];
 }
 
 export interface SaveData {
@@ -365,7 +377,7 @@ function isMachine(p: { kind: string }): boolean {
 
 /** Room left at a bay for crates, or at a container yard for containers. */
 function bayRoom(b: Bay, boxes: boolean): number {
-  if (b.yard) return boxes ? B.YARD_BOXES - b.boxes.length - b.boxIncoming : 0;
+  if (b.yard) return boxes ? bayCap(b) - b.boxes.length - b.boxIncoming : 0;
   if (boxes) return 0;
   return bayCap(b) - b.crates.length - b.incoming;
 }
@@ -376,13 +388,16 @@ function bayIncoming(b: Bay, boxes: boolean, delta: number): void {
 }
 
 function bayCap(b: Bay): number {
-  return b.warehouse ? B.WAREHOUSE_CAPACITY : b.large ? B.LARGE_BAY_CAPACITY : B.BAY_CAPACITY;
+  if (b.tiles) {
+    return b.tiles.length * (b.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE);
+  }
+  return b.large ? B.LARGE_BAY_CAPACITY : B.BAY_CAPACITY;
 }
 
 /** Ticks to put one crate or container on a truck here. */
 function loadTicks(b: Bay): number {
   if (b.yard) return B.YARD_LOAD_TICKS;
-  if (b.warehouse) return B.WAREHOUSE_LOAD_TICKS;
+  if (b.warehouse) return B.STORE_LOAD_TICKS;
   return b.large ? B.LARGE_BAY_LOAD_TICKS : B.BAY_LOAD_TICKS;
 }
 
@@ -511,8 +526,14 @@ export class World {
   boats: Boat[] = [];
   trucks: Truck[] = [];
   bays = new Map<number, Bay>();
-  /** Container yards, by their main tile. */
+  /** Container yards, by their main tile. Crate storage areas are with the bays. */
   yards = new Map<number, Bay>();
+  /** The storage area each tile is part of, by its main tile, or -1. Not saved. */
+  private storeOf: Int32Array;
+  /** Where trucks stand to load at each storage area; cleared when the port changes. */
+  private spotCache = new Map<number, number[]>();
+  /** How far by road trucks have to each tile they can reach; see truckReach. */
+  private reachCache: Int32Array | null = null;
   /** The town up the coast, which grows with the port. */
   town: Town | null = null;
   rail: RailState;
@@ -569,6 +590,7 @@ export class World {
     readonly rng: Rng,
   ) {
     this.occupancy = new Uint8Array(map.w * map.h * 4);
+    this.storeOf = new Int32Array(map.w * map.h).fill(-1);
     this.scenery = new Rng(seed ^ 0x7a3c1);
     this.rail = newRail(this.scenery);
   }
@@ -665,6 +687,16 @@ export class World {
     world.people = s.people.map((p) => ({ ...p, path: [...p.path], cargoFees: [...p.cargoFees] }));
     world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
     world.trucks = s.trucks.map((t) => ({ ...t, path: [...t.path] }));
+    // Older saves had warehouses and container yards as buildings: now they
+    // are storage marked out on the port road or quay they stood on.
+    const m = world.map;
+    for (let i = 0; i < m.build.length; i++) {
+      const b = m.build[i];
+      if (b !== Build.Yard && b !== Build.Warehouse) continue;
+      m.store[i] = b === Build.Yard ? Store.Boxes : Store.Crates;
+      m.build[i] = m.orient[i] & ON_QUAY ? Build.Quay : Build.PortRoad;
+      m.orient[i] = 0;
+    }
     for (const bay of s.bays) {
       world.bays.set(bay.idx, {
         ...bay,
@@ -672,15 +704,24 @@ export class World {
         boxes: [...(bay.boxes ?? [])],
         boxIncoming: bay.boxIncoming ?? 0,
         large: bay.large ?? false,
+        tiles: bay.tiles ? [...bay.tiles] : bay.warehouse ? [bay.idx] : undefined,
       });
     }
-    for (const y of s.yards ?? []) world.yards.set(y.idx, { ...y, boxes: [...y.boxes] });
+    for (const y of s.yards ?? []) {
+      world.yards.set(y.idx, {
+        ...y,
+        yard: true,
+        boxes: [...y.boxes],
+        tiles: y.tiles ? [...y.tiles] : [y.idx],
+      });
+    }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     if (s.rail) world.rail = structuredClone(s.rail);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
     if (s.town === undefined) world.settle();
     else if (s.town) world.relay({ ...s.town });
+    world.rebuildStores();
     return world;
   }
 
@@ -761,6 +802,8 @@ export class World {
     this.buoyCache = null;
     this.anchorageTile = -1;
     this.frontCache = null;
+    this.spotCache.clear();
+    this.reachCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -768,6 +811,8 @@ export class World {
         return this.bulldoze(cmd.tiles);
       case 'forkliftOnly':
         return this.markForkliftOnly(cmd.tiles, cmd.on);
+      case 'store':
+        return this.markStore(cmd.tiles, cmd.kind, cmd.on);
       case 'terraform':
         return this.terraform(cmd.tiles, cmd.raise);
       case 'hire':
@@ -828,7 +873,7 @@ export class World {
         this.book('construction', -cost);
         spent += cost;
         footprint(this.map, kind, i, f).forEach((t, k) => {
-          // A yard laid out on a quay remembers it, to leave it when cleared.
+          // A building on a quay remembers it, to leave it when cleared.
           const quay = this.map.build[t] === Build.Quay ? ON_QUAY : 0;
           // A road over the railway is a level crossing.
           const crossing = def.code === Build.Road && this.map.build[t] === Build.Rail;
@@ -837,8 +882,7 @@ export class World {
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
         });
-        if (kind === 'truckBay' || kind === 'largeBay' || kind === 'warehouse') this.addBay(i);
-        if (kind === 'containerYard') this.addYard(i);
+        if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
       }
@@ -904,6 +948,129 @@ export class World {
     else if (firstError) this.message(firstError, 'bad');
   }
 
+  /** Mark port road and quay tiles out as storage, or clear them, for a refund. */
+  private markStore(tiles: number[], kind: StoreKind, on: boolean): void {
+    const tier = STORE_TIER[kind];
+    if (this.tier < tier) {
+      return this.message(`${STORE_LABEL[kind]} unlocks at the ${TIERS[tier].name}.`, 'bad');
+    }
+    let net = 0;
+    let firstError: string | null = null;
+    let changed = false;
+    for (const i of tiles) {
+      if (i < 0 || i >= this.map.build.length) continue;
+      const err = storeError(this.map, i, kind, on);
+      if (err) {
+        firstError ??= err;
+        continue;
+      }
+      const value = on ? -STORE_COST[kind] : Math.floor(STORE_COST[kind] * B.BULLDOZE_REFUND);
+      if (value < 0 && this.cash < -value) {
+        firstError = 'Not enough money';
+        break;
+      }
+      this.book('construction', value);
+      net += value;
+      this.map.store[i] = on ? STORE_CODE[kind] : Store.None;
+      this.dirty.add(i);
+      changed = true;
+    }
+    if (changed) this.rebuildStores();
+    if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
+    else if (firstError) this.message(firstError, 'bad');
+  }
+
+  /**
+   * Gather the storage marked out on the map into areas, one for each run of
+   * touching tiles of a kind, keeping what they held: each area's goods are
+   * set down a tile's worth at a time and picked up again by the new areas.
+   * Whatever was on a tile no longer marked out is lost.
+   */
+  private rebuildStores(): void {
+    const m = this.map;
+    const old = [...this.bays.values(), ...this.yards.values()].filter((b) => b.tiles);
+    const held = new Map<number, number[]>();
+    const lost = { crates: 0, boxes: 0 };
+    for (const a of old) {
+      const goods = a.yard ? a.boxes : a.crates;
+      const per = a.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE;
+      const tiles = a.tiles!;
+      tiles.forEach((t, k) => {
+        const last = k === tiles.length - 1;
+        held.set(t, goods.slice(k * per, last ? undefined : (k + 1) * per));
+      });
+      lost[a.yard ? 'boxes' : 'crates'] += goods.length;
+      (a.yard ? this.yards : this.bays).delete(a.idx);
+    }
+    this.spotCache.clear();
+    this.storeOf.fill(-1);
+    for (let i = 0; i < m.store.length; i++) {
+      const kind = m.store[i];
+      if (!kind || this.storeOf[i] >= 0) continue;
+      const tiles: number[] = [];
+      const stack = [i];
+      this.storeOf[i] = i;
+      while (stack.length > 0) {
+        const t = stack.pop()!;
+        tiles.push(t);
+        for (const n of m.neighbors4(t)) {
+          if (m.store[n] !== kind || this.storeOf[n] >= 0) continue;
+          this.storeOf[n] = i;
+          stack.push(n);
+        }
+      }
+      tiles.sort((a, b) => a - b);
+      const yard = kind === Store.Boxes;
+      const area: Bay = {
+        idx: i,
+        large: !yard,
+        warehouse: !yard,
+        yard,
+        tiles,
+        boxes: [],
+        boxIncoming: 0,
+        crates: [],
+        incoming: 0,
+        nextTruckTick: 0,
+        noAccess: false,
+      };
+      const goods = tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area));
+      (yard ? area.boxes : area.crates).push(...goods);
+      lost[yard ? 'boxes' : 'crates'] -= goods.length;
+      (yard ? this.yards : this.bays).set(i, area);
+    }
+    // Loads on their way, and trucks loading, go to the area their old one became.
+    const remap = new Map<number, number>();
+    for (const a of old) {
+      const code = a.yard ? Store.Boxes : Store.Crates;
+      const t = a.tiles!.find((t) => m.store[t] === code);
+      const now = t === undefined ? -1 : this.storeOf[t];
+      remap.set(a.idx, now);
+      const area = this.dest(now);
+      if (area) {
+        area.nextTruckTick = Math.max(area.nextTruckTick, a.nextTruckTick);
+        area.noAccess ||= a.noAccess;
+      }
+    }
+    for (const p of this.people) {
+      const now = remap.get(p.bayIdx);
+      if (now !== undefined) p.bayIdx = now;
+      const area = this.dest(p.bayIdx);
+      if (area?.tiles && p.planned > 0) bayIncoming(area, p.kind === 'stacker', p.planned);
+    }
+    for (const t of this.trucks) t.bayIdx = remap.get(t.bayIdx) ?? t.bayIdx;
+    const what = [
+      lost.crates > 0 && `${lost.crates} crate${lost.crates === 1 ? '' : 's'}`,
+      lost.boxes > 0 && `${lost.boxes} container${lost.boxes === 1 ? '' : 's'}`,
+    ].filter(Boolean);
+    if (what.length > 0) {
+      this.message(
+        `${what.join(' and ')} stored there ${lost.crates + lost.boxes === 1 ? 'was' : 'were'} lost.`,
+        'bad',
+      );
+    }
+  }
+
   /**
    * Dredge or reclaim each tile a step. Like docks, a channel dug inland
    * from the shore fits in one drag, in as many rounds as it takes.
@@ -963,6 +1130,7 @@ export class World {
   private bulldoze(tiles: number[]): void {
     let net = 0;
     let lastError: string | null = null;
+    let stores = false;
     for (const t of tiles) {
       if (t < 0 || t >= this.map.build.length) continue;
       // A click anywhere on a building takes all of it down.
@@ -991,10 +1159,13 @@ export class World {
         this.map.build[i] = Build.Rail;
       } else if (this.map.build[i] !== Build.None) {
         if (isBay(this.map.build[i])) this.removeBay(i);
-        if (this.map.build[i] === Build.Yard) this.removeYard(i);
         for (const b of bulldozeTiles(this.map, i)) {
           this.map.build[b] = this.map.orient[b] & ON_QUAY ? Build.Quay : Build.None;
           this.map.orient[b] = 0;
+          if (this.map.store[b]) {
+            this.map.store[b] = Store.None;
+            stores = true;
+          }
           this.dirty.add(b);
         }
       } else if (this.map.deco[i] !== Deco.None) {
@@ -1004,6 +1175,7 @@ export class World {
       }
       this.dirty.add(i);
     }
+    if (stores) this.rebuildStores();
     if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
     else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
   }
@@ -1356,13 +1528,7 @@ export class World {
 
     // One truck trip: highway to bay and back, plus loading. A bay loads one
     // truck at a time, so trucks beyond the number of bays add nothing.
-    this.roadLen = bays.length
-      ? Math.min(
-          ...bays.map(
-            (b) => findPath(m.w, m.h, m.entry, b, this.truckCost(b), false)?.length ?? Infinity,
-          ),
-        )
-      : Infinity;
+    this.roadLen = Math.min(Infinity, ...[...this.bays.values()].map((b) => this.roadTo(b)));
     // Time lost in queues on narrow walkways comes straight off the top.
     unloading = (unloading + forklifting) * (1 - this.congestion);
     const palletDemand = this.fisheries()
@@ -1391,10 +1557,10 @@ export class World {
     const cranes = [...this.cranes.values()].filter((c) => c.kind === 'harbour');
     // A crane only works while a feeder is alongside; allow for gaps.
     const lifting = cranes.length * (TICKS_PER_DAY / B.HARBOUR_CRANE_TICKS) * 0.6;
-    const yards = [...this.yards.keys()];
+    const yards = [...this.yards.values()];
     let walk = 0;
     for (const c of cranes) {
-      walk += yards.length ? Math.min(...yards.map((y) => this.dist(c.idx, y))) : 0;
+      walk += yards.length ? Math.min(...yards.map((y) => this.distTo(c.idx, y))) : 0;
     }
     const avg = cranes.length && yards.length ? walk / cranes.length : 0;
     const stackers = this.people.filter((p) => p.kind === 'stacker').length;
@@ -1403,10 +1569,7 @@ export class World {
     let trucking = 0;
     // Trucks load at the yards, one at a time each, so only as many trucks
     // as yards count, the biggest first.
-    const roads = yards.map(
-      (y) => findPath(this.map.w, this.map.h, this.map.entry, y, this.truckCost(y), false)?.length,
-    );
-    const road = Math.min(...roads.map((n) => n ?? Infinity));
+    const road = Math.min(Infinity, ...yards.map((y) => this.roadTo(y)));
     if (Number.isFinite(road)) {
       const perTruck = this.hauliers()
         .filter((h) => h.terms.cargo === 'container')
@@ -1415,7 +1578,8 @@ export class World {
           return Array<number>(h.terms.fleet).fill((h.terms.capacity * TICKS_PER_DAY) / ticks);
         })
         .sort((a, b) => b - a);
-      trucking = perTruck.slice(0, yards.length).reduce((n, r) => n + r, 0);
+      const docks = yards.reduce((n, y) => n + this.loadingDocks(y).length, 0);
+      trucking = perTruck.slice(0, docks).reduce((n, r) => n + r, 0);
     }
     return {
       demand: Math.round(demand),
@@ -4211,7 +4375,9 @@ export class World {
   /** How many workers fit in one lane of a tile. */
   private laneCap(i: number): number {
     const b = this.map.build[i];
-    return isBay(b) || b === Build.BreakHut || b === Build.Depot ? B.GATHER_CAP : 1;
+    return isBay(b) || this.map.store[i] || b === Build.BreakHut || b === Build.Depot
+      ? B.GATHER_CAP
+      : 1;
   }
 
   private laneFree(i: number, lane: number): boolean {
@@ -4449,7 +4615,8 @@ export class World {
         p.planned = fees.length;
         p.carrying = fees.length;
         p.cargoFees = fees;
-        if (!bay || !this.headTo(p, p.bayIdx)) this.retargetCrate(p);
+        const goal = bay ? this.dropAt(p, bay, this.tileOf(p)) : -1;
+        if (goal < 0 || !this.headTo(p, goal)) this.retargetCrate(p);
         else p.state = 'toDrop';
         return;
       }
@@ -4513,8 +4680,11 @@ export class World {
       }
     }
     let stuck: string | null = null;
-    if (![...this.bays.keys()].some(reach)) {
-      stuck = `Can't reach a truck bay. ${what} only drive on port roads, forklift lanes and quays`;
+    const dests = [...(boxy ? this.yards : this.bays).values()];
+    if (!dests.some((d) => this.dropAt(p, d, here) >= 0)) {
+      stuck = boxy
+        ? `Can't reach a container yard. ${what} only drive on port roads and quays`
+        : `Can't reach a truck bay or crate storage. ${what} only drive on port roads, forklift lanes and quays`;
     } else if (sources.length > 0 && !sources.some(reach)) {
       stuck = boxy
         ? "Can't reach the harbour crane. Connect it with quay or port roads"
@@ -4665,27 +4835,41 @@ export class World {
     return Array.from({ length: n }, () => boat.fee);
   }
 
-  /** Nearest truck bay with room that this worker can reach from `from`. */
+  /** Nearest truck bay or crate storage with room that this worker can reach from `from`. */
   private bayWithRoom(p: Dockhand, from: number): Bay | null {
-    const boxy = p.kind === 'stacker';
-    const bays = [...this.bays.values()]
-      .filter((b) => bayRoom(b, boxy) > 0)
-      .sort((a, b) => this.dist(from, a.idx) - this.dist(from, b.idx));
-    for (const bay of bays) {
-      if (this.pathFor(p, from, bay.idx)) return bay;
-    }
-    return null;
+    return this.nearestWithRoom(p, from, this.bays, false);
   }
 
   /** Nearest container yard with room this stacker can reach from `from`. */
   private yardWithRoom(p: Dockhand, from: number): Bay | null {
-    const yards = [...this.yards.values()]
-      .filter((y) => bayRoom(y, true) > 0)
-      .sort((a, b) => this.dist(from, a.idx) - this.dist(from, b.idx));
-    for (const yard of yards) {
-      if (this.pathFor(p, from, yard.idx)) return yard;
-    }
-    return null;
+    return this.nearestWithRoom(p, from, this.yards, true);
+  }
+
+  private nearestWithRoom(
+    p: Dockhand,
+    from: number,
+    among: Map<number, Bay>,
+    boxes: boolean,
+  ): Bay | null {
+    const bays = [...among.values()]
+      .filter((b) => bayRoom(b, boxes) > 0)
+      .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
+    return bays.find((b) => this.dropAt(p, b, from) >= 0) ?? null;
+  }
+
+  /** Tiles from `from` to the nearest part of a bay or storage area. */
+  private distTo(from: number, b: Bay): number {
+    return b.tiles ? Math.min(...b.tiles.map((t) => this.dist(from, t))) : this.dist(from, b.idx);
+  }
+
+  /**
+   * Where a worker coming from `from` sets a load down at a bay, or at the
+   * nearest tiles of a storage area they can get to; -1 if they cannot.
+   */
+  private dropAt(p: Dockhand, b: Bay, from: number): number {
+    if (!b.tiles) return this.pathFor(p, from, b.idx) ? b.idx : -1;
+    const near = [...b.tiles].sort((x, y) => this.dist(from, x) - this.dist(from, y)).slice(0, 4);
+    return near.find((t) => this.pathFor(p, from, t)) ?? -1;
   }
 
   /** The truck bay or container yard a load is going to. */
@@ -4700,7 +4884,8 @@ export class World {
     if (old) bayIncoming(old, boxy, -p.planned);
     const here = this.tileOf(p);
     const bay = boxy ? this.yardWithRoom(p, here) : this.bayWithRoom(p, here);
-    if (bay && this.headTo(p, bay.idx)) {
+    const goal = bay ? this.dropAt(p, bay, here) : -1;
+    if (bay && goal >= 0 && this.headTo(p, goal)) {
       bayIncoming(bay, boxy, p.planned);
       p.bayIdx = bay.idx;
       p.state = 'toDrop';
@@ -4772,11 +4957,9 @@ export class World {
   // ── Trucks and bays ───────────────────────────────────────
 
   private addBay(i: number): void {
-    const warehouse = this.map.build[i] === Build.Warehouse;
     this.bays.set(i, {
       idx: i,
-      large: warehouse || this.map.build[i] === Build.LargeBay,
-      warehouse,
+      large: this.map.build[i] === Build.LargeBay,
       boxes: [],
       boxIncoming: 0,
       crates: [],
@@ -4786,25 +4969,72 @@ export class World {
     });
   }
 
-  private addYard(i: number): void {
-    this.yards.set(i, {
-      idx: i,
-      large: false,
-      yard: true,
-      boxes: [],
-      boxIncoming: 0,
-      crates: [],
-      incoming: 0,
-      nextTruckTick: 0,
-      noAccess: false,
-    });
-  }
-
-  /** Where trucks stand to load: one spot, or a warehouse's two docks. */
+  /** Where trucks stand to load: in a truck bay, or beside a storage area. */
   private loadingDocks(bay: Bay): number[] {
-    if (!bay.warehouse) return [bay.idx];
-    const tiles = footprint(this.map, 'warehouse', bay.idx, this.map.orient[bay.idx]);
-    return tiles.slice(0, B.WAREHOUSE_DOCKS);
+    return bay.tiles ? this.storeSpots(bay) : [bay.idx];
+  }
+
+  /**
+   * Tiles beside a storage area trucks can reach and stand on to load: public
+   * roads, or port roads and quays behind a port gate. One truck loads at a
+   * time for every STORE_TILES_PER_TRUCK tiles of it, at the spots nearest
+   * the highway.
+   */
+  private storeSpots(a: Bay): number[] {
+    const cached = this.spotCache.get(a.idx);
+    if (cached) return cached;
+    const m = this.map;
+    const reach = this.truckReach();
+    const spots = new Set<number>();
+    for (const t of a.tiles!) {
+      for (const n of m.neighbors4(t)) {
+        if (reach[n] < 0 || m.store[n] || m.build[n] === Build.Crossing) continue;
+        if (m.build[n] === Build.Gate) continue;
+        spots.add(n);
+      }
+    }
+    const most = Math.max(1, Math.floor(a.tiles!.length / B.STORE_TILES_PER_TRUCK));
+    const out = [...spots].sort((p, q) => reach[p] - reach[q] || p - q).slice(0, most);
+    this.spotCache.set(a.idx, out);
+    return out;
+  }
+
+  /**
+   * How far trucks drive from the highway to each tile they can get to, or
+   * -1: public roads, and port roads and quays through a port gate.
+   */
+  private truckReach(): Int32Array {
+    if (this.reachCache) return this.reachCache;
+    const m = this.map;
+    const cost = this.truckCost(-1);
+    const dist = new Int32Array(m.build.length).fill(-1);
+    const queue: number[] = [];
+    if (Number.isFinite(cost(m.entry))) {
+      dist[m.entry] = 0;
+      queue.push(m.entry);
+    }
+    for (let k = 0; k < queue.length; k++) {
+      const cur = queue[k];
+      for (const n of m.neighbors4(cur)) {
+        if (dist[n] >= 0 || !Number.isFinite(cost(n, cur))) continue;
+        dist[n] = dist[cur] + 1;
+        queue.push(n);
+      }
+    }
+    this.reachCache = dist;
+    return dist;
+  }
+
+  /** Tiles trucks drive from the highway to load at a bay, or Infinity. */
+  private roadTo(bay: Bay): number {
+    const reach = this.truckReach();
+    const ends = bay.tiles
+      ? this.storeSpots(bay).map((s) => reach[s])
+      : this.map
+          .neighbors4(bay.idx)
+          .filter((n) => reach[n] >= 0)
+          .map((n) => reach[n] + 1);
+    return ends.length > 0 ? Math.min(...ends) : Infinity;
   }
 
   /** A dock at this bay no truck is using or heading for, or -1. */
@@ -4815,14 +5045,6 @@ export class World {
         .map((t) => t.goal),
     );
     return this.loadingDocks(bay).find((d) => !taken.has(d)) ?? -1;
-  }
-
-  private removeYard(i: number): void {
-    const yard = this.yards.get(i);
-    if (yard && yard.boxes.length > 0) {
-      this.message(`${yard.boxes.length} containers were lost with the container yard.`, 'bad');
-    }
-    this.yards.delete(i);
   }
 
   private removeBay(i: number): void {
@@ -4838,15 +5060,16 @@ export class World {
 
   /**
    * Trucks drive on public roads, and on port roads once they are through a
-   * port gate: never straight from one to the other. A truck bay or container
-   * yard is only enterable as the destination, or the one being left, from
-   * any side of it that touches a road.
+   * port gate: never straight from one to the other. A truck bay is only
+   * enterable as the destination, or the one being left, from any side of it
+   * that touches a road. Storage areas they load beside, never drive into.
    */
   private truckCost(target: number, home = -1): CostFn {
     const m = this.map;
     const way = (i: number): 'road' | 'port' | 'gate' | null => {
       const b = m.build[i];
       if (isPublicRoad(b)) return 'road';
+      if (m.store[i]) return null;
       if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(m, i) ? null : 'port';
       if (b === Build.Gate) return 'gate';
       const a = anchorOf(m, i);
@@ -4872,14 +5095,16 @@ export class World {
     // Fullest bays get trucks first. Container trucks collect from the yards,
     // and from large bays still holding containers from older saves.
     const load = (b: Bay) =>
-      b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? B.YARD_BOXES : B.TRUCK_CAPACITY);
+      b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
     const bays = [...this.bays.values(), ...this.yards.values()]
-      .filter(
-        (b) =>
-          b.crates.length + b.boxes.length > 0 &&
-          this.tick >= b.nextTruckTick &&
-          this.freeDock(b) >= 0,
-      )
+      .filter((b) => {
+        if (b.crates.length + b.boxes.length === 0 || this.tick < b.nextTruckTick) return false;
+        if (this.loadingDocks(b).length === 0) {
+          this.cutOff(b);
+          return false;
+        }
+        return this.freeDock(b) >= 0;
+      })
       .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
 
     for (const bay of this.bays.values()) {
@@ -4916,14 +5141,7 @@ export class World {
       const dock = this.freeDock(bay);
       const path = findPath(m.w, m.h, m.entry, dock, this.truckCost(bay.idx), false);
       if (!path) {
-        if (!bay.noAccess) {
-          this.message(
-            `Trucks cannot reach a ${bay.yard ? 'container yard' : 'truck bay'}: it needs a public road to the highway, or port roads from a port gate.`,
-            'bad',
-          );
-        }
-        bay.noAccess = true;
-        bay.nextTruckTick = this.tick + 100;
+        this.cutOff(bay);
         continue;
       }
       bay.noAccess = false;
@@ -4949,6 +5167,21 @@ export class World {
       };
       this.trucks.push(truck);
     }
+  }
+
+  /** No truck can get to this bay: say so once, and try again in a while. */
+  private cutOff(bay: Bay): void {
+    if (!bay.noAccess) {
+      const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage area' : 'truck bay';
+      this.message(
+        bay.tiles
+          ? `Trucks cannot reach a ${what}: it needs a public road beside it, or a port road or quay beside it behind a port gate.`
+          : `Trucks cannot reach a ${what}: it needs a public road to the highway, or port roads from a port gate.`,
+        'bad',
+      );
+    }
+    bay.noAccess = true;
+    bay.nextTruckTick = this.tick + 100;
   }
 
   private updateTruck(t: Truck): void {
@@ -5236,6 +5469,7 @@ export class World {
       build: this.map.build[i],
       orient: this.map.orient[i],
       deco: this.map.deco[i],
+      store: this.map.store[i],
     }));
     this.dirty.clear();
     return out;
@@ -5356,6 +5590,7 @@ export class World {
       capacity: bayCap(b),
       large: b.large,
       warehouse: !!b.warehouse,
+      tiles: b.tiles && [...b.tiles],
       noAccess: b.noAccess,
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({
@@ -5394,6 +5629,8 @@ export class World {
       yards: [...this.yards.values()].map((y) => ({
         idx: y.idx,
         boxes: y.boxes.length,
+        capacity: bayCap(y),
+        tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,
       })),
       contracts,
