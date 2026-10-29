@@ -585,8 +585,9 @@ export class Structures {
     let carry = false;
     // Its other end: a slot on the ship's deck, or on a tractor under it.
     const tractor = g.work === 'give' || g.work === 'take';
-    // Off the ship straight onto a tractor under it, rather than its stack.
-    const direct = g.work === 'unload' && g.truck >= 0;
+    // Off the ship straight onto a tractor under it, or off one straight
+    // on board, rather than by way of its stack.
+    const direct = (g.work === 'unload' || g.work === 'load') && g.truck >= 0;
     const ship = !g.work
       ? null
       : tractor
@@ -641,8 +642,12 @@ export class Structures {
             ? g.base + 1
             : g.base
           : this.kept(-1 - g.idx, g.look);
-      const [gone, there] =
-        g.work === 'unload' || g.work === 'take'
+      const onTruck = () => !!this.slotShown?.(g.truck, 0);
+      const [gone, there] = direct
+        ? g.work === 'unload'
+          ? [() => !onDeck(), onTruck]
+          : [() => !onTruck(), onDeck]
+        : g.work === 'unload' || g.work === 'take'
           ? [() => !onDeck(), () => onStack() > g.base]
           : [() => onStack() < g.base, onDeck];
       // Nor does it lift one while it still shows where it was, or come up
@@ -894,7 +899,7 @@ export class Structures {
     const placed = this.cranePlaces.has(h.idx);
     // Its other end: a slot on the ship's deck, or a tractor beside it.
     const tractor = h.work === 'give' || h.work === 'take';
-    const direct = h.work === 'unload' && h.truck >= 0;
+    const direct = (h.work === 'unload' || h.work === 'load') && h.truck >= 0;
     const [far, at] = tractor ? [h.truck, 0] : [h.boat, h.slot];
     const ship = h.work ? this.truckSlot?.(far, at, this.slotAt) : null;
     if (h.work && ship) {

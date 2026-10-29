@@ -250,7 +250,7 @@ interface Crane {
    * A gantry crane: the terminal tractor under it it is lifting a container
    * onto from its stack (`give`), or an export off onto its stack.
    */
-  serving?: { id: number; give: boolean };
+  serving?: { id: number; give: boolean; ship?: number };
   /**
    * A gantry crane: the place on its landing stack each container lifted
    * off is in, and each export; see cranePlaces.
@@ -2955,6 +2955,14 @@ export class World {
     return false;
   }
 
+  /** Whether a container crane stands at this dock tile, at the quay edge a ship lies against. */
+  private craneAgainst(j: number): boolean {
+    for (const c of this.cranes.values()) {
+      if (c.kind !== 'jib' && this.craneFront(c).includes(j)) return true;
+    }
+    return false;
+  }
+
   /** Whether a gantry crane works this berth. */
   private gantryReaches(berth: number): boolean {
     for (const c of this.cranes.values()) {
@@ -3024,19 +3032,17 @@ export class World {
       for (const n of m.neighbors4(j)) {
         if (water(n) !== 1) continue;
         if (wide && !this.wideQuay(j, n)) continue;
-        // Berths under a harbour crane are kept for container ships.
-        if (needCrane !== this.harbourCraneReaches(n)) continue;
+        // Berths under a harbour crane are kept for container ships, which
+        // lie square in front of the crane, centred on it.
+        if (needCrane ? !this.craneAgainst(j) : this.harbourCraneReaches(n)) continue;
         if (!this.footprint(n, j, this.boatHalf(needCrane))) continue;
         const nx = m.xOf(n);
         const ny = m.yOf(n);
         // A crane is only any use with forklifts to take what it lands, or
         // storage it can swing it into: dockhands keep away from cranes.
-        const craned = [...this.cranes.values()].some(
-          (c) =>
-            c.kind === 'jib' &&
-            Math.max(Math.abs(m.xOf(c.idx) - nx), Math.abs(m.yOf(c.idx) - ny)) <= 1 &&
-            (forks || this.jibStores(c).length > 0),
-        );
+        // Lying square under the jib crane, centred on it.
+        const jib = this.cranes.get(j);
+        const craned = !!jib && jib.kind === 'jib' && (forks || this.jibStores(jib).length > 0);
         cranes ||= craned;
         // Nobody could unload it by hand next to a crane, or off machines-only quay.
         if (!needCrane && !craned && !walkableAt(m, j)) continue;
@@ -8089,6 +8095,17 @@ export class World {
     if (c.kind === 'jib') return this.jibWork(c, jibs.get(c));
     const serve = c.serving;
     const p = serve && this.people.find((q) => q.id === serve.id);
+    if (serve && p && serve.ship !== undefined && c.liftSlot !== undefined) {
+      // Off the tractor straight on board.
+      return {
+        working: 'load',
+        workBoat: serve.ship,
+        workSlot: c.liftSlot,
+        workTruck: p.id,
+        workLook: this.carriedLooks(p)[0],
+        workPhase: c.timer / craneTicks(c),
+      };
+    }
     if (serve && p) {
       const top = Math.max(0, this.takingAt(p, c));
       return {
@@ -8220,9 +8237,13 @@ export class World {
     looks.push(...b.outLooks);
     for (const c of lifting) {
       const late = c.timer / craneTicks(c);
-      if (!this.liftingFrom(c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
+      const tractor = c.serving?.ship === b.id && this.people.find((q) => q.id === c.serving!.id);
+      if (tractor && late >= B.CRANE_LIFT_SET) {
         deck.push(c.liftSlot!);
-        looks.push(this.outLooks(c)[0]);
+        looks.push(this.carriedLooks(tractor)[0]);
+      } else if (!this.liftingFrom(c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
+        deck.push(c.liftSlot!);
+        looks.push(this.outLooks(c)[Math.max(0, this.craneTop(c, true))]);
       }
     }
     return { load: deck.length, looks, deck };
@@ -8287,6 +8308,18 @@ export class World {
       );
       if (!p) return false;
       c.serving = { id: p.id, give: p.state === 'picking' };
+      // An export off a tractor goes straight on board a ship it is loading.
+      const loading =
+        p.state === 'dropping' &&
+        this.boats.find(
+          (b) => b.vessel === 'feeder' && this.wantsLoad(b) && this.craneReaches(c, b),
+        );
+      const slot = loading ? this.deckSlot(c, loading, true) : -1;
+      if (loading && slot >= 0) {
+        c.serving.ship = loading.id;
+        c.liftBoat = loading.id;
+        c.liftSlot = slot;
+      }
       // The one off the top it lifts onto it.
       if (p.state === 'picking') {
         const top = this.craneTop(c, false);
@@ -8296,10 +8329,33 @@ export class World {
     c.busy = true;
     if (++c.timer < craneTicks(c)) return true;
     c.timer = 0;
+    const ship = c.serving?.ship;
     c.serving = undefined;
+    const on = this.boats.find((b) => b.id === ship && b.state === 'moored');
+    if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
+      this.onBoardFrom(c, p, on, c.liftSlot);
+      c.liftSlot = undefined;
+      return true;
+    }
     // Done: the tractor has it, or the stack has, as it finishes.
     p.timer = 1;
     return true;
+  }
+
+  /** A crane has lifted a tractor's export straight on board a ship, into deck slot `slot`. */
+  private onBoardFrom(c: Crane, p: Dockhand, ship: Boat, slot: number): void {
+    c.outReserved = Math.max(0, (c.outReserved ?? 0) - p.planned);
+    (ship.outLooks ??= []).push(...this.carriedLooks(p));
+    this.outSlots(ship).push(slot);
+    this.shipOut(ship, p.cargoFees);
+    p.carrying = 0;
+    p.cargoFees = [];
+    p.cargoLooks = undefined;
+    p.planned = 0;
+    p.toBoat = -1;
+    p.toCrane = -1;
+    p.outbound = false;
+    p.state = 'idle';
   }
 
   /**
@@ -8329,7 +8385,7 @@ export class World {
       less(Math.max(0, this.takingAt(p, c)));
       return { stack: stack - 1, out, looks, places };
     }
-    if (serve && !serve.give && p && phase >= B.CRANE_LIFT_SET) {
+    if (serve && !serve.give && serve.ship === undefined && p && phase >= B.CRANE_LIFT_SET) {
       places?.push(this.nextCranePlace(c, true));
       return { stack, out: out + 1, looks: [...looks, ...this.carriedLooks(p)], places };
     }
@@ -9924,23 +9980,11 @@ export class World {
     let office = false;
     let wide = false;
     let room = false;
-    // Berths it reaches, against the docks round it, as the harbour master
-    // looks for them (see freeBerths).
-    const front = feeder ? this.craneFront(c) : [c.idx];
-    const reaches = (n: number) => front.some((f) => this.near(f, n));
-    const docks: number[] = [];
-    for (const f of front) {
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const x = m.xOf(f) + dx;
-          const y = m.yOf(f) + dy;
-          if (m.inBounds(x, y) && isDock(m.build[m.idx(x, y)])) docks.push(m.idx(x, y));
-        }
-      }
-    }
-    for (const j of new Set(docks)) {
+    // Berths square in front of it, where a ship lies centred on it, as the
+    // harbour master looks for them (see freeBerths).
+    for (const j of feeder ? this.craneFront(c) : [c.idx]) {
       for (const n of m.neighbors4(j)) {
-        if (m.ocean[n] !== 1 || m.build[n] !== Build.None || !reaches(n)) continue;
+        if (m.ocean[n] !== 1 || m.build[n] !== Build.None) continue;
         deepest = Math.max(deepest, m.depth[n]);
         if (!this.dockInUse(j)) continue;
         office = true;
@@ -9957,7 +10001,10 @@ export class World {
     }
     if (!wide)
       return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
-    if (!room) return `No room alongside for ${what}'s hull: clear the water along the quay.`;
+    if (!room) {
+      const reach = this.boatHalf(feeder);
+      return `No room alongside for ${what}'s hull: it lies centred on the crane, and needs open water ${reach} tile${reach === 1 ? '' : 's'} either way along the quay from it.`;
+    }
     return `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`;
   }
 

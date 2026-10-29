@@ -1889,6 +1889,20 @@ describe('Container Port tier', () => {
     return spots;
   }
 
+  /** Build a gantry crane at the first spot where a feeder can lie centred on it. */
+  function placeGantry(
+    world: World,
+    spots: { at: number; f: number }[],
+  ): { at: number; f: number } {
+    for (const s of spots) {
+      world.command({ type: 'build', kind: 'gantryCrane', tiles: [s.at], facing: s.f });
+      const crane = world.cranes.get(s.at);
+      if (crane && world['berthTrouble'](crane) === null) return s;
+      world.command({ type: 'bulldoze', tiles: [s.at] });
+    }
+    throw new Error('No spot on the pier where a feeder lies centred on a gantry crane');
+  }
+
   /**
    * A tug berth beside the docks, as far from the feeder berth at the crane
    * as there is room for, and a tug lying in it.
@@ -2205,8 +2219,7 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const m = world.map;
-    const [{ at, f }] = gantryPier(world, t.crane);
-    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
     const spot: number = world['storeSpots'](yard)[0];
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
@@ -2256,8 +2269,7 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
-    const [{ at, f }] = gantryPier(world, t.crane);
-    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const c = world.cranes.get(at)!;
     // One stack filled first, two high, then the next begun.
     for (let k = 0; k < 5; k++) {
@@ -2388,8 +2400,7 @@ describe('Container Port tier', () => {
     const m = world.map;
     const spots = gantryPier(world, t.crane);
     expect(spots.length).toBeGreaterThan(0);
-    const { at, f } = spots[0];
-    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const { at, f } = placeGantry(world, spots);
     const tiles = footprint(m, 'gantryCrane', at, f);
     expect(tiles.every((i) => m.build[i] === Build.Gantry)).toBe(true);
     expect(world.cranes.get(at)!.kind).toBe('gantry');
@@ -2447,8 +2458,7 @@ describe('Container Port tier', () => {
     const spots = gantryPier(world, t.crane);
     // Not where its rails would run off the quay.
     expect(spots.length).toBeGreaterThan(0);
-    const { at, f } = spots[0];
-    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const { at, f } = placeGantry(world, spots);
     const rails = gantryRails(m, at, f);
     expect(rails).toHaveLength(2 * B.GANTRY_RAILS);
     const free = rails.filter((i) => m.build[i] === Build.Quay);
