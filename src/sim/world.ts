@@ -6880,7 +6880,7 @@ export class World {
       const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage area' : 'truck bay';
       this.message(
         bay.tiles
-          ? `Trucks cannot reach a ${what}: it needs a public road beside it, or a port road or quay beside it behind a port gate.`
+          ? `Trucks cannot reach a ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
           : `Trucks cannot reach a ${what}: it needs a public road to the highway, or port roads from a port gate.`,
         'bad',
       );

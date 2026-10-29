@@ -218,7 +218,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
             ? 'Containers bottleneck: reach stackers. They take containers from the cranes to the yards, and without a yard gantry load the trucks too. Buy more, or build yard gantries.'
             : 'Containers bottleneck: moving them from the cranes to the yards. Buy reach stackers.'
           : b.demand > b.trucking
-            ? 'Containers bottleneck: trucking. Sign a container haulier, and mark out container yards beside a public road or behind a port gate.'
+            ? 'Containers bottleneck: trucking. Sign a container haulier, and give the container yards a port road beside them, inside the port gate.'
             : null;
   return (
     <>
@@ -477,7 +477,7 @@ function OfferCard({
       <Check ok={yards > 0}>
         {yards > 0
           ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
-          : 'Container trucks load at a container yard: mark one out on port road or quay beside a public road, or behind a port gate'}
+          : 'Container trucks load at a container yard: mark one out on port road or quay, with a port road beside it inside a port gate'}
       </Check>,
     );
   } else if (t.kind === 'shipper') {

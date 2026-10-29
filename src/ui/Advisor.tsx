@@ -49,7 +49,7 @@ const TIPS: Record<string, Tip> = {
   },
   storage: {
     title: 'Crate storage',
-    text: `Trucks load from the road beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane within ${B.JIB_REACH} tiles fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both, except by a crane, one way at a time.`,
+    text: `Trucks load from inside the port, on a port road or quay beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane within ${B.JIB_REACH} tiles fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both, except by a crane, one way at a time.`,
     topic: 'storage',
   },
   yardGantry: {
@@ -59,7 +59,7 @@ const TIPS: Record<string, Tip> = {
   },
   yards: {
     title: 'Container yards',
-    text: 'Reach stackers bring containers here from the cranes, and container trucks load from the road beside the yard, shown in yellow, once customs have cleared them. Without a yard gantry, the stackers lift them onto the trucks too.',
+    text: 'Reach stackers bring containers here from the cranes, and container trucks load from inside the port, beside the yard, shown in yellow, once customs have cleared them. Without a yard gantry, the stackers lift them onto the trucks too.',
     topic: 'storage',
   },
   customs: {

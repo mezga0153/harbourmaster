@@ -419,8 +419,8 @@ export class Input {
         : spots.length > 0
           ? 'Trucks load from the yellow tiles beside it'
           : kind === 'crates'
-            ? 'No road beside it for trucks: forklifts will take its crates on'
-            : 'No road beside it: container trucks could not collect from it';
+            ? 'Trucks cannot get beside it: forklifts will take its crates on. Trucks load from a port road or quay beside it, through a port gate'
+            : 'Trucks cannot get beside it: they load from a port road or quay beside it, through a port gate, off machines-only ground';
     preview.value = {
       count,
       rotatable: false,

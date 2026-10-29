@@ -880,12 +880,21 @@ describe('Buildings', () => {
     return m.idx(x, r + side);
   }
 
-  it('marks out crate storage on port roads, and loads trucks fast beside it', () => {
+  it('marks out crate storage on port roads, and loads trucks fast from inside the port', () => {
     const world = World.create(7);
+    world.boats.length = 0; // no catch landing in the truck bay meanwhile
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
-    const at = besideRoad(world);
+    const r = m.yOf(m.entry);
+    const grass = (x: number, y: number) =>
+      m.inBounds(x, y) && m.terrain[m.idx(x, y)] === Terrain.Grass && m.build[m.idx(x, y)] === 0;
+    const x = [...Array(m.w).keys()].find(
+      (x) =>
+        [0, 1, 2].every((d) => m.build[m.idx(x + d, r)] === Build.Road) &&
+        [0, 1, 2].every((d) => [1, 2, 3].every((e) => grass(x + d, r + e))),
+    )!;
+    const at = m.idx(x + 1, r + 1);
     const tiles = [at, at + 1, at + m.w, at + m.w + 1];
     // Only on port roads and quays.
     world.command({ type: 'store', tiles, kind: 'crates', on: true });
@@ -904,14 +913,23 @@ describe('Buildings', () => {
     store.crates.push(...Array(24).fill(20));
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 2;
+    // The public road runs right beside it, but storage is inside the port:
+    // trucks never load from outside.
+    for (let t = 0; t < 200; t++) world.step();
+    expect(store.noAccess).toBe(true);
+    expect(store.crates).toHaveLength(24);
+    // A port gate off the road and a port road round it, inside.
+    world.command({ type: 'build', kind: 'portGate', tiles: [m.idx(x, r + 1)], facing: 3 });
+    expect(m.build[m.idx(x, r + 1)]).toBe(Build.Gate);
+    const inside = [m.idx(x, r + 2), m.idx(x, r + 3), m.idx(x + 1, r + 3), m.idx(x + 2, r + 3)];
+    world.command({ type: 'build', kind: 'portRoad', tiles: inside });
     let together = false;
     let loadTime = 0;
     for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
       world.step();
       const loading = world.trucks.filter((k) => k.bayIdx === at && k.state === 'loading');
-      // Both on the public road beside it.
-      for (const k of loading)
-        expect(m.build[m.idx(Math.floor(k.x), Math.floor(k.y))]).toBe(Build.Road);
+      // Both on the port road inside.
+      for (const k of loading) expect(inside).toContain(m.idx(Math.floor(k.x), Math.floor(k.y)));
       if (loading.length === 2 && loading[0].goal !== loading[1].goal) together = true;
       if (loading.length > 0) loadTime++;
     }
@@ -1634,6 +1652,11 @@ describe('Container Port tier', () => {
     world.command({ type: 'build', kind: 'portRoad', tiles: area });
     world.command({ type: 'store', tiles: area, kind: 'boxes', on: true });
     const yard = corner;
+    // Trucks load from inside the port: a gate off the public road beside
+    // the yard and a port road spur behind it, along the yard.
+    world.command({ type: 'bulldoze', tiles: [corner - 1, corner + m.w - 1] });
+    world.command({ type: 'build', kind: 'portGate', tiles: [corner + m.w - 1], facing: 1 });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [corner - 1] });
     const depot = m.idx(start, r - 3);
     world.command({ type: 'bulldoze', tiles: [depot] });
     world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
@@ -1770,7 +1793,11 @@ describe('Container Port tier', () => {
     const m = world.map;
     const yard = [...world.yards.values()][0];
     if (gantry) {
-      const spot = m.build.findIndex((_, i) => !placementError(m, 'yardGantry', i));
+      // Not on the port road the trucks load from, inside the gate.
+      const loading: number[] = world['storeSpots'](yard);
+      const spot = m.build.findIndex(
+        (_, i) => !placementError(m, 'yardGantry', i) && !loading.includes(i),
+      );
       expect(spot).toBeGreaterThanOrEqual(0);
       world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
       expect(m.build[spot]).toBe(Build.YardGantry);
@@ -2036,8 +2063,9 @@ describe('Container Port tier', () => {
     // Parking off the public road, outside the port, south of it.
     const lot = parkingLot(world);
     expect(m.build[lot[0]]).toBe(Build.Parking);
-    // A yard for containers going out beside the one for those coming in, by the road.
-    const corner = t.yard - 2;
+    // A yard for containers going out beside the one for those coming in,
+    // sharing the port road inside the gate that trucks load from.
+    const corner = t.yard - 3;
     const out = [corner, corner + 1, corner + m.w, corner + m.w + 1];
     world.command({ type: 'bulldoze', tiles: out });
     world.command({ type: 'build', kind: 'portRoad', tiles: out });
@@ -2412,7 +2440,7 @@ describe('Container Port tier', () => {
     expect(collected).toBeGreaterThan(0);
   });
 
-  it('loads container trucks only from a road beside a yard', () => {
+  it('loads container trucks at a yard only from inside the port, off machines-only ground', () => {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
@@ -2420,14 +2448,26 @@ describe('Container Port tier', () => {
     expect(t).not.toBeNull();
     const m = world.map;
     const yard = world.yards.get(t.yard)!;
-    // Take away the public road along the yard: with no road beside it,
-    // trucks cannot load.
-    const along = yard
-      .tiles!.flatMap((i) => m.neighbors4(i))
-      .filter((n) => m.build[n] === Build.Road);
-    expect(along.length).toBeGreaterThan(0);
+    // A public road runs along the yard, but trucks load only on the port
+    // road behind the gate.
+    expect(yard.tiles!.some((i) => m.neighbors4(i).some((n) => m.build[n] === Build.Road))).toBe(
+      true,
+    );
+    const spots: number[] = world['storeSpots'](yard);
+    expect(spots.length).toBeGreaterThan(0);
+    expect(spots.every((i) => m.build[i] === Build.PortRoad || m.build[i] === Build.Quay)).toBe(
+      true,
+    );
+    // Without the port road inside, nowhere to load, road or no road.
+    world.command({ type: 'bulldoze', tiles: spots });
+    expect(world['storeSpots'](yard)).toEqual([]);
+    world.command({ type: 'build', kind: 'portRoad', tiles: spots });
+    expect(world['storeSpots'](yard)).toEqual(spots);
+    // Marked for machines only, the yard is the port's machines' alone.
+    world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: true });
+    expect(world['storeSpots'](world.yards.get(t.yard)!)).toEqual([]);
+    world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: false });
     yard.boxes.push(100, 100);
-    world.command({ type: 'bulldoze', tiles: along });
     world['addContract'](
       {
         kind: 'haulier',
@@ -2441,14 +2481,29 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    for (let k = 0; k < 200; k++) world.step();
-    expect(yard.noAccess).toBe(true);
-    expect(yard.boxes.length).toBe(2);
-    // Lay the road back and they load from it.
-    world.command({ type: 'build', kind: 'road', tiles: along });
-    for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
+    for (let k = 0; k < TICKS_PER_DAY && yard.boxes.length > 0; k++) world.step();
     expect(yard.noAccess).toBe(false);
     expect(yard.boxes.length).toBe(0);
+  });
+
+  it('keeps trucks from loading storage by a crane', () => {
+    const world = World.create(7);
+    world.boats.length = 0;
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const jetty = [...Array(m.w).keys()]
+      .map((x) => m.idx(x, r))
+      .filter((i) => m.build[i] === Build.Jetty);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    const store = jetty[jetty.length - 2];
+    world.command({ type: 'store', tiles: [store], kind: 'crates', on: true });
+    expect(world.bays.get(store)).toBeDefined();
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [jetty[jetty.length - 1]] });
+    // Next to a crane it is machines-only ground: the trucks keep off.
+    expect(world['byCrane'](world.bays.get(store)!)).toBe(true);
+    expect(world['storeSpots'](world.bays.get(store)!)).toEqual([]);
   });
 
   it('collects containers left in a large bay by an older save', () => {

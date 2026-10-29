@@ -807,16 +807,20 @@ export function truckReach(map: GameMap): Int32Array {
 
 /**
  * Tiles beside a storage area where trucks can stand to load, nearest the
- * highway first: road they can reach, not a level crossing or a port gate,
- * nor storage itself.
+ * highway first. Storage is inside the port, so they load from a port road
+ * or quay they reach through a port gate, never from a public road outside
+ * it; and not beside storage on machines-only ground, which only the port's
+ * own machines work.
  */
 export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): number[] {
   const area = new Set(tiles);
   const spots = new Set<number>();
   for (const t of tiles) {
+    if (machinesOnly(map, t)) continue;
     for (const n of map.neighbors4(t)) {
       if (area.has(n) || reach[n] < 0 || map.store[n]) continue;
-      if (map.build[n] === Build.Crossing || map.build[n] === Build.Gate) continue;
+      const b = map.build[n];
+      if (b !== Build.PortRoad && b !== Build.Quay) continue;
       spots.add(n);
     }
   }

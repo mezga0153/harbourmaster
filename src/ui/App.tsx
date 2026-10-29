@@ -362,8 +362,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
             {bay.byCrane
               ? 'By a crane, it takes crates either way: coming in off the boats, or going out on them. But one way at a time: it empties before it switches.'
               : bay.outgoing
-                ? 'For crates going out: shippers’ trucks unload here from the road beside it, and the crates go on to the coasters.'
-                : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from the road beside it, on the yellow tiles.'}{' '}
+                ? 'For crates going out: shippers’ trucks unload here, from inside the port, and the crates go on to the coasters.'
+                : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from inside the port, on the yellow tiles.'}{' '}
             <More topic="storage" />
           </p>
         )}
@@ -391,7 +391,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         {bay.noAccess && (
           <p class="note bad">
             {bay.tiles
-              ? 'Trucks cannot load here: forklifts take the crates on to storage or a truck bay they can reach. For trucks to load, it needs a public road beside it, or a port road or quay beside it behind a port gate.'
+              ? 'Trucks cannot load here: forklifts take the crates on to storage or a truck bay they can reach. Trucks load storage from inside the port: a port road or quay beside it, through a port gate, and not beside the machines-only ground round a crane.'
               : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
           </p>
         )}
@@ -521,8 +521,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
         )}
         <p class="muted">
           Reach stackers stack containers here from the cranes. Customs clear them a day after their
-          ship has been unloaded, and then container trucks load them from the road beside the yard,
-          on the yellow tiles. <More topic="containers" />
+          ship has been unloaded, and then container trucks load them from inside the port, on the
+          yellow tiles. <More topic="containers" />
         </p>
         <dl class="props">
           <dt>Containers</dt>
@@ -558,8 +558,8 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <Meter value={yard.boxes / yard.capacity} />
         {yard.noAccess && (
           <p class="note bad">
-            Container trucks cannot reach this yard. It needs a public road beside it, or a port
-            road or quay beside it behind a port gate.
+            Container trucks cannot reach this yard. They load from inside the port: a port road or
+            quay beside it, through a port gate, and not beside machines-only ground.
           </p>
         )}
       </aside>

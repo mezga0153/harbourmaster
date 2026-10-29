@@ -203,9 +203,11 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
         </ul>
         <p>
-          Trucks load from beside an area, never inside it: from a public road, or from a port road
-          or quay behind a port gate. One truck loads at a time for every {B.STORE_TILES_PER_TRUCK}{' '}
-          tiles. Marking out or selecting storage shows where, in yellow.
+          Storage is inside the port, so trucks load from beside it, never in it, on a port road or
+          quay they reach through a port gate: never from a public road outside, even one right
+          beside it. Nor beside storage on machines-only ground, round a crane or marked so: only
+          the port's own machines work that. One truck loads at a time for every{' '}
+          {B.STORE_TILES_PER_TRUCK} tiles. Marking out or selecting storage shows where, in yellow.
         </p>
         <p>
           Cargo coming in and cargo going out are kept apart: storage is marked out for one or the
