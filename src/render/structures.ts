@@ -244,6 +244,8 @@ interface JibParts {
 /** A container set down on or lifted off a crane's stack that the game has not caught up with yet. */
 interface StackChange {
   look: number;
+  /** The place on the stack, where the game keeps them in places. */
+  place?: number;
   /** How many like it were on the stack as the lift began. */
   base: number;
   /** How long ago, in game seconds, so it is let go of if the game never does. */
@@ -281,7 +283,12 @@ interface HarbourCraneParts {
    * does not change its mind as the ship rolls.
    */
   choice: { angle: number; radius: number; twist: number; from: number; to: number } | null;
-  work: 'load' | 'unload' | null;
+  /** Off the ship or onto it, or a container onto a tractor beside it or off one. */
+  work: 'load' | 'unload' | 'give' | 'take' | null;
+  /** The tractor it lifts onto or off, or sets one straight on off the ship; -1 if none. */
+  truck: number;
+  /** The place on its stack the container it moves is in or goes, as the game has it. */
+  place?: number;
   boat: number;
   slot: number;
   look: number;
@@ -472,13 +479,9 @@ export class Structures {
       const g = c.sts ?? c.mhc;
       if (!g) continue;
       g.stacked = v.stack + v.out;
-      const tractor = v.working === 'give' || v.working === 'take';
-      if (c.sts) c.sts.work = v.working ?? null;
-      else if (c.mhc) c.mhc.work = tractor ? null : ((v.working as 'load' | 'unload') ?? null);
-      if (c.sts) {
-        c.sts.truck = v.workTruck ?? -1;
-        c.sts.place = v.workPlace;
-      }
+      g.work = v.working ?? null;
+      g.truck = v.workTruck ?? -1;
+      g.place = v.workPlace;
       if (v.workBoat !== undefined) g.boat = v.workBoat;
       if (v.workSlot !== undefined) g.slot = v.workSlot;
       if (v.workLook !== undefined && v.workLook !== g.look) {
@@ -875,10 +878,17 @@ export class Structures {
     let height = up;
     let twist = h.twist;
     let carry = false;
-    const ship = h.work ? this.truckSlot?.(h.boat, h.slot, this.slotAt) : null;
+    // Its stack as the game has it, each container in its place: it then
+    // shows them set down and taken itself.
+    const placed = this.cranePlaces.has(h.idx);
+    // Its other end: a slot on the ship's deck, or a tractor beside it.
+    const tractor = h.work === 'give' || h.work === 'take';
+    const direct = h.work === 'unload' && h.truck >= 0;
+    const [far, at] = tractor ? [h.truck, 0] : [h.boat, h.slot];
+    const ship = h.work ? this.truckSlot?.(far, at, this.slotAt) : null;
     if (h.work && ship) {
       const frame = turnOf(h.frame);
-      const lie = (this.slotTurn?.(h.boat, h.slot) ?? frame) - frame;
+      const lie = (this.slotTurn?.(far, at) ?? frame) - frame;
       const deck = this.hookOver(c, h.frame.worldToLocal(ship), lie);
       // The next free place on the stack, past one just set down there, or
       // wherever the container it moves is on it.
@@ -891,9 +901,18 @@ export class Structures {
               ? there
               : h.stacked + (h.landing ? 1 : 0);
       } else if (there >= 0) h.pick = there;
+      if (placed && h.place !== undefined && h.place >= 0) h.pick = h.place;
       const slot = c.stack[Math.max(0, Math.min(c.stack.length - 1, h.pick))];
-      const pile = this.hookOver(c, slot.position, slot.rotation.y);
-      const [from, to] = h.work === 'unload' ? [deck, pile] : [pile, deck];
+      const onto = direct ? this.truckSlot?.(h.truck, 0, new Vector3()) : null;
+      const pile = onto
+        ? this.hookOver(
+            c,
+            h.frame.worldToLocal(onto),
+            (this.slotTurn?.(h.truck, 0) ?? turnOf(h.frame)) - turnOf(h.frame),
+          )
+        : this.hookOver(c, slot.position, slot.rotation.y);
+      const inward = h.work === 'unload' || h.work === 'take';
+      const [from, to] = inward ? [deck, pile] : [pile, deck];
       if (!h.choice) {
         const round = swing(deck.angle, pile.angle);
         if (!h.way || Math.abs(round) < Math.PI * 0.8) h.way = Math.sign(round) || 1;
@@ -909,18 +928,21 @@ export class Structures {
         };
       }
       // Out from the ship to the stack one way round, and back the other.
-      const way = h.work === 'unload' ? h.way : -h.way;
+      const way = inward ? h.way : -h.way;
       const lift = { ...from, twist: alike(from.turn - from.angle, h.choice.from) };
       const land = { ...to, twist: alike(to.turn - to.angle, h.choice.to) };
       // High enough to clear what it passes over, carrying a container.
       const high = Math.max(up, from.height + 0.15, to.height + 0.15);
-      const onDeck = () => !!this.slotShown?.(h.boat, h.slot);
-      // On the ship's deck it waits for the game to hand the container over,
-      // a moment at most, before it lifts it or lets go of it.
-      if (h.work === 'unload' && h.phase >= CRANE_LIFT_TAKEN && h.phase < CRANE_LIFT_SET) {
+      // The ship's deck, or a tractor beside it; and a tractor it sets one
+      // straight onto off the ship.
+      const onDeck = () => !!this.slotShown?.(far, at);
+      const onTractor = () => !!this.slotShown?.(h.truck, 0);
+      // On the ship's deck or a tractor it waits for the game to hand the
+      // container over, a moment at most, before it lifts it or lets go.
+      if (inward && h.phase >= CRANE_LIFT_TAKEN && h.phase < CRANE_LIFT_SET) {
         if (onDeck()) [h.phase, h.held] = [CRANE_LIFT_TAKEN, true];
       }
-      if (h.work === 'load' && h.phase >= CRANE_LIFT_SET && !onDeck()) {
+      if (h.phase >= CRANE_LIFT_SET && (inward ? direct && !onTractor() : !onDeck())) {
         [h.phase, h.held] = [CRANE_LIFT_SET, true];
       }
       const p = h.phase;
@@ -947,7 +969,7 @@ export class Structures {
       } else if (p < b) {
         ({ angle, radius, twist } = lift);
         height = dip((p - a) / (b - a), lift.height);
-        carry = h.work === 'unload' ? !onDeck() : p >= take;
+        carry = inward ? !onDeck() : p >= take;
       } else if (p < d) {
         const t = ease((p - b) / (d - b));
         angle = lift.angle + swing(lift.angle, land.angle, way) * t;
@@ -958,14 +980,16 @@ export class Structures {
       } else {
         ({ angle, radius, twist } = land);
         height = dip((p - d) / (1 - d), land.height);
-        carry = h.work === 'load' ? !onDeck() : p < set;
+        carry = inward ? (direct ? !onTractor() : p < set) : !onDeck();
       }
-      if (h.work === 'load' && p >= take && h.leaving?.look !== h.look) {
+      if (!inward && p >= take && h.leaving?.look !== h.look) {
         if (there >= 0 && kept(h.look) >= h.base)
-          h.leaving = { look: h.look, base: h.base, age: 0 };
+          h.leaving = { look: h.look, base: h.base, age: 0, place: h.pick };
       }
-      if (h.work === 'unload' && p >= set && h.landing?.look !== h.look) {
-        if (there < 0) h.landing = { look: h.look, base: h.base, age: 0 };
+      if (inward && !direct && p >= set && h.landing?.look !== h.look) {
+        if (placed ? kept(h.look) <= h.base : there < 0) {
+          h.landing = { look: h.look, base: h.base, age: 0, place: h.pick };
+        }
       }
     }
     const follow = this.follow(dt);
@@ -977,7 +1001,18 @@ export class Structures {
     if (carry) paintContainer(h.load, h.look);
     h.drawn = h.phase;
     // The stack as the game has it, with what was just set down on it or
-    // lifted off it.
+    // lifted off it; in places, as setCranes has drawn it, and those.
+    if (placed) {
+      const landing = h.landing && c.stack[h.landing.place ?? -1];
+      if (h.landing && landing) {
+        landing.visible = true;
+        paintContainer(landing, h.landing.look);
+      }
+      const leaving = h.leaving && c.stack[h.leaving.place ?? -1];
+      if (leaving) leaving.visible = false;
+      this.poseHarbourCrane(c, h);
+      return;
+    }
     c.stack.forEach((o, k) => (o.visible = k < h.stacked));
     const landing = h.landing && c.stack[h.stacked];
     if (h.landing && landing) {
@@ -1830,6 +1865,7 @@ export class Structures {
             choice: null,
             work: null,
             boat: -1,
+            truck: -1,
             slot: 0,
             look: 0,
             phase: 0,

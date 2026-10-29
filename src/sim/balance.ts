@@ -291,6 +291,8 @@ export const TRACTOR_WAGE = 50;
 export const TRACTOR_SPEED = 0.45;
 /** Long enough for a tractor to wait under a gantry crane for it to lift a container on or off. */
 export const TRACTOR_WAIT_TICKS = 100_000;
+/** Ticks a tractor waits under a crane working a ship for one straight off it before it gives up. */
+export const TRACTOR_GIVE_UP = 300;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers

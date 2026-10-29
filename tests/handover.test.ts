@@ -147,6 +147,8 @@ interface Seen {
   liftSkew: number[];
   doubled: number;
   dropped: number;
+  /** Snapshots with a crane lifting a container onto a tractor. */
+  craneLifts: number;
 }
 
 /**
@@ -173,6 +175,7 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
     liftSkew: [],
     doubled: 0,
     dropped: 0,
+    craneLifts: 0,
   };
   const slotOf = (at: NonNullable<EntityView['handAt']>, out: Vector3): number | null =>
     entities['handSlot'](at, out);
@@ -189,6 +192,8 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
     entities.push(s.entities, now, s.tick);
     structures.setYards(s.yards);
     structures.setCranes(s.cranes);
+    for (const cv of s.cranes)
+      if (cv.workTruck !== undefined && cv.working !== 'take') seen.craneLifts++;
     for (let frame = 0; frame < 4; frame++) {
       entities.update(now, now / 1000);
       structures.update(0.025, now / 1000);
@@ -282,10 +287,8 @@ describe('Handing containers over', () => {
         expect(most(seen.lifts)).toBeLessThan(0.05);
         expect(most(seen.liftSkew)).toBeLessThan(0.01);
       }
-      // At the crane it pulls up with its trailer under the container.
-      expect(seen.takes.length).toBeGreaterThan(3);
-      expect(most(seen.takes)).toBeLessThan(0.25);
-      expect(most(seen.skew)).toBeLessThan(0.01);
+      // At the crane it waits beside it, for the crane to lift one onto it.
+      expect(seen.craneLifts).toBeGreaterThan(3);
     }
   }, 30_000);
 });
