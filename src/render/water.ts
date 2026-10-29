@@ -26,6 +26,14 @@ import { MARGIN } from './terrain';
 
 /** How fast a wake's arms open out, sideways per tile back from the bow. */
 const WAKE_SPREAD = 0.2;
+/**
+ * How strongly a boat without a wake stirs the water round it: ripples
+ * lapping out lying still and working its engine hard, and the wash at its
+ * stern working hard.
+ */
+const STIR_STILL = 0.1;
+const STIR_MOVING = 0.5;
+const STIR_WASH = 0.4;
 /** Depth that maps to the darkest blue, in metres. */
 const MAX_DEPTH = 16;
 /** Subcells per tile in the water field, for smooth shore contours. */
@@ -247,7 +255,7 @@ const fragmentShader = /* glsl */ `
       // Lapping: low ripples running out from the hull as it rocks, their
       // crests catching the light, and broken water along the waterline.
       // Lying still it only just rocks; working its engine it stirs more.
-      float rock = calm * mix(0.1, 1.0, abs(s1.y));
+      float rock = calm * mix(STIR_STILL, STIR_MOVING, abs(s1.y));
       float lap = exp(-max(d, 0.0) * 3.0) * smoothstep(-0.04, 0.02, d) * rock;
       float ripple = sin(d * 18.0 - uTime * 2.4 + s1.w);
       tilt += outward * ripple * lap * 0.55;
@@ -257,7 +265,7 @@ const fragmentShader = /* glsl */ `
       churn = max(churn, lap * (0.2 + max(ripple, 0.0) * 0.3));
 
       // Engine wash at the stern.
-      float work = abs(s1.y) * calm;
+      float work = abs(s1.y) * calm * STIR_WASH;
       if (work < 0.01) continue;
       float astern = step(s1.y, 0.0);
       vec2 stern = s0.xy - fwd * s0.w;
@@ -365,7 +373,15 @@ export class Water {
     }
 
     this.material = new ShaderMaterial({
-      defines: { WAKE_MAX, WAKE_POINTS, STIR_MAX, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
+      defines: {
+        WAKE_MAX,
+        WAKE_POINTS,
+        STIR_MAX,
+        STIR_STILL: STIR_STILL.toFixed(3),
+        STIR_MOVING: STIR_MOVING.toFixed(3),
+        STIR_WASH: STIR_WASH.toFixed(3),
+        WAKE_SPREAD: WAKE_SPREAD.toFixed(3),
+      },
       vertexShader,
       fragmentShader,
       transparent: true,
