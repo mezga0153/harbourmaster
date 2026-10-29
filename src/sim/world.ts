@@ -6793,10 +6793,8 @@ export class World {
       .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
       .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
     for (const store of stores) {
-      const dock = this.freeDock(store);
-      if (dock < 0) continue;
-      const path = this.routeFrom(t, dock, this.truckCost(store.idx, -1, t));
-      if (path) return { store, dock, path };
+      const to = this.dockFor(store, (d) => this.routeFrom(t, d, this.truckCost(store.idx, -1, t)));
+      if (to) return { store, ...to };
     }
     return null;
   }
@@ -7859,6 +7857,64 @@ export class World {
   }
 
   /** A dock at this bay no truck is using or heading for, or -1. */
+  /** Whether the last dockFor found a way to any free spot, through a truck or not. */
+  private dockRouted = false;
+
+  /** Standing at a loading spot, loading or unloading. */
+  private docked(o: Truck): boolean {
+    return o.state === 'loading' || o.state === 'delivering';
+  }
+
+  /**
+   * A free loading spot at this bay or storage, and the way there by `route`,
+   * that does not drive up the lane through a truck already standing at a
+   * spot: one beyond it waits until there is a way past, rather than going
+   * through it. The furthest along such a lane first. Null when there is none.
+   */
+  private dockFor(
+    bay: Bay,
+    route: (dock: number) => number[] | null,
+  ): { dock: number; path: number[] } | null {
+    const m = this.map;
+    const standing = this.trucks.filter((o) => this.docked(o));
+    const free = this.loadingDocks(bay).filter((d) => this.freeDockSet(bay).has(d));
+    this.dockRouted = false;
+    // The furthest in first, so those that come after stop short of it
+    // rather than having to get past.
+    let best: { dock: number; path: number[] } | null = null;
+    for (const dock of free) {
+      const path = route(dock);
+      if (!path) continue;
+      this.dockRouted = true;
+      const through = path.some((i, k) => {
+        const prev = k > 0 ? path[k - 1] : -1;
+        if (prev < 0) return false;
+        const dx = m.xOf(i) - m.xOf(prev);
+        const dy = m.yOf(i) - m.yOf(prev);
+        // In its lane: on its tile, going the way it faces.
+        return standing.some(
+          (o) => this.tileOf(o) === i && Math.cos(o.dir) * dx + Math.sin(o.dir) * dy > 0.5,
+        );
+      });
+      if (!through && (!best || path.length > best.path.length)) best = { dock, path };
+    }
+    return best;
+  }
+
+  /** The loading spots at a bay no truck is at or on its way to. */
+  private freeDockSet(bay: Bay): Set<number> {
+    const taken = new Set(
+      this.trucks
+        .filter(
+          (t) =>
+            t.bayIdx === bay.idx &&
+            (t.state === 'toBay' || t.state === 'loading' || t.state === 'delivering'),
+        )
+        .map((t) => t.goal),
+    );
+    return new Set(this.loadingDocks(bay).filter((d) => !taken.has(d)));
+  }
+
   private freeDock(bay: Bay): number {
     const taken = new Set(
       this.trucks
@@ -8082,15 +8138,21 @@ export class World {
       // inside the port, or is not sent yet.
       const boxy = haulier.terms.cargo === 'container';
       const served = !boxy || this.handlerFree(bay);
-      const spot = served ? this.freeDock(bay) : -1;
+      const to = served
+        ? this.dockFor(bay, (d) => findPath(m.w, m.h, m.entry, d, this.truckCost(bay.idx), false))
+        : null;
+      const spot = to ? to.dock : -1;
+      // No way to any free spot at all, rather than only past a truck there.
+      if (served && !to && !this.dockRouted && this.freeDockSet(bay).size > 0) {
+        this.cutOff(bay);
+        continue;
+      }
       const wide = needsWideSpace(haulier.terms.capacity, boxy);
       const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
       // A bay beside it may have just sent a truck to the spot they share.
       if (spot < 0 && !space) continue;
       const into = space ? this.intoSpace(m.entry, space, bay.idx) : null;
-      const path = space
-        ? (into?.path ?? null)
-        : findPath(m.w, m.h, m.entry, spot, this.truckCost(bay.idx), false);
+      const path = space ? (into?.path ?? null) : (to?.path ?? null);
       const dock = path && path.length > 0 ? path[path.length - 1] : spot;
       if (!path) {
         this.cutOff(bay);
@@ -8188,10 +8250,9 @@ export class World {
           return this.leavePark(t);
         }
         if (t.boxes && !this.handlerFree(bay, t)) return;
-        const dock = this.freeDock(bay);
-        if (dock < 0) return;
-        const path = this.routeFrom(t, dock, this.truckCost(bay.idx, -1, t));
-        if (!path) return;
+        const to = this.dockFor(bay, (d) => this.routeFrom(t, d, this.truckCost(bay.idx, -1, t)));
+        if (!to) return;
+        const { dock, path } = to;
         t.park = undefined;
         t.path = path;
         t.goal = dock;
@@ -8385,7 +8446,8 @@ export class World {
   private gapAhead(t: Truck): number {
     let best = Infinity;
     for (const o of this.trucks) {
-      if (o === t || !this.onRoad(o)) continue;
+      // A truck standing at a loading spot holds up the lane like any other.
+      if (o === t || !(this.onRoad(o) || this.docked(o))) continue;
       const along = this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
