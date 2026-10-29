@@ -468,6 +468,14 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <dd>
             {c.stack} / {c.max} {c.kind === 'jib' ? 'crates' : 'containers'}
           </dd>
+          {c.out > 0 && (
+            <>
+              <dt>Exports set down for it</dt>
+              <dd>
+                {c.out} {c.out === 1 ? 'container' : 'containers'}, for the next ship it works
+              </dd>
+            </>
+          )}
           {c.kind === 'jib' && (
             <>
               <dt>Crate storage in reach</dt>
@@ -597,7 +605,7 @@ const CRANE_NOTE = {
   harbour:
     'Lifts containers off a feeder ship alongside onto a stack beside it, for the reach stackers. Slow, but several can work one ship. The ground round it is for port machines only.',
   gantry:
-    'Ship-to-shore crane: lifts containers quickly into the bay between its legs. Only reach stackers collect from there, never the hauliers’ trucks. The ground round it is for port machines only.',
+    'Ship-to-shore crane: runs along the ship lifting containers off quickly, and sets them down at the shipside between its legs, along with exports brought for it to put on board. Reach stackers collect from there, and it lifts them onto terminal tractors waiting under it; never the hauliers’ trucks. The ground round it is for port machines only.',
 };
 
 function PreviewTip() {

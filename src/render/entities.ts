@@ -91,8 +91,15 @@ interface Hand {
   pivot?: { x: number; z: number };
   /** Game time the container changed hands, as it goes back to driving. */
   done?: number;
+  /**
+   * Where it works it, once known: kept for the whole of it, so it does not
+   * jump when another load comes or goes there meanwhile.
+   */
+  goal?: Pose;
 }
 
+/** Furthest a forklift drives up to a pallet, from where it stops for it. */
+const REACH_MOST = 0.8;
 /** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
 const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
@@ -527,6 +534,8 @@ export class Entities {
         }
         root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
+        // Where it is, for it to drive up to a pallet from when it gets to one.
+        e.pose = { x: rx, z: ry, dir: yaw, h: 0 };
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
         if (e.model.trailer) this.trail(e, e.model.trailer, x, y, dir, cur.moving, dt);
@@ -677,7 +686,14 @@ export class Entities {
       // Seen part way through, at speed, it does the rest in what is left.
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
-      const goal = this.workPose(v, w, drive) ?? { ...drive, h: 0 };
+      w.goal ??= this.workPose(v, w, drive) ?? undefined;
+      // A forklift too far to drive up to its pallet in the time it has
+      // works it from where it is.
+      const far = w.goal && Math.hypot(w.goal.x - w.from.x, w.goal.z - w.from.z) > REACH_MOST;
+      if (w.goal && far && v.kind === 'forklift') {
+        w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h };
+      }
+      const goal = w.goal ?? { ...drive, h: 0 };
       // Under a gantry, a tractor is lined up before the spreader comes down;
       // otherwise it drives up to where it works it.
       const a = phase / (w.pivot ? 0.08 : 0.4);
