@@ -6,7 +6,7 @@ import * as B from '../sim/balance';
 import { fisheryDailyCrates, fisheryDailyValue, type Terms } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './App';
-import { money } from './format';
+import { duration, money } from './format';
 import { Icon } from './icons';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter } from './widgets';
@@ -259,7 +259,14 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
     ]);
   } else {
     rows.push(['At the port', `${c.active} of ${t.fleet}`]);
-    rows.push(['Away', c.away > 0 ? `${c.away} on their round` : <span class="muted">None</span>]);
+    rows.push([
+      'Away',
+      c.away > 0 ? (
+        `${c.away} on their round, the next back in ${duration(c.backIn)}`
+      ) : (
+        <span class="muted">None</span>
+      ),
+    ]);
   }
   return (
     <div class={`card ${c.waiting > 0 ? 'alerting' : ''}`}>

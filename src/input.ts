@@ -223,6 +223,8 @@ export class Input {
       selection.value = { type: 'warehouse' in store ? 'bay' : 'yard', idx: store.idx };
     } else if (i !== null && snapshot.value?.bays.some((b) => b.idx === i)) {
       selection.value = { type: 'bay', idx: i };
+    } else if (i !== null && snapshot.value?.cranes.some((c) => c.idx === i)) {
+      selection.value = { type: 'crane', idx: i };
     } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
       selection.value = { type: 'depot', idx: i };
     } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {

@@ -5187,6 +5187,13 @@ export class World {
     return n;
   }
 
+  /** Ticks until the next container in this yard clears customs, or -1. */
+  private nextClear(b: Bay): number {
+    const ready = this.readyList(b);
+    const next = ready[this.cleared(b)];
+    return next === undefined ? -1 : next - this.tick;
+  }
+
   /** What a truck could take away from this bay now. */
   private collectable(b: Bay): number {
     return b.crates.length + (b.yard ? this.cleared(b) : b.boxes.length);
@@ -5849,6 +5856,108 @@ export class World {
     return out;
   }
 
+  // ── Explanations ──────────────────────────────────────────
+  //
+  // Why something is held up, in words, for the info panels: the same
+  // checks the sim makes, said out loud.
+
+  private boatWhy(b: Boat): string | undefined {
+    const hands = this.people.some((q) => q.kind === 'dockhand');
+    if (b.state === 'anchored') {
+      if (b.vessel === 'feeder' && this.berthCount(b.draft, true, true) === 0) {
+        return `No berth for a feeder ship: it needs a harbour or gantry crane on a quay two tiles wide, in ${B.FEEDER_DRAFT} m of water.`;
+      }
+      if (b.vessel === 'coaster' && this.berthCount(b.draft, true) === 0) {
+        return `No berth for a coaster: it needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water.`;
+      }
+      if (
+        b.vessel !== 'feeder' &&
+        !hands &&
+        [...this.cranes.values()].some((c) => c.kind === 'jib')
+      ) {
+        return 'With no dockhands to unload by hand, boats wait for a berth under a jib crane. Hire dockhands, or build more jib cranes.';
+      }
+      return 'Every berth it fits is taken, or a boat is coming or going in the way. More berths help.';
+    }
+    if (b.state !== 'moored' || b.crates === 0) return undefined;
+    if (b.vessel === 'feeder') {
+      const cranes = [...this.cranes.values()].filter((c) => c.kind !== 'jib');
+      if (cranes.length > 0 && cranes.every((c) => c.stack.length >= craneStack(c))) {
+        return 'The cranes have set down all they can: reach stackers must take the containers to a container yard first.';
+      }
+      return undefined;
+    }
+    const jib = [...this.cranes.values()].find(
+      (c) => c.kind === 'jib' && this.near(c.idx, b.berth),
+    );
+    const spots = this.pickupSpots(b).filter((t) => walkableAt(this.map, t));
+    if (!jib && (spots.length === 0 || !hands)) {
+      return hands
+        ? 'Dockhands cannot get to it: it lies by machines-only ground. Forklifts cannot unload boats.'
+        : 'Nobody to unload it: forklifts cannot unload boats. Hire dockhands, or berth boats under a jib crane.';
+    }
+    if (jib && jib.stack.length >= B.CRANE_STACK && this.jibStores(jib).length === 0) {
+      return "The crane's landing stack is full: a forklift must take it away. Crate storage within reach would take crates straight in.";
+    }
+    if (b.vessel === 'coaster' && !this.forklifts() && !(jib && this.jibStores(jib).length > 0)) {
+      return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
+    }
+    return undefined;
+  }
+
+  private workerWhy(p: Dockhand): string | undefined {
+    if (p.state !== 'idle' || p.kind !== 'dockhand') return undefined;
+    const waiting = this.boats.filter(
+      (b) => b.state === 'moored' && b.vessel !== 'feeder' && b.crates - b.reserved > 0,
+    );
+    const outOfReach = waiting.filter(
+      (b) => !this.pickupSpots(b).some((t) => walkableAt(this.map, t)),
+    );
+    if (waiting.length > 0 && outOfReach.length === waiting.length) {
+      return 'Boats are waiting, but dockhands keep off machines-only ground and the ground round cranes.';
+    }
+    return undefined;
+  }
+
+  private truckWhy(t: Truck): string | undefined {
+    if (t.state !== 'loading') return undefined;
+    const bay = this.dest(t.bayIdx);
+    if (!bay) return undefined;
+    if (t.boxes && bay.yard && this.cleared(bay) === 0 && bay.boxes.length > 0) {
+      return 'Waiting for customs to clear the containers in the yard.';
+    }
+    if (this.collectable(bay) === 0) {
+      return 'Waiting for more cargo. It leaves part-loaded if none comes soon.';
+    }
+    return undefined;
+  }
+
+  private craneWhy(c: Crane): string {
+    const full = c.stack.length >= craneStack(c);
+    if (c.kind === 'jib') {
+      const stores = this.jibStores(c);
+      if (c.busy) {
+        return stores.some((a) => bayRoom(a, false) > 0)
+          ? 'Swinging crates straight into crate storage.'
+          : 'Lifting crates onto its landing stack.';
+      }
+      if (full) {
+        return 'Landing stack full: waiting for a forklift to take it away. Dockhands keep off the ground round a crane.';
+      }
+      if (c.stack.length > 0) return 'Waiting for a forklift to collect its landing stack.';
+      return 'No boat lying under it.';
+    }
+    if (c.busy) return 'Lifting containers off the ship.';
+    if (full) {
+      return c.kind === 'gantry'
+        ? 'The bay between its legs is full: waiting for reach stackers.'
+        : 'Stack full: waiting for reach stackers.';
+    }
+    return c.stack.length > 0
+      ? 'Waiting for reach stackers to take the containers to a yard.'
+      : 'No container ship alongside.';
+  }
+
   snapshot(): Snapshot {
     const entities: EntityView[] = [];
     const staff: StaffView[] = [];
@@ -5869,6 +5978,7 @@ export class World {
         variant: 0,
         capacity: p.capacity,
         alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
+        why: this.workerWhy(p),
       });
       staff.push({
         id: p.id,
@@ -5932,6 +6042,7 @@ export class World {
               ? B.COASTER_MAX_LOAD
               : B.BOAT_MAX_LOAD,
         alert: b.state === 'anchored',
+        why: this.boatWhy(b),
         vessel: b.vessel,
         boxes: b.vessel === 'feeder',
       });
@@ -5958,6 +6069,7 @@ export class World {
         capacity: t.capacity,
         alert: false,
         boxes: t.boxes,
+        why: this.truckWhy(t),
       });
     }
     const bays: BayView[] = [...this.bays.values()].map((b) => ({
@@ -5981,6 +6093,10 @@ export class World {
           ? this.boats.filter((b) => b.contractId === c.id).length
           : this.trucks.filter((t) => t.contractId === c.id && !t.away).length,
       away: (c.returns ?? []).filter((at) => at > this.tick).length,
+      backIn: (c.returns ?? []).reduce(
+        (n, at) => (at > this.tick && (n < 0 || at - this.tick < n) ? at - this.tick : n),
+        -1,
+      ),
       waiting: this.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
       nextIn: c.terms.kind === 'fishery' ? Math.max(0, c.nextBoatTick - this.tick) : -1,
     }));
@@ -6008,6 +6124,7 @@ export class World {
         idx: y.idx,
         boxes: y.boxes.length,
         cleared: this.cleared(y),
+        nextClear: this.nextClear(y),
         capacity: bayCap(y),
         tiles: [...(y.tiles ?? [y.idx])],
         noAccess: y.noAccess,
@@ -6030,8 +6147,11 @@ export class World {
         idx: c.idx,
         kind: c.kind,
         stack: c.stack.length,
+        max: craneStack(c),
         angle: c.angle,
         busy: c.busy,
+        stores: c.kind === 'jib' ? this.jibStores(c).length : 0,
+        why: this.craneWhy(c),
       })),
       town: this.town && {
         name: this.town.name,

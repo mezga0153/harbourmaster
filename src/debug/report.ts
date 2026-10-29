@@ -68,7 +68,8 @@ export function report(s: Snapshot, x: ReportExtras): string {
       es.map(
         (e) =>
           `- #${e.id} ${e.name}${e.vessel ? ` [${e.vessel}]` : ''} at ${pos(e)}: ${e.activity}` +
-          `${e.load ? `, load ${e.load}/${e.capacity}` : ''}${e.alert ? ' ⚠' : ''}`,
+          `${e.load ? `, load ${e.load}/${e.capacity}` : ''}${e.alert ? ' ⚠' : ''}` +
+          `${e.why ? ` (why: ${e.why})` : ''}`,
       ),
     );
   }
@@ -102,7 +103,7 @@ export function report(s: Snapshot, x: ReportExtras): string {
   );
   section(
     'Cranes',
-    s.cranes.map((k) => `- ${k.kind} ${at(k.idx)}: stack ${k.stack}${k.busy ? ', busy' : ''}`),
+    s.cranes.map((k) => `- ${k.kind} ${at(k.idx)}: stack ${k.stack}/${k.max}: ${k.why}`),
   );
   section(
     'Depots',

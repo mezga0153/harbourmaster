@@ -4,7 +4,7 @@ import type { Command } from '../protocol';
 import * as B from '../sim/balance';
 import { BUILDABLES } from '../sim/rules';
 import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
-import { dayProgress, formatDate, money } from './format';
+import { dayProgress, duration, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
 import { PortPanel } from './Port';
@@ -28,7 +28,7 @@ import {
   snapshot,
   tool,
 } from './store';
-import { InfoHeader, Meter } from './widgets';
+import { InfoHeader, Meter, Why } from './widgets';
 
 export interface Actions {
   send(cmd: Command): void;
@@ -364,6 +364,34 @@ function InfoPanel({ actions }: { actions: Actions }) {
     );
   }
 
+  if (sel.type === 'crane') {
+    const c = s.cranes.find((k) => k.idx === sel.idx);
+    if (!c) return null;
+    return (
+      <aside class="side panel">
+        <InfoHeader kicker="Crane" title={CRANE_NAME[c.kind]} onClose={close} />
+        <p class="status">
+          <span class={`dot ${c.busy ? 'live' : ''}`} />
+          {c.why}
+        </p>
+        <p class="muted">{CRANE_NOTE[c.kind]}</p>
+        <dl class="props">
+          <dt>{c.kind === 'gantry' ? 'Between its legs' : 'Landing stack'}</dt>
+          <dd>
+            {c.stack} / {c.max} {c.kind === 'jib' ? 'crates' : 'containers'}
+          </dd>
+          {c.kind === 'jib' && (
+            <>
+              <dt>Crate storage in reach</dt>
+              <dd>{c.stores > 0 ? `${c.stores} area${c.stores === 1 ? '' : 's'}` : 'None'}</dd>
+            </>
+          )}
+        </dl>
+        <Meter value={c.stack / c.max} />
+      </aside>
+    );
+  }
+
   if (sel.type === 'yard') {
     const yard = s.yards.find((y) => y.idx === sel.idx);
     if (!yard) return null;
@@ -381,6 +409,13 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
           <dt>Cleared by customs</dt>
           <dd>{yard.cleared}</dd>
+          <dt>In customs</dt>
+          <dd>
+            {yard.boxes - yard.cleared}
+            {yard.nextClear >= 0 && (
+              <span class="muted"> · next clears in {duration(yard.nextClear)}</span>
+            )}
+          </dd>
           <dt>Area</dt>
           <dd>
             {yard.tiles.length} tile{yard.tiles.length === 1 ? '' : 's'}
@@ -406,13 +441,17 @@ function InfoPanel({ actions }: { actions: Actions }) {
         <span class={`dot ${e.moving ? 'live' : ''}`} />
         {e.activity}
       </p>
+      {e.why && <Why>{e.why}</Why>}
       {(e.kind === 'dockhand' || e.kind === 'forklift' || e.kind === 'stacker') && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
       {e.kind === 'boat' && (
         <dl class="props">
           <dt>Cargo</dt>
-          <dd>{e.load} crates</dd>
+          <dd>
+            {e.load}{' '}
+            {e.boxes ? 'containers' : e.vessel === 'coaster' ? 'crates on pallets' : 'crates'}
+          </dd>
         </dl>
       )}
       {e.kind === 'truck' && (
@@ -420,7 +459,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <dl class="props">
             <dt>Load</dt>
             <dd>
-              {e.load} / {e.capacity} crates
+              {e.load} / {e.capacity} {e.boxes ? 'containers' : 'crates'}
             </dd>
           </dl>
           <Meter value={e.load / e.capacity} />
@@ -429,6 +468,16 @@ function InfoPanel({ actions }: { actions: Actions }) {
     </aside>
   );
 }
+
+const CRANE_NAME = { jib: 'Jib crane', harbour: 'Harbour crane', gantry: 'Gantry crane' };
+
+const CRANE_NOTE = {
+  jib: `Lifts crates off a boat lying under it: straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto its landing stack for the forklifts. The ground round it is for port machines only, so dockhands keep off.`,
+  harbour:
+    'Lifts containers off a feeder ship alongside onto a stack beside it, for the reach stackers. Slow, but several can work one ship. The ground round it is for port machines only.',
+  gantry:
+    'Ship-to-shore crane: lifts containers quickly into the bay between its legs. Only reach stackers collect from there, never the hauliers’ trucks. The ground round it is for port machines only.',
+};
 
 function PreviewTip() {
   const p = preview.value;

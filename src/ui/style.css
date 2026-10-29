@@ -566,6 +566,23 @@ button:focus-visible {
   font-size: 12.5px;
 }
 
+.note.why {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: #ffe2b0;
+  background: var(--accent-soft);
+  border: 1px solid rgba(245, 184, 61, 0.3);
+}
+
+.note.why svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
 .note.bad {
   color: #ffc9c9;
   background: var(--bad-soft);

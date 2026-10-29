@@ -23,6 +23,16 @@ export function InfoHeader({
   );
 }
 
+/** Why something is held up, and what would help. */
+export function Why({ children }: { children: ComponentChildren }) {
+  return (
+    <p class="note why">
+      <Icon name="alert" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 export function Meter({ value, tone }: { value: number; tone?: string }) {
   return (
     <div class={`meter ${tone ?? ''}`}>

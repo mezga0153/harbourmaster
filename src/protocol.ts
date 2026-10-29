@@ -71,14 +71,22 @@ export interface EntityView {
   plot?: number[];
   /** Boats: the boat it is giving way to. */
   givingWayTo?: number;
+  /** Why it is held up, when it is, and what would help. */
+  why?: string;
 }
 
 export interface CraneView {
   idx: number;
   kind: 'jib' | 'harbour' | 'gantry';
   stack: number;
+  /** Most it sets down before waiting for them to be taken away. */
+  max: number;
   angle: number;
   busy: boolean;
+  /** Jib cranes: crate storage areas in reach. */
+  stores: number;
+  /** What it is doing, or why it is not. */
+  why: string;
 }
 
 export interface TierProgress {
@@ -134,6 +142,8 @@ export interface ContractView {
   waiting: number;
   /** Ticks until the next boat sets out, or -1 for hauliers. */
   nextIn: number;
+  /** Hauliers: ticks until the next truck away is back, or -1. */
+  backIn: number;
   /** Boats or trucks of this company currently at the port. */
   active: number;
   /** Hauliers: trucks away on their round, not back yet. */
@@ -183,6 +193,8 @@ export interface YardView {
   boxes: number;
   /** Cleared by customs, so the trucks may take them. */
   cleared: number;
+  /** Ticks until the next container clears, or -1. */
+  nextClear: number;
   capacity: number;
   tiles: number[];
   noAccess: boolean;

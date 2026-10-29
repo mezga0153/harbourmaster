@@ -28,6 +28,7 @@ export type Selection =
   | { type: 'bay'; idx: number }
   | { type: 'depot'; idx: number }
   | { type: 'yard'; idx: number }
+  | { type: 'crane'; idx: number }
   | { type: 'town' }
   | { type: 'railway' };
 
