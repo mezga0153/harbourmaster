@@ -6113,6 +6113,7 @@ export class World {
     const m = this.map;
     for (const c of this.shippers()) {
       if (this.tick < c.nextBoatTick) continue;
+      if (!this.entryClear()) return;
       const wide = needsWideSpace(c.terms.capacity, c.terms.cargo === 'container');
       const space = this.freeParking(null, true, wide);
       const into = space ? this.intoSpace(m.entry, space, -1) : null;
@@ -6932,6 +6933,7 @@ export class World {
       if (bay.crates.length >= bayCap(bay)) this.bayFullTicks += 10;
     }
     for (const bay of bays) {
+      if (!this.entryClear()) return;
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
       const haulier =
@@ -6968,7 +6970,8 @@ export class World {
       const spot = served ? this.freeDock(bay) : -1;
       const wide = needsWideSpace(haulier.terms.capacity, boxy);
       const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
-      if (!served && !space) continue;
+      // A bay beside it may have just sent a truck to the spot they share.
+      if (spot < 0 && !space) continue;
       const into = space ? this.intoSpace(m.entry, space, bay.idx) : null;
       const path = space
         ? (into?.path ?? null)
@@ -7210,9 +7213,15 @@ export class World {
   //
   // Trucks keep to the right (see snapshot), so those going opposite ways
   // pass each other. Going the same way, each keeps its distance behind the
-  // one ahead. At a junction a truck waits while another is crossing it,
-  // and gives way to one coming in from its right. One held up for good
-  // creeps on anyway, so traffic never locks up.
+  // one ahead. A junction is where the rules come in: a truck goes onto one
+  // only with room to get off it again, waits while another is driving
+  // across it, and gives way to traffic on a bigger road, to traffic coming
+  // from its right, and turning left, to oncoming traffic. Out of parking,
+  // it gives way to everything. Only moving traffic is given way to; between
+  // two trucks both standing at the line, one goes and the other waits, by
+  // an order that takes turns, so two never wait for each other. A truck
+  // held up for long enough waives the rules, then its room, and at the
+  // very last its distance, so the roads never lock up for good.
 
   /** Loading at the kerb, unloading in town, parked or away on the highway: off the road. */
   private onRoad(o: Truck): boolean {
@@ -7225,6 +7234,11 @@ export class World {
     );
   }
 
+  /** On the road and moving, rather than standing in a queue or at a line. */
+  private rolling(o: Truck): boolean {
+    return this.onRoad(o) && o.path.length > 0 && (o.held ?? 0) === 0;
+  }
+
   /** How far a truck may drive this tick: its speed, short of a safe gap behind the one ahead. */
   private pace(t: Truck): () => number {
     return () => {
@@ -7232,72 +7246,180 @@ export class World {
       t.held = still ? (t.held ?? 0) + 1 : 0;
       t.lastX = t.x;
       t.lastY = t.y;
-      if (t.held > B.TRUCK_SQUEEZE_AFTER) return B.TRUCK_SPEED;
+      if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return B.TRUCK_SPEED;
       return clamp(this.gapAhead(t) - B.TRUCK_GAP, 0, B.TRUCK_SPEED);
     };
   }
 
+  /** Where a truck is on the road: on the right-hand side of it, or in the middle of a parking space. */
+  private lanePos(o: Truck): [number, number] {
+    if (o.state === 'parked') return [o.x, o.y];
+    return [o.x - Math.sin(o.dir) * B.TRUCK_LANE, o.y + Math.cos(o.dir) * B.TRUCK_LANE];
+  }
+
   /** Distance to the nearest truck ahead in the same lane, going the same way; Infinity if none. */
   private gapAhead(t: Truck): number {
-    const hx = Math.cos(t.dir);
-    const hy = Math.sin(t.dir);
     let best = Infinity;
     for (const o of this.trucks) {
       if (o === t || !this.onRoad(o)) continue;
-      const dx = o.x - t.x;
-      const dy = o.y - t.y;
-      const along = dx * hx + dy * hy;
-      if (along <= 0 || along > 3) continue;
-      // In the lane ahead, and not coming the other way on its own side.
-      if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - t.dir) < -0.2) continue;
+      const along = this.ahead(t, o);
+      // Two caught across each other, as one turns past the other: the newer one waits.
+      if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
       best = Math.min(best, along);
     }
     return best;
   }
 
-  /** Where three or more roads meet, for the trucks. Cleared when the port changes. */
+  /**
+   * How far ahead of truck `t` truck `o` is, in its lane and not coming the
+   * other way on its own side of the road; -1 if it is not.
+   */
+  private ahead(t: Truck, o: Truck): number {
+    const hx = Math.cos(t.dir);
+    const hy = Math.sin(t.dir);
+    const [tx, ty] = this.lanePos(t);
+    const [ox, oy] = this.lanePos(o);
+    const dx = ox - tx;
+    const dy = oy - ty;
+    const along = dx * hx + dy * hy;
+    if (along < 0 || along > 3) return -1;
+    if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - t.dir) < -0.2) return -1;
+    return along;
+  }
+
+  /**
+   * Where three or more roads meet, for the trucks. Not inside a stretch of
+   * port road two or more wide all round, where trucks drive as they find
+   * room. Cleared when the port changes.
+   */
   private junctions(): Uint8Array {
     if (this.junctionCache) return this.junctionCache;
     const m = this.map;
     const road = truckCost(m);
+    const ok = (x: number, y: number) => m.inBounds(x, y) && Number.isFinite(road(m.idx(x, y)));
     const out = new Uint8Array(m.build.length);
     for (let i = 0; i < m.build.length; i++) {
       if (!Number.isFinite(road(i))) continue;
       const ways = m.neighbors4(i).filter((n) => Number.isFinite(road(n))).length;
-      if (ways >= 3) out[i] = 1;
+      if (ways < 3) continue;
+      const x = m.xOf(i);
+      const y = m.yOf(i);
+      const open = [-1, 1].some((dx) =>
+        [-1, 1].some((dy) => ok(x + dx, y) && ok(x, y + dy) && ok(x + dx, y + dy)),
+      );
+      if (!open) out[i] = 1;
     }
     this.junctionCache = out;
     return out;
   }
 
+  /** How much a road's traffic has priority: public road over port road, both over parking. */
+  private roadRank(i: number): number {
+    const b = this.map.build[i];
+    return isPublicRoad(b) ? 2 : b === Build.Parking ? 0 : 1;
+  }
+
+  /** Unit heading from tile `a` to the neighbouring tile `b`. */
+  private heading(a: number, b: number): [number, number] {
+    const m = this.map;
+    return [m.xOf(b) - m.xOf(a), m.yOf(b) - m.yOf(a)];
+  }
+
+  /** Whether a truck about to drive onto junction `i` has room to drive off it again. */
+  private roomPast(t: Truck, i: number): boolean {
+    const exit = t.path[1];
+    if (exit === undefined) return true;
+    const [ex, ey] = this.heading(i, exit);
+    for (const o of this.trucks) {
+      if (o === t || !this.onRoad(o) || this.rolling(o)) continue;
+      const tile = this.tileOf(o);
+      if (tile !== exit && tile !== i) continue;
+      // Standing just past it in the lane we want, or still on it going our way.
+      if (Math.cos(o.dir) * ex + Math.sin(o.dir) * ey > 0.7) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Of two trucks both standing at a junction, which goes first: a strict
+   * order at any moment, so that one of them does, which turns over every
+   * few seconds so that both get to.
+   */
+  private goesFirst(a: Truck, b: Truck, i: number): boolean {
+    const turn = Math.floor(this.tick / B.TRUCK_TAKE_TURNS) + i;
+    return (turn & 1) === 0 ? a.id < b.id : a.id > b.id;
+  }
+
   /**
    * Whether a truck may drive on into tile `i`: the level crossing is open,
-   * and at a junction nobody is crossing it and nobody waits to come in from
-   * its right.
+   * and at a junction, or coming out of parking, the rules of the road let
+   * it.
    */
   private mayEnter(t: Truck): (i: number) => boolean {
     return (i) => {
       if (!this.level(i)) return false;
-      if (!this.junctions()[i] || (t.held ?? 0) > B.TRUCK_SQUEEZE_AFTER) return true;
       const m = this.map;
-      for (const o of this.trucks) {
-        if (o === t || !this.onRoad(o)) continue;
-        // Crossing it now, other than going our way ahead of us.
-        if (this.tileOf(o) === i && Math.cos(o.dir - t.dir) < 0.7) return false;
-      }
-      // Priority to the right.
+      const here = this.tileOf(t);
+      const fromParking = m.build[here] === Build.Parking && m.build[i] !== Build.Parking;
+      if (!this.junctions()[i] && !fromParking) return true;
+      const held = t.held ?? 0;
+      if (held > B.TRUCK_SQUEEZE_AFTER * 2) return true;
+      if (!this.roomPast(t, i)) return false;
+      if (held > B.TRUCK_SQUEEZE_AFTER) return true;
+
+      const [hx, hy] = this.heading(here, i);
+      const exit = t.path[1];
+      const [ex, ey] = exit === undefined ? [hx, hy] : this.heading(i, exit);
+      // To our right, the way we are heading: (-hy, hx) on this grid.
+      const leftTurn = ex * -hy + ey * hx < -0.5;
+      const rank = fromParking ? 0 : this.roadRank(here);
       const cx = m.xOf(i) + 0.5;
       const cy = m.yOf(i) + 0.5;
-      const rx = -Math.sin(t.dir);
-      const ry = Math.cos(t.dir);
       for (const o of this.trucks) {
-        if (o === t || !this.onRoad(o) || o.path[0] !== i) continue;
+        if (o === t || !this.onRoad(o) || o.path.length === 0) continue;
+        const ox = Math.cos(o.dir);
+        const oy = Math.sin(o.dir);
+        const there = this.tileOf(o);
+        if (there === i) {
+          // Driving across it now, other than on our way out of it, or
+          // coming through towards us on the other side of the road.
+          if (!this.rolling(o)) continue;
+          if (ox * ex + oy * ey > 0.7 || ox * hx + oy * hy < -0.7) continue;
+          return false;
+        }
+        // Coming up to it, from another road.
+        if (o.path[0] !== i && !(o.path[1] === i && this.rolling(o))) continue;
         const dx = o.x - cx;
         const dy = o.y - cy;
-        if (Math.hypot(dx, dy) < 1.2 && dx * rx + dy * ry > 0.5) return false;
+        if (Math.hypot(dx, dy) > 1.8) continue;
+        const along = ox * hx + oy * hy;
+        if (along > 0.7) continue; // behind us, our way
+        const theirRank =
+          m.build[there] === Build.Parking && m.build[i] !== Build.Parking
+            ? 0
+            : this.roadRank(there);
+        const fromRight = dx * -hy + dy * hx > 0.5;
+        const yields =
+          along < -0.7
+            ? leftTurn && theirRank >= rank // oncoming, and we turn across it
+            : theirRank > rank || (theirRank === rank && fromRight);
+        if (!yields) continue;
+        if (this.rolling(o)) return false;
+        // Both standing: take turns, unless it is only queueing to get on.
+        if (this.roomPast(o, i) && this.goesFirst(o, t, i)) return false;
       }
       return true;
     };
+  }
+
+  /** Nobody standing at the highway end of the road, where new trucks come in. */
+  private entryClear(): boolean {
+    const m = this.map;
+    const cx = m.xOf(m.entry) + 0.5;
+    const cy = m.yOf(m.entry) + 0.5;
+    return this.trucks.every(
+      (o) => !this.onRoad(o) || Math.hypot(o.x - cx, o.y - cy) > B.TRUCK_GAP + 0.2,
+    );
   }
 
   private truckLeave(t: Truck): void {
@@ -7777,9 +7899,8 @@ export class World {
       entities.push({
         id: t.id,
         kind: 'truck',
-        // On the right-hand side of the road; parked in a space, in the middle of it.
-        x: t.x - (t.state === 'parked' ? 0 : Math.sin(t.dir) * B.TRUCK_LANE),
-        y: t.y + (t.state === 'parked' ? 0 : Math.cos(t.dir) * B.TRUCK_LANE),
+        x: this.lanePos(t)[0],
+        y: this.lanePos(t)[1],
         dir: t.dir,
         load: t.cargo,
         // A shipper's containers are all alike; the rest as they were loaded.

@@ -111,8 +111,14 @@ export const TRUCK_SPEED = 0.7;
 export const TRUCK_LANE = 0.18;
 /** Distance a truck keeps behind the one ahead of it, centre to centre, in tiles. */
 export const TRUCK_GAP = 0.9;
-/** Ticks a truck waits on the others before creeping on anyway, so traffic never locks up. */
+/**
+ * Ticks a truck waits on the others at a junction before it stops giving
+ * way; twice this and it goes without room past it, four times and it
+ * creeps on through the truck ahead, so traffic never locks up for good.
+ */
 export const TRUCK_SQUEEZE_AFTER = 150;
+/** Ticks before two trucks standing at a junction swap which of them goes first. */
+export const TRUCK_TAKE_TURNS = 30;
 /**
  * How each kind of vessel handles: hull size in tiles, top speed in tiles a
  * tick, and how fast it can turn at that speed, in radians a tick. Big

@@ -1216,9 +1216,14 @@ describe('Rules of the road', () => {
     const world = World.create(7);
     world.trucks.length = 0;
     const m = world.map;
-    const junctions: Uint8Array = world['junctions']();
-    const j = junctions.findIndex((v) => v === 1);
-    expect(j).toBeGreaterThanOrEqual(0);
+    // A crossroads of public roads.
+    const j = m.idx(10, 10);
+    for (const d of [-2, -1, 0, 1, 2]) {
+      m.build[m.idx(10 + d, 10)] = Build.Road;
+      m.build[m.idx(10, 10 + d)] = Build.Road;
+    }
+    world['junctionCache'] = null;
+    expect(world['junctions']()[j]).toBe(1);
     const cx = m.xOf(j) + 0.5;
     const cy = m.yOf(j) + 0.5;
     // One coming up from the south heading north, one from the east heading west.
@@ -1226,14 +1231,38 @@ describe('Rules of the road', () => {
     const west = truck(world, cx + 1, cy, Math.PI, [j]);
     expect(world['mayEnter'](north)(j)).toBe(false);
     expect(world['mayEnter'](west)(j)).toBe(true);
-    // While one is crossing, the other waits for it.
+    // Both standing at the line, they take turns rather than wait for each other.
+    north.held = west.held = 5;
+    const turns = new Set<boolean>();
+    for (let k = 0; k < 2; k++) {
+      world.tick = k * B.TRUCK_TAKE_TURNS;
+      turns.add(world['mayEnter'](north)(j));
+      expect(world['mayEnter'](west)(j)).toBe(true);
+    }
+    expect([...turns].sort()).toEqual([false, true]);
+    // While one is driving across, the other waits for it.
+    west.held = 0;
     west.x = cx;
     west.y = cy;
-    north.x = cx - 1;
+    north.held = 0;
     expect(world['mayEnter'](north)(j)).toBe(false);
+    // One coming through the other way passes it.
+    west.dir = Math.PI / 2;
+    expect(world['mayEnter'](north)(j)).toBe(true);
     // Wedged for good, it goes anyway.
+    west.dir = Math.PI;
     north.held = B.TRUCK_SQUEEZE_AFTER + 1;
     expect(world['mayEnter'](north)(j)).toBe(true);
+  });
+
+  it('has one of two trucks caught across each other wait for the other', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    // One turning north out of the eastbound lane, across one going west.
+    const a = truck(world, 10.5, 20.4, -Math.PI / 2, [1]);
+    const b = truck(world, 10.8, 20.5, Math.PI, [1]);
+    const moves = [world['pace'](a)(), world['pace'](b)()].filter((v) => v > 0);
+    expect(moves).toHaveLength(1);
   });
 
   it('drives on the right-hand side of the road', () => {
