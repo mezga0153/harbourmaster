@@ -2427,7 +2427,9 @@ export class World {
       case 'arriving': {
         // Come alongside: lie along the berth, parallel to the dock edge.
         const alongX = this.map.yOf(b.jetty) !== this.map.yOf(b.berth);
-        const r = this.sail(b, alongX ? 0 : Math.PI / 2);
+        // Something has been built where its hull would lie: another berth.
+        const gone = !this.footprint(b.berth, b.jetty, this.boatHalf(b.vessel === 'feeder'));
+        const r = gone ? 'blocked' : this.sail(b, alongX ? 0 : Math.PI / 2);
         if (r === 'blocked') {
           this.freeFairway(b);
           b.berth = b.jetty = -1;
@@ -2543,33 +2545,77 @@ export class World {
       // A long ship swings into line only as far as its hull clears the
       // dock, unless it has been at it a long while.
       const turned = b.dir + clamp(err, -v.turn * 0.6, v.turn * 0.6);
-      const ships = v.length < B.CAREFUL_LENGTH ? [] : this.stillNear(b);
-      const clear =
-        v.length < B.CAREFUL_LENGTH ||
-        (b.held ?? 0) > 60 ||
-        this.clips(b, b.x, b.y, turned, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
-      const swingInto = this.crowds(b, b.x, b.y, turned) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
-      if (clear && !swingInto) b.dir = turned;
-      if (v.length >= B.CAREFUL_LENGTH) b.held = (b.held ?? 0) + 1;
+      // Every boat minds its whole hull this close to the dock.
+      const ships = this.stillNear(b);
       speed = Math.min(speed, 0.03 + left * 0.1);
       let step = Math.min(left, Math.max(speed, 0.008));
-      if (left > 1e-6) {
-        const nx = b.x + ((gx - b.x) / left) * step;
-        const ny = b.y + ((gy - b.y) / left) * step;
-        // A long ship lines up first and comes in sideways only as its hull
-        // clears the dock. Nor does a boat come alongside on top of another
-        // boat passing its berth, short of being wedged there for good.
-        const crowded = this.crowds(b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
-        if (crowded && v.length < B.CAREFUL_LENGTH) b.held = (b.held ?? 0) + 1;
-        const slide =
-          !crowded &&
-          (v.length < B.CAREFUL_LENGTH ||
-            (b.held ?? 0) > 150 ||
-            this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships));
-        if (slide) {
-          b.x = nx;
-          b.y = ny;
-        } else step = 0;
+      if (v.length < B.CAREFUL_LENGTH) {
+        // A small boat swings into line as it comes in. Failing that, it
+        // comes across onto the line of its berth and then in along it,
+        // rather than cut the corner of the dock; or swings where it lies;
+        // or eases back a touch to have room to swing. Always with its hull
+        // no nearer the dock or another boat (short of being wedged there
+        // for good).
+        const now = this.clips(b, b.x, b.y, b.dir, ships);
+        const stuck = (b.held ?? 0) > B.BOAT_WEDGED_AFTER;
+        const alongX = Math.abs(Math.cos(moor)) > 0.5;
+        const toward = (dx: number, dy: number): [number, number] => {
+          const d = Math.hypot(dx, dy);
+          const k = d > step ? step / d : 1;
+          return [b.x + dx * k, b.y + dy * k];
+        };
+        const straight = toward(gx - b.x, gy - b.y);
+        const across = alongX ? toward(0, gy - b.y) : toward(gx - b.x, 0);
+        const along = alongX ? toward(gx - b.x, 0) : toward(0, gy - b.y);
+        const back: [number, number] =
+          left > 1e-6
+            ? [b.x + ((b.x - gx) / left) * 0.02, b.y + ((b.y - gy) / left) * 0.02]
+            : [b.x, b.y];
+        const ways: [number, number, number][] = [];
+        for (const [x, y] of [straight, across, along]) {
+          ways.push([turned, x, y], [b.dir, x, y]);
+        }
+        ways.push([turned, b.x, b.y], [turned, back[0], back[1]]);
+        const way = ways.find(([d, x, y]) => {
+          // Getting somewhere: closer, or further round into line. The last
+          // half tile in, nearly in line, or it has no room left to swing.
+          const near = Math.hypot(gx - x, gy - y);
+          const off = Math.abs(wrapAngle(moor + flip - d));
+          const closer = near < left - 1e-4 && (near > 0.5 || off < 0.3);
+          const swung = off < Math.abs(err) - 1e-4;
+          if (!closer && !swung) return false;
+          return stuck || (this.clips(b, x, y, d, ships) <= now && !this.crowds(b, x, y, d));
+        });
+        const was = left;
+        if (way) {
+          b.dir = way[0];
+          b.x = way[1];
+          b.y = way[2];
+        } else b.held = (b.held ?? 0) + 1;
+        step = Math.max(0, was - Math.hypot(gx - b.x, gy - b.y));
+      } else {
+        const clear =
+          (b.held ?? 0) > 60 ||
+          this.clips(b, b.x, b.y, turned, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+        const swingInto = this.crowds(b, b.x, b.y, turned) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
+        if (clear && !swingInto) b.dir = turned;
+        b.held = (b.held ?? 0) + 1;
+        if (left > 1e-6) {
+          const nx = b.x + ((gx - b.x) / left) * step;
+          const ny = b.y + ((gy - b.y) / left) * step;
+          // A long ship lines up first and comes in sideways only as its
+          // hull clears the dock, nor on top of another boat passing its
+          // berth, short of being wedged there for good.
+          const crowded = this.crowds(b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
+          const slide =
+            !crowded &&
+            ((b.held ?? 0) > 150 ||
+              this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships));
+          if (slide) {
+            b.x = nx;
+            b.y = ny;
+          } else step = 0;
+        }
       }
       b.speed = speed;
       if (left - step < 0.02 && Math.abs(err) < 0.04) {
@@ -2610,7 +2656,9 @@ export class World {
       // A buoy is passed, and the line between a pair crossed, not cut past.
       const at = b.path[k - 1];
       if (isBuoy(this.map.build[at]) || this.gateLines(b.state === 'leaving').has(at)) break;
-      if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear)) break;
+      if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear, v.beam / 2 + 0.05)) {
+        break;
+      }
       ahead = k;
     }
     b.path.splice(0, ahead);
@@ -2664,7 +2712,6 @@ export class World {
     // swings round in an arc.
     const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
     const small = v.length < B.CAREFUL_LENGTH;
-    if (small) b.dir = wrapAngle(b.dir + clamp(err, -turn, turn));
     // Ease off for sharp bends, to stop at the goal, and for other boats,
     // but keep some way on through a bend so it swings round in an arc.
     const bend = (a: number) =>
@@ -2715,10 +2762,13 @@ export class World {
     }
     b.yieldFor = undefined;
     b.astern = false;
-    // Small boats nip about; a long ship minds its whole hull.
-    if (small) {
-      const made = this.nip(b, speed, cx(target), cy(target), way.speed);
-      return made === null ? 'moving' : this.afterMove(b, made, false, moor, goal, cx, cy);
+    // Small boats nip about; a long ship works itself round, ahead or
+    // astern, minding its whole hull. So does a small boat boxed in against
+    // a dock, until it is clear.
+    if (small && !(b.plan && this.tick < b.plan.until)) {
+      const made = this.nip(b, speed, clamp(err, -turn, turn), cx(target), cy(target), way.speed);
+      if (made === null) return 'moving';
+      if (made !== 'boxed') return this.afterMove(b, made, false, moor, goal, cx, cy);
     }
     // The whole hull keeps clear of the shore, docks and boats lying still.
     // A boat already touching something may only get clearer.
@@ -2942,20 +2992,35 @@ export class World {
   }
 
   /**
-   * A small boat's step: go ahead while the middle of the hull and its bow
-   * stay in open water; otherwise work along the path at a crawl, as a
-   * skipper would with a bit of throttle and rudder. Returns the speed made
-   * good, or null while it is still taking sternway off.
+   * A small boat's step: swing towards its course by up to `turn` and go
+   * ahead, as far round as its whole hull stays clear of the shore and the
+   * docks (or at least no less clear than it is). Otherwise it works along
+   * the path at a crawl, as a skipper would with a bit of throttle and
+   * rudder, still minding the hull. Returns the speed made good, null
+   * while it is still taking sternway off, or 'boxed' when there is no
+   * room for any of that.
    */
-  private nip(b: Boat, speed: number, tx: number, ty: number, way: number): number | null {
+  private nip(
+    b: Boat,
+    speed: number,
+    turn: number,
+    tx: number,
+    ty: number,
+    way: number,
+  ): number | null | 'boxed' {
     const v = B.VESSELS[b.vessel];
     const cost = this.boatCostFor(b.draft);
+    const ships = this.stillNear(b);
+    const now = this.clips(b, b.x, b.y, b.dir, ships);
+    // Squeezing past as a last resort, it may brush the dock too.
+    const fits = (x: number, y: number, d: number) =>
+      (b.squeeze ?? 0) > 0 || (this.navigable(x, y, cost) && this.clips(b, x, y, d, ships) <= now);
     // Take any sternway off before going ahead again.
     if ((b.sternway ?? 0) > 0) {
       const back = Math.max(0, (b.sternway ?? 0) - v.speed * B.BOAT_ACCEL * 2);
       const sx = b.x - Math.cos(b.dir) * back;
       const sy = b.y - Math.sin(b.dir) * back;
-      const moved = this.navigable(sx, sy, cost);
+      const moved = fits(sx, sy, b.dir);
       if (moved) {
         b.x = sx;
         b.y = sy;
@@ -2963,23 +3028,33 @@ export class World {
       b.sternway = moved ? back : 0;
       return null;
     }
-    const nx = b.x + Math.cos(b.dir) * speed;
-    const ny = b.y + Math.sin(b.dir) * speed;
-    const bowX = nx + Math.cos(b.dir) * 0.3;
-    const bowY = ny + Math.sin(b.dir) * 0.3;
-    if (this.navigable(nx, ny, cost) && this.navigable(bowX, bowY, cost)) {
-      b.x = nx;
-      b.y = ny;
-      return speed;
+    for (const share of [1, 0.5, 0]) {
+      const d = wrapAngle(b.dir + turn * share);
+      const nx = b.x + Math.cos(d) * speed;
+      const ny = b.y + Math.sin(d) * speed;
+      if (this.navigable(nx + Math.cos(d) * 0.3, ny + Math.sin(d) * 0.3, cost) && fits(nx, ny, d)) {
+        b.dir = d;
+        b.x = nx;
+        b.y = ny;
+        return speed;
+      }
     }
     const px = tx - b.x;
     const py = ty - b.y;
     const d = Math.hypot(px, py);
     const step = Math.min(d, v.speed * 0.2);
     if (d <= 1e-6 || way <= 0.05) return 0;
-    b.x += (px / d) * step;
-    b.y += (py / d) * step;
-    return step;
+    const turned = wrapAngle(b.dir + turn);
+    for (const dir of [turned, b.dir]) {
+      const nx = b.x + (px / d) * step;
+      const ny = b.y + (py / d) * step;
+      if (!fits(nx, ny, dir)) continue;
+      b.dir = dir;
+      b.x = nx;
+      b.y = ny;
+      return step;
+    }
+    return 'boxed';
   }
 
   /** Book-keeping after a step: held up, wedged, getting nowhere. */
@@ -3052,18 +3127,25 @@ export class World {
       const off = (b.x - bx) * ax + (b.y - by) * ay;
       const step = v.speed * 0.2;
       // A long ship gets a tile out, or with no run out along the dock, out
-      // as far as it takes to have room to swing.
+      // as far as it takes to have room to swing; a small boat far enough
+      // that its stern swings clear of the dock as it turns.
       const runAlong = b.berthing === 'out' && b.lineEnd === b.castOff;
       const clear = runAlong
         ? 0.3
         : b.berthing === 'out'
           ? 1
           : v.length < B.CAREFUL_LENGTH
-            ? 0.3
+            ? v.length / 2 - 0.3
             : this.openAround(b.x, b.y, v.length / 2)
               ? 1
               : 4;
-      if (off < clear && this.navigable(b.x + ax * step, b.y + ay * step, cost)) {
+      const ships = this.stillNear(b);
+      const sx = b.x + ax * step;
+      const sy = b.y + ay * step;
+      const room =
+        this.navigable(sx, sy, cost) &&
+        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+      if (off < clear && room) {
         b.x += ax * step;
         b.y += ay * step;
         b.speed = 0;
@@ -3088,9 +3170,7 @@ export class World {
       const swung = wrapAngle(b.dir + clamp(err, -v.turn * 0.4, v.turn * 0.4));
       const ships = this.stillNear(b);
       const roomAstern =
-        v.length < B.CAREFUL_LENGTH
-          ? this.navigable(sx - Math.cos(b.dir) * 0.3, sy - Math.sin(b.dir) * 0.3, cost)
-          : this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+        this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
       const clear =
         roomAstern &&
         this.boats.every(
@@ -3535,12 +3615,37 @@ export class World {
     return !this.map.inBounds(tx, ty) || Number.isFinite(cost(this.map.idx(tx, ty)));
   }
 
-  /** Open water all along a straight line, so the boat can cut the corner. */
-  private openWater(x0: number, y0: number, x1: number, y1: number, cost: CostFn): boolean {
-    const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.25);
+  /**
+   * Open water all along a straight line, so the boat can cut the corner;
+   * with `half` set, clear of the shore and docks that far either side of
+   * it too, so the hull does not clip the corner of a dock on the way.
+   */
+  private openWater(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    cost: CostFn,
+    half = 0,
+  ): boolean {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const n = Math.ceil(len / 0.25);
+    const ox = len > 0 ? (-(y1 - y0) / len) * half : 0;
+    const oy = len > 0 ? ((x1 - x0) / len) * half : 0;
+    const m = this.map;
+    const shore: CostFn = (i) =>
+      m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i])) ? Infinity : 1;
     for (let k = 1; k <= n; k++) {
       const t = k / n;
-      if (!this.navigable(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, cost)) return false;
+      const x = x0 + (x1 - x0) * t;
+      const y = y0 + (y1 - y0) * t;
+      if (!this.navigable(x, y, cost)) return false;
+      if (
+        half > 0 &&
+        !(this.navigable(x + ox, y + oy, shore) && this.navigable(x - ox, y - oy, shore))
+      ) {
+        return false;
+      }
     }
     return true;
   }

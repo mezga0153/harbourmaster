@@ -1056,7 +1056,8 @@ describe('Buoys', () => {
     let closest = Infinity;
     const buoys = [...ins.flat(), ...outs.flat()].map(at);
     const half = B.VESSELS.smack.length / 2;
-    for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
+    // Long enough for a few boats to work out of a tight berth and away.
+    for (let t = 0; t < TICKS_PER_DAY * 4; t++) {
       world.step();
       for (const b of world.boats) {
         const here = [b.x, b.y];
@@ -1493,7 +1494,8 @@ describe('Container Port tier', () => {
     expect(outranks(boat(3, 'smack', 'leaving', 1), boat(1, 'feeder', 'leaving'))).toBe(true);
   });
 
-  it('keeps other boats out of the water a ship pulling out needs', () => {
+  /** A busy container port, with coasters and smacks coming and going all day. */
+  function busyPort(): World {
     const world = World.create(7);
     world.tier = 2;
     world.cash = 1_000_000;
@@ -1520,6 +1522,29 @@ describe('Container Port tier', () => {
     const depot = world.map.build.findIndex((b) => b === Build.Depot);
     for (let k = 0; k < 3; k++)
       world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    return world;
+  }
+
+  it('keeps small boats off the corners of the docks coming alongside and casting off', () => {
+    const world = busyPort();
+    const clips = world['clips'].bind(world);
+    let over = 0;
+    let moored = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+      world.step();
+      for (const b of world.boats) {
+        if (b.state === 'moored') moored++;
+        // Long ships are tested on their own; squeezing past is a last resort.
+        if (b.vessel === 'feeder' || b.squeeze || b.state === 'moored') continue;
+        if (clips(b, b.x, b.y, b.dir, []) > 0) over++;
+      }
+    }
+    expect(moored).toBeGreaterThan(0);
+    expect(over).toBe(0);
+  });
+
+  it('keeps other boats out of the water a ship pulling out needs', () => {
+    const world = busyPort();
     const m = world.map;
     const claimed = new Set<number>();
     // Boats already in the water when it was claimed, which may sail out of it.
