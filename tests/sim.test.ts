@@ -706,6 +706,8 @@ describe('Coastal Wharf tier', () => {
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    // A forklift to take on what the crane lands.
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
     fireDockhands(world);
     const m = world.map;
     let moored = 0;
@@ -722,29 +724,31 @@ describe('Coastal Wharf tier', () => {
       }
     }
     expect(moored).toBeGreaterThan(0);
-    // The crane lifted the crates onto the quay, for whoever comes for them.
-    expect(world.cranes.get(tip)!.stack.length).toBeGreaterThan(0);
+    expect(world.stats.cratesHandled).toBeGreaterThan(0);
   });
 
-  it('runs a jib crane and forklifts off a quay', () => {
+  it('runs a jib crane and forklifts off a quay, the dockhands kept clear of the crane', () => {
     const world = World.create(7);
-    world.boats.length = 0; // the first boat moors at once; keep the jetty free
-    world.tier = 1;
-    world.cash = 50_000;
-    const jetty = starterJetty(world);
+    const jetty = quayPort(world);
     const side = jetty[jetty.length - 1];
-    world.command({ type: 'build', kind: 'quay', tiles: jetty });
     expect(world.map.build[side]).toBe(Build.Quay);
     world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.JibCrane);
-    buildOffice(world);
+    expect(walkableAt(world.map, jetty[jetty.length - 2])).toBe(false);
     buildDepot(world);
     world.command({ type: 'buyMachine', kind: 'forklift' });
     expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(1);
     let craneWorked = false;
+    const m = world.map;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
       if (world.cranes.get(side)?.busy) craneWorked = true;
+      for (const p of world.people) {
+        if (p.kind !== 'dockhand') continue;
+        const x = Math.floor(p.x);
+        const y = Math.floor(p.y);
+        expect(Math.max(Math.abs(x - m.xOf(side)), Math.abs(y - m.yOf(side)))).toBeGreaterThan(1);
+      }
     }
     expect(craneWorked).toBe(true);
     expect(world.stats.cratesHandled).toBeGreaterThan(5);
@@ -1484,7 +1488,8 @@ describe('Container Port tier', () => {
       0,
     );
     const earned = world.stats.earned;
-    for (let k = 0; k < TICKS_PER_DAY * 3; k++) world.step();
+    // A feeder takes a while to come alongside.
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) world.step();
     expect(world.stats.containers).toBeGreaterThan(0);
     // Dockhands never touch containers.
     expect(world.people.filter((p) => p.kind === 'dockhand').every((p) => p.carrying <= 1)).toBe(

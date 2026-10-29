@@ -101,6 +101,11 @@ export function isBay(code: number): boolean {
   return code === Build.TruckBay || code === Build.LargeBay;
 }
 
+/** A crane standing on a quay. */
+export function isCrane(code: number): boolean {
+  return code === Build.JibCrane || code === Build.HarbourCrane;
+}
+
 /** Tiles boats can moor alongside. */
 export function isDock(code: number): boolean {
   return (

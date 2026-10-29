@@ -6,6 +6,7 @@ import {
   Deco,
   isBay,
   isBuoy,
+  isCrane,
   isDock,
   isTownBuilding,
   Store,
@@ -65,7 +66,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.JibCrane,
     label: 'Jib crane',
     cost: 2500,
-    hint: `Goes on a quay edge. Lifts crates off moored boats, straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto the quay for forklifts and dockhands. Boats would rather berth under one, and wait for one when there are no dockhands. $${B.CRANE_RUNNING_COST}/day to run`,
+    hint: `Goes on a quay edge. Lifts crates off moored boats, straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto the quay for forklifts and dockhands. Boats would rather berth under one, and wait for one when there are no dockhands. The 3×3 round a crane is for port machines only: no dockhands, no hauliers' trucks. $${B.CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
   depot: {
@@ -86,7 +87,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.HarbourCrane,
     label: 'Harbour crane',
     cost: 9000,
-    hint: `Lifts containers off feeder ships. Goes on a quay edge with quay behind it (2 wide). $${B.HARBOUR_CRANE_RUNNING_COST}/day to run`,
+    hint: `Lifts containers off feeder ships. Goes on a quay edge with quay behind it (2 wide). The 3×3 round it is for port machines only. $${B.HARBOUR_CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
   breakHut: {
@@ -430,9 +431,25 @@ export function drivable(code: number): boolean {
   );
 }
 
-/** Walkable here, and not marked forklift-only. */
+/** Walkable here: not marked forklift-only, nor next to a crane. */
 export function walkableAt(map: GameMap, i: number): boolean {
-  return i >= 0 && walkable(map.build[i]) && !forkliftOnly(map, i);
+  return i >= 0 && walkable(map.build[i]) && !forkliftOnly(map, i) && !nearCrane(map, i);
+}
+
+/**
+ * On or next to a crane, diagonals too: the 3×3 round each crane is for
+ * the port's machines only, kept clear of people on foot and of the
+ * hauliers' trucks.
+ */
+export function nearCrane(map: GameMap, i: number): boolean {
+  const x = map.xOf(i);
+  const y = map.yOf(i);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (map.inBounds(x + dx, y + dy) && isCrane(map.build[map.idx(x + dx, y + dy)])) return true;
+    }
+  }
+  return false;
 }
 
 /** Every tile a machine at `start` can drive to. */

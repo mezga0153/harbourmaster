@@ -9,7 +9,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, FORKLIFT_ONLY, ON_QUAY } from '../sim/rules';
+import { EXTENSION, FACING, FORKLIFT_ONLY, nearCrane, ON_QUAY } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
@@ -344,7 +344,7 @@ export class Structures {
           this.storage(g, i, QUAY_Y);
           return g;
         }
-        if (this.map.orient[i] & FORKLIFT_ONLY) {
+        if (this.map.orient[i] & FORKLIFT_ONLY || nearCrane(this.map, i)) {
           this.forkliftMarking(g, along, QUAY_Y);
           return g;
         }
@@ -430,7 +430,7 @@ export class Structures {
       case Build.Quay: {
         this.quay(g, i);
         if (this.map.store[i]) this.storage(g, i, QUAY_Y);
-        else if (this.map.orient[i] & FORKLIFT_ONLY) {
+        else if (this.map.orient[i] & FORKLIFT_ONLY || nearCrane(this.map, i)) {
           const along = this.is(i, 1, 0, Build.Quay) || this.is(i, -1, 0, Build.Quay);
           this.forkliftMarking(g, along, QUAY_Y);
         }

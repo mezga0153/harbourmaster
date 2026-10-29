@@ -69,6 +69,7 @@ import {
   terraformCost,
   terraformError,
   machinePlacementError,
+  nearCrane,
   placementCost,
   placementError,
   ROTATABLE,
@@ -1585,13 +1586,14 @@ export class World {
         landing += (TICKS_PER_DAY * uptime) / (handling + 2 / (B.WALK_SPEED * pace));
       }
     }
-    // Jib cranes lift while a boat lies alongside, and those with crate
-    // storage in reach stow it there and then.
+    // Jib cranes lift while a boat lies alongside, a good part of the day
+    // going on boats coming and going, and those with crate storage in
+    // reach stow it there and then.
     let lifting = 0;
     let stowing = 0;
     for (const c of this.cranes.values()) {
       if (c.kind !== 'jib' || !this.dockInUse(c.idx)) continue;
-      const rate = (TICKS_PER_DAY / B.CRANE_TICKS) * 0.5;
+      const rate = (TICKS_PER_DAY / B.CRANE_TICKS) * 0.3;
       lifting += rate;
       if (this.jibStores(c).length > 0) stowing += rate;
     }
@@ -2220,13 +2222,15 @@ export class World {
   }
 
   /**
-   * Whether a long ship can lie at anchor here, swing round it and come
-   * round under way to head off anywhere: open water all round, a whole
-   * ship's length each way, clear of moored boats.
+   * Whether a boat can lie at anchor here and swing round it: a small boat
+   * clear of the shore; a long ship coming round under way to head off
+   * anywhere too, so open water all round, a whole ship's length each way,
+   * clear of moored boats.
    */
   private swingRoom(boat: Boat, x: number, y: number): boolean {
     const v = B.VESSELS[boat.vessel];
-    if (v.length < B.CAREFUL_LENGTH) return true;
+    // A small boat swings round on its anchor clear of the shore.
+    if (v.length < B.CAREFUL_LENGTH) return this.openAround(x, y, v.length / 2 + 0.5);
     const r = v.length;
     if (!this.openAround(x, y, r)) return false;
     return this.boats.every(
@@ -2419,6 +2423,16 @@ export class World {
     );
   }
 
+  /** A jib crane stands over this berth. */
+  private jibAt(berth: number): boolean {
+    const m = this.map;
+    return [...this.cranes.values()].some(
+      (c) =>
+        c.kind === 'jib' &&
+        Math.max(Math.abs(m.xOf(c.idx) - m.xOf(berth)), Math.abs(m.yOf(c.idx) - m.yOf(berth))) <= 1,
+    );
+  }
+
   private harbourCraneReaches(berth: number): boolean {
     const m = this.map;
     for (const c of this.cranes.values()) {
@@ -2443,6 +2457,7 @@ export class World {
         if (water(n) !== 1) continue;
         if (wide && !this.wideQuay(j, n)) continue;
         if (needCrane !== this.harbourCraneReaches(n)) continue;
+        if (!needCrane && !walkableAt(m, j) && !this.jibAt(n)) continue;
         const here = { berth: n, jetty: j, vessel };
         if (!this.footprint(n, j, this.boatHalf(needCrane))) continue;
         if (!chosen.some((c) => this.berthsClash(here, c))) chosen.push(here);
@@ -2465,6 +2480,7 @@ export class World {
     const out: { berth: number; jetty: number; d: number; craned: boolean }[] = [];
     // With nobody to unload by hand, boats wait for a berth under a jib crane.
     let cranes = false;
+    const forks = this.forklifts();
     for (let j = 0; j < m.build.length; j++) {
       if (!this.dockInUse(j)) continue;
       for (const n of m.neighbors4(j)) {
@@ -2475,12 +2491,17 @@ export class World {
         if (!this.footprint(n, j, this.boatHalf(needCrane))) continue;
         const nx = m.xOf(n);
         const ny = m.yOf(n);
+        // A crane is only any use with forklifts to take what it lands, or
+        // storage it can swing it into: dockhands keep away from cranes.
         const craned = [...this.cranes.values()].some(
           (c) =>
             c.kind === 'jib' &&
-            Math.max(Math.abs(m.xOf(c.idx) - nx), Math.abs(m.yOf(c.idx) - ny)) <= 1,
+            Math.max(Math.abs(m.xOf(c.idx) - nx), Math.abs(m.yOf(c.idx) - ny)) <= 1 &&
+            (forks || this.jibStores(c).length > 0),
         );
         cranes ||= craned;
+        // Nobody could unload it by hand next to a crane, or off forklift-only quay.
+        if (!needCrane && !craned && !walkableAt(m, j)) continue;
         const here = { berth: n, jetty: j, vessel };
         if (taken.some((t) => this.berthsClash(here, t))) continue;
         // Not while another boat is still pulling out of it.
@@ -5310,8 +5331,8 @@ export class World {
     const m = this.map;
     const way = (i: number): 'road' | 'port' | 'gate' | null => {
       const b = m.build[i];
+      if (m.store[i] || nearCrane(m, i)) return null;
       if (isPublicRoad(b)) return 'road';
-      if (m.store[i]) return null;
       if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(m, i) ? null : 'port';
       if (b === Build.Gate) return 'gate';
       const a = anchorOf(m, i);
