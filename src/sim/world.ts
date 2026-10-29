@@ -7261,6 +7261,8 @@ export class World {
         total: this.docks().length,
         coordinated: this.docks().filter((g) => g.coordinated).length,
         offices: this.map.build.filter((b) => b === Build.Office).length,
+        inUse: this.docks().flatMap((g) => (g.coordinated ? g.tiles : [])),
+        idle: this.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
       },
       depots: this.depotViews(),
       progress: { tier: this.tier, ...this.tierProgress(), canUpgrade: this.canUpgrade() },

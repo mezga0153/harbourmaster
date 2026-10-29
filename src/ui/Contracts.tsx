@@ -197,7 +197,8 @@ function DockAlert() {
       {idle} dock{idle === 1 ? ' is' : 's are'} not in use.{' '}
       {d.offices === 0
         ? `Without a harbour office only ${B.FREE_DOCKS} jetties work, and no quays. Build one (O).`
-        : `Each harbour office coordinates ${B.DOCKS_PER_OFFICE} docks. Build another.`}
+        : `Each harbour office coordinates ${B.DOCKS_PER_OFFICE} docks. Build another.`}{' '}
+      Select an office, or pick the jetty, quay or office tool, to see which: they show red.
     </p>
   );
 }

@@ -240,6 +240,8 @@ export class Input {
       selection.value = { type: 'crane', idx: i };
     } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
       selection.value = { type: 'depot', idx: i };
+    } else if (i !== null && map?.build[i] === Build.Office) {
+      selection.value = { type: 'office', idx: i };
     } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {
       selection.value = { type: 'yard', idx: i };
     } else if (i !== null && map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) {
@@ -303,6 +305,7 @@ export class Input {
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
     if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
     if (t === 'jibCrane' || t === 'harbourCrane') this.showCraneGround(map, t, i, 0);
+    if (t === 'jetty' || t === 'quay') this.showDocks(map);
     if (t === 'dredge' || t === 'reclaim') {
       return this.previewTerraform(map, this.tilesFor(i), t === 'reclaim');
     }
@@ -422,6 +425,16 @@ export class Input {
     };
   }
 
+  /** Docks the harbour office coordinates in green, those boats do not use in red. */
+  private showDocks(map: GameMap): void {
+    const d = snapshot.value?.docks;
+    if (!d) return;
+    this.renderer.overlay.setHints(map, 'tool', [
+      { kind: 'good', tiles: d.inUse },
+      { kind: 'zone', tiles: d.idle },
+    ]);
+  }
+
   /** A crane's machines-only ground in red, and how far a jib crane reaches storage in blue. */
   private showCraneGround(
     map: GameMap,
@@ -472,6 +485,7 @@ export class Input {
     const f = rotation.value ?? bestFacing(map, kind, i);
     this.facing = f;
     if (kind === 'gantryCrane') this.showCraneGround(map, kind, i, f);
+    if (kind === 'office') this.showDocks(map);
     const tiles = footprint(map, kind, i, f).filter((t) => t >= 0);
     const error = placementError(map, kind, i, undefined, f);
     this.renderer.overlay.setGhosts(

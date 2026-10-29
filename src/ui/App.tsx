@@ -399,6 +399,44 @@ function InfoPanel({ actions }: { actions: Actions }) {
     );
   }
 
+  if (sel.type === 'office') {
+    const d = s.docks;
+    const idle = d.total - d.coordinated;
+    // Quays always need an office; any more jetties than run on their own too.
+    const need = Math.ceil(d.total / B.DOCKS_PER_OFFICE);
+    return (
+      <aside class="side panel">
+        <InfoHeader kicker="Building" title="Harbour office" onClose={close} />
+        <p class="muted">
+          The harbour master coordinates the berths: boats only moor at docks an office looks after,{' '}
+          {B.DOCKS_PER_OFFICE} docks to an office, the nearest the port first. A dock is a jetty or
+          quay and everything joined to it. On the map: green, docks in use; red, docks boats do not
+          use. <More topic="boats" />
+        </p>
+        <dl class="props">
+          <dt>Harbour offices</dt>
+          <dd>{d.offices}</dd>
+          <dt>Docks in use</dt>
+          <dd>
+            {d.coordinated} / {d.total}
+          </dd>
+          <dt>Room for</dt>
+          <dd>{d.offices * B.DOCKS_PER_OFFICE} docks</dd>
+        </dl>
+        <Meter value={d.total > 0 ? d.coordinated / d.total : 1} tone={idle > 0 ? 'bad' : 'good'} />
+        {idle > 0 ? (
+          <Why topic="boats">
+            {idle} dock{idle === 1 ? ' is' : 's are'} not in use: build{' '}
+            {Math.max(1, need - d.offices)} more harbour office
+            {need - d.offices > 1 ? 's' : ''}.
+          </Why>
+        ) : (
+          <p class="note">Every dock is in use.</p>
+        )}
+      </aside>
+    );
+  }
+
   if (sel.type === 'crane') {
     const c = s.cranes.find((k) => k.idx === sel.idx);
     if (!c) return null;

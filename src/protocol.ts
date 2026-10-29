@@ -306,7 +306,14 @@ export interface Snapshot {
   cranes: CraneView[];
   depots: { idx: number; forklifts: number }[];
   /** Jetty and quay structures, and how many the harbour office coordinates. */
-  docks: { total: number; coordinated: number; offices: number };
+  docks: {
+    total: number;
+    coordinated: number;
+    offices: number;
+    /** Tiles of the docks boats use, and of those they do not, for want of an office. */
+    inUse: number[];
+    idle: number[];
+  };
   town: TownView | null;
   /** The train passing along the main line, if one is. */
   train: Train | null;

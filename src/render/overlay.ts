@@ -27,11 +27,12 @@ const BAD = new Color(0xff5a4f);
 const ROUTE = new Color(0x4fb3ff);
 
 /** What a tinted tile shows: ground kept for machines, a crane's reach, where trucks load. */
-export type HintKind = 'zone' | 'reach' | 'spot';
+export type HintKind = 'zone' | 'reach' | 'spot' | 'good';
 const HINT: Record<HintKind, Color> = {
   zone: new Color(0xff4a3d),
   reach: new Color(0x4fb3ff),
   spot: new Color(0xf5c02a),
+  good: new Color(0x5fdc7a),
 };
 export type Hints = { kind: HintKind; tiles: number[] }[];
 

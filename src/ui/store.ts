@@ -32,6 +32,7 @@ export type Selection =
   | { type: 'depot'; idx: number }
   | { type: 'yard'; idx: number }
   | { type: 'crane'; idx: number }
+  | { type: 'office'; idx: number }
   | { type: 'town' }
   | { type: 'railway' };
 

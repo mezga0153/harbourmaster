@@ -94,6 +94,11 @@ function showGround(): void {
       { kind: 'reach', tiles: reach },
       { kind: 'zone', tiles: zone },
     ];
+  } else if (s?.type === 'office' && snap) {
+    hints = [
+      { kind: 'good', tiles: snap.docks.inUse },
+      { kind: 'zone', tiles: snap.docks.idle },
+    ];
   } else if (s?.type === 'bay' || s?.type === 'yard') {
     const area =
       s.type === 'bay'
