@@ -341,6 +341,13 @@ interface Boat extends Agent {
   loadQuota?: number;
   /** Loaded and ready to sail: what it is still waiting on, if anything. */
   holdUp?: 'fairway' | 'tug' | 'others' | 'room';
+  /**
+   * Coming in to its berth: a ship moored across its way it has stopped
+   * short of, by id, how many ticks it has waited, and the tick last counted.
+   */
+  waitingOn?: number;
+  waitedFor?: number;
+  waitedAt?: number;
   berth: number;
   jetty: number;
   timer: number;
@@ -3356,6 +3363,11 @@ export class World {
         if (loading) {
           // Kept loading long past its time, it sails with what it has.
           if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = b.out ?? 0;
+          // Lying in the way of a ship coming in, it takes on what is on its
+          // way to it, and no more.
+          if (this.waitingFor(b)) {
+            b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + (b.outIncoming ?? 0));
+          }
           b.timer = 0;
           return;
         }
@@ -5565,6 +5577,8 @@ export class World {
     let makeWay = -1;
     /** Brought up short by a boat lying still. */
     let stopped = false;
+    /** The moored ship it stopped for, if one did. */
+    let stoppedBy: Boat | undefined;
     // Held up a while beside the clear water off moored boats' ends, it goes
     // on past them minding only their hulls, until it is clear of them all:
     // counted however it creeps meanwhile, so it does not stop again at
@@ -5637,7 +5651,10 @@ export class World {
             : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
           const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
           speed = Math.min(speed, clamp(safe / v.speed, 0, 1));
-          if (still && speed <= 0.05) stopped = true;
+          if (still && speed <= 0.05) {
+            stopped = true;
+            if (o.state === 'moored') stoppedBy = o;
+          }
           if (kept !== null && kept > 0 && speed <= 0.1) heldByEnds = true;
         } else {
           speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
@@ -5662,7 +5679,27 @@ export class World {
       const past = (b.keptFor ?? 0) >= B.KEEP_CLEAR_PATIENCE;
       b.keptFor = heldByEnds || (past && byEnds) ? (b.keptFor ?? 0) + 1 : 0;
     }
-    return { speed, makeWay, still: stopped && speed <= 0.05 };
+    const held = stopped && speed <= 0.05;
+    if (b.waitedAt !== this.tick) {
+      b.waitedAt = this.tick;
+      const on = held && b.state === 'arriving' ? stoppedBy?.id : undefined;
+      b.waitedFor = on !== undefined && on === b.waitingOn ? (b.waitedFor ?? 0) + 1 : 0;
+      b.waitingOn = on;
+    }
+    return { speed, makeWay, still: held };
+  }
+
+  /**
+   * A ship coming in that has waited a while for moored ship `b` to sail
+   * out of its way, or undefined.
+   */
+  private waitingFor(b: Boat): Boat | undefined {
+    return this.boats.find(
+      (o) =>
+        o.state === 'arriving' &&
+        o.waitingOn === b.id &&
+        (o.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS,
+    );
   }
 
   /**
@@ -9899,6 +9936,15 @@ export class World {
   // Why something is held up, in words, for the info panels: the same
   // checks the sim makes, said out loud.
 
+  /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
+  private arrivingWords(b: Boat): string {
+    const o = b.waitingOn !== undefined && this.boats.find((q) => q.id === b.waitingOn);
+    if (!o || (b.waitedFor ?? 0) <= B.BERTH_BLOCKED_TICKS) return 'Sailing to the jetty';
+    const what =
+      o.vessel === 'feeder' ? 'feeder ship' : o.vessel === 'coaster' ? 'coaster' : 'boat';
+    return `Waiting for the ${o.company} ${what} moored in its way to sail`;
+  }
+
   private boatWhy(b: Boat): string | undefined {
     const hands = this.people.some((q) => q.kind === 'dockhand');
     if (b.state === 'anchored') {
@@ -9916,6 +9962,9 @@ export class World {
         return 'With no dockhands to unload by hand, boats wait for a berth under a jib crane. Hire dockhands, or build more jib cranes.';
       }
       return 'Every berth it fits is taken, or a boat is coming or going in the way. More berths help.';
+    }
+    if (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS) {
+      return 'A ship moored across its way in must sail first. One still taking exports on board takes those already on their way, then sails.';
     }
     if (b.state !== 'moored' || b.crates === 0) return undefined;
     if (b.vessel === 'feeder') {
@@ -10191,7 +10240,7 @@ export class World {
             : b.state === 'anchored'
               ? 'Waiting at anchor for a berth'
               : b.state === 'arriving'
-                ? 'Sailing to the jetty'
+                ? this.arrivingWords(b)
                 : b.state === 'moored' && b.crates === 0 && b.reserved === 0
                   ? this.readyWords(b)
                   : b.state === 'moored'
@@ -10208,7 +10257,9 @@ export class World {
             : b.vessel === 'coaster'
               ? B.COASTER_MAX_LOAD
               : B.BOAT_MAX_LOAD,
-        alert: b.state === 'anchored',
+        alert:
+          b.state === 'anchored' ||
+          (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS),
         why: this.boatWhy(b),
         vessel: b.vessel,
         boxes: b.vessel === 'feeder',
