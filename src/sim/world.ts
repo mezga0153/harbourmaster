@@ -215,6 +215,8 @@ interface Dockhand extends Agent {
   truckLoad?: boolean;
   /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
   blocker?: number;
+  /** The ring it is driving on through, and where it set off from; see passRing. */
+  passing?: { ids: number[]; x: number; y: number };
 }
 
 interface Crane {
@@ -448,6 +450,8 @@ interface Truck extends Agent {
   lastY?: number;
   /** The truck it is keeping its distance behind, if any; see gapAhead. */
   blocker?: number;
+  /** The ring it is driving on through, and where it set off from; see passRing. */
+  passing?: { ids: number[]; x: number; y: number };
   /** A shipper's truck, bringing goods in to go out on the ships. */
   exports?: boolean;
   /** When its paperwork is done and it may drive into the port. */
@@ -6241,12 +6245,7 @@ export class World {
    * machine. Infinity if nothing is.
    */
   private roomAhead(p: Dockhand): number {
-    // Held up in a ring of machines and trucks each waiting on the next,
-    // the lowest numbered of them squeezes on through.
-    if (p.blocked > B.TRUCK_RING_AFTER && this.inRing(p)) {
-      p.blocker = undefined;
-      return Infinity;
-    }
+    this.passRing(p);
     p.blocker = undefined;
     let best = Infinity;
     const others: Vehicle[] = [
@@ -6254,7 +6253,7 @@ export class World {
       ...this.machinesOnRoad(),
     ];
     for (const o of others) {
-      if (o === p) continue;
+      if (o === p || p.passing?.ids.includes(o.id)) continue;
       const along = this.onWay(p, o);
       if (along < 0 || (o.path.length > 0 && o.id > p.id && this.onWay(o, p) >= 0)) continue;
       this.makeWay(o);
@@ -9265,11 +9264,12 @@ export class World {
     const bay = this.dest(t.bayIdx);
     switch (t.state) {
       case 'toPark': {
+        const cost = this.truckCost(t.bayIdx, -1, t);
         const r = this.move(
           t,
-          this.truckCost(t.bayIdx, -1, t),
+          cost,
           false,
-          this.pace(t),
+          this.pace(t, cost),
           this.mayEnter(t),
           this.truckReroute(t),
         );
@@ -9325,11 +9325,12 @@ export class World {
       }
       case 'toBay': {
         if (!bay) return t.exports ? this.headOut(t) : this.truckLeave(t);
+        const cost = this.truckCost(t.bayIdx, -1, t);
         const r = this.move(
           t,
-          this.truckCost(t.bayIdx, -1, t),
+          cost,
           false,
-          this.pace(t),
+          this.pace(t, cost),
           this.mayEnter(t),
           this.truckReroute(t),
         );
@@ -9404,11 +9405,12 @@ export class World {
           if (this.driveRound(t)) t.round = undefined;
           return;
         }
+        const cost = this.truckCost(t.goal, t.bayIdx);
         const r = this.move(
           t,
-          this.truckCost(t.goal, t.bayIdx),
+          cost,
           false,
-          this.pace(t),
+          this.pace(t, cost),
           this.mayEnter(t),
           this.truckReroute(t),
         );
@@ -9447,7 +9449,14 @@ export class World {
       }
       case 'leaving': {
         const cost = this.truckCost(this.map.entry, t.bayIdx, t);
-        const r = this.move(t, cost, false, this.pace(t), this.mayEnter(t), this.truckReroute(t));
+        const r = this.move(
+          t,
+          cost,
+          false,
+          this.pace(t, cost),
+          this.mayEnter(t),
+          this.truckReroute(t),
+        );
         if (r === 'arrived' || r === 'blocked') this.removeTruck(t);
         return;
       }
@@ -9494,8 +9503,12 @@ export class World {
     return [...this.trucks.filter((o) => this.onRoad(o)), ...this.machinesOnRoad()];
   }
 
-  /** How far a truck may drive this tick: its speed, short of a safe gap behind the one ahead. */
-  private pace(t: Truck): () => number {
+  /**
+   * How far a truck may drive this tick: its speed, short of a safe gap
+   * behind the one ahead. Driving by `cost`, it finds a way round one
+   * standing in its way, as goRound.
+   */
+  private pace(t: Truck, cost?: CostFn): () => number {
     return () => {
       const still = t.path.length > 0 && t.x === t.lastX && t.y === t.lastY;
       t.held = still ? (t.held ?? 0) + 1 : 0;
@@ -9505,8 +9518,30 @@ export class World {
       const stop = t.state !== 'leaving';
       if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, B.TRUCK_SPEED, Infinity, stop);
       const room = Math.min(this.gapAhead(t) - B.TRUCK_GAP, this.toStopLine(t));
+      if (cost && t.held === B.REROUTE_AFTER) this.goRound(t, cost);
       return this.drive(t, B.TRUCK_SPEED, room, stop);
     };
+  }
+
+  /**
+   * Held up behind a truck standing at a loading spot, or a machine at
+   * work, a truck finds a way round it if there is a short one, by the
+   * other lane of a wide road, rather than wait there until it is done: a
+   * truck loading beside a through road would otherwise hold up all behind
+   * it, and the queue back up across the roads it crosses until they lock.
+   */
+  private goRound(t: Truck, cost: CostFn): void {
+    const standing = this.standingTiles();
+    const o = [...this.trucks, ...this.people].find((q) => q.id === t.blocker);
+    if (!o || !standing.has(this.tileOf(o))) return;
+    const path = this.drivePath(
+      this.tileOf(t),
+      this.behind(t),
+      t.goal,
+      // Some way along the other lane is shorter than waiting for it.
+      (i, from) => cost(i, from) + (standing.has(i) ? 20 : 0),
+    );
+    if (path) t.path = path;
   }
 
   /**
@@ -9538,18 +9573,16 @@ export class World {
 
   /** Room to the back of the nearest truck ahead in the same lane, going the same way; Infinity if none. */
   private gapAhead(t: Truck): number {
-    // Trucks each waiting on the next all the way round, as where a wide
-    // road crosses itself: the lowest numbered of them squeezes on through.
-    if ((t.held ?? 0) > B.TRUCK_RING_AFTER && this.inRing(t)) {
-      t.blocker = undefined;
-      return Infinity;
-    }
+    this.passRing(t);
     let best = Infinity;
     t.blocker = undefined;
     for (const o of this.trucks) {
-      // A truck standing at a loading spot holds up the lane like any other.
+      // A truck standing at a loading spot holds up the lane like any other,
+      // where it is on the way: round the corners, as one turning off short
+      // of it gets by.
       if (o === t || !(this.onRoad(o) || this.docked(o))) continue;
-      const along = this.ahead(t, o);
+      if (t.passing?.ids.includes(o.id)) continue;
+      const along = this.docked(o) ? this.onWay(t, o) : this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
       // Bumper to bumper: half of each truck's length off the middles.
@@ -9561,6 +9594,7 @@ export class World {
     }
     // And behind a reach stacker or tractor in its way, as behind a truck.
     for (const o of this.machinesOnRoad()) {
+      if (t.passing?.ids.includes(o.id)) continue;
       const along = this.onWay(t, o);
       if (along < 0 || (o.path.length > 0 && o.id > t.id && this.onWay(o, t) >= 0)) continue;
       const gap = along - (this.lengthOf(t) + this.vehicleLength(o)) / 2;
@@ -9574,22 +9608,50 @@ export class World {
   }
 
   /**
-   * Whether a truck or machine is in a ring of trucks and machines each
-   * held up behind the next, back round to it, and the lowest numbered of
-   * them: the one to go.
+   * Trucks and machines each waiting on the next all the way round, as
+   * where a wide road crosses itself: one of them drives on through the
+   * rest, minding only what else is about, until it has gone its own length
+   * and is clear of where they were all caught. Not only while it is held
+   * up: once it moves it no longer is, and it would stop again at once
+   * behind the one it was waiting on.
    */
-  private inRing(t: Vehicle): boolean {
+  private passRing(v: Vehicle): void {
+    if (this.heldFor(v) > B.TRUCK_RING_AFTER) {
+      const ring = this.ring(v);
+      if (ring) v.passing = { ids: ring, x: v.x, y: v.y };
+    }
+    const pass = v.passing;
+    if (pass && Math.hypot(v.x - pass.x, v.y - pass.y) > this.vehicleLength(v) + B.TRUCK_GAP) {
+      v.passing = undefined;
+    }
+  }
+
+  /**
+   * The others in a ring of trucks and machines each held up behind the
+   * next, back round to this one, when this is the one of them to go; null
+   * if it is in none, or another is to go. The one to go is held up by one
+   * crossing its way or coming at it, not queueing behind one going its
+   * way, as only going on through that undoes the knot: the lowest numbered
+   * such, or of them all if none is.
+   */
+  private ring(t: Vehicle): number[] | null {
     const by = new Map<number, Vehicle>(this.trucks.map((o) => [o.id, o]));
     for (const q of this.people) if (isBoxy(q)) by.set(q.id, q);
     let at: Vehicle | undefined = t;
-    let low = t.id;
+    const ring: Vehicle[] = [t];
     for (let k = 0; k < 12 && at?.blocker !== undefined; k++) {
       at = by.get(at.blocker);
-      if (!at || this.heldFor(at) === 0) return false;
-      if (at === t) return t.id === low;
-      low = Math.min(low, at.id);
+      if (!at || this.heldFor(at) === 0) return null;
+      if (at === t) {
+        const across = ring.filter(
+          (v) => Math.cos(this.goingTo(by.get(v.blocker!)!) - this.goingTo(v)) < 0.7,
+        );
+        const go = (across.length > 0 ? across : ring).reduce((a, b) => (b.id < a.id ? b : a));
+        return go === t ? ring.slice(1).map((v) => v.id) : null;
+      }
+      ring.push(at);
     }
-    return false;
+    return null;
   }
 
   /**
@@ -9675,8 +9737,8 @@ export class World {
     return isTruck(o) ? (o.held ?? 0) : o.blocked;
   }
 
-  /** Which way a truck is going: towards the next tile on its way, or the way it faces. */
-  private goingTo(t: Truck): number {
+  /** Which way a truck or machine is going: towards the next tile on its way, or the way it faces. */
+  private goingTo(t: Vehicle): number {
     const next = t.path[0];
     if (next === undefined) return t.dir;
     const dx = this.map.xOf(next) + 0.5 - t.x;

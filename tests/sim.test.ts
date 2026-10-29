@@ -1388,6 +1388,61 @@ describe('Rules of the road', () => {
     expect(moves).toHaveLength(1);
   });
 
+  it('has a ring of trucks each waiting on the next let one drive on through until it is clear', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // Round a block, each nose up against the side of the next: east,
+    // north, west, south and back to the first.
+    const ring = [
+      truck(world, 10.5, 20.5, 0, [m.idx(30, 20)]),
+      truck(world, 11.5, 20.5, -Math.PI / 2, [m.idx(11, 1)]),
+      truck(world, 11.5, 19.5, Math.PI, [m.idx(1, 19)]),
+      truck(world, 10.5, 19.5, Math.PI / 2, [m.idx(10, 40)]),
+    ];
+    const start = ring.map((t) => [t.x, t.y]);
+    for (let k = 0; k < B.TRUCK_RING_AFTER + 60; k++) {
+      for (const t of ring) {
+        const v = world['pace'](t)();
+        t.x += Math.cos(t.dir) * v;
+        t.y += Math.sin(t.dir) * v;
+      }
+    }
+    const gone = ring.map((t, k) => Math.hypot(t.x - start[k][0], t.y - start[k][1]));
+    // The lowest numbered goes, all the way past the one it was waiting on,
+    // well before any of them would squeeze on regardless.
+    expect(gone[0]).toBeGreaterThan(B.truckLength(6, false) + 1);
+  });
+
+  it('gets past a truck loading in its lane on a wide road, by the other lane', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // A road two wide running south, a truck loading at the kerb in its
+    // right-hand lane, and one coming down it behind.
+    for (let y = 8; y < 24; y++) for (const x of [10, 11]) m.build[m.idx(x, y)] = Build.Road;
+    world['junctionCache'] = null;
+    world['turnCache'] = null;
+    const loader = truck(world, 10.5, 15.5, Math.PI);
+    loader.state = 'loading' as never;
+    const goal = m.idx(10, 22);
+    const way = [15, 16, 17, 18, 19, 20, 21, 22].map((y) => m.idx(10, y));
+    const t = truck(world, 10.5, 14.1, Math.PI / 2, way);
+    t.goal = goal;
+    t.state = 'toPark' as never;
+    const cost = world['truckCost'](goal);
+    let v = 0;
+    for (let k = 0; k <= B.REROUTE_AFTER; k++) v = world['pace'](t, cost)();
+    // It pulls up behind it, then finds a way round it.
+    expect(v).toBeLessThan(0.05);
+    expect(t.path).not.toContain(m.idx(10, 15));
+    expect(t.path.at(-1)).toBe(goal);
+    // And sets off, the loading truck no longer on its way.
+    t.held = 0;
+    for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) v = world['pace'](t, cost)();
+    expect(v).toBeGreaterThan(0.1);
+  });
+
   it('drives on the right-hand side of the road', () => {
     const world = World.create(7);
     world.trucks.length = 0;
