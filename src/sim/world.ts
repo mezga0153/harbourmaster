@@ -4322,14 +4322,9 @@ export class World {
   ): Pick<EntityView, 'handStage' | 'handPhase' | 'handTicks' | 'handAt'> {
     if (p.state !== 'picking' && p.state !== 'dropping') return {};
     const pick = p.state === 'picking';
-    const at =
-      p.kind === 'forklift'
-        ? this.palletAt(p, pick)
-        : p.kind === 'stacker' || p.kind === 'tractor'
-          ? this.handAt(p, pick)
-          : undefined;
-    if (p.kind === 'forklift' && !at) return {};
-    if (p.kind !== 'forklift' && p.kind !== 'stacker' && p.kind !== 'tractor') return {};
+    const crates = p.kind === 'forklift' || p.kind === 'dockhand';
+    const at = crates ? this.crateAt(p, pick) : this.handAt(p, pick);
+    if (crates && !at) return {};
     const ticks = this.handlingTicks(p, pick ? B.PICK_TICKS : B.DROP_TICKS);
     return {
       handStage: pick ? 'pick' : 'drop',
@@ -4343,29 +4338,57 @@ export class World {
    * The tile of crate storage the last pallet in it is on (`pick`), or the
    * place the next goes: four pallets to a tile, a tile at a time.
    */
-  private palletTile(b: Bay, pick: boolean): number {
+  private palletTile(b: Bay, pick: boolean, coming = !pick): number {
     const tiles = b.tiles ?? [b.idx];
-    const held = b.crates.length + (b.exports?.length ?? 0) + (pick ? 0 : b.incoming);
+    const held = b.crates.length + (b.exports?.length ?? 0) + (coming ? b.incoming : 0);
     const place = Math.max(0, Math.floor((pick ? held - 1 : held) / B.FORKLIFT_CAPACITY));
     const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
     return tiles[Math.min(tiles.length - 1, Math.floor(place / per))];
   }
 
   /**
-   * Which pallet a forklift takes from crate storage, or sets one down in:
-   * the last there, or the next place after it, as the storage shows its
-   * crates a pallet at a time.
+   * A forklift at crate storage not at the tile of the pallet it takes, or
+   * the place its own goes as it sets it down, heads on there; true if so.
    */
-  private palletAt(p: Dockhand, pick: boolean): HandAt | undefined {
-    const store = pick
-      ? this.bays.get(p.stockIdx)
-      : p.toBoat !== undefined && p.toBoat >= 0
-        ? undefined
-        : this.bays.get(p.bayIdx);
-    if (!store?.tiles) return undefined;
-    const held = store.crates.length + (store.exports?.length ?? 0);
-    const place = Math.floor((pick ? held - 1 : held) / B.FORKLIFT_CAPACITY);
-    return place < 0 ? undefined : { store: store.idx, place };
+  private toPallet(p: Dockhand, b: Bay | undefined, pick: boolean): boolean {
+    if (p.kind !== 'forklift' || !b?.tiles || b.yard) return false;
+    const tile = this.palletTile(b, pick, false);
+    return tile !== this.tileOf(p) && this.headTo(p, tile);
+  }
+
+  /**
+   * The crate a forklift or dockhand takes, or the place it sets one down:
+   * the last there, or the next place after it, as each shows its crates
+   * in order; in crate storage a forklift's whole pallet (see storage).
+   */
+  private crateAt(p: Dockhand, pick: boolean): HandAt | undefined {
+    const last = (n: number) => (pick ? n - 1 : n);
+    const store = (b: Bay): HandAt | undefined => {
+      const held = b.crates.length + (b.exports?.length ?? 0);
+      if (p.kind !== 'forklift')
+        return last(held) < 0 ? undefined : { store: b.idx, slot: last(held) };
+      const place = Math.floor(last(held) / B.FORKLIFT_CAPACITY);
+      return place < 0 ? undefined : { store: b.idx, place };
+    };
+    const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
+    if (pick) {
+      const crane = this.cranes.get(p.craneIdx);
+      if (crane?.kind === 'jib') return { crane: crane.idx, slot: crane.stack.length - 1 };
+      const boat = this.boats.find((b) => b.id === p.boatId);
+      if (boat) return onBoat(boat);
+      const pile = this.piles.get(p.stockIdx);
+      if (pile) return { pile: pile.idx, slot: pile.crates.length - 1 };
+      const bay = this.bays.get(p.stockIdx);
+      return bay?.tiles ? store(bay) : undefined;
+    }
+    const boat =
+      p.toBoat !== undefined && p.toBoat >= 0 && this.boats.find((b) => b.id === p.toBoat);
+    if (boat) return onBoat(boat);
+    const pile = this.piles.get(p.bayIdx);
+    if (pile) return { pile: pile.idx, slot: pile.crates.length };
+    const bay = this.bays.get(p.bayIdx);
+    if (!bay) return undefined;
+    return bay.tiles ? store(bay) : { bay: bay.idx, slot: bay.crates.length };
   }
 
   /** Where a stacker or tractor is taking a container from, or setting one down. */
@@ -6355,6 +6378,7 @@ export class World {
         const r = this.walk(p);
         if (r === 'blocked') return this.cancelJob(p);
         if (r === 'arrived') {
+          if (this.toPallet(p, this.bays.get(p.stockIdx), true)) return;
           p.state = 'picking';
           p.timer = this.handlingTicks(p, B.PICK_TICKS);
           // Which container off a crane's stack it takes, from the top as
@@ -6401,6 +6425,9 @@ export class World {
         const r = this.walk(p);
         if (r === 'blocked') return this.retargetCrate(p);
         if (r === 'arrived') {
+          // The place its pallet goes in crate storage may have moved on
+          // while it came: it goes on to it.
+          if (this.toPallet(p, this.bays.get(p.bayIdx), false)) return;
           p.state = 'dropping';
           p.timer = this.handlingTicks(p, B.DROP_TICKS);
         }

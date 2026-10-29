@@ -1213,6 +1213,12 @@ export class Structures {
    * its length runs, as a heading. Null if there is no such place.
    */
   containerAt(at: HandAt, out: Vector3): number | null {
+    const crate = this.crateAt(at);
+    if (crate !== undefined) {
+      if (!crate) return null;
+      crate.getWorldPosition(out);
+      return headingOf(crate);
+    }
     let slot: Object3D | undefined;
     const placed = at.crane !== undefined ? this.cranePlaces.get(at.crane) : undefined;
     if (at.crane !== undefined && placed) {
@@ -1249,6 +1255,27 @@ export class Structures {
     if (!slot) return null;
     slot.getWorldPosition(out);
     return headingOf(slot);
+  }
+
+  /**
+   * A crate's place a forklift or dockhand works, by its slot: on the quay,
+   * at a truck bay, in crate storage or on a jib crane's landing stack; null
+   * if there is none there, undefined if `at` is not one of these.
+   */
+  private crateAt(at: HandAt): Object3D | null | undefined {
+    if (at.slot === undefined || at.look !== undefined) return undefined;
+    const k = at.slot;
+    if (at.pile !== undefined) return this.piles.get(at.pile)?.crates[k] ?? null;
+    if (at.bay !== undefined) return this.stacks.get(at.bay)?.crates[k] ?? null;
+    if (at.store !== undefined) {
+      const tiles = this.areas.get(at.store) ?? [at.store];
+      const tile = tiles[Math.floor(k / CRATES_PER_STORE_TILE)];
+      return this.stacks.get(tile)?.crates[k % CRATES_PER_STORE_TILE] ?? null;
+    }
+    if (at.crane !== undefined && this.cranes.get(at.crane)?.jib) {
+      return this.cranes.get(at.crane)?.stack[k] ?? null;
+    }
+    return undefined;
   }
 
   /** How many containers a truck or tractor shows. */

@@ -239,6 +239,8 @@ export interface Wake {
 
 /** Forklifts: how far to the right of the middle of the way they keep. */
 const FORK_KEEP = 0.16;
+/** How far in front of a dockhand the crate they pick up or set down is. */
+const HAND_REACH = 0.16;
 /** How far ahead of a forklift's middle the pallet on its forks sits. */
 const FORK_REACH = 0.3;
 /** Forklifts turning about: the tighter of the two arcs they go round. */
@@ -502,9 +504,10 @@ export class Entities {
       } else if (
         cur.kind === 'stacker' ||
         cur.kind === 'tractor' ||
-        (cur.kind === 'forklift' && (cur.handAt?.store !== undefined || e.hand))
+        ((cur.kind === 'forklift' || cur.kind === 'dockhand') && (cur.handAt || e.hand))
       ) {
-        // A forklift drives up to a pallet in crate storage like this too.
+        // A forklift drives up to the crates it takes or sets down like
+        // this too, and a dockhand walks up to the crate.
         this.handle(e, x, y, dir, t);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
@@ -690,7 +693,7 @@ export class Entities {
       // A forklift too far to drive up to its pallet in the time it has
       // works it from where it is.
       const far = w.goal && Math.hypot(w.goal.x - w.from.x, w.goal.z - w.from.z) > REACH_MOST;
-      if (w.goal && far && v.kind === 'forklift') {
+      if (w.goal && far && (v.kind === 'forklift' || v.kind === 'dockhand')) {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h };
       }
       const goal = w.goal ?? { ...drive, h: 0 };
@@ -735,7 +738,13 @@ export class Entities {
     if (!at) return null;
     const stacker = v.kind === 'stacker';
     // How far ahead of its middle it holds a load: a forklift's on its forks.
-    const hold = stacker ? STACKER_REACH : v.kind === 'forklift' ? FORK_REACH : TRAILER_AT;
+    const hold = stacker
+      ? STACKER_REACH
+      : v.kind === 'forklift'
+        ? FORK_REACH
+        : v.kind === 'dockhand'
+          ? HAND_REACH
+          : TRAILER_AT;
     const ahead = (face: number, d: number) => [Math.cos(face) * d, Math.sin(face) * d];
     if (at.along !== undefined) {
       // Turned about its container, which the gantry's spreader is over.
@@ -748,8 +757,15 @@ export class Entities {
     const p = this.slotAt;
     const heading = this.handSlot(at, p);
     if (heading === null) return null;
-    // A stacker takes a container side on; a tractor's trailer lies along it.
-    const lie = stacker ? heading + Math.PI / 2 : heading;
+    // A stacker takes a container side on; a tractor's trailer lies along
+    // it; a forklift's forks go into a pallet in storage the way it lies,
+    // and otherwise it, or a dockhand, comes straight up to the crate.
+    const straight = (v.kind === 'dockhand' || v.kind === 'forklift') && at.place === undefined;
+    const lie = stacker
+      ? heading + Math.PI / 2
+      : straight
+        ? Math.atan2(p.z - drive.z, p.x - drive.x)
+        : heading;
     // From whichever side is nearer, sooner than turn right round.
     const cost = (face: number) => {
       const [dx, dz] = ahead(face, hold);
@@ -757,7 +773,7 @@ export class Entities {
         Math.hypot(p.x - dx - drive.x, p.z - dz - drive.z) + 0.4 * (1 - Math.cos(face - drive.dir))
       );
     };
-    w.face ??= cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
+    w.face ??= straight || cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
     const [dx, dz] = ahead(w.face, hold);
     const x = p.x - dx;
     const z = p.z - dz;

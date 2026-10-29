@@ -115,8 +115,14 @@ export interface HandAt {
   along?: number;
   /** In a yard: the place it is stacked in, or goes; see YardView.slots. */
   place?: number;
-  /** Crate storage (by its first tile): `place` is then which pallet's place, see storage. */
+  /**
+   * Crate storage (by its first tile): `place` is then which pallet's
+   * place, see storage, or `slot` which crate's.
+   */
   store?: number;
+  /** Crates landed on the quay at this tile, or at a truck bay: `slot` is which. */
+  pile?: number;
+  bay?: number;
 }
 
 export interface CraneView {
