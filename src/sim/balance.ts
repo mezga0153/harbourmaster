@@ -252,6 +252,13 @@ export const YARD_GANTRY_TICKS = 15;
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;
+/**
+ * A terminal tractor: carries one container at a time between the container
+ * cranes and the yards with a yard gantry, which lifts it on and off.
+ */
+export const TRACTOR_PRICE = 3500;
+export const TRACTOR_WAGE = 50;
+export const TRACTOR_SPEED = 0.45;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers

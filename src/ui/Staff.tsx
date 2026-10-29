@@ -166,7 +166,7 @@ function MachineCard({ p, actions }: { p: StaffView; actions: Actions }) {
   return (
     <div class="card person">
       <div class="card-head">
-        <Icon name={p.kind === 'stacker' ? 'stacker' : 'forklift'} />
+        <Icon name={p.kind === 'stacker' || p.kind === 'tractor' ? p.kind : 'forklift'} />
         <strong>{p.name}</strong>
         {p.broken && <span class="badge bad">In for repair</span>}
       </div>

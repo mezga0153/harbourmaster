@@ -87,6 +87,9 @@ interface YardGantryParts {
   pick: { x: number; z: number; drop: number } | null;
   /** How far along the rails the truck it is working stands. */
   laneAt: number;
+  /** The truck it is working, and the container slot on it it lifts from or sets down in. */
+  truck?: number;
+  slot: number;
   work: 'load' | 'unload' | null;
   look: number;
   /** How far through a lift, 0 to 1. */
@@ -124,6 +127,9 @@ export class Structures {
   private crossings = new Map<number, CrossingParts>();
   /** Yard gantries, by tile, for their trolley to run as they load trucks. */
   private yardGantries = new Map<number, YardGantryParts>();
+  /** Where a truck's container slot is in the world; set by the renderer. */
+  truckSlot?: (id: number, k: number, out: Vector3) => Vector3 | null;
+  private slotAt = new Vector3();
   /** Game speed, so a gantry's lift takes as long as it does in the game. */
   private speed = 1;
   /** Cargo landed on the quay, by tile. */
@@ -270,6 +276,9 @@ export class Structures {
       working?: 'load' | 'unload';
       workLook?: number;
       workAt?: number;
+      workTruck?: number;
+      workSlot?: number;
+      workPhase?: number;
     }[],
   ): void {
     for (const y of yards) {
@@ -281,6 +290,14 @@ export class Structures {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
         g.work = y.working ?? null;
         g.laneAt = y.workAt ?? 0;
+        g.truck = y.workTruck;
+        g.slot = y.workSlot ?? 0;
+        // Keep the lift in step with the game's: the container leaves the
+        // truck, or lands on it, as the spreader takes it or sets it down.
+        if (y.workPhase !== undefined) {
+          const off = ((y.workPhase - g.phase + 1.5) % 1) - 0.5;
+          g.phase = Math.abs(off) > 0.15 ? y.workPhase : (g.phase + off * 0.5 + 1) % 1;
+        }
         if (y.workLook !== undefined) g.look = y.workLook;
         g.pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
       }
@@ -338,7 +355,10 @@ export class Structures {
       // Between the container in the yard and the truck in the lane under
       // the gantry, where it reaches out over the edge of the yard.
       const yard = g.pick ?? { x: 0, z: Math.max(0.8, g.far * 0.6), drop: g.laneDrop };
-      const lane = { x: g.laneAt, z: 0, drop: g.laneDrop };
+      // Over the very container slot on the truck, front or back of a long one.
+      const at = g.truck !== undefined ? this.truckSlot?.(g.truck, g.slot, this.slotAt) : null;
+      if (at) g.frame.worldToLocal(at);
+      const lane = { x: at ? at.x : g.laneAt, z: at ? at.z : 0, drop: g.laneDrop };
       const [from, to] = g.work === 'load' ? [yard, lane] : [lane, yard];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
@@ -891,6 +911,7 @@ export class Structures {
           laneDrop: h - 0.28 - BOX_HEIGHT,
           pick: null,
           laneAt: 0,
+          slot: 0,
           work: null,
           look: 0,
           phase: 0,

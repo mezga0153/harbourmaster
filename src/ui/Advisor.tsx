@@ -42,6 +42,11 @@ const TIPS: Record<string, Tip> = {
     text: 'Reach stackers take containers from the harbour and gantry cranes to a container yard. They drive only on port roads and quays.',
     topic: 'machines',
   },
+  tractors: {
+    title: 'Terminal tractors',
+    text: 'Terminal tractors carry containers between the harbour and gantry cranes and the container yards with a yard gantry, which lifts them off and on. They cannot lift a container themselves, so yards without a gantry still need reach stackers.',
+    topic: 'machines',
+  },
   landed: {
     title: 'Cargo landed on the quay',
     text: 'With forklifts about, dockhands set what they lift off a boat down on the quay beside it, and the forklifts take it on four at a time.',

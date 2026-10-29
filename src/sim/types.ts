@@ -114,7 +114,7 @@ export type BuildKind =
   | 'buoyIn'
   | 'buoyOut';
 
-export type MachineKind = 'forklift' | 'stacker';
+export type MachineKind = 'forklift' | 'stacker' | 'tractor';
 
 /** A channel buoy; boats sail past it, so the water stays open. */
 export function isBuoy(code: number): boolean {

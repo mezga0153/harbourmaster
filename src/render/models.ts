@@ -213,6 +213,33 @@ export function stacker(): Model {
   return { root, crates: [load], body };
 }
 
+/**
+ * A terminal tractor: a low cab up front pulling a flat trailer that one
+ * container sits on, lifted on and off by a crane.
+ */
+export function tractor(): Model {
+  const root = new Group();
+  const body = new Group();
+  // The cab, with its window, and the trailer's deck behind it.
+  body.add(box(0.2, 0.12, 0.26, C.forklift, 0.3, 0.08));
+  body.add(box(0.12, 0.12, 0.2, C.window, 0.32, 0.2, -0.02));
+  body.add(box(0.13, 0.03, 0.22, C.forklift, 0.32, 0.32, -0.02));
+  body.add(box(0.66, 0.04, 0.28, C.chassis, -0.14, 0.1));
+  for (const x of [0.3, -0.04, -0.34]) {
+    for (const z of [-0.13, 0.13]) {
+      const wheel = cyl(0.07, 0.06, C.tyre, x, 0, z, 10);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.y = 0.07;
+      body.add(wheel);
+    }
+  }
+  const load = container(1, -0.14, 0.14, 0);
+  load.visible = false;
+  body.add(load);
+  root.add(body);
+  return { root, crates: [load], body };
+}
+
 /** Floating warning marker for things that need the player's attention. */
 export function alertMarker(): Object3D {
   const g = new Group();

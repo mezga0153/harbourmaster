@@ -2059,6 +2059,53 @@ describe('Container Port tier', () => {
     expect(working).toBeGreaterThan(0);
   });
 
+  it('has terminal tractors bring containers to a yard with a gantry, with no reach stackers', () => {
+    const world = feederPort(true);
+    const m = world.map;
+    const yard = [...world.yards.values()][0];
+    const spot: number = world['storeSpots'](yard)[0];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.YardGantry);
+    // The stackers go, and a tractor takes their place.
+    for (let k = world.people.length - 1; k >= 0; k--) {
+      if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
+    }
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    expect(world.people.filter((p) => p.kind === 'tractor').length).toBe(1);
+    let carried = 0;
+    let lifting = 0;
+    let shown = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      const t = world.people.find((p) => p.kind === 'tractor')!;
+      if (t.carrying > 0) carried++;
+      // At the yard, the gantry lifts the container off, in the lane its
+      // rails run along.
+      if (t.state === 'dropping' && t.bayIdx === yard.idx) {
+        lifting++;
+        expect(world['gantryLane'](yard).has(world['tileOf'](t))).toBe(true);
+        if (world.snapshot().yards.some((y) => y.working === 'unload')) shown++;
+      }
+    }
+    expect(carried).toBeGreaterThan(0);
+    expect(lifting).toBeGreaterThan(0);
+    expect(shown).toBeGreaterThan(0);
+    expect(world.stats.containers).toBeGreaterThan(0);
+  });
+
+  it('keeps terminal tractors away from a yard with no gantry', () => {
+    const world = feederPort(true);
+    for (let k = world.people.length - 1; k >= 0; k--) {
+      if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
+    }
+    const depot = world.map.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
+    expect(world.stats.containers).toBe(0);
+    expect(world.people.find((p) => p.kind === 'tractor')!.stuck).toMatch(/yard gantry/);
+  });
+
   it('brings a container ship in and out without its hull touching the docks', () => {
     const world = World.create(7);
     world.tier = 2;

@@ -143,6 +143,7 @@ export const CATEGORIES: Category[] = [
       { tool: 'depot', icon: 'garage', label: 'Depot', key: 'U' },
       { tool: 'forklift', icon: 'forklift', label: 'Forklift', key: 'L' },
       { tool: 'stacker', icon: 'stacker', label: 'Reach stacker', key: 'Z' },
+      { tool: 'tractor', icon: 'tractor', label: 'Terminal tractor' },
       { tool: 'tugBerth', icon: 'anchor', label: 'Tug berth' },
       {
         tool: 'tug',

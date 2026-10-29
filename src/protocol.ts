@@ -46,7 +46,7 @@ export type Command =
   /** Dev server only: carry on from this game instead, from the debug bridge. */
   | { type: 'loadSave'; save: SaveData };
 
-export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'boat' | 'truck';
+export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'tractor' | 'boat' | 'truck';
 
 export interface EntityView {
   id: number;
@@ -227,6 +227,13 @@ export interface YardView {
   workLook?: number;
   /** How far along its rails the truck it is working stands, from the gantry. */
   workAt?: number;
+  /**
+   * The truck it is working, which of its container slots it lifts from or
+   * sets down in, and how far through the lift it is, 0 to 1.
+   */
+  workTruck?: number;
+  workSlot?: number;
+  workPhase?: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

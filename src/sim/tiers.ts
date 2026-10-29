@@ -54,6 +54,7 @@ export const TIERS: Tier[] = [
       'Feeder ships with containers (4 m draft)',
       'Container yards marked out on port roads and quays, and container hauliers',
       'Yard gantries, which load the trucks at a container yard where reach stackers otherwise must',
+      'Terminal tractors, which shuttle containers between the cranes and yards with a yard gantry',
     ],
   },
   {
@@ -92,4 +93,5 @@ export const BUILD_TIER: Record<BuildKind, number> = {
 export const MACHINE_TIER: Record<MachineKind, number> = {
   forklift: 1,
   stacker: 2,
+  tractor: 2,
 };

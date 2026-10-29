@@ -2,6 +2,7 @@ import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS } from '../sim/balance';
 import type { EntityView } from '../protocol';
 import type { GameMap } from '../sim/map';
+import { isMachineKind } from '../sim/machines';
 import { TICKS_PER_SECOND } from '../sim/types';
 import {
   alertMarker,
@@ -11,6 +12,7 @@ import {
   paintLoad,
   showLoad,
   stacker,
+  tractor,
   truck,
   type Model,
 } from './models';
@@ -156,12 +158,14 @@ export class Entities {
               ? forklift()
               : v.kind === 'stacker'
                 ? stacker()
-                : v.kind === 'boat'
-                  ? boat(v.variant, v.vessel, v.id)
-                  : truck(v.variant, v.capacity, v.boxes, v.id);
+                : v.kind === 'tractor'
+                  ? tractor()
+                  : v.kind === 'boat'
+                    ? boat(v.variant, v.vessel, v.id)
+                    : truck(v.variant, v.capacity, v.boxes, v.id);
         this.group.add(model.root);
         // Only machines show a warning marker; boats at anchor are normal.
-        const alert = v.kind === 'forklift' || v.kind === 'stacker' ? alertMarker() : null;
+        const alert = isMachineKind(v.kind) ? alertMarker() : null;
         if (alert) {
           alert.visible = false;
           this.group.add(alert);
@@ -287,7 +291,7 @@ export class Entities {
           track.samples.unshift(tail);
           if (track.samples.length > WAKE_POINTS - 2) track.samples.pop();
         }
-      } else if (cur.kind === 'dockhand' || cur.kind === 'forklift' || cur.kind === 'stacker') {
+      } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? 0.16 : 0.2;
         const rx = x - Math.sin(dir) * keep;
@@ -352,6 +356,12 @@ export class Entities {
   positionOf(id: number, out: Vector3): Vector3 | null {
     const e = this.entries.get(id);
     return e ? out.copy(e.model.root.position) : null;
+  }
+
+  /** Where a truck's container slot `k` is in the world, or null. */
+  slotPosition(id: number, k: number, out: Vector3): Vector3 | null {
+    const slot = this.entries.get(id)?.model.crates[k];
+    return slot ? slot.getWorldPosition(out) : null;
   }
 
   worldPositions(): { view: EntityView; pos: Vector3 }[] {

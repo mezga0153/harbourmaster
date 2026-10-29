@@ -283,6 +283,7 @@ const KIND_LABEL = {
   dockhand: 'Dockhand',
   forklift: 'Machine',
   stacker: 'Machine',
+  tractor: 'Machine',
   boat: 'Boat',
   truck: 'Truck',
 } as const;
@@ -573,7 +574,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
         {e.activity}
       </p>
       {e.why && <Why topic={WHY_TOPIC[e.kind]}>{e.why}</Why>}
-      {(e.kind === 'dockhand' || e.kind === 'forklift' || e.kind === 'stacker') && (
+      {(e.kind === 'dockhand' || isMachineKind(e.kind)) && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
       {e.kind === 'boat' && e.vessel !== 'tug' && (
@@ -607,6 +608,7 @@ const WHY_TOPIC: Record<string, string> = {
   dockhand: 'machinesOnly',
   forklift: 'machines',
   stacker: 'machines',
+  tractor: 'machines',
 };
 
 const CRANE_NAME = { jib: 'Jib crane', harbour: 'Harbour crane', gantry: 'Gantry crane' };
