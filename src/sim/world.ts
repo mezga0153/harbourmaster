@@ -6919,13 +6919,14 @@ export class World {
         else used.add(k);
       });
     }
-    for (const [list, n] of [
-      [boxes, b.boxes.length],
-      [exports, b.exports?.length ?? 0],
+    const ready = this.readyList(b);
+    for (const [list, n, out] of [
+      [boxes, b.boxes.length, false],
+      [exports, b.exports?.length ?? 0, true],
     ] as const) {
       for (let i = 0; i < n; i++) {
         if (i < list.length && list[i] >= 0) continue;
-        const k = this.freeYardSlot(b, used);
+        const k = this.freeYardSlot(b, boxes, exports, out ? undefined : ready[i]);
         list[i] = k;
         used.add(k);
       }
@@ -6933,23 +6934,41 @@ export class World {
     return { boxes, exports };
   }
 
-  /** The lowest free place in a yard with a container under it, or on the ground; -1 if full. */
-  private freeYardSlot(b: Bay, used: Set<number>): number {
+  /**
+   * Where a container goes in a yard: on the ground while there is room,
+   * then on a stack whose top clears customs no sooner than it does (one
+   * off the same ship, or later), so it never buries one that will be
+   * ready first; failing that, the lowest free place with one under it.
+   * -1 if the yard is full. `ready` is when it clears, as in boxReady.
+   */
+  private freeYardSlot(b: Bay, boxes: number[], exports: number[], ready?: number): number {
     const cap = bayCap(b);
+    const under = new Map<number, number | undefined>();
+    const list = this.readyList(b);
+    boxes.forEach((k, i) => k >= 0 && under.set(k, list[i]));
+    exports.forEach((k) => k >= 0 && under.set(k, undefined));
+    // When a container leaves, as best known: waiting on its ship to finish
+    // last of all, and those from one ship alike.
+    const when = (r: number | undefined) => (r === undefined ? Infinity : r < 0 ? 1e12 - r : r);
+    let fallback = -1;
     for (let tier = 0; tier < YARD_TIERS; tier++) {
       for (let k = tier * YARD_STACKS; k < cap; k++) {
         const p = yardPlace(k);
-        if (p.tier !== tier || used.has(k)) continue;
-        if (tier === 0 || used.has(k - YARD_STACKS)) return k;
+        if (p.tier !== tier || under.has(k)) continue;
+        if (tier === 0) return k;
+        if (!under.has(k - YARD_STACKS)) continue;
+        const below = under.get(k - YARD_STACKS);
+        if (ready === undefined || when(below) >= when(ready)) return k;
+        if (fallback < 0) fallback = k;
       }
     }
-    return -1;
+    return fallback;
   }
 
   /** Where the next container set down in this yard goes. */
-  private nextYardSlot(b: Bay): number {
+  private nextYardSlot(b: Bay, ready?: number): number {
     const { boxes, exports } = this.yardSlots(b);
-    return this.freeYardSlot(b, new Set([...boxes, ...exports]));
+    return this.freeYardSlot(b, boxes, exports, ready);
   }
 
   /**

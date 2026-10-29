@@ -2448,22 +2448,48 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const yard = world.yards.get(t.yard)!;
-    // The ground first, a stack at a time across the yard, then up.
+    // The ground first, a stack at a time across the yard, every one cleared.
     const ground = (yard.tiles!.length * B.BOXES_PER_STORE_TILE) / 3;
-    const later = world.tick + 10 * TICKS_PER_DAY;
-    for (let k = 0; k <= ground; k++) {
+    for (let k = 0; k < ground; k++) {
       yard.boxes.push(100);
-      (yard.boxReady ??= []).push(k === 0 ? 0 : later);
+      (yard.boxReady ??= []).push(0);
     }
+    world['yardSlots'](yard);
+    // One still in customs has nowhere but on top of one of them.
+    yard.boxes.push(100);
+    yard.boxReady!.push(world.tick + 10 * TICKS_PER_DAY);
     const slots = world['yardSlots'](yard).boxes;
-    // The last stands on the first, which customs have cleared: it is buried.
     expect(slots[ground]).toBe(slots[0] + 2);
-    expect(world['reachable'](yard)).toBe(0);
-    expect(world['clearTop'](yard)).toBe(-1);
-    // Once the one on top clears too, both can go, the top one first.
+    // The one under it is buried: the trucks can reach all but that.
+    expect(world['reachable'](yard)).toBe(ground - 1);
+    expect(world['clearTop'](yard)).not.toBe(0);
+    // Once the one on top clears too, it can go, before the one under it.
     yard.boxReady![ground] = 0;
-    expect(world['reachable'](yard)).toBe(2);
+    expect(world['reachable'](yard)).toBe(ground + 1);
     expect(world['clearTop'](yard)).toBe(ground);
+  });
+
+  it('stacks a container where it buries none that will clear before it', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const yard = world.yards.get(t.yard)!;
+    const ground = (yard.tiles!.length * B.BOXES_PER_STORE_TILE) / 3;
+    // The ground full: the first stack clears tomorrow, the rest in a week.
+    const soon = world.tick + TICKS_PER_DAY;
+    const later = world.tick + 7 * TICKS_PER_DAY;
+    for (let k = 0; k < ground; k++) {
+      yard.boxes.push(100);
+      (yard.boxReady ??= []).push(k === 0 ? soon : later);
+    }
+    world['yardSlots'](yard);
+    // One clearing in a week goes on one of those, not on the first.
+    yard.boxes.push(100);
+    yard.boxReady!.push(later);
+    const slots = world['yardSlots'](yard).boxes;
+    expect(slots[ground]).not.toBe(slots[0] + 2);
   });
 
   it('holds containers in a yard for a day of customs from when their ship is unloaded', () => {
