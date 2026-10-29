@@ -84,7 +84,7 @@ export function App({ actions }: { actions: Actions }) {
       <PreviewTip />
       <HoverTip />
       <Advisor />
-      <BuildBar actions={actions} />
+      <BuildBar />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
     </>
@@ -129,11 +129,9 @@ function TopBar({ actions }: { actions: Actions }) {
           <span class="brand-mark">
             <Icon name="anchor" />
           </span>
-          <span class="brand-text">
-            <span class="brand-name">Harbourmaster</span>
-            <span class="brand-tier">{TIERS[s.progress.tier].name}</span>
-          </span>
+          <span class="brand-name">Harbourmaster</span>
         </div>
+        <TimeControl actions={actions} />
         <span class="vr" />
         <button
           class={`stat-button ${panel.value === 'finance' ? 'on' : ''}`}
@@ -812,12 +810,12 @@ function CategoryTray({ cat }: { cat: Category }) {
   );
 }
 
-/** The date and the game's speed, at the right-hand end of the bottom bar. */
+/** The date and the game's speed, at the top left. */
 function TimeControl({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
   return (
-    <div class="dock-group time">
+    <div class="time">
       <div class="clock" title="Date">
         <span class="clock-date">{formatDate(s.tick)}</span>
         <span class="daybar">
@@ -848,7 +846,7 @@ function TimeControl({ actions }: { actions: Actions }) {
   );
 }
 
-function BuildBar({ actions }: { actions: Actions }) {
+function BuildBar() {
   const current = tool.value;
   const open = CATEGORIES.find((c) => c.id === openCategory.value);
   return (
@@ -893,7 +891,6 @@ function BuildBar({ actions }: { actions: Actions }) {
             <span class="tool-cost">Hire</span>
           </button>
         </div>
-        <TimeControl actions={actions} />
       </footer>
     </>
   );

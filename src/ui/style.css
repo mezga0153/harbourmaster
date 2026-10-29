@@ -342,12 +342,12 @@ button:focus-visible {
   color: var(--bad);
 }
 
-/* The date and game speed, at the right-hand end of the bottom bar. */
-.dock-group.time {
+/* The date and game speed, at the top left. */
+.time {
   flex: none;
+  display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 4px;
 }
 
 .clock {
@@ -972,20 +972,6 @@ button:focus-visible {
 
 .ledger tfoot td:first-child {
   color: var(--text);
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
-
-.brand-tier {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
 }
 
 .tool.locked {
