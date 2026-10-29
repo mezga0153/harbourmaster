@@ -1820,6 +1820,11 @@ describe('Container Port tier', () => {
     world.command({ type: 'bulldoze', tiles: [corner - 1, corner + m.w - 1] });
     world.command({ type: 'build', kind: 'portGate', tiles: [corner + m.w - 1], facing: 1 });
     world.command({ type: 'build', kind: 'portRoad', tiles: [corner - 1] });
+    // And a port road round the far side of the yard to the spur, for the
+    // machines: they never drive across the stacks.
+    const round = [corner - 1 - m.w, corner - m.w, corner + 1 - m.w];
+    world.command({ type: 'bulldoze', tiles: round });
+    world.command({ type: 'build', kind: 'portRoad', tiles: round });
     const depot = m.idx(start, r - 3);
     world.command({ type: 'bulldoze', tiles: [depot] });
     world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
@@ -2485,8 +2490,9 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const yard = world.yards.get(t.yard)!;
-    // The ground first, a stack at a time across the yard, every one cleared.
-    const ground = (yard.tiles!.length * B.BOXES_PER_STORE_TILE) / 3;
+    // The ground first, a stack at a time across the yard where the
+    // machines can get at it, every one cleared.
+    const ground = world['workable'](yard)!.size * 2;
     for (let k = 0; k < ground; k++) {
       yard.boxes.push(100);
       (yard.boxReady ??= []).push(0);
@@ -3053,7 +3059,7 @@ describe('Container Port tier', () => {
     // Feeders keep landing more, so count what the trucks take away, once
     // customs have had their day after the ship was unloaded.
     let collected = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       const before = yard.boxes.length;
       world.step();
       collected += Math.max(0, before - yard.boxes.length);

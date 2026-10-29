@@ -858,6 +858,8 @@ export class World {
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
   private junctionCache: Uint8Array | null = null;
+  /** Where port machines can drive from their depots; see machineGround. */
+  private machineCache: Set<number> | null = null;
   /** The parking lots, and whether each works; see parkingLots. */
   private lotsCache: ParkingLot[] | null = null;
   /** The town up the coast, which grows with the port. */
@@ -1158,6 +1160,7 @@ export class World {
     this.reachCache = null;
     this.lotsCache = null;
     this.junctionCache = null;
+    this.machineCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -4293,8 +4296,8 @@ export class World {
       if (!t || !yard) return undefined;
       // Off the stack onto the truck, or off the truck onto the stack.
       if (pick !== !!p.truckLoad) return { truck: t.id, slot: pick ? t.cargo - 1 : t.cargo };
-      if (!pick) return { yard: first(yard), place: this.nextYardSlot(yard) };
-      const at = this.clearTop(yard);
+      if (!pick) return { yard: first(yard), place: this.stackedAt(p, yard) };
+      const at = this.clearTop(yard, this.reachFrom(yard, p.goal));
       if (at < 0) return undefined;
       const place = this.yardSlots(yard).boxes[at];
       return { yard: first(yard), look: this.boxLooks(yard)[at], place };
@@ -4304,7 +4307,8 @@ export class World {
       if (crane) return { crane: crane.idx, look: this.stackLooks(crane)[0] };
       const yard = this.yards.get(p.stockIdx);
       if (!yard || !p.outbound) return undefined;
-      const at = Math.max(0, this.yardTop(yard, true));
+      const reach = p.kind === 'stacker' ? this.reachFrom(yard, p.goal) : undefined;
+      const at = Math.max(0, this.yardTop(yard, true, undefined, reach));
       const place = this.yardSlots(yard).exports[at];
       return { ...lane(yard), look: this.exportLooks(yard)[at], place };
     }
@@ -4314,7 +4318,18 @@ export class World {
     if (!yard) return undefined;
     // Where it will be stacked, by when customs clear it.
     const ready = p.outbound ? undefined : this.customsFor(p.cargoFrom?.[0]);
-    return { ...lane(yard), place: this.nextYardSlot(yard, ready) };
+    return { ...lane(yard), place: this.stackedAt(p, yard, ready) };
+  }
+
+  /**
+   * The place in a yard a container a machine sets down goes: a stacker's
+   * on a stack it reaches from where it stands, if there is room on one.
+   */
+  private stackedAt(p: Dockhand, yard: Bay, ready?: number): number {
+    const { boxes, exports } = this.yardSlots(yard);
+    const reach = p.kind === 'stacker' ? this.reachFrom(yard, p.goal) : undefined;
+    const at = reach ? this.freeYardSlot(yard, boxes, exports, ready, reach) : -1;
+    return at >= 0 ? at : this.freeYardSlot(yard, boxes, exports, ready);
   }
 
   /** Which way the lane under a yard's gantry runs, as a heading; see gantryLane. */
@@ -4444,15 +4459,30 @@ export class World {
         : t.cargo - (t.taking ?? 0);
       if (avail <= 0) continue;
       // A truck was only sent in because a stacker was free for it: it comes first.
-      sources.push({ tile: this.besideTruck(yard, t), avail, truck: t, load, rank: -1 });
+      for (const tile of this.besideTruck(yard, t, load)) {
+        sources.push({ tile, avail, truck: t, load, rank: -1 });
+      }
     }
   }
 
-  /** The yard tile nearest a truck loading beside it, where a stacker works it. */
-  private besideTruck(yard: Bay, t: Truck): number {
+  /**
+   * Where a stacker may stand to work a truck at a yard: beside the edge
+   * of the stacks, by a stack with a cleared container on top to load it
+   * with, or room for one off it; nearest the truck first.
+   */
+  private besideTruck(yard: Bay, t: Truck, load: boolean): number[] {
     const m = this.map;
     const near = (i: number) => Math.hypot(m.xOf(i) + 0.5 - t.x, m.yOf(i) + 0.5 - t.y);
-    return (yard.tiles ?? [yard.idx]).reduce((a, b) => (near(b) < near(a) ? b : a));
+    const spots = new Set<number>();
+    (yard.tiles ?? [yard.idx]).forEach((tile, n) => {
+      const reach = new Set([n]);
+      const fits = load
+        ? this.clearTop(yard, reach) >= 0
+        : this.nextYardSlot(yard, undefined, reach) >= 0;
+      if (!fits) return;
+      for (const s of this.stackSides(tile)) spots.add(s);
+    });
+    return [...spots].sort((a, b) => near(a) - near(b)).slice(0, 4);
   }
 
   /** Send a stacker to load a truck at a yard, or unload one: one container a trip. */
@@ -4515,7 +4545,7 @@ export class World {
           yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
           // Only what customs have cleared, whichever that is.
           const ready = this.readyList(yard);
-          const at = this.clearTop(yard);
+          const at = this.clearTop(yard, this.reachFrom(yard, p.goal));
           if (at >= 0) {
             this.yardSlots(yard).boxes.splice(at, 1);
             ready.splice(at, 1);
@@ -4576,6 +4606,10 @@ export class World {
         yard.boxes.push(fee);
       }
     } else if (yard) {
+      // On a stack it reaches from where it stands, if it can.
+      const slots = this.yardSlots(yard);
+      const at = this.stackedAt(p, yard);
+      if (at >= 0) slots.exports.push(at);
       this.exportLooks(yard).push(...this.carriedLooks(p));
       (yard.exports ??= []).push(fee);
       yard.exportIncoming = Math.max(0, (yard.exportIncoming ?? 0) - 1);
@@ -5779,7 +5813,9 @@ export class World {
   private walkCost: CostFn = (i) => (walkableAt(this.map, i) ? 1 : Infinity);
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
-  private driveCost: CostFn = (i) => (drivable(this.map.build[i]) ? 1 : Infinity);
+  /** Port machines drive on port roads and quays, never across the stacks in a container yard. */
+  private driveCost: CostFn = (i) =>
+    drivable(this.map.build[i]) && !storesBoxes(this.map.store[i]) ? 1 : Infinity;
 
   private costFor(p: Dockhand): CostFn {
     return isMachine(p) ? this.driveCost : this.walkCost;
@@ -6160,6 +6196,13 @@ export class World {
         // Their times go on first, while the list still matches the yard.
         if (boxy) {
           const from = p.cargoFrom ?? [];
+          // A stacker sets it on a stack it reaches from where it stands.
+          if (p.kind === 'stacker' && bay.yard) {
+            const slots = this.yardSlots(bay);
+            p.cargoFees.forEach((_, k) => {
+              slots.boxes.push(this.stackedAt(p, bay, this.customsFor(from[k])));
+            });
+          }
           this.readyList(bay).push(...p.cargoFees.map((_, k) => this.customsFor(from[k])));
           p.cargoFrom = undefined;
           this.boxLooks(bay).push(...this.carriedLooks(p));
@@ -6414,7 +6457,10 @@ export class World {
     for (const store of stores) {
       const avail = (store.exports?.length ?? 0) - (store.outReserved ?? 0);
       if (!store.tiles || avail <= 0 || !this.servesYard(p, store)) continue;
-      const tile = this.dropAt(p, store, here);
+      const tile =
+        p.kind === 'stacker' && store.yard
+          ? this.stackSide(p, store, here, 'pick', true)
+          : this.dropAt(p, store, here);
       if (tile >= 0) sources.push({ tile, avail, pile: store, out: true, rank: 1 });
     }
     if (p.kind !== 'dockhand') return;
@@ -6920,8 +6966,9 @@ export class World {
         // Off the top of the stacks in a yard.
         const fees: number[] = [];
         p.cargoLooks = [];
+        const reach = p.kind === 'stacker' ? this.reachFrom(pile, p.goal) : undefined;
         for (let k = 0; k < n; k++) {
-          const i = this.yardTop(pile, true);
+          const i = this.yardTop(pile, true, undefined, reach);
           if (i < 0) break;
           this.yardSlots(pile).exports.splice(i, 1);
           p.cargoLooks.push(...this.exportLooks(pile).splice(i, 1));
@@ -7031,8 +7078,90 @@ export class World {
   private dropAt(p: Dockhand, b: Bay, from: number): number {
     if (!b.tiles) return this.pathFor(p, from, b.idx) ? b.idx : -1;
     if (p.kind === 'tractor') return this.tractorSpot(p, b, from);
+    if (p.kind === 'stacker' && b.yard) return this.stackSide(p, b, from, 'drop');
     const near = [...b.tiles].sort((x, y) => this.dist(from, x) - this.dist(from, y)).slice(0, 4);
     return near.find((t) => this.pathFor(p, from, t)) ?? -1;
+  }
+
+  /**
+   * Where a reach stacker stands to work a yard's stacks: on the port road
+   * or quay beside its edge, never among them, facing a stack it can reach
+   * from there; for `drop`, one with room for another, for `pick` one with
+   * a container on top that `ok` lets through (`exports` for exports). The
+   * nearest it can get to from `from`, or -1.
+   */
+  private stackSide(
+    p: Dockhand,
+    b: Bay,
+    from: number,
+    work: 'drop' | 'pick',
+    exports = false,
+    ok?: (i: number) => boolean,
+  ): number {
+    const tiles = b.tiles ?? [b.idx];
+    const spots: number[] = [];
+    tiles.forEach((t, n) => {
+      const reach = new Set([n]);
+      const fits =
+        work === 'drop'
+          ? this.nextYardSlot(b, undefined, reach) >= 0
+          : this.yardTop(b, exports, ok, reach) >= 0;
+      if (!fits) return;
+      for (const s of this.stackSides(t)) if (!spots.includes(s)) spots.push(s);
+    });
+    spots.sort((x, y) => this.dist(from, x) - this.dist(from, y));
+    return spots.slice(0, 6).find((s) => this.pathFor(p, from, s)) ?? -1;
+  }
+
+  /** Every tile port machines can drive to from their depots. */
+  private machineGround(): Set<number> {
+    if (this.machineCache) return this.machineCache;
+    const m = this.map;
+    const seen = new Set<number>();
+    const queue: number[] = [];
+    for (let i = 0; i < m.build.length; i++) {
+      if (m.build[i] === Build.Depot) {
+        seen.add(i);
+        queue.push(i);
+      }
+    }
+    while (queue.length > 0) {
+      for (const n of m.neighbors4(queue.pop()!)) {
+        if (seen.has(n) || !Number.isFinite(this.driveCost(n))) continue;
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+    return (this.machineCache = seen);
+  }
+
+  /** Where a stacker can stand beside yard tile `t` to work its stacks. */
+  private stackSides(t: number): number[] {
+    const ground = this.machineGround();
+    return this.map.neighbors4(t).filter((s) => ground.has(s));
+  }
+
+  /**
+   * The tiles of a yard (by their place in its tiles) with stacks the
+   * machines can get at, beside them; with a gantry, it reaches them all.
+   */
+  private workable(b: Bay): Set<number> | undefined {
+    if (this.yardGantry(b)) return undefined;
+    const out = new Set<number>();
+    (b.tiles ?? [b.idx]).forEach((t, n) => {
+      if (this.stackSides(t).length > 0) out.add(n);
+    });
+    return out.size > 0 ? out : undefined;
+  }
+
+  /** The tiles of a yard (by their place in its tiles) a stacker standing at `at` reaches. */
+  private reachFrom(b: Bay, at: number): Set<number> {
+    const m = this.map;
+    const out = new Set<number>();
+    (b.tiles ?? [b.idx]).forEach((t, n) => {
+      if (m.neighbors4(t).includes(at)) out.add(n);
+    });
+    return out;
   }
 
   /**
@@ -7123,7 +7252,13 @@ export class World {
    * ready first; failing that, the lowest free place with one under it.
    * -1 if the yard is full. `ready` is when it clears, as in boxReady.
    */
-  private freeYardSlot(b: Bay, boxes: number[], exports: number[], ready?: number): number {
+  private freeYardSlot(
+    b: Bay,
+    boxes: number[],
+    exports: number[],
+    ready?: number,
+    reach: Set<number> | undefined = this.workable(b),
+  ): number {
     const cap = bayCap(b);
     const under = new Map<number, number | undefined>();
     const list = this.readyList(b);
@@ -7136,7 +7271,7 @@ export class World {
     for (let tier = 0; tier < YARD_TIERS; tier++) {
       for (let k = tier * YARD_STACKS; k < cap; k++) {
         const p = yardPlace(k);
-        if (p.tier !== tier || under.has(k)) continue;
+        if (p.tier !== tier || under.has(k) || (reach && !reach.has(p.tile))) continue;
         if (tier === 0) return k;
         if (!under.has(k - YARD_STACKS)) continue;
         const below = under.get(k - YARD_STACKS);
@@ -7148,9 +7283,9 @@ export class World {
   }
 
   /** Where the next container set down in this yard goes. */
-  private nextYardSlot(b: Bay, ready?: number): number {
+  private nextYardSlot(b: Bay, ready?: number, reach?: Set<number>): number {
     const { boxes, exports } = this.yardSlots(b);
-    return this.freeYardSlot(b, boxes, exports, ready);
+    return this.freeYardSlot(b, boxes, exports, ready, reach);
   }
 
   /**
@@ -7158,14 +7293,20 @@ export class World {
    * off the top of its stack, highest first, of those `ok` lets through; -1
    * if none is on top. One with another on it waits until that has gone.
    */
-  private yardTop(b: Bay, exports: boolean, ok: (i: number) => boolean = () => true): number {
+  private yardTop(
+    b: Bay,
+    exports: boolean,
+    ok: (i: number) => boolean = () => true,
+    reach?: Set<number>,
+  ): number {
     const slots = this.yardSlots(b);
     const used = new Set([...slots.boxes, ...slots.exports]);
     const list = exports ? slots.exports : slots.boxes;
     let best = -1;
     let high = -1;
     list.forEach((k, i) => {
-      const { tier } = yardPlace(k);
+      const { tier, tile } = yardPlace(k);
+      if (reach && !reach.has(tile)) return;
       if (tier < YARD_TIERS - 1 && used.has(k + YARD_STACKS)) return;
       if (tier > high && ok(i)) {
         best = i;
@@ -7176,9 +7317,9 @@ export class World {
   }
 
   /** The cleared container on top of its stack a truck takes next from a yard, or -1. */
-  private clearTop(b: Bay): number {
+  private clearTop(b: Bay, reach?: Set<number>): number {
     const ready = this.readyList(b);
-    return this.yardTop(b, false, (i) => this.isClear(ready[i]));
+    return this.yardTop(b, false, (i) => this.isClear(ready[i]), reach);
   }
 
   /**
