@@ -61,6 +61,26 @@ export function debugBridge() {
         appendFileSync(log, `${data.line}\n`);
       });
 
+      // POST a save (as save.json is) and the open game carries on from it.
+      server.middlewares.use('/__debug/load', (req, res) => {
+        if (req.method !== 'POST') {
+          res.statusCode = 405;
+          res.end('POST the save as the request body\n');
+          return;
+        }
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            ws.send('hm:load', { save: JSON.parse(body) });
+            res.end('Sent to the open game\n');
+          } catch (err) {
+            res.statusCode = 400;
+            res.end(`Not a save: ${err}\n`);
+          }
+        });
+      });
+
       server.middlewares.use('/__debug/capture', (req, res) => {
         const what = new URL(req.url ?? '', 'http://x').searchParams.get('what') ?? 'state';
         if (!files[what]) {

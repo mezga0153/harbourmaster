@@ -1,6 +1,7 @@
 import type { Command, Snapshot, WorkerMessage } from '../protocol';
 import type { Renderer } from '../render/renderer';
 import type { GameMap } from '../sim/map';
+import type { SaveData } from '../sim/world';
 import { panel, selection, snapshot, tool } from '../ui/store';
 import { report } from './report';
 
@@ -87,6 +88,9 @@ export function startBridge({ worker, send, renderer, map }: Hooks): void {
       }),
     );
   };
+
+  // A save posted to /__debug/load: the game carries on from it.
+  hot.on('hm:load', (data: { save: SaveData }) => send({ type: 'loadSave', save: data.save }));
 
   hot.on('hm:request', (req: { what: string }) => {
     if (req.what === 'state') sendState();

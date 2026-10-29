@@ -48,6 +48,11 @@ function handle(cmd: Command): void {
     if (import.meta.env.DEV) world.debug(cmd);
   } else if (cmd.type === 'dumpSave') {
     if (import.meta.env.DEV) ctx.postMessage({ type: 'dump', save: world.toSave() });
+  } else if (cmd.type === 'loadSave') {
+    if (import.meta.env.DEV && World.isValidSave(cmd.save)) {
+      start(World.fromSave(cmd.save));
+      save(false);
+    }
   } else {
     world.command(cmd);
   }

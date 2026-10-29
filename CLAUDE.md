@@ -14,6 +14,9 @@ mirrors itself into `.debug/` (gitignored, see `src/debug/bridge.ts` and
 - `curl 'localhost:5199/__debug/capture?what=state|save|screenshot'` asks the
   open tab for a fresh copy and prints the file path (`screenshot.png` is the
   3D view without the UI)
+- `curl -X POST --data-binary @some-save.json localhost:5199/__debug/load`
+  makes the open tab carry on from that save (as `save.json` is written);
+  build one with `World.fromSave` … `toSave()` to change the player's game
 
 `HM_SAVE=1 HM_DAYS=1 npx vitest run tests/debug-save.test.ts --silent=false`
 loads `save.json` into the sim, runs it on and prints the report.

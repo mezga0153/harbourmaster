@@ -42,7 +42,9 @@ export type Command =
       train?: boolean;
     }
   /** Dev server only: post the whole game state back, for the debug bridge. */
-  | { type: 'dumpSave' };
+  | { type: 'dumpSave' }
+  /** Dev server only: carry on from this game instead, from the debug bridge. */
+  | { type: 'loadSave'; save: SaveData };
 
 export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'boat' | 'truck';
 
