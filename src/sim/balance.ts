@@ -183,9 +183,17 @@ export const FEEDER_GROWTH_CONTAINERS = 1000;
 export const BERTH_END_GAP = 0.3;
 /** A feeder is a big ship: its berth runs 3 tiles either side of the middle. */
 export const FEEDER_HALF_BERTH = 3;
-export const HARBOUR_CRANE_TICKS = 30; // per container lifted
+export const HARBOUR_CRANE_TICKS = 50; // per container lifted
 export const HARBOUR_CRANE_STACK = 4;
 export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
+/**
+ * Ship-to-shore gantry crane: quick, and sets containers down in the bay
+ * between its legs, where only reach stackers collect them.
+ */
+export const GANTRY_COST = 30000;
+export const GANTRY_TICKS = 16;
+export const GANTRY_STACK = 16;
+export const GANTRY_RUNNING_COST = 300;
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;

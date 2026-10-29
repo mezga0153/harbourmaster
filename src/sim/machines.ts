@@ -18,7 +18,7 @@ export const MACHINES: Record<
     price: B.STACKER_PRICE,
     wage: B.STACKER_WAGE,
     capacity: 1,
-    hint: 'Carries one container from a harbour crane to a container yard',
+    hint: 'Carries one container from a harbour or gantry crane to a container yard',
   },
 };
 

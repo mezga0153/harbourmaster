@@ -48,6 +48,7 @@ export const TIERS: Tier[] = [
     contracts: 4,
     unlocks: [
       'Mobile harbour cranes (on a 2-wide quay)',
+      'Ship-to-shore gantry cranes, quick, with a bay between their legs for reach stackers',
       'Reach stackers',
       'Feeder ships with containers (4 m draft)',
       'Container yards marked out on port roads and quays, and container hauliers',
@@ -80,6 +81,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   office: 0,
   largeBay: 1,
   harbourCrane: 2,
+  gantryCrane: 2,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {

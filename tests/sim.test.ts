@@ -1574,6 +1574,54 @@ describe('Container Port tier', () => {
     expect(world.yards.has(tiles[0])).toBe(false);
   });
 
+  it('lifts containers with a gantry crane into the bay between its legs, for the stackers', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    world.command({ type: 'bulldoze', tiles: [t.crane] });
+    expect(m.build[t.crane]).toBe(Build.Quay);
+    const f = bestFacing(m, 'gantryCrane', t.crane);
+    expect(placementError(m, 'gantryCrane', t.crane, undefined, f)).toBeNull();
+    world.command({ type: 'build', kind: 'gantryCrane', tiles: [t.crane], facing: f });
+    const tiles = footprint(m, 'gantryCrane', t.crane, f);
+    expect(tiles.every((i) => m.build[i] === Build.Gantry)).toBe(true);
+    expect(world.cranes.get(t.crane)!.kind).toBe('gantry');
+    expect(world.capacity().boxes.berths).toBeGreaterThan(0);
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 12,
+        cratesMax: 12,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    let stacked = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+      world.step();
+      stacked = Math.max(stacked, world.cranes.get(t.crane)!.stack.length);
+      // No trucks under or round the crane: they load at the yard.
+      for (const k of world.trucks) {
+        const at = m.idx(Math.floor(k.x), Math.floor(k.y));
+        expect(tiles.includes(at)).toBe(false);
+      }
+    }
+    expect(stacked).toBeGreaterThan(1);
+    expect(world.stats.containers).toBeGreaterThan(0);
+    // Taken down, it leaves the quay it stood on.
+    world.command({ type: 'bulldoze', tiles: [tiles[3]] });
+    expect(tiles.every((i) => m.build[i] === Build.Quay)).toBe(true);
+    expect(world.cranes.has(t.crane)).toBe(false);
+  });
+
   it('gives a container to the free stacker nearest the crane', () => {
     const world = World.create(7);
     world.tier = 2;

@@ -176,8 +176,11 @@ interface Dockhand extends Agent {
 
 interface Crane {
   idx: number;
-  /** Jib cranes lift crates; harbour cranes lift containers off feeders. */
-  kind: 'jib' | 'harbour';
+  /**
+   * Jib cranes lift crates; harbour and gantry cranes lift containers off
+   * feeders. A gantry's stack is the bay between its legs.
+   */
+  kind: 'jib' | 'harbour' | 'gantry';
   /** Fees of the crates on the landing stack. */
   stack: number[];
   /** The stack holds a coaster's pallets, which only forklifts can move. */
@@ -388,6 +391,24 @@ function laneOf(dir: number): number {
 
 function isMachine(p: { kind: string }): boolean {
   return p.kind !== 'dockhand';
+}
+
+/** Ticks a crane takes to lift one crate or container. */
+function craneTicks(c: Crane): number {
+  return c.kind === 'gantry'
+    ? B.GANTRY_TICKS
+    : c.kind === 'harbour'
+      ? B.HARBOUR_CRANE_TICKS
+      : B.CRANE_TICKS;
+}
+
+/** Most a crane sets down before it waits for them to be taken away. */
+function craneStack(c: Crane): number {
+  return c.kind === 'gantry'
+    ? B.GANTRY_STACK
+    : c.kind === 'harbour'
+      ? B.HARBOUR_CRANE_STACK
+      : B.CRANE_STACK;
 }
 
 /** Somewhere a worker can pick up a load. */
@@ -934,6 +955,7 @@ export class World {
         if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
+        if (kind === 'gantryCrane') this.addCrane(i, 'gantry');
       }
       if (skipped.length === left.length) break;
       left = skipped;
@@ -1206,6 +1228,7 @@ export class World {
       }
       this.book('construction', value);
       net += value;
+      if (this.map.build[i] === Build.Gantry) this.cranes.delete(i);
       if (this.map.build[i] === Build.JibCrane || this.map.build[i] === Build.HarbourCrane) {
         // Taking down a crane leaves the quay it stood on.
         this.cranes.delete(i);
@@ -1634,13 +1657,14 @@ export class World {
     const demand = this.fisheries()
       .filter((c) => c.terms.vessel === 'feeder')
       .reduce((n, c) => n + fisheryDailyCrates(c.terms), 0);
-    const cranes = [...this.cranes.values()].filter((c) => c.kind === 'harbour');
+    const cranes = [...this.cranes.values()].filter((c) => c.kind !== 'jib');
     // A crane only works while a feeder is alongside; allow for gaps.
-    const lifting = cranes.length * (TICKS_PER_DAY / B.HARBOUR_CRANE_TICKS) * 0.6;
+    const lifting = cranes.reduce((n, c) => n + (TICKS_PER_DAY / craneTicks(c)) * 0.6, 0);
     const yards = [...this.yards.values()];
     let walk = 0;
     for (const c of cranes) {
-      walk += yards.length ? Math.min(...yards.map((y) => this.distTo(c.idx, y))) : 0;
+      const at = this.pickTile(c);
+      walk += yards.length ? Math.min(...yards.map((y) => this.distTo(at, y))) : 0;
     }
     const avg = cranes.length && yards.length ? walk / cranes.length : 0;
     const stackers = this.people.filter((p) => p.kind === 'stacker').length;
@@ -1817,10 +1841,13 @@ export class World {
     this.book('wages', -this.wageBill());
     this.book('hauliers', -this.dailyFees());
     for (const c of this.cranes.values()) {
-      this.book(
-        'maintenance',
-        -(c.kind === 'harbour' ? B.HARBOUR_CRANE_RUNNING_COST : B.CRANE_RUNNING_COST),
-      );
+      const cost =
+        c.kind === 'gantry'
+          ? B.GANTRY_RUNNING_COST
+          : c.kind === 'harbour'
+            ? B.HARBOUR_CRANE_RUNNING_COST
+            : B.CRANE_RUNNING_COST;
+      this.book('maintenance', -cost);
     }
     for (const p of this.people) {
       if (isMachine(p) && this.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
@@ -2433,17 +2460,33 @@ export class World {
     );
   }
 
+  /** A harbour or gantry crane stands over this berth. */
   private harbourCraneReaches(berth: number): boolean {
-    const m = this.map;
     for (const c of this.cranes.values()) {
-      if (c.kind !== 'harbour') continue;
-      const d = Math.max(
-        Math.abs(m.xOf(c.idx) - m.xOf(berth)),
-        Math.abs(m.yOf(c.idx) - m.yOf(berth)),
-      );
-      if (d <= 1) return true;
+      if (c.kind !== 'jib' && this.craneFront(c).some((t) => this.near(t, berth))) return true;
     }
     return false;
+  }
+
+  /** Within a tile of each other, diagonals too. */
+  private near(a: number, b: number): boolean {
+    const m = this.map;
+    return Math.max(Math.abs(m.xOf(a) - m.xOf(b)), Math.abs(m.yOf(a) - m.yOf(b))) <= 1;
+  }
+
+  /** The quay-edge tiles a crane reaches out over the water from. */
+  private craneFront(c: Crane): number[] {
+    if (c.kind !== 'gantry') return [c.idx];
+    return footprint(this.map, 'gantryCrane', c.idx, this.map.orient[c.idx]).slice(0, 2);
+  }
+
+  /**
+   * Where a load is collected from a crane: its landing stack, or for a
+   * gantry the bay between its back legs.
+   */
+  private pickTile(c: Crane): number {
+    if (c.kind !== 'gantry') return c.idx;
+    return footprint(this.map, 'gantryCrane', c.idx, this.map.orient[c.idx])[2];
   }
 
   berthCount(draft: number, wide = false, needCrane = false): number {
@@ -4776,7 +4819,7 @@ export class World {
     const reach = (goal: number) => !!this.pathFor(p, here, goal);
     const sources: number[] = [];
     for (const c of this.cranes.values()) {
-      if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(c.idx);
+      if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(this.pickTile(c));
     }
     // Forklifts take what the dockhands land on the quay.
     if (!boxy)
@@ -4831,7 +4874,7 @@ export class World {
       if ((crane.kind !== 'jib') !== boxy) continue;
       if (crane.pallets && crane.stack.length > 0 && !forks) continue;
       const avail = crane.stack.length - crane.reserved;
-      if (avail > 0) sources.push({ tile: crane.idx, avail, crane, rank: 0 });
+      if (avail > 0) sources.push({ tile: this.pickTile(crane), avail, crane, rank: 0 });
     }
     if (hands) {
       for (const boat of this.boats) {
@@ -5166,26 +5209,32 @@ export class World {
    */
   private updateCrane(c: Crane): void {
     c.busy = false;
-    const harbour = c.kind === 'harbour';
-    const store = harbour ? undefined : this.jibStores(c).find((a) => bayRoom(a, false) > 0);
-    if (!store && c.stack.length >= (harbour ? B.HARBOUR_CRANE_STACK : B.CRANE_STACK)) return;
+    const boxes = c.kind !== 'jib';
+    const store = boxes ? undefined : this.jibStores(c).find((a) => bayRoom(a, false) > 0);
+    if (!store && c.stack.length >= craneStack(c)) return;
     const m = this.map;
+    const front = this.craneFront(c);
+    // Container cranes work anywhere along a ship's hull, so several can
+    // work one ship; a jib crane the boat lying under it.
+    const reaches = (b: Boat) =>
+      boxes
+        ? (this.footprint(b.berth, b.jetty, this.boatHalf(true)) ?? [b.berth]).some((t) =>
+            front.some((f) => this.near(f, t)),
+          )
+        : this.near(b.berth, c.idx);
     const boat = this.boats.find(
       (b) =>
         b.state === 'moored' &&
-        (b.vessel === 'feeder') === harbour &&
+        (b.vessel === 'feeder') === boxes &&
         // One kind on the landing stack at a time: crates or pallets.
         (store || c.stack.length === 0 || (b.vessel === 'coaster') === !!c.pallets) &&
         b.crates - b.reserved > 0 &&
-        Math.max(
-          Math.abs(m.xOf(b.berth) - m.xOf(c.idx)),
-          Math.abs(m.yOf(b.berth) - m.yOf(c.idx)),
-        ) <= 1,
+        reaches(b),
     );
     if (!boat) return;
     c.busy = true;
     c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
-    if (++c.timer < (harbour ? B.HARBOUR_CRANE_TICKS : B.CRANE_TICKS)) return;
+    if (++c.timer < craneTicks(c)) return;
     c.timer = 0;
     boat.crates--;
     if (store) {

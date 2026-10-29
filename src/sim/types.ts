@@ -49,6 +49,8 @@ export const Build = {
   Cannery: 30,
   Store: 31,
   Factory: 32,
+  /** A ship-to-shore gantry crane, 2×2 on a quay edge. */
+  Gantry: 33,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -74,6 +76,7 @@ export type BuildKind =
   | 'office'
   | 'largeBay'
   | 'harbourCrane'
+  | 'gantryCrane'
   | 'portRoad'
   | 'portGate'
   | 'buoyIn'
@@ -103,7 +106,7 @@ export function isBay(code: number): boolean {
 
 /** A crane standing on a quay. */
 export function isCrane(code: number): boolean {
-  return code === Build.JibCrane || code === Build.HarbourCrane;
+  return code === Build.JibCrane || code === Build.HarbourCrane || code === Build.Gantry;
 }
 
 /** Tiles boats can moor alongside. */
@@ -112,6 +115,7 @@ export function isDock(code: number): boolean {
     code === Build.Jetty ||
     code === Build.Quay ||
     code === Build.JibCrane ||
-    code === Build.HarbourCrane
+    code === Build.HarbourCrane ||
+    code === Build.Gantry
   );
 }

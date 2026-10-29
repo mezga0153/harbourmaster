@@ -123,7 +123,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
     [
       'Needs',
       t.vessel === 'feeder'
-        ? `Harbour crane, ${B.FEEDER_DRAFT} m`
+        ? `Harbour or gantry crane, ${B.FEEDER_DRAFT} m`
         : t.vessel === 'coaster'
           ? `2-wide quay, ${B.COASTER_DRAFT} m, forklifts or a jib crane`
           : 'Any berth',
@@ -177,9 +177,9 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
   if (tier < 2 && b.demand === 0) return null;
   const short =
     b.demand > 0 && b.berths === 0
-      ? 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water.'
+      ? 'No feeder berth: needs a harbour or gantry crane on a 2-wide quay in 4 m of water.'
       : b.demand > b.lifting
-        ? 'Containers bottleneck: lifting. Build another harbour crane.'
+        ? 'Containers bottleneck: lifting. Build another harbour crane, or a gantry crane: several can work one ship.'
         : b.demand > b.moving
           ? 'Containers bottleneck: moving. Buy reach stackers.'
           : b.demand > b.trucking
@@ -189,7 +189,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
     <>
       <div class="kpis four">
         <Kpi label="Containers" value={b.demand} hint="Containers per day your lines send" />
-        <Kpi label="Lifting" value={b.lifting} demand={b.demand} hint="Harbour cranes" />
+        <Kpi label="Lifting" value={b.lifting} demand={b.demand} hint="Harbour and gantry cranes" />
         <Kpi label="Moving" value={b.moving} demand={b.demand} hint="Reach stackers" />
         <Kpi label="Trucking" value={b.trucking} demand={b.demand} hint="Container trucks" />
       </div>
@@ -349,8 +349,8 @@ function OfferCard({
     checks.push(
       <Check ok={b.berths > 0}>
         {b.berths > 0
-          ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a harbour crane`
-          : 'No feeder berth: needs a harbour crane on a 2-wide quay in 4 m of water, with 7 tiles of open water along it'}
+          ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a container crane`
+          : 'No feeder berth: needs a harbour or gantry crane on a 2-wide quay in 4 m of water, with 7 tiles of open water along it'}
       </Check>,
       <Check ok={after <= b.lifting} warn={after > b.lifting}>
         Lifting: {after} needed, {b.lifting} possible

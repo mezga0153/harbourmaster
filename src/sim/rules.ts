@@ -90,6 +90,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Lifts containers off feeder ships. Goes on a quay edge with quay behind it (2 wide). The 3×3 round it is for port machines only. $${B.HARBOUR_CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
+  gantryCrane: {
+    code: Build.Gantry,
+    label: 'Gantry crane',
+    cost: B.GANTRY_COST,
+    hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down in the bay between its legs, ${B.GANTRY_STACK} at most, where only reach stackers collect them, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. The ground round it is for port machines only. $${B.GANTRY_RUNNING_COST}/day to run`,
+    drag: false,
+  },
   breakHut: {
     code: Build.BreakHut,
     label: 'Break hut',
@@ -142,6 +149,7 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'depot',
   'office',
   'breakHut',
+  'gantryCrane',
 ]);
 
 /** Marks the other tiles of a multi-tile building in `GameMap.orient`. */
@@ -228,12 +236,19 @@ export function frontOf(map: GameMap, i: number, facing: number): number {
  * Parts of multi-tile buildings, as (right, forward) steps from the main
  * tile when looking out of the front. A large truck bay is two wide along
  * the road: the truck pulls into the first tile and the cargo sits on the
- * second.
+ * second. A gantry crane stands on 2×2 of quay, its front two tiles on the
+ * edge, facing the water, and the bay it sets containers down in behind.
  */
 const PARTS: Partial<Record<BuildKind, readonly (readonly [number, number])[]>> = {
   largeBay: [
     [0, 0],
     [1, 0],
+  ],
+  gantryCrane: [
+    [0, 0],
+    [1, 0],
+    [0, -1],
+    [1, -1],
   ],
 };
 
@@ -301,6 +316,19 @@ export function placementError(
   const t = map.terrain[i];
   if ((kind === 'harbourCrane' || kind === 'jibCrane') && map.store[i]) {
     return 'Clear the storage marked out here first';
+  }
+  if (kind === 'gantryCrane') {
+    const tiles = footprint(map, kind, i, facing);
+    const quay = (t: number) =>
+      t >= 0 && map.buildable(t) && map.build[t] === Build.Quay && !map.store[t];
+    if (!tiles.every(quay)) return 'A gantry crane stands on 2×2 of clear quay';
+    const sea = (t: number) => {
+      const n = frontOf(map, t, facing);
+      return n >= 0 && map.ocean[n] === 1 && map.build[n] === Build.None;
+    };
+    return sea(tiles[0]) && sea(tiles[1])
+      ? null
+      : 'Put the gantry at the quay edge, its front two tiles facing open water';
   }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
@@ -426,6 +454,7 @@ export function drivable(code: number): boolean {
     code === Build.Quay ||
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
+    code === Build.Gantry ||
     isBay(code) ||
     code === Build.Depot
   );

@@ -105,6 +105,7 @@ export const CATEGORIES: Category[] = [
       },
       { tool: 'jibCrane', icon: 'crane', label: 'Jib crane', key: 'N' },
       { tool: 'harbourCrane', icon: 'bigCrane', label: 'Harbour crane', key: 'I' },
+      { tool: 'gantryCrane', icon: 'bigCrane', label: 'Gantry crane' },
       {
         tool: 'boxStore',
         icon: 'box',

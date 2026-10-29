@@ -71,6 +71,7 @@ export function surfaceY(map: GameMap, x: number, y: number): number {
     b === Build.Quay ||
     b === Build.JibCrane ||
     b === Build.HarbourCrane ||
+    b === Build.Gantry ||
     b === Build.PortRoad ||
     b === Build.Gate
   ) {

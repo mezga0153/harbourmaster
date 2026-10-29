@@ -75,7 +75,7 @@ export interface EntityView {
 
 export interface CraneView {
   idx: number;
-  kind: 'jib' | 'harbour';
+  kind: 'jib' | 'harbour' | 'gantry';
   stack: number;
   angle: number;
   busy: boolean;

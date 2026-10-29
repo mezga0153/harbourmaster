@@ -69,6 +69,8 @@ interface CraneParts {
   angle: number;
   target: number;
   busy: boolean;
+  /** A gantry: `slew` is its trolley, running out along the boom and back instead. */
+  fixed?: boolean;
 }
 
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
@@ -147,11 +149,17 @@ export class Structures {
       g.boom.rotation.z = -g.angle;
     }
     for (const c of this.cranes.values()) {
-      let d = c.target - c.angle;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      c.angle += d * Math.min(1, dt * 3);
-      c.slew.rotation.y = c.angle;
+      if (c.fixed) {
+        // Out over the ship and back in over the bay between the legs.
+        const out = c.busy ? 0.5 + 0.5 * Math.sin(time * 1.1) : 1;
+        c.slew.position.z += (-0.5 + out * 2.7 - c.slew.position.z) * Math.min(1, dt * 4);
+      } else {
+        let d = c.target - c.angle;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        c.angle += d * Math.min(1, dt * 3);
+        c.slew.rotation.y = c.angle;
+      }
       const drop = c.rest + (c.busy ? (0.5 + 0.5 * Math.sin(time * 3)) * c.reach : 0);
       c.rope.scale.y = drop;
       c.rope.position.y = -drop / 2;
@@ -493,6 +501,65 @@ export class Structures {
           angle: 0,
           target: 0,
           busy: false,
+        });
+        return g;
+      }
+      case Build.Gantry: {
+        // Ship-to-shore gantry over 2×2 of quay: x 0..2 along the edge, the
+        // water off the front (+z), z -1..1. Four legs on rails, a portal
+        // frame, and a boom running out over the ship and back over the
+        // bay between the back legs, where it sets the containers down.
+        const y = QUAY_Y;
+        const top = y + 1.7;
+        for (const z of [-0.85, 0.85]) g.add(box(2, 0.02, 0.06, C.chassis, 1, y, z));
+        for (const x of [0.12, 1.88]) {
+          for (const z of [-0.85, 0.85]) {
+            g.add(box(0.16, 0.1, 0.22, C.chassis, x, y, z));
+            g.add(box(0.1, top - y, 0.1, C.sign, x, y + 0.1, z));
+          }
+          g.add(box(0.12, 0.12, 1.8, C.sign, x, top - 0.12, 0));
+          g.add(box(0.06, 0.06, 1.7, C.sign, x, y + 0.5, 0));
+        }
+        for (const z of [-0.85, 0.85]) g.add(box(1.88, 0.1, 0.1, C.sign, 1, top - 0.3, z));
+        // The boom: out 2 tiles over the water, back 0.8 behind the legs.
+        g.add(box(0.12, 0.1, 4.6, C.craneYellow, 0.78, top, 0.5));
+        g.add(box(0.12, 0.1, 4.6, C.craneYellow, 1.22, top, 0.5));
+        // Apex frame, its stays, and the machinery house on the backreach.
+        for (const x of [0.78, 1.22]) g.add(box(0.06, 0.7, 0.06, C.sign, x, top + 0.1, -0.7));
+        g.add(box(0.5, 0.06, 0.06, C.sign, 1, top + 0.8, -0.7));
+        g.add(box(0.56, 0.28, 0.5, C.cabin, 1, top + 0.1, -1.4));
+        const trolley = new Group();
+        trolley.position.set(1, top, 2.2);
+        trolley.add(box(0.5, 0.06, 0.3, C.chassis, 0, -0.06, 0));
+        trolley.add(box(0.18, 0.14, 0.18, C.window, 0.12, -0.2, 0.06));
+        const rope = box(0.012, 1, 0.012, C.chassis);
+        const hook = new Group();
+        hook.add(box(0.62, 0.04, 0.16, C.stripe, 0, -0.04));
+        trolley.add(rope, hook);
+        g.add(trolley);
+        // The bay between the back legs: two rows of two, four high.
+        const stack: Object3D[] = [];
+        for (let layer = 0; layer < 4; layer++) {
+          for (const z of [-0.68, -0.32]) {
+            for (const x of [0.5, 1.5]) {
+              const c = container(i * 5 + stack.length, x, y + layer * BOX_HEIGHT, z);
+              c.visible = false;
+              g.add(c);
+              stack.push(c);
+            }
+          }
+        }
+        this.cranes.set(i, {
+          slew: trolley,
+          rope,
+          hook,
+          rest: 0.6,
+          reach: 1.0,
+          stack,
+          angle: 0,
+          target: 0,
+          busy: false,
+          fixed: true,
         });
         return g;
       }
@@ -994,6 +1061,7 @@ const DIRS = [
 /** Buildings drawn facing +z and then turned the way they were placed. */
 const FACES = new Set<number>([
   Build.Gate,
+  Build.Gantry,
   Build.TruckBay,
   Build.LargeBay,
   Build.Depot,
