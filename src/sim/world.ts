@@ -6631,7 +6631,7 @@ export class World {
     if (isBoxy(p)) {
       for (const c of this.cranes.values()) {
         if (c.kind === 'jib') continue;
-        const room = craneStack(c) - (c.outStack?.length ?? 0) - (c.outReserved ?? 0);
+        const room = this.exportRoom(c);
         if (room <= 0) continue;
         if (!this.boats.some((b) => this.wantsLoad(b) && this.craneReaches(c, b))) continue;
         if (this.pathFor(p, from, this.pickTile(c))) return { crane: c, room };
@@ -7715,7 +7715,7 @@ export class World {
     const store = boxes
       ? undefined
       : this.jibStores(c).find((a) => bayRoom(a, false) > 0 && this.takesImports(a));
-    if (!store && c.stack.length >= craneStack(c)) return this.loadShip(c);
+    if (!store && this.stackFull(c)) return this.loadShip(c);
     const m = this.map;
     const reaches = (b: Boat) => this.craneReaches(c, b);
     const boat = this.boats.find(
@@ -7903,6 +7903,25 @@ export class World {
       }
     }
     return { load: deck.length, looks, deck };
+  }
+
+  /**
+   * A crane's landing stack has no room for another off the ship: a
+   * container crane's holds what it lifts off and exports set down for it,
+   * or on their way to it, together, in the same places.
+   */
+  private stackFull(c: Crane): boolean {
+    const out = c.kind === 'jib' ? 0 : (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
+    return c.stack.length + out >= craneStack(c);
+  }
+
+  /**
+   * Room on a container crane's stack for more exports: up to half of it,
+   * so there is always room to unload a ship before loading it.
+   */
+  private exportRoom(c: Crane): number {
+    const out = (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
+    return Math.min(craneStack(c) / 2 - out, craneStack(c) - c.stack.length - out);
   }
 
   /** The gantry crane a terminal tractor is under, to have a container lifted on or off, or undefined. */
@@ -9431,7 +9450,7 @@ export class World {
     if (b.state !== 'moored' || b.crates === 0) return undefined;
     if (b.vessel === 'feeder') {
       const cranes = [...this.cranes.values()].filter((c) => c.kind !== 'jib');
-      if (cranes.length > 0 && cranes.every((c) => c.stack.length >= craneStack(c))) {
+      if (cranes.length > 0 && cranes.every((c) => this.stackFull(c))) {
         return 'The cranes have set down all they can: reach stackers must take the containers to a container yard first.';
       }
       return undefined;
@@ -9487,7 +9506,7 @@ export class World {
   }
 
   private craneWhy(c: Crane): string {
-    const full = c.stack.length >= craneStack(c);
+    const full = this.stackFull(c);
     if (c.kind === 'jib') {
       const stores = this.jibStores(c);
       if (c.busy) {
