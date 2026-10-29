@@ -85,6 +85,8 @@ export class Structures {
   readonly group = new Group();
   private tiles = new Map<number, Object3D>();
   private stacks = new Map<number, BayStack>();
+  /** Which container is in which slot, by yard (its first tile) or crane; see settle. */
+  private slots = new Map<number, number[]>();
   private cranes = new Map<number, CraneParts>();
   private gates = new Map<number, GateParts>();
   /** Buoys, bobbing on the swell. */
@@ -151,9 +153,10 @@ export class Structures {
       const c = this.cranes.get(v.idx);
       if (!c) continue;
       // Exports set down for a container crane wait on its stack too.
+      const order = v.looks ? this.settled(-1 - v.idx, v.looks) : undefined;
       c.stack.forEach((o, k) => {
         o.visible = k < v.stack + v.out;
-        if (v.looks && k < v.looks.length) paintContainer(o, v.looks[k]);
+        if (order && k < order.length) paintContainer(o, order[k]);
       });
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
@@ -285,18 +288,26 @@ export class Structures {
   private fill(tiles: number[], count: number, boxes: boolean, looks?: number[]): void {
     let left = count;
     let at = 0;
+    // Each container as it looks, staying in its slot as others come and go.
+    const order = looks && tiles.length > 0 ? this.settled(tiles[0], looks) : undefined;
     for (const t of tiles) {
       const stack = this.stacks.get(t);
       if (!stack) continue;
       const items = boxes ? stack.boxes : stack.crates;
       items.forEach((o, k) => {
         o.visible = k < left;
-        // Each container as it looks, in the order they were stacked.
-        if (looks && o.visible && at + k < looks.length) paintContainer(o, looks[at + k]);
+        if (order && o.visible && at + k < order.length) paintContainer(o, order[at + k]);
       });
       at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
     }
+  }
+
+  /** The slots of the containers kept under `key`, brought up to date with `looks`. */
+  private settled(key: number, looks: number[]): number[] {
+    const order = settle(this.slots.get(key) ?? [], looks);
+    this.slots.set(key, order);
+    return order;
   }
 
   private rebuild(i: number): void {
@@ -1248,6 +1259,37 @@ export class Structures {
     g.add(sleepers);
     return g;
   }
+}
+
+/**
+ * Which container goes in which slot of a stack or yard, given the slots
+ * as they were and the containers there now (`looks`, in any order): each
+ * stays in its slot, one gone makes room for the last, which moves into
+ * its slot, and one come goes on the end. So taking one never changes the
+ * colour of more than one slot, and the stack never has a gap in it.
+ */
+export function settle(order: number[], looks: number[]): number[] {
+  const want = new Map<number, number>();
+  for (const l of looks) want.set(l, (want.get(l) ?? 0) + 1);
+  const kept = new Map<number, number>();
+  const slots: (number | null)[] = order.map((l) => {
+    const n = kept.get(l) ?? 0;
+    if (n >= (want.get(l) ?? 0)) return null;
+    kept.set(l, n + 1);
+    return l;
+  });
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] !== null) continue;
+    while (slots.length > i && slots[slots.length - 1] === null) slots.pop();
+    if (slots.length > i + 1) slots[i] = slots.pop()!;
+  }
+  for (const l of looks) {
+    const n = kept.get(l) ?? 0;
+    if (n >= (want.get(l) ?? 0)) continue;
+    kept.set(l, n + 1);
+    slots.push(l);
+  }
+  return slots as number[];
 }
 
 const DIRS = [
