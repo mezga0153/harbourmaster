@@ -76,6 +76,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   depot: 1,
   portRoad: 1,
   portGate: 1,
+  parking: 0,
   buoyIn: 1,
   buoyOut: 1,
   office: 0,

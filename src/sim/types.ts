@@ -51,6 +51,12 @@ export const Build = {
   Factory: 32,
   /** A ship-to-shore gantry crane, 2×2 on a quay edge. */
   Gantry: 33,
+  // 34 is the tug berth.
+  /**
+   * Truck parking: outside the port where it joins a public road, inside
+   * where it joins port roads. See parkingSides in rules.ts.
+   */
+  Parking: 35,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -79,6 +85,7 @@ export type BuildKind =
   | 'gantryCrane'
   | 'portRoad'
   | 'portGate'
+  | 'parking'
   | 'buoyIn'
   | 'buoyOut';
 

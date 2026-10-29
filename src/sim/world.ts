@@ -69,6 +69,7 @@ import {
   terraformCost,
   terraformError,
   machinePlacementError,
+  parkingSides,
   placementCost,
   placementError,
   ROTATABLE,
@@ -279,7 +280,9 @@ interface Boat extends Agent {
 }
 
 interface Truck extends Agent {
-  state: 'toBay' | 'loading' | 'toTown' | 'unloading' | 'leaving';
+  state: 'toPark' | 'parked' | 'toBay' | 'loading' | 'toTown' | 'unloading' | 'leaving';
+  /** The parking space it has taken, while heading to it or parked there. */
+  park?: number;
   /** A business in town it is delivering part of its load to, and how much. */
   drop?: number;
   /** Off the map: the highway round to the town's road, as x, y pairs still to drive. */
@@ -604,6 +607,8 @@ export class World {
   private spotCache = new Map<number, number[]>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
   private reachCache: Int32Array | null = null;
+  /** Which side of the port each parking tile is on; see parkingSides. */
+  private sidesCache: Int8Array | null = null;
   /** The town up the coast, which grows with the port. */
   town: Town | null = null;
   rail: RailState;
@@ -887,6 +892,7 @@ export class World {
     this.frontCache = null;
     this.spotCache.clear();
     this.reachCache = null;
+    this.sidesCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -5388,7 +5394,7 @@ export class World {
    * -1: public roads, and port roads and quays through a port gate.
    */
   private truckReach(): Int32Array {
-    this.reachCache ??= truckReach(this.map);
+    this.reachCache ??= truckReach(this.map, this.parkingSides());
     return this.reachCache;
   }
 
@@ -5432,7 +5438,42 @@ export class World {
    * that touches a road. Storage areas they load beside, never drive into.
    */
   private truckCost(target: number, home = -1): CostFn {
-    return truckCost(this.map, target, home);
+    return truckCost(this.map, target, home, this.parkingSides());
+  }
+
+  private parkingSides(): Int8Array {
+    this.sidesCache ??= parkingSides(this.map);
+    return this.sidesCache;
+  }
+
+  /**
+   * A free parking space for a truck bound for `bay`, nearest it: outside
+   * the port only when `outside`, else on either side; -1 when there is none.
+   */
+  private freeParking(bay: Bay | null, outside = false): number {
+    const m = this.map;
+    const sides = this.parkingSides();
+    const reach = this.truckReach();
+    const taken = new Set(this.trucks.map((t) => t.park ?? -1));
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < m.build.length; i++) {
+      if (m.build[i] !== Build.Parking || !sides[i] || reach[i] < 0 || taken.has(i)) continue;
+      if (outside && sides[i] !== 1) continue;
+      const d = bay ? this.distTo(i, bay) : reach[i];
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /** Trucks parked, or on their way to park, waiting to load at this bay. */
+  private queuedAt(bay: Bay): number {
+    return this.trucks.filter(
+      (t) => t.bayIdx === bay.idx && (t.state === 'toPark' || t.state === 'parked'),
+    ).length;
   }
 
   private spawnTrucks(): void {
@@ -5459,7 +5500,9 @@ export class World {
           this.cutOff(b);
           return false;
         }
-        return this.freeDock(b) >= 0;
+        // With every spot taken, more trucks queue in the parking, a few at a time.
+        if (this.freeDock(b) >= 0) return true;
+        return this.queuedAt(b) < this.loadingDocks(b).length && this.freeParking(b) >= 0;
       })
       .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
 
@@ -5495,7 +5538,9 @@ export class World {
         }
         continue;
       }
-      const dock = this.freeDock(bay);
+      const spot = this.freeDock(bay);
+      const park = spot >= 0 ? -1 : this.freeParking(bay);
+      const dock = spot >= 0 ? spot : park;
       const path = findPath(m.w, m.h, m.entry, dock, this.truckCost(bay.idx), false);
       if (!path) {
         this.cutOff(bay);
@@ -5513,7 +5558,8 @@ export class World {
         dir: 0,
         path,
         goal: dock,
-        state: 'toBay',
+        state: park >= 0 ? 'toPark' : 'toBay',
+        park: park >= 0 ? park : undefined,
         bayIdx: bay.idx,
         cargo: 0,
         value: 0,
@@ -5545,6 +5591,35 @@ export class World {
   private updateTruck(t: Truck): void {
     const bay = this.dest(t.bayIdx);
     switch (t.state) {
+      case 'toPark': {
+        const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED, this.level);
+        if (r === 'blocked' || this.map.build[t.park ?? -1] !== Build.Parking) {
+          return this.removeTruck(t);
+        }
+        if (r === 'arrived') {
+          t.state = 'parked';
+          t.idle = 0;
+        }
+        return;
+      }
+      case 'parked': {
+        // Parked until a loading spot comes free, or there is nothing to wait for.
+        if (!bay || this.map.build[t.park ?? -1] !== Build.Parking) return this.leavePark(t);
+        if ((this.tick + t.id) % 10 !== 0) return;
+        if (this.collectable(bay) === 0 && (t.idle += 10) >= B.TRUCK_GIVE_UP) {
+          return this.leavePark(t);
+        }
+        const dock = this.freeDock(bay);
+        if (dock < 0) return;
+        const m = this.map;
+        const path = findPath(m.w, m.h, this.tileOf(t), dock, this.truckCost(bay.idx), false);
+        if (!path) return;
+        t.park = undefined;
+        t.path = path;
+        t.goal = dock;
+        t.state = 'toBay';
+        return;
+      }
       case 'toBay': {
         if (!bay) return this.truckLeave(t);
         const r = this.move(t, this.truckCost(t.bayIdx), false, () => B.TRUCK_SPEED, this.level);
@@ -5737,6 +5812,12 @@ export class World {
       return;
     }
     this.removeTruck(t);
+  }
+
+  /** A parked truck gives up waiting and drives off. */
+  private leavePark(t: Truck): void {
+    t.park = undefined;
+    this.truckLeave(t);
   }
 
   private removeTruck(t: Truck): void {
@@ -6066,13 +6147,17 @@ export class World {
         moving: t.path.length > 0,
         name: t.company,
         activity:
-          t.state === 'toBay'
-            ? 'Driving to the truck bay'
-            : t.state === 'loading'
-              ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}`
-              : t.state === 'toTown' || t.state === 'unloading'
-                ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : 'crates'} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
-                : 'Heading out to the highway',
+          t.state === 'toPark'
+            ? 'Driving to the parking'
+            : t.state === 'parked'
+              ? 'Parked, waiting for a loading spot'
+              : t.state === 'toBay'
+                ? 'Driving to the truck bay'
+                : t.state === 'loading'
+                  ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}`
+                  : t.state === 'toTown' || t.state === 'unloading'
+                    ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : 'crates'} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
+                    : 'Heading out to the highway',
         variant: t.variant,
         capacity: t.capacity,
         alert: false,

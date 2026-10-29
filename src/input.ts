@@ -253,7 +253,7 @@ export class Input {
 
   /**
    * Tiles covered by the current drag (an L-shaped line, or a rectangle for
-   * storage areas) or the hovered tile.
+   * storage areas and parking) or the hovered tile.
    */
   private tilesFor(end: number | null): number[] {
     const map = this.getMap();
@@ -265,7 +265,7 @@ export class Input {
     const ex = map.xOf(end);
     const ey = map.yOf(end);
     const out: number[] = [];
-    if (isStoreTool(tool.value)) {
+    if (isStoreTool(tool.value) || tool.value === 'parking') {
       for (let y = Math.min(sy, ey); y <= Math.max(sy, ey); y++) {
         for (let x = Math.min(sx, ex); x <= Math.max(sx, ex); x++) out.push(map.idx(x, y));
       }

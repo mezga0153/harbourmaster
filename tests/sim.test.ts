@@ -12,9 +12,11 @@ import {
   footprint,
   forkliftOnly,
   frontOf,
+  parkingSides,
   placementCost,
   placementError,
   terraformError,
+  truckReach,
   walkable,
   walkableAt,
 } from '../src/sim/rules';
@@ -947,6 +949,44 @@ describe('Buildings', () => {
     const area = loaded.bays.get(at)!;
     expect(area.tiles).toEqual(tiles);
     expect(area.crates).toHaveLength(7);
+  });
+
+  it('lets trucks queue in parking for a loading spot, outside or inside the port', () => {
+    const world = World.create(7);
+    world.boats.length = 0;
+    const m = world.map;
+    const at = besideRoad(world);
+    world.command({ type: 'build', kind: 'parking', tiles: [at, at + 1] });
+    expect(m.build[at]).toBe(Build.Parking);
+    const sides = parkingSides(m);
+    expect(sides[at]).toBe(1);
+    // One bay, more trucks than it can load at once: the rest park and wait.
+    const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
+    if (h.terms.kind === 'haulier') h.terms.fleet = 3;
+    const bay = [...world.bays.values()][0];
+    bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    let parked = 0;
+    for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
+      world.step();
+      parked = Math.max(parked, world.trucks.filter((t) => t.state === 'parked').length);
+      if (bay.crates.length < B.BAY_CAPACITY / 2) break;
+    }
+    expect(parked).toBeGreaterThan(0);
+    expect(bay.crates.length).toBeLessThan(B.BAY_CAPACITY);
+  });
+
+  it('counts parking joined only to port roads as inside the port', () => {
+    const world = World.create(7);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const at = besideRoad(world, 2);
+    world.command({ type: 'bulldoze', tiles: [at, at + 1, at + 2] });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [at] });
+    world.command({ type: 'build', kind: 'parking', tiles: [at + 1, at + 2] });
+    expect(parkingSides(m)[at + 1]).toBe(2);
+    // Not through the port road without a gate, so trucks cannot get to it.
+    expect(truckReach(m)[at + 1]).toBe(-1);
   });
 
   it('lets trucks into the port only through a port gate', () => {

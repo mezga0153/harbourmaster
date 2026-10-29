@@ -396,6 +396,17 @@ export class Structures {
         }
         return g;
       }
+      case Build.Parking: {
+        // Asphalt with white lines between the spaces, along the longer run of the lot.
+        g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
+        const lot = [Build.Parking];
+        const alongX = this.is(i, 1, 0, ...lot) || this.is(i, -1, 0, ...lot);
+        for (const o of [0.04, 0.96]) {
+          const [x, z, w, d] = alongX ? [o, 0.5, 0.04, 0.8] : [0.5, o, 0.8, 0.04];
+          g.add(box(w, 0.01, d, C.marking, x, top + 0.05, z));
+        }
+        return g;
+      }
       case Build.Gate: {
         // Port paving with a gatehouse to one side and a striped barrier
         // across the lane, the public road in front (+z).

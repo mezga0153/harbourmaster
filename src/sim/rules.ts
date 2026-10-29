@@ -106,6 +106,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Tired dockhands rest here, ${B.HUT_SLOTS} at a time`,
     drag: false,
   },
+  parking: {
+    code: Build.Parking,
+    label: 'Truck parking',
+    cost: B.PARKING_COST,
+    hint: 'Drag out spaces for trucks to wait in, one to a tile. Joined to a public road it is outside the port: export trucks wait there while their paperwork is done. Joined to port roads it is inside, behind a port gate: trucks queue there for a free loading spot. Never both',
+    drag: true,
+  },
   portGate: {
     code: Build.Gate,
     label: 'Port gate',
@@ -707,11 +714,18 @@ export function buoyGates(map: GameMap, out: boolean): { a: number; b: number }[
  * that touches a road. Storage areas they load beside, never drive into, and
  * they keep off machines-only ground.
  */
-export function truckCost(map: GameMap, target = -1, home = -1): CostFn {
+export function truckCost(
+  map: GameMap,
+  target = -1,
+  home = -1,
+  sides: Int8Array = parkingSides(map),
+): CostFn {
   const way = (i: number): 'road' | 'port' | 'gate' | null => {
     const b = map.build[i];
     if (map.store[i] || nearCrane(map, i)) return null;
     if (isPublicRoad(b)) return 'road';
+    // Parking is part of whichever road it joins.
+    if (b === Build.Parking) return sides[i] === 1 ? 'road' : sides[i] === 2 ? 'port' : null;
     if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(map, i) ? null : 'port';
     if (b === Build.Gate) return 'gate';
     const a = anchorOf(map, i);
@@ -730,8 +744,8 @@ export function truckCost(map: GameMap, target = -1, home = -1): CostFn {
  * How far trucks drive from the highway to each tile they can get to, or
  * -1: public roads, and port roads and quays through a port gate.
  */
-export function truckReach(map: GameMap): Int32Array {
-  const cost = truckCost(map);
+export function truckReach(map: GameMap, sides?: Int8Array): Int32Array {
+  const cost = truckCost(map, -1, -1, sides);
   const dist = new Int32Array(map.build.length).fill(-1);
   const queue: number[] = [];
   if (Number.isFinite(cost(map.entry))) {
@@ -765,6 +779,42 @@ export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): 
     }
   }
   return [...spots].sort((p, q) => reach[p] - reach[q] || p - q);
+}
+
+/**
+ * Which side of the port each parking tile is on: 1 outside, joined (by
+ * other parking) to a public road; 2 inside, joined only to port roads or
+ * quays; 0 not parking, or joined to neither. Parking joined to both is
+ * outside, and trucks cannot cross from it onto the port roads.
+ */
+export function parkingSides(map: GameMap): Int8Array {
+  const sides = new Int8Array(map.build.length);
+  const seen = new Uint8Array(map.build.length);
+  for (let i = 0; i < map.build.length; i++) {
+    if (seen[i] || map.build[i] !== Build.Parking) continue;
+    const lot: number[] = [];
+    const stack = [i];
+    seen[i] = 1;
+    let road = false;
+    let port = false;
+    while (stack.length > 0) {
+      const t = stack.pop()!;
+      lot.push(t);
+      for (const n of map.neighbors4(t)) {
+        const b = map.build[n];
+        if (isPublicRoad(b)) road = true;
+        if ((b === Build.PortRoad || b === Build.Quay) && !forkliftOnly(map, n) && !map.store[n]) {
+          port = true;
+        }
+        if (b !== Build.Parking || seen[n]) continue;
+        seen[n] = 1;
+        stack.push(n);
+      }
+    }
+    const side = road ? 1 : port ? 2 : 0;
+    for (const t of lot) sides[t] = side;
+  }
+  return sides;
 }
 
 /** Tiles round a crane at `i` kept for port machines, and those a jib crane reaches storage in. */
