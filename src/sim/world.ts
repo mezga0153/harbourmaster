@@ -444,6 +444,9 @@ interface Bay {
   /** Container yards: how each container, and each export, looks. */
   boxLooks?: number[];
   exportLooks?: number[];
+  /** Container yards: the slot each container, and each export, is stacked in; see yardSlots. */
+  boxSlots?: number[];
+  exportSlots?: number[];
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.
@@ -531,6 +534,20 @@ function deckPlace(k: number): { bay: number; row: number; tier: number } {
     bay: Math.floor((k % per) / B.FEEDER_ROWS),
     row: k % B.FEEDER_ROWS,
     tier: Math.floor(k / per),
+  };
+}
+
+/** Stacks of containers on each tile of a yard, and how high. */
+const YARD_STACKS = 2;
+const YARD_TIERS = B.BOXES_PER_STORE_TILE / YARD_STACKS;
+
+/** Where slot `k` of a yard is: the tile (by its place in the yard's tiles), the stack on it and the tier. */
+function yardPlace(k: number): { tile: number; stack: number; tier: number } {
+  const r = k % B.BOXES_PER_STORE_TILE;
+  return {
+    tile: Math.floor(k / B.BOXES_PER_STORE_TILE),
+    stack: r % YARD_STACKS,
+    tier: Math.floor(r / YARD_STACKS),
   };
 }
 
@@ -4118,7 +4135,8 @@ export class World {
       if (p.state === 'dropping') {
         return { working: 'unload', workLook: this.carriedLooks(p)[0], workPhase, ...lift };
       }
-      return { working: 'load', workLook: this.exportLooks(y)[0], workPhase, ...lift };
+      const top = Math.max(0, this.yardTop(y, true));
+      return { working: 'load', workLook: this.exportLooks(y)[top], workPhase, ...lift };
     }
     const t = this.gantryTruck(y);
     if (!t) return {};
@@ -4135,7 +4153,7 @@ export class World {
         workPhase,
       };
     }
-    const at = this.readyList(y).findIndex((r) => this.isClear(r));
+    const at = this.clearTop(y);
     const look = this.boxLooks(y)[at];
     return {
       working: 'load',
@@ -4201,21 +4219,45 @@ export class World {
   private yardLooks(
     y: Bay,
     lifts: Map<number, GantryWork & { yard: number }>,
-  ): GantryWork & { looks: number[]; lifted: number } {
+  ): GantryWork & { looks: number[]; slots: number[]; lifted: number; workYard?: number } {
     const looks = [...this.boxLooks(y), ...this.exportLooks(y)];
+    const { boxes, exports } = this.yardSlots(y);
+    const slots = [...boxes, ...exports];
     const w = [...lifts.values()].find((l) => l.yard === y.idx) ?? this.gantryWork(y);
     const p = w.workPhase ?? 0;
     let lifted = 0;
+    // Where in the yard the container it moves is, or goes.
+    const workYard =
+      w.working === 'load'
+        ? slots[looks.indexOf(w.workLook ?? -1)]
+        : w.working === 'unload'
+          ? this.nextYardSlot(y)
+          : undefined;
     if (w.working === 'load' && p >= LIFT_TAKEN) {
       const k = looks.indexOf(w.workLook ?? -1);
-      if (k >= 0) looks.splice(k, 1);
+      if (k >= 0) {
+        looks.splice(k, 1);
+        slots.splice(k, 1);
+      }
       lifted = -1;
     } else if (w.working === 'unload' && p >= LIFT_SET && w.workLook !== undefined) {
       looks.push(w.workLook);
+      slots.push(workYard ?? this.nextYardSlot(y));
       lifted = 1;
     }
     const { working, workLook, workAt, workTruck, workSlot, workPhase } = w;
-    return { looks, lifted, working, workLook, workAt, workTruck, workSlot, workPhase };
+    return {
+      looks,
+      slots,
+      lifted,
+      working,
+      workLook,
+      workAt,
+      workTruck,
+      workSlot,
+      workPhase,
+      workYard,
+    };
   }
 
   /** At a yard with a gantry, waiting while it works another truck or a tractor. */
@@ -4248,7 +4290,7 @@ export class World {
       const avail = load
         ? Math.min(
             t.capacity - t.cargo - (t.coming ?? 0),
-            this.cleared(yard) - (yard.truckReserved ?? 0),
+            this.reachable(yard) - (yard.truckReserved ?? 0),
           )
         : t.cargo - (t.taking ?? 0);
       if (avail <= 0) continue;
@@ -4324,8 +4366,9 @@ export class World {
           yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
           // Only what customs have cleared, whichever that is.
           const ready = this.readyList(yard);
-          const at = ready.findIndex((r) => this.isClear(r));
+          const at = this.clearTop(yard);
           if (at >= 0) {
+            this.yardSlots(yard).boxes.splice(at, 1);
             ready.splice(at, 1);
             p.cargoLooks = this.boxLooks(yard).splice(at, 1);
             fee = yard.boxes.splice(at, 1)[0];
@@ -6688,8 +6731,21 @@ export class World {
         pile.outReserved = Math.max(0, (pile.outReserved ?? 0) - p.planned);
         const out = (pile.exports ??= []);
         const n = Math.min(p.planned, out.length);
-        p.cargoLooks = this.exportLooks(pile).splice(0, n);
-        return out.splice(0, n);
+        if (!pile.yard) {
+          p.cargoLooks = this.exportLooks(pile).splice(0, n);
+          return out.splice(0, n);
+        }
+        // Off the top of the stacks in a yard.
+        const fees: number[] = [];
+        p.cargoLooks = [];
+        for (let k = 0; k < n; k++) {
+          const i = this.yardTop(pile, true);
+          if (i < 0) break;
+          this.yardSlots(pile).exports.splice(i, 1);
+          p.cargoLooks.push(...this.exportLooks(pile).splice(i, 1));
+          fees.push(...out.splice(i, 1));
+        }
+        return fees;
       }
       pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
       const fees = pile.crates.splice(0, Math.min(p.planned, pile.crates.length));
@@ -6845,6 +6901,111 @@ export class World {
     return (b.boxLooks = aligned(b.boxes, b.boxLooks, b.idx));
   }
 
+  /**
+   * The slot each container in a yard is stacked in, and each export,
+   * kept beside them: a container set down goes in the lowest free place
+   * with one under it, across the whole yard before it goes higher.
+   */
+  private yardSlots(b: Bay): { boxes: number[]; exports: number[] } {
+    const boxes = (b.boxSlots ??= []);
+    const exports = (b.exportSlots ??= []);
+    if (boxes.length > b.boxes.length) boxes.length = b.boxes.length;
+    if (exports.length > (b.exports?.length ?? 0)) exports.length = b.exports?.length ?? 0;
+    const cap = bayCap(b);
+    const used = new Set<number>();
+    for (const list of [boxes, exports]) {
+      list.forEach((k, i) => {
+        if (k >= cap || used.has(k)) list[i] = -1;
+        else used.add(k);
+      });
+    }
+    for (const [list, n] of [
+      [boxes, b.boxes.length],
+      [exports, b.exports?.length ?? 0],
+    ] as const) {
+      for (let i = 0; i < n; i++) {
+        if (i < list.length && list[i] >= 0) continue;
+        const k = this.freeYardSlot(b, used);
+        list[i] = k;
+        used.add(k);
+      }
+    }
+    return { boxes, exports };
+  }
+
+  /** The lowest free place in a yard with a container under it, or on the ground; -1 if full. */
+  private freeYardSlot(b: Bay, used: Set<number>): number {
+    const cap = bayCap(b);
+    for (let tier = 0; tier < YARD_TIERS; tier++) {
+      for (let k = tier * YARD_STACKS; k < cap; k++) {
+        const p = yardPlace(k);
+        if (p.tier !== tier || used.has(k)) continue;
+        if (tier === 0 || used.has(k - YARD_STACKS)) return k;
+      }
+    }
+    return -1;
+  }
+
+  /** Where the next container set down in this yard goes. */
+  private nextYardSlot(b: Bay): number {
+    const { boxes, exports } = this.yardSlots(b);
+    return this.freeYardSlot(b, new Set([...boxes, ...exports]));
+  }
+
+  /**
+   * The container in a yard (with `exports`, the export) that can be lifted
+   * off the top of its stack, highest first, of those `ok` lets through; -1
+   * if none is on top. One with another on it waits until that has gone.
+   */
+  private yardTop(b: Bay, exports: boolean, ok: (i: number) => boolean = () => true): number {
+    const slots = this.yardSlots(b);
+    const used = new Set([...slots.boxes, ...slots.exports]);
+    const list = exports ? slots.exports : slots.boxes;
+    let best = -1;
+    let high = -1;
+    list.forEach((k, i) => {
+      const { tier } = yardPlace(k);
+      if (tier < YARD_TIERS - 1 && used.has(k + YARD_STACKS)) return;
+      if (tier > high && ok(i)) {
+        best = i;
+        high = tier;
+      }
+    });
+    return best;
+  }
+
+  /** The cleared container on top of its stack a truck takes next from a yard, or -1. */
+  private clearTop(b: Bay): number {
+    const ready = this.readyList(b);
+    return this.yardTop(b, false, (i) => this.isClear(ready[i]));
+  }
+
+  /**
+   * How many cleared containers trucks can take off a yard one after
+   * another: down each stack from the top, until one waiting for customs,
+   * or an export, is in the way.
+   */
+  private reachable(b: Bay): number {
+    const slots = this.yardSlots(b);
+    const ready = this.readyList(b);
+    const at = new Map<number, boolean>();
+    slots.boxes.forEach((k, i) => at.set(k, this.isClear(ready[i])));
+    for (const k of slots.exports) at.set(k, false);
+    let n = 0;
+    const cap = bayCap(b);
+    for (let base = 0; base < cap; base += B.BOXES_PER_STORE_TILE) {
+      for (let stack = 0; stack < YARD_STACKS; stack++) {
+        for (let tier = YARD_TIERS - 1; tier >= 0; tier--) {
+          const clear = at.get(base + tier * YARD_STACKS + stack);
+          if (clear === undefined) continue;
+          if (!clear) break;
+          n++;
+        }
+      }
+    }
+    return n;
+  }
+
   /** How the exports waiting in storage look. */
   private exportLooks(b: Bay): number[] {
     return (b.exportLooks = aligned(b.exports ?? [], b.exportLooks, b.idx + 1));
@@ -6879,7 +7040,7 @@ export class World {
 
   /** What a truck could take away from this bay now. */
   private collectable(b: Bay): number {
-    return b.crates.length + (b.yard ? this.cleared(b) : b.boxes.length);
+    return b.crates.length + (b.yard ? this.reachable(b) : b.boxes.length);
   }
 
   /**
@@ -6890,7 +7051,7 @@ export class World {
   private unclaimed(b: Bay, boxes: boolean, except?: Truck): number {
     const ready = boxes
       ? b.yard
-        ? this.cleared(b) - (b.truckReserved ?? 0)
+        ? this.reachable(b) - (b.truckReserved ?? 0)
         : b.boxes.length
       : b.crates.length;
     let claimed = 0;
@@ -7813,8 +7974,9 @@ export class World {
         }
         const stock = t.boxes ? bay.boxes : bay.crates;
         // Containers only once customs have cleared them, whichever those are.
-        const at = t.boxes && bay.yard ? this.readyList(bay).findIndex((r) => this.isClear(r)) : 0;
+        const at = t.boxes && bay.yard ? this.clearTop(bay) : 0;
         if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
+          if (t.boxes && bay.yard) this.yardSlots(bay).boxes.splice(at, 1);
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
           if (t.boxes && bay.yard) (t.looks ??= []).push(this.boxLooks(bay).splice(at, 1)[0]);
           const fee = stock.splice(at, 1)[0];

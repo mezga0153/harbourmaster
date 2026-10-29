@@ -2441,6 +2441,31 @@ describe('Container Port tier', () => {
     expect(yard.boxes).toHaveLength(0);
   });
 
+  it('lets trucks take a cleared container only once nothing is stacked on it', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const yard = world.yards.get(t.yard)!;
+    // The ground first, a stack at a time across the yard, then up.
+    const ground = (yard.tiles!.length * B.BOXES_PER_STORE_TILE) / 3;
+    const later = world.tick + 10 * TICKS_PER_DAY;
+    for (let k = 0; k <= ground; k++) {
+      yard.boxes.push(100);
+      (yard.boxReady ??= []).push(k === 0 ? 0 : later);
+    }
+    const slots = world['yardSlots'](yard).boxes;
+    // The last stands on the first, which customs have cleared: it is buried.
+    expect(slots[ground]).toBe(slots[0] + 2);
+    expect(world['reachable'](yard)).toBe(0);
+    expect(world['clearTop'](yard)).toBe(-1);
+    // Once the one on top clears too, both can go, the top one first.
+    yard.boxReady![ground] = 0;
+    expect(world['reachable'](yard)).toBe(2);
+    expect(world['clearTop'](yard)).toBe(ground);
+  });
+
   it('holds containers in a yard for a day of customs from when their ship is unloaded', () => {
     const world = World.create(7);
     world.tier = 2;

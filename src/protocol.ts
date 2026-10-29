@@ -223,6 +223,10 @@ export interface YardView {
   boxes: number;
   /** How each container looks, then each export. */
   looks: number[];
+  /** The slot each is stacked in: a tile's two stacks, three high, tile by tile. */
+  slots?: number[];
+  /** Its gantry at work: the slot in the yard the container it moves is in, or is going to. */
+  workYard?: number;
   /** Cleared by customs, so the trucks may take them. */
   cleared: number;
   /** Containers waiting here to go out on a ship. */

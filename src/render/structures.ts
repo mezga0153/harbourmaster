@@ -24,6 +24,7 @@ import {
   TICKS_PER_SECOND,
 } from '../sim/types';
 import {
+  BOXES_PER_STORE_TILE,
   CRANE_LIFT_SET,
   CRANE_LIFT_TAKEN,
   GANTRY_RAILS,
@@ -466,10 +467,13 @@ export class Structures {
       workSlot?: number;
       workPhase?: number;
       lifted?: number;
+      slots?: number[];
+      workYard?: number;
     }[],
   ): void {
     for (const y of yards) {
-      this.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true, y.looks);
+      if (y.slots) this.stackYard(y.tiles, y.slots, y.looks);
+      else this.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true, y.looks);
       // Its gantry, at work or not, and where in the yard the container
       // it is moving lies, or for one coming off a truck, where it goes.
       const tiles = new Set(y.tiles);
@@ -492,7 +496,11 @@ export class Structures {
         if (!same) g.base = this.kept(g.yard, g.look);
         // Once it has lifted a container out of the yard its slot is empty:
         // it is still going from there.
-        const pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
+        const pick = !y.working
+          ? null
+          : y.workYard !== undefined
+            ? this.yardSlotAt(g, y.tiles, y.workYard)
+            : this.slotFor(g, y.tiles, y.working, y.workLook);
         g.pick = pick ?? (y.working && same ? g.pick : null);
       }
     }
@@ -683,6 +691,37 @@ export class Structures {
       at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
     }
+  }
+
+  /**
+   * A yard's containers each in the slot the game stacks it in, `slots[k]`
+   * looking like `looks[k]`: a tile's two stacks, three high, tile by tile.
+   */
+  private stackYard(tiles: number[], slots: number[], looks: number[]): void {
+    const per = BOXES_PER_STORE_TILE;
+    const shown = new Map<number, number>();
+    slots.forEach((k, j) => shown.set(k, looks[j]));
+    tiles.forEach((t, n) => {
+      this.stacks.get(t)?.boxes.forEach((o, r) => {
+        const look = shown.get(n * per + r);
+        o.visible = look !== undefined;
+        if (look !== undefined) paintContainer(o, look);
+      });
+    });
+    // What is in it, for a gantry to tell when one has come or gone.
+    if (tiles.length > 0) this.slots.set(tiles[0], [...looks]);
+  }
+
+  /** Where a yard gantry reaches for yard slot `k`; see slotFor. */
+  private yardSlotAt(g: YardGantryParts, tiles: number[], k: number): YardGantryParts['pick'] {
+    const per = BOXES_PER_STORE_TILE;
+    const slot = this.stacks.get(tiles[Math.floor(k / per)])?.boxes[k % per];
+    if (!slot) return null;
+    g.frame.updateWorldMatrix(true, false);
+    slot.updateWorldMatrix(true, false);
+    const at = g.frame.worldToLocal(slot.getWorldPosition(new Vector3()));
+    const drop = g.trolley.position.y - (at.y + BOX_HEIGHT + 0.04);
+    return { x: at.x, z: at.z, drop };
   }
 
   /** The slots of the containers kept under `key`, brought up to date with `looks`. */
