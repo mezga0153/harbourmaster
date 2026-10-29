@@ -40,6 +40,11 @@ export const Build = {
   Chapel: 26,
   FishShed: 27,
   Park: 28,
+  // Town businesses, which take goods from the port.
+  FishMarket: 29,
+  Cannery: 30,
+  Store: 31,
+  Factory: 32,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -73,7 +78,7 @@ export function isBuoy(code: number): boolean {
 
 /** Built and kept by the town, never the player. */
 export function isTownBuilding(code: number): boolean {
-  return code >= Build.Cottage && code <= Build.Park;
+  return code >= Build.Cottage && code <= Build.Factory;
 }
 
 /** Public roads trucks drive along, level crossings included. */

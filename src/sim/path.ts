@@ -80,7 +80,7 @@ export function findPath(
   return path.reverse();
 }
 
-class MinHeap {
+export class MinHeap {
   private items: number[] = [];
   private keys: number[] = [];
 

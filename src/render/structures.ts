@@ -220,7 +220,7 @@ export class Structures {
     switch (code) {
       case Build.Road: {
         g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
-        if (this.map.orient[i] & TOWN) {
+        if (this.map.orient[i] & TOWN && this.builtUp(i)) {
           // A town street: pavements, and a lamp now and then.
           const open = DIRS.map(([dx, dy]) => this.streetAt(i, dx, dy));
           pavements(g, top, open, hash01(i, 5, 5) < 0.3);
@@ -615,6 +615,17 @@ export class Structures {
       }
     }
     return townBuilding(code, top, hash01(i, 11, 3));
+  }
+
+  /** Whether the town has built anything next to `i`; out in the country its road has no pavements. */
+  private builtUp(i: number): boolean {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const n = this.offset(i, dx, dy);
+        if (n >= 0 && isTownBuilding(this.map.build[n])) return true;
+      }
+    }
+    return false;
   }
 
   /** Whether the street on `i` carries on to dx, dy: another road, or off the map edge. */

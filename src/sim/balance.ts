@@ -216,3 +216,7 @@ export const TOWN_PER_GOODS = 3; // people per crate a day the port sends out by
 export const CONTAINER_GOODS = 8; // a container counts as this many crates of goods
 export const TOWN_GROWTH = 0.2; // share of the gap to what the port supports closed each day
 export const TOWN_BUILD_TICKS = 25; // the town's builders finish one job this often
+export const TOWN_PER_LOCAL = 3; // more people per crate a day delivered to the town's businesses
+export const TOWN_DELIVERY_BONUS = 0.25; // of a load's fees, paid when it is delivered in town
+export const TOWN_MIN_DISTANCE = 20; // tiles between the port and a new town, at least
+export const UNLOAD_TICKS = 4; // per crate or container, unloading at a town business

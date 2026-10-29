@@ -11,6 +11,7 @@ import type {
   StaffView,
   Stats,
   TileChange,
+  TownView,
 } from '../protocol';
 import * as B from './balance';
 import {
@@ -29,13 +30,17 @@ import { generateMap } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
 import {
+  BUSINESSES,
+  clearTown,
   foundTown,
+  TOWN_LAYOUT,
   growTown,
   population,
   townDay,
   townHomes,
   townStageUp,
   townTarget,
+  townWants,
   type Town,
 } from './town';
 import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trait } from './staff';
@@ -45,6 +50,7 @@ import {
   anchorOf,
   bestFacing,
   buoyGates,
+  frontOf,
   BUILDABLES,
   bulldozeError,
   bulldozeTiles,
@@ -254,7 +260,10 @@ interface Boat extends Agent {
 }
 
 interface Truck extends Agent {
-  state: 'toBay' | 'loading' | 'leaving';
+  state: 'toBay' | 'loading' | 'toTown' | 'unloading' | 'leaving';
+  /** A business in town it is delivering part of its load to, and how much. */
+  drop?: number;
+  dropCount?: number;
   contractId: number;
   company: string;
   capacity: number;
@@ -661,9 +670,35 @@ export class World {
     for (const y of s.yards ?? []) world.yards.set(y.idx, { ...y, boxes: [...y.boxes] });
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     if (s.rail) world.rail = structuredClone(s.rail);
-    if (s.town !== undefined) world.town = s.town && { ...s.town };
-    else world.settle();
+    if (s.town === undefined) world.settle();
+    else if (s.town) world.relay({ ...s.town });
     return world;
+  }
+
+  /** Bring a town from an older save up to date, laying it out again under the current rules. */
+  private relay(old: Town): void {
+    const t: Town = {
+      ...old,
+      supplied: old.supplied ?? 0,
+      local: old.local ?? 0,
+      wants: old.wants ?? townWants(this.map),
+      layout: old.layout ?? 1,
+    };
+    this.town = t;
+    if (t.layout >= TOWN_LAYOUT) return;
+    const homes = townHomes(this.map);
+    clearTown(this.map, () => {});
+    const fresh = foundTown(this.map, t.name, () => {});
+    if (!fresh) {
+      this.town = null;
+      return;
+    }
+    // Same people and trade, new streets: built straight back up to size.
+    this.town = { ...t, centre: fresh.centre, layout: TOWN_LAYOUT, wants: fresh.wants };
+    for (let k = 0; k < 3000 && townHomes(this.map) < homes; k++) {
+      if (!growTown(this.town, this.map, () => {})) break;
+    }
+    this.town.wants = townWants(this.map);
   }
 
   toSave(): SaveData {
@@ -972,6 +1007,7 @@ export class World {
         if (!growTown(t, this.map, (i) => this.dirty.add(i))) break;
         townStageUp(t, this.map);
       }
+      t.wants = townWants(this.map);
     }
     if (cmd.train) this.rail.nextTrain = this.tick;
     if (cmd.containers) {
@@ -1445,6 +1481,19 @@ export class World {
     }
   }
 
+  private businessViews(): TownView['businesses'] {
+    const out = new Map<number, TownView['businesses'][number]>();
+    for (const code of this.map.build) {
+      const def = BUSINESSES[code];
+      if (!def) continue;
+      const v = out.get(code) ?? { label: def.label, count: 0, boxes: def.boxes, perDay: 0 };
+      v.count++;
+      v.perDay += def.perDay;
+      out.set(code, v);
+    }
+    return [...out.values()];
+  }
+
   /** People working at the port and driving for its hauliers. */
   private jobs(): number {
     return this.people.length + this.hauliers().reduce((n, h) => n + h.terms.fleet, 0);
@@ -1497,7 +1546,7 @@ export class World {
   }
 
   private newDay(): void {
-    if (this.town) townDay(this.town, this.jobs());
+    if (this.town) townDay(this.town, this.jobs(), this.map);
     this.checkMorale();
     this.raiseRequests();
     this.refreshCandidates();
@@ -4692,7 +4741,10 @@ export class World {
     const m = this.map;
     const hauliers = this.hauliers();
     const out = new Map<number, number>();
-    for (const t of this.trucks) out.set(t.contractId, (out.get(t.contractId) ?? 0) + 1);
+    // A truck that has gone on into town is off the haulier's books for the port.
+    for (const t of this.trucks) {
+      if (t.drop === undefined) out.set(t.contractId, (out.get(t.contractId) ?? 0) + 1);
+    }
     // Fullest bays get trucks first. Container trucks collect from the yards,
     // and from large bays still holding containers from older saves.
     const load = (b: Bay) =>
@@ -4802,6 +4854,37 @@ export class World {
         if (full || bored) this.truckLeave(t);
         return;
       }
+      case 'toTown': {
+        const r = this.move(
+          t,
+          this.truckCost(t.goal, t.bayIdx),
+          false,
+          () => B.TRUCK_SPEED,
+          this.level,
+        );
+        if (r === 'blocked') this.headOut(t);
+        else if (r === 'arrived') {
+          t.state = 'unloading';
+          t.timer = 0;
+        }
+        return;
+      }
+      case 'unloading': {
+        const n = t.dropCount ?? 0;
+        if (++t.timer < n * B.UNLOAD_TICKS) return;
+        // The town pays a little extra for goods brought to its door.
+        const bonus = Math.round(((t.value * n) / Math.max(1, t.cargo)) * B.TOWN_DELIVERY_BONUS);
+        if (bonus > 0) {
+          this.book('cargo', bonus);
+          this.stats.earned += bonus;
+          this.moneyAt(bonus, t.drop ?? this.tileOf(t));
+        }
+        if (this.town) this.town.local += t.boxes ? n * B.CONTAINER_GOODS : n;
+        t.value -= Math.round((t.value * n) / Math.max(1, t.cargo));
+        t.cargo -= n;
+        this.headOut(t);
+        return;
+      }
       case 'leaving': {
         const cost = this.truckCost(this.map.entry, t.bayIdx);
         const r = this.move(t, cost, false, () => B.TRUCK_SPEED, this.level);
@@ -4825,7 +4908,49 @@ export class World {
       this.stats.earned += income;
       this.stats.trucks++;
       this.moneyAt(income, this.tileOf(t));
+      if (this.deliverInTown(t)) return;
     }
+    this.headOut(t);
+  }
+
+  /**
+   * Send a loaded truck by way of the town, when one of its businesses
+   * still wants what it carries today and the trucks can get there.
+   */
+  private deliverInTown(t: Truck): boolean {
+    const town = this.town;
+    if (!town) return false;
+    const kind = t.boxes ? 'boxes' : 'crates';
+    const count = Math.min(t.cargo, Math.floor(town.wants[kind]));
+    if (count <= 0) return false;
+    const m = this.map;
+    let best: number[] | null = null;
+    let drop = -1;
+    for (let i = 0; i < m.build.length; i++) {
+      const def = BUSINESSES[m.build[i]];
+      if (!def || def.boxes !== t.boxes) continue;
+      // Delivered at the kerb, on the street the business faces.
+      const front = frontOf(m, i, m.orient[i] & 3);
+      if (front < 0 || !isPublicRoad(m.build[front])) continue;
+      const cost = this.truckCost(front, t.bayIdx);
+      const path = findPath(m.w, m.h, this.tileOf(t), front, cost, false);
+      if (path && (!best || path.length < best.length)) {
+        best = path;
+        drop = i;
+      }
+    }
+    if (!best) return false;
+    town.wants[kind] -= count;
+    t.state = 'toTown';
+    t.path = best;
+    t.goal = best.length > 0 ? best[best.length - 1] : this.tileOf(t);
+    t.drop = drop;
+    t.dropCount = count;
+    return true;
+  }
+
+  /** Off to the highway and away. */
+  private headOut(t: Truck): void {
     t.state = 'leaving';
     t.goal = this.map.entry;
     const path = findPath(
@@ -5039,7 +5164,9 @@ export class World {
             ? 'Driving to the truck bay'
             : t.state === 'loading'
               ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}`
-              : 'Delivering to town',
+              : t.state === 'toTown' || t.state === 'unloading'
+                ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : 'crates'} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
+                : 'Heading out to the highway',
         variant: t.variant,
         capacity: t.capacity,
         alert: false,
@@ -5117,6 +5244,9 @@ export class World {
         target: Math.round(townTarget(this.town)),
         jobs: this.town.jobs,
         goods: Math.round(this.town.goods),
+        supplied: Math.round(this.town.supplied),
+        wants: { ...this.town.wants },
+        businesses: this.businessViews(),
         x: this.map.xOf(this.town.centre),
         y: this.map.yOf(this.town.centre),
       },

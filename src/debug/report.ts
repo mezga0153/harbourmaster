@@ -37,7 +37,8 @@ export function report(s: Snapshot, x: ReportExtras): string {
     const t = s.town;
     lines.push(
       `Town: ${t.name} (${TOWN_STAGES[t.stage].name}) at (${t.x},${t.y}) · ${t.population} people, ` +
-        `${t.homes} homes · supports ${t.target} (jobs ${t.jobs}, goods ${t.goods}/day)`,
+        `${t.homes} homes · supports ${t.target} (jobs ${t.jobs}, goods ${t.goods}/day, ` +
+        `delivered in town ${t.supplied}/day; still wants ${t.wants.crates} crates, ${t.wants.boxes} containers)`,
     );
   }
   if (s.train) {

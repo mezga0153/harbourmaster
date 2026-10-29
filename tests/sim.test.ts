@@ -206,7 +206,9 @@ describe('Contracts', () => {
         (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
         0,
       );
-      expect(world.trucks.length).toBeLessThanOrEqual(fleet);
+      // Trucks gone on to deliver in town are off the hauliers' books for the port.
+      const serving = world.trucks.filter((t) => t.drop === undefined);
+      expect(serving.length).toBeLessThanOrEqual(fleet);
     }
   });
 

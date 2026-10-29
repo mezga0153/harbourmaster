@@ -2,9 +2,28 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { crossingClosed, railColumn } from '../src/sim/railway';
 import { bulldozeError, placementError } from '../src/sim/rules';
-import { isTownStreet, TOWN_STAGES, townHomes } from '../src/sim/town';
-import { Build, isTownBuilding, TICKS_PER_DAY } from '../src/sim/types';
+import type { GameMap } from '../src/sim/map';
+import { isTownStreet, TOWN_LAYOUT, TOWN_STAGES, townHomes } from '../src/sim/town';
+import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+
+const dist = (m: GameMap, a: number, b: number) =>
+  Math.hypot(m.xOf(a) - m.xOf(b), m.yOf(a) - m.yOf(b));
+
+/** Public road the trucks can drive along from the highway. */
+function truckRoads(m: GameMap): Set<number> {
+  const seen = new Set([m.entry]);
+  const queue = [m.entry];
+  while (queue.length > 0) {
+    for (const n of m.neighbors4(queue.pop()!)) {
+      if (!seen.has(n) && isPublicRoad(m.build[n])) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+  }
+  return seen;
+}
 
 describe('Railway', () => {
   it.each([1, 2, 3, 7, 99, 1234, 777777])('runs the length of every map (seed %i)', (seed) => {
@@ -40,6 +59,8 @@ describe('Railway', () => {
     const was = new Map<number, number>();
     let waited = 0;
     for (let t = 0; t < TICKS_PER_DAY * 4; t++) {
+      // One train after another, so trucks are bound to meet one.
+      if (!world.rail.train) world.rail.nextTrain = world.tick;
       world.step();
       const closed = crossingClosed(world.rail.train, ey);
       for (const truck of world.trucks) {
@@ -81,9 +102,52 @@ describe('Town', () => {
     expect(t.stage).toBe(0);
     expect(townHomes(m)).toBeGreaterThanOrEqual(B.TOWN_START);
     expect(m.build.some((b) => b === Build.Chapel)).toBe(true);
-    // Well away from the port, with its own road out to the edge of the map.
-    expect(Math.abs(m.yOf(t.centre) - m.yOf(m.entry))).toBeGreaterThanOrEqual(18);
-    expect(isTownStreet(m, m.idx(0, m.yOf(t.centre)))).toBe(true);
+    expect(m.build.some((b) => b === Build.FishMarket)).toBe(true);
+    // Well away from the port, with a road the trucks can drive in on.
+    for (let i = 0; i < m.build.length; i++) {
+      const b = m.build[i];
+      const port = b !== Build.None && !isPublicRoad(b) && b !== Build.Rail && !isTownBuilding(b);
+      if (port) expect(dist(m, i, t.centre)).toBeGreaterThanOrEqual(B.TOWN_MIN_DISTANCE);
+    }
+    expect(truckRoads(m).has(t.centre)).toBe(true);
+  });
+
+  it.each([1, 3, 7, 99])('lays streets that never run two wide (seed %i)', (seed) => {
+    const world = World.create(seed);
+    world.debug({ type: 'debug', town: 2500 });
+    const m = world.map;
+    for (let y = 0; y < m.h - 1; y++) {
+      for (let x = 0; x < m.w - 1; x++) {
+        const block = [m.idx(x, y), m.idx(x + 1, y), m.idx(x, y + 1), m.idx(x + 1, y + 1)];
+        expect(block.every((i) => isTownStreet(m, i))).toBe(false);
+      }
+    }
+  });
+
+  it('takes deliveries from the hauliers, for a bonus', () => {
+    const world = World.create(7);
+    for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
+    let unloading = 0;
+    for (let d = 0; d < 8; d++) {
+      for (let k = 0; k < TICKS_PER_DAY; k++) {
+        world.step();
+        unloading += world.trucks.filter((t) => t.state === 'unloading').length;
+      }
+    }
+    expect(unloading).toBeGreaterThan(0);
+    expect(world.town!.supplied).toBeGreaterThan(0);
+  });
+
+  it('is laid out again from an older save, as big as it was', () => {
+    const world = World.create(5);
+    world.debug({ type: 'debug', town: 600 });
+    const homes = townHomes(world.map);
+    const save = world.toSave();
+    save.town = { ...save.town!, layout: 1 };
+    const loaded = World.fromSave(save);
+    expect(loaded.town!.layout).toBe(TOWN_LAYOUT);
+    expect(townHomes(loaded.map)).toBeGreaterThanOrEqual(homes);
+    expect(truckRoads(loaded.map).has(loaded.town!.centre)).toBe(true);
   });
 
   it('grows with the port into a city, and keeps clear of it', () => {

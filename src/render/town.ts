@@ -234,6 +234,80 @@ function park(g: Group, y: number, v: number) {
   }
 }
 
+function fishMarket(g: Group, y: number) {
+  // An open market hall: a striped canopy on posts over the fish stalls.
+  g.add(box(0.86, 0.03, 0.7, PAVING, 0.5, y, 0.5));
+  for (const [x, z] of [
+    [0.12, 0.2],
+    [0.88, 0.2],
+    [0.12, 0.8],
+    [0.88, 0.8],
+  ]) {
+    g.add(cyl(0.025, 0.3, C.cabin, x, y, z));
+  }
+  for (let k = 0; k < 4; k++) {
+    g.add(gable(0.2, 0.12, 0.72, k % 2 ? C.cabin : C.sign, 0.2 + k * 0.2, y + 0.3, 0.5, true));
+  }
+  for (const z of [0.36, 0.64]) {
+    g.add(box(0.6, 0.1, 0.12, C.wood, 0.5, y + 0.03, z));
+    for (let k = 0; k < 5; k++)
+      g.add(box(0.07, 0.025, 0.04, 0xb9c8d4, 0.26 + k * 0.12, y + 0.13, z));
+  }
+  g.add(box(0.12, 0.08, 0.12, C.crate, 0.2, y + 0.03, 0.9));
+  g.add(box(0.12, 0.08, 0.12, C.crateLid, 0.34, y + 0.03, 0.9));
+  g.add(box(0.36, 0.08, 0.012, C.sign, 0.5, y + 0.34, 0.86));
+}
+
+function cannery(g: Group, y: number) {
+  // A brick works with a sawtooth roof, a tall chimney and its loading door.
+  g.add(box(0.86, 0.36, 0.7, BRICK[0], 0.5, y, 0.45));
+  for (let k = 0; k < 3; k++) {
+    const r = box(0.29, 0.14, 0.7, k % 2 ? 0x8d939b : 0x9aa1a8, 0.21 + k * 0.29, y + 0.36, 0.45);
+    r.rotation.z = 0.35;
+    g.add(r);
+    g.add(box(0.012, 0.1, 0.68, C.window, 0.32 + k * 0.29, y + 0.37, 0.45));
+  }
+  g.add(cyl(0.06, 0.95, BRICK[2], 0.82, y, 0.18, 8));
+  g.add(cyl(0.065, 0.06, C.funnel, 0.82, y + 0.8, 0.18, 8));
+  g.add(box(0.26, 0.22, 0.012, C.chassis, 0.35, y, 0.805));
+  g.add(box(0.5, 0.07, 0.012, C.cabin, 0.5, y + 0.27, 0.805));
+  g.add(cyl(0.09, 0.22, 0xc9ced3, 0.82, y, 0.86, 10));
+}
+
+function store(g: Group, y: number, v: number) {
+  // A department store: a glass ground floor, two storeys of windows, its name on the roof.
+  const wall = pick([0xe8d9c4, 0xd9e6ee, 0xf2d7c9], v);
+  g.add(box(0.9, 0.62, 0.78, wall, 0.5, y, 0.47));
+  g.add(box(0.84, 0.17, 0.012, pick(GLASS, v), 0.5, y + 0.02, 0.865));
+  g.add(box(0.9, 0.04, 0.12, pick(AWNINGS, v, 4), 0.5, y + 0.2, 0.9));
+  for (const f of [0, 1]) {
+    g.add(box(0.91, 0.08, 0.79, pick(GLASS, v, 1), 0.5, y + 0.3 + f * 0.15, 0.47));
+  }
+  g.add(box(0.94, 0.04, 0.82, C.concrete, 0.5, y + 0.62, 0.47));
+  g.add(box(0.5, 0.12, 0.03, pick(AWNINGS, v, 5), 0.5, y + 0.66, 0.6));
+  g.add(cyl(0.012, 0.06, C.chassis, 0.32, y + 0.62, 0.6));
+  g.add(cyl(0.012, 0.06, C.chassis, 0.68, y + 0.62, 0.6));
+}
+
+function factory(g: Group, y: number, v: number) {
+  // A big clad shed, two chimneys, a roller door onto the street and a yard of containers.
+  g.add(box(0.92, 0.03, 0.92, C.quayTop, 0.5, y, 0.5));
+  g.add(box(0.62, 0.46, 0.78, 0xb8c2cc, 0.36, y, 0.45));
+  g.add(box(0.66, 0.04, 0.82, pick([C.sign, C.depotRoof, 0x2e7d4f], v), 0.36, y + 0.46, 0.45));
+  for (let k = 0; k < 5; k++) g.add(box(0.012, 0.46, 0.8, C.shedTrim, 0.08 + k * 0.14, y, 0.45));
+  g.add(box(0.3, 0.3, 0.012, C.chassis, 0.36, y, 0.845));
+  for (const z of [0.2, 0.42]) {
+    g.add(cyl(0.05, 1.05, 0x9aa1a8, 0.58, y + 0.46, z, 8));
+    g.add(cyl(0.055, 0.05, C.funnel, 0.58, y + 1.36, z, 8));
+  }
+  const paints = [C.funnel, C.sign, C.stripe, 0x3fa34d];
+  for (let k = 0; k < 3; k++) {
+    g.add(
+      box(0.15, 0.13, 0.36, paints[(k + Math.floor(v * 4)) % 4], 0.84, y + 0.03, 0.22 + k * 0.28),
+    );
+  }
+}
+
 /**
  * Merge a model's parts into one mesh per colour. A city is thousands of
  * little boxes; drawn one by one they would bring the frame rate down.
@@ -287,6 +361,18 @@ export function townBuilding(code: number, top: number, v: number): Group | null
       break;
     case Build.Park:
       park(g, top, v);
+      break;
+    case Build.FishMarket:
+      fishMarket(g, top);
+      break;
+    case Build.Cannery:
+      cannery(g, top);
+      break;
+    case Build.Store:
+      store(g, top, v);
+      break;
+    case Build.Factory:
+      factory(g, top, v);
       break;
     default:
       return null;

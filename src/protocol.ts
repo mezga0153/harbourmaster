@@ -193,6 +193,11 @@ export interface TownView {
   jobs: number;
   /** Crates' worth of goods sent out by road a day, lately. */
   goods: number;
+  /** Crates' worth delivered to the town's businesses a day, lately. */
+  supplied: number;
+  /** What the businesses will still take today. */
+  wants: { crates: number; boxes: number };
+  businesses: { label: string; count: number; boxes: boolean; perDay: number }[];
   /** The chapel square the town grows out from. */
   x: number;
   y: number;
