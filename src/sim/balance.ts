@@ -105,9 +105,16 @@ export const EXIT_LANES = 1;
 export const ROOM_MARGIN = 1;
 /** Longest a ship pulling out keeps that water to itself, in ticks. */
 export const ROOM_TICKS = 400;
-/** Boats look out this far, in tiles and in ticks ahead, for others on a collision course. */
-export const LOOKOUT_RANGE = 8;
+/**
+ * Boats under way plot where their hull will be this many ticks ahead, a
+ * point every PLOT_STEP ticks, and look out for others' plots coming too close.
+ */
 export const LOOKOUT_TICKS = 90;
+export const PLOT_STEP = 2;
+/** Clear water two hulls under way keep between them as they pass, in tiles. */
+export const PASSING_GAP = 0.4;
+/** A boat with right of way still acts itself once a collision is this many ticks off. */
+export const STAND_ON_TICKS = 25;
 /** Ships at least this long mind their whole hull when they turn; see sail(). */
 export const CAREFUL_LENGTH = 4;
 /** Boats at least this long run out along the dock to open water before turning to leave. */

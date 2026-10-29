@@ -65,6 +65,10 @@ export interface EntityView {
   vessel?: string;
   /** Carries containers rather than crates. */
   boxes?: boolean;
+  /** Boats under way: where it plots it will be over the next while, as x, y pairs. */
+  plot?: number[];
+  /** Boats: the boat it is giving way to. */
+  givingWayTo?: number;
 }
 
 export interface CraneView {

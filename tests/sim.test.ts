@@ -925,6 +925,78 @@ describe('Rules of the road', () => {
     expect(closest).toBeGreaterThan(B.VESSELS.smack.beam);
     expect(side).toBe(-1);
   });
+
+  /**
+   * Two boats on a collision course at right angles, both meeting the
+   * crossing at (75.5, 40.5): `east` comes from the west, `north` from the
+   * south. Returns how close they came, the slowest `north` went once at
+   * speed, and where `north` was when `east` crossed its track.
+   */
+  function crossing(east: 'smack' | 'feeder', north: 'smack' | 'feeder') {
+    const world = World.create(7);
+    const m = world.map;
+    const template = world.boats[0];
+    world.boats.length = 0;
+    const draft = { smack: template.draft, feeder: B.FEEDER_DRAFT };
+    const boat = (id: number, vessel: 'smack' | 'feeder', x: number, y: number, to: number) => {
+      expect(m.depth[m.idx(Math.floor(x), Math.floor(y))]).toBeGreaterThan(draft[vessel]);
+      return {
+        ...template,
+        id,
+        vessel,
+        draft: draft[vessel],
+        state: 'leaving' as const,
+        x,
+        y,
+        dir: id === 1000 ? 0 : -Math.PI / 2,
+        speed: B.VESSELS[vessel].speed,
+        path: [to],
+        goal: to,
+        berth: -1,
+        jetty: -1,
+      };
+    };
+    // Each the same time away from the crossing.
+    const ticks = 8 / B.VESSELS.smack.speed;
+    const ex = 75.5 - B.VESSELS[east].speed * ticks;
+    const ny = 40.5 + B.VESSELS[north].speed * ticks;
+    world.boats.push(
+      boat(1000, east, ex, 40.5, m.idx(95, 40)),
+      boat(1001, north, 75.5, ny, m.idx(75, 10)),
+    );
+    const [e, n] = world.boats;
+    let closest = Infinity;
+    let slowest = Infinity;
+    let northAt = NaN;
+    for (let t = 0; t < 250 && world.boats.length === 2; t++) {
+      const was = e.x;
+      world.step();
+      closest = Math.min(closest, Math.hypot(e.x - n.x, e.y - n.y));
+      slowest = Math.min(slowest, (n.speed ?? 0) / B.VESSELS[north].speed);
+      if (was < 75.5 && e.x >= 75.5) northAt = n.y;
+    }
+    return { closest, slowest, northAt };
+  }
+
+  it('has the boat with the other on its starboard side give way, passing astern', () => {
+    // The northbound smack is on the eastbound one's starboard side.
+    const r = crossing('smack', 'smack');
+    // Clear of each other's hulls, crossing at right angles.
+    expect(r.closest).toBeGreaterThan(B.VESSELS.smack.length / 2 + B.VESSELS.smack.beam);
+    // The other holds its course and speed, and is across first.
+    expect(r.slowest).toBeGreaterThan(0.9);
+    expect(r.northAt).toBeLessThan(40.5 - B.VESSELS.smack.length);
+  });
+
+  it('has a smaller boat give way to a bigger ship, wherever it lies', () => {
+    // The feeder has the smack on its starboard side, but the smack is
+    // smaller: it gives way all the same.
+    const r = crossing('feeder', 'smack');
+    expect(r.closest).toBeGreaterThan(B.VESSELS.feeder.length / 2 + B.VESSELS.smack.beam);
+    // The smack has slowed to let the feeder across ahead of it.
+    expect(r.slowest).toBeLessThan(0.75);
+    expect(r.northAt).toBeGreaterThan(40.5 + B.VESSELS.smack.length / 2);
+  });
 });
 
 describe('Buoys', () => {

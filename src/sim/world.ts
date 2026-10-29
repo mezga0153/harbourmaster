@@ -374,6 +374,55 @@ function wrapAngle(a: number): number {
   return a;
 }
 
+/** Distance from a point to the segment x0,y0 to x1,y1. */
+function toSegment(px: number, py: number, x0: number, y0: number, x1: number, y1: number): number {
+  const vx = x1 - x0;
+  const vy = y1 - y0;
+  const l = vx * vx + vy * vy;
+  const t = l > 0 ? clamp(((px - x0) * vx + (py - y0) * vy) / l, 0, 1) : 0;
+  return Math.hypot(px - x0 - vx * t, py - y0 - vy * t);
+}
+
+/**
+ * Clear water between two hulls, each taken as its keel line with half its
+ * beam all round it; below zero they touch.
+ */
+function hullGap(
+  ax: number,
+  ay: number,
+  ad: number,
+  av: { length: number; beam: number },
+  bx: number,
+  by: number,
+  bd: number,
+  bv: { length: number; beam: number },
+): number {
+  const ah = av.length / 2 - av.beam / 2;
+  const bh = bv.length / 2 - bv.beam / 2;
+  const a0x = ax - Math.cos(ad) * ah;
+  const a0y = ay - Math.sin(ad) * ah;
+  const a1x = ax + Math.cos(ad) * ah;
+  const a1y = ay + Math.sin(ad) * ah;
+  const b0x = bx - Math.cos(bd) * bh;
+  const b0y = by - Math.sin(bd) * bh;
+  const b1x = bx + Math.cos(bd) * bh;
+  const b1y = by + Math.sin(bd) * bh;
+  const side = (x0: number, y0: number, x1: number, y1: number, px: number, py: number) =>
+    (x1 - x0) * (py - y0) - (y1 - y0) * (px - x0);
+  const crossed =
+    side(a0x, a0y, a1x, a1y, b0x, b0y) * side(a0x, a0y, a1x, a1y, b1x, b1y) < 0 &&
+    side(b0x, b0y, b1x, b1y, a0x, a0y) * side(b0x, b0y, b1x, b1y, a1x, a1y) < 0;
+  const keels = crossed
+    ? 0
+    : Math.min(
+        toSegment(a0x, a0y, b0x, b0y, b1x, b1y),
+        toSegment(a1x, a1y, b0x, b0y, b1x, b1y),
+        toSegment(b0x, b0y, a0x, a0y, a1x, a1y),
+        toSegment(b1x, b1y, a0x, a0y, a1x, a1y),
+      );
+  return keels - (av.beam + bv.beam) / 2;
+}
+
 function cancelFee(c: Contract): number {
   return Math.round(c.signingFee * B.CANCEL_FEE_SHARE);
 }
@@ -460,6 +509,21 @@ export class World {
   private gateCache: Set<number>[] | null = null;
   /** Boats held up this tick only by a ship pulling out. Not saved. */
   private roomWait = new WeakSet<Boat>();
+  /**
+   * Where each boat under way will be over the next LOOKOUT_TICKS, at the
+   * pace it is keeping (see plot), drawn once a tick. Not saved.
+   */
+  private plots = new Map<Boat, Float64Array>();
+  private plotsAt = -1;
+  /**
+   * The share of its speed a boat keeping clear holds to, and the boat it
+   * is keeping clear of. Not saved.
+   */
+  private keepingClear = new WeakMap<Boat, { pace: number; of: number }>();
+  /** Ticks each boat under way has lain still, for plotCourses. Not saved. */
+  private stillFor = new WeakMap<Boat, number>();
+  /** Boats coming alongside, lining up, casting off or pulling out. Not saved. */
+  private handling = new WeakSet<Boat>();
   private buoyCache: Uint8Array | null = null;
   private frontCache: Int32Array | null = null;
   private coordinated = new Set<number>();
@@ -2255,13 +2319,21 @@ export class World {
     return -1;
   }
 
+  /** Lying in the water a ship pulling out has claimed: it waits to cast off. */
+  private boxedIn(b: Boat): boolean {
+    return this.boats.some((o) =>
+      o.room?.spots.some(([x, y, r]) => Math.hypot(b.x - x, b.y - y) < r + 0.5),
+    );
+  }
+
   private updateBoat(b: Boat): void {
+    this.plotCourses();
     if (b.state === 'anchored' || b.state === 'moored') {
       // A container ship takes long to work, and allows for that.
       const patience = B.BOAT_GIVE_UP_TICKS + (b.vessel === 'feeder' ? b.grace : 0);
       if (b.anchorTicks + b.mooredTicks > patience && b.crates > 0) {
         // The claim message in judgeVisit explains what happened.
-        return this.depart(b, true);
+        if (b.state === 'anchored' || !this.boxedIn(b)) return this.depart(b, true);
       }
     }
     switch (b.state) {
@@ -2324,7 +2396,7 @@ export class World {
         // Unloaded and waiting for the fairway does not count against us.
         if (b.crates > 0 || b.reserved > 0) b.mooredTicks++;
         if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) {
-          if (this.takeFairway(b)) this.depart(b, false);
+          if (!this.boxedIn(b) && this.takeFairway(b)) this.depart(b, false);
         }
         return;
       case 'leaving':
@@ -2384,6 +2456,12 @@ export class World {
     for (let k = 1; k < b.path.length; k++) {
       remaining += Math.hypot(cx(b.path[k]) - cx(b.path[k - 1]), cy(b.path[k]) - cy(b.path[k - 1]));
     }
+    // Out on open water, or handling: coming alongside, lining up or
+    // casting off, when others keep clear of it.
+    const free =
+      remaining > 2.5 && (b.berthing === undefined || b.berthing === 'lead') && !b.undock;
+    if (free) this.handling.delete(b);
+    else this.handling.add(b);
 
     // Final approach to a berth: line up with it and crab in sideways.
     // A big ship close by works itself in with tugs: swings into line where
@@ -2501,10 +2579,8 @@ export class World {
     const way = this.giveWay(b);
     // The rules of the road, out on open water: look ahead for boats on a
     // collision course.
-    const road =
-      remaining > 2.5 && (b.berthing === undefined || b.berthing === 'lead') && !b.undock
-        ? this.rulesOfTheRoad(b)
-        : { bias: 0, slow: 1 };
+    const road = free && !b.squeeze ? this.rulesOfTheRoad(b) : { bias: 0, slow: 1 };
+    if (!free || b.squeeze) this.keepingClear.delete(b);
     const course = wrapAngle(want + road.bias);
     const err = wrapAngle(course - b.dir);
     // A boat needs way on to turn: it never spins on the spot, it slows and
@@ -3041,50 +3117,251 @@ export class World {
   }
 
   /**
-   * The rules of the road, roughly as at sea. A boat keeps a lookout ahead
-   * for any boat under way that will pass too close (its closest point of
-   * approach) and acts early. Meeting head on, both alter to starboard, so
-   * they pass port to port. Overtaking, the faster boat keeps clear: it
-   * eases off and goes round the other's far side. Returns a turn to add
-   * (starboard positive) and a share of speed to keep.
+   * The rules of the road, roughly as at sea. Every boat under way plots
+   * where it will be over the next while, and keeps a lookout for any other
+   * boat whose plot comes too close to its own. Then whoever has to keep
+   * clear (see burden) eases off, as far as it takes for the other to pass
+   * ahead of it; meeting head on, both alter to starboard, so they pass
+   * port to port. A boat with right of way holds its course and speed, but
+   * acts too when a collision is close and the other has not. Returns a
+   * turn to add (starboard positive) and a share of speed to keep.
    */
   private rulesOfTheRoad(b: Boat): { bias: number; slow: number } {
-    const v = B.VESSELS[b.vessel];
-    const mine = Math.max(b.speed ?? 0, v.speed * 0.5);
-    const mvx = Math.cos(b.dir) * mine;
-    const mvy = Math.sin(b.dir) * mine;
+    const mine = this.plot(b, 1);
     let bias = 0;
-    let slow = 1;
-    for (const o of this.boats) {
-      if (o === b || o.state === 'moored' || o.state === 'anchored') continue;
-      const rx = o.x - b.x;
-      const ry = o.y - b.y;
-      if (rx * rx + ry * ry > B.LOOKOUT_RANGE ** 2) continue;
-      const w = B.VESSELS[o.vessel];
-      const os = (o.speed ?? 0) - (o.sternway ?? 0);
-      const vx = Math.cos(o.dir) * os - mvx;
-      const vy = Math.sin(o.dir) * os - mvy;
-      const vv = vx * vx + vy * vy;
-      if (vv < 1e-6) continue;
-      // Closest point of approach: when, and how close.
-      const t = -(rx * vx + ry * vy) / vv;
-      if (t <= 0 || t > B.LOOKOUT_TICKS) continue;
-      const cpa = Math.hypot(rx + vx * t, ry + vy * t);
-      const safe = (v.beam + w.beam) / 2 + 0.6 + (v.length + w.length) * 0.075;
-      if (cpa >= safe) continue;
-      const urgency = clamp(1 - cpa / safe, 0.2, 1) * clamp(1.3 - t / B.LOOKOUT_TICKS, 0, 1);
-      const bearing = wrapAngle(Math.atan2(ry, rx) - b.dir);
-      const heading = wrapAngle(o.dir - b.dir);
-      if (Math.abs(heading) > 2.4 && Math.abs(bearing) < 0.7) {
-        // Head on: alter to starboard.
+    /** Plots of the boats to keep clear of, and the first of those boats. */
+    const clearOf: [Boat, Float64Array][] = [];
+    let first: { of: number; at: number } | undefined;
+    for (const [o, theirs] of this.plots) {
+      if (o === b || !this.underWay(theirs)) continue;
+      const meet = this.meeting(b, mine, o, theirs);
+      if (!meet) continue;
+      const ticks = meet.at * B.PLOT_STEP;
+      const duty = this.burden(b, o);
+      const close = ticks <= B.STAND_ON_TICKS;
+      if (duty === 'both') {
+        // Head on: alter to starboard, the more the sooner they would meet.
+        const urgency = clamp(1.3 - ticks / B.LOOKOUT_TICKS, 0, 1) * (meet.gap < 0 ? 1 : 0.6);
         bias += 1.2 * urgency;
-      } else if (Math.abs(heading) < 0.7 && Math.abs(bearing) < 0.9 && mine > os + 0.005) {
-        // Overtaking: keep clear, round the other's far side, easing off.
-        bias += (bearing >= 0 ? -0.6 : 0.6) * urgency;
-        slow = Math.min(slow, 1 - 0.4 * urgency);
+      }
+      if (duty === 'give' || close) {
+        clearOf.push([o, theirs]);
+        if (!first || meet.at < first.at) first = { of: o.id, at: meet.at };
       }
     }
-    return { bias: clamp(bias, -0.9, 0.9), slow };
+    bias = clamp(bias, -0.9, 0.9);
+    if (!first) {
+      this.keepingClear.delete(b);
+      return { bias, slow: 1 };
+    }
+    // The most way it can keep and still let every one of them by; failing
+    // that, whatever puts off meeting the longest.
+    let best = { pace: 1, at: -1 };
+    for (const pace of [1, 0.75, 0.5, 0.3, 0.15, 0]) {
+      const plot = pace === 1 ? mine : this.plot(b, pace);
+      let at = Infinity;
+      for (const [o, theirs] of clearOf) {
+        at = Math.min(at, this.meeting(b, plot, o, theirs)?.at ?? Infinity);
+      }
+      if (at > best.at) best = { pace, at };
+      if (at === Infinity) break;
+    }
+    this.keepingClear.set(b, { pace: best.pace, of: first.of });
+    return { bias, slow: best.pace };
+  }
+
+  /**
+   * Whether a plot goes anywhere. A boat lying stopped, waiting or keeping
+   * clear, is a boat in the way like any other (see giveWay), not one to
+   * plan round: planning round boats that are waiting on each other would
+   * leave them all waiting.
+   */
+  private underWay(plot: Float64Array): boolean {
+    const end = plot.length - 3;
+    return Math.hypot(plot[end] - plot[0], plot[end + 1] - plot[1]) > 0.5;
+  }
+
+  /**
+   * Draw every boat under way's plot for this tick, at the pace it keeps,
+   * before the first of them moves.
+   */
+  private plotCourses(): void {
+    if (this.plotsAt === this.tick) return;
+    this.plotsAt = this.tick;
+    this.plots.clear();
+    for (const b of this.boats) {
+      if (b.state === 'moored' || b.state === 'anchored') continue;
+      // A boat that has lain still a while, waiting or swinging round where
+      // it lies, is plotted lying there until it gets going again.
+      const v = B.VESSELS[b.vessel];
+      const moving = (b.speed ?? 0) + (b.sternway ?? 0) > v.speed * 0.1;
+      const still = moving ? 0 : (this.stillFor.get(b) ?? 0) + 1;
+      this.stillFor.set(b, still);
+      this.plots.set(b, this.plot(b, still > 10 ? 0 : (this.keepingClear.get(b)?.pace ?? 1)));
+    }
+  }
+
+  /**
+   * Where a boat under way will be, every PLOT_STEP ticks for LOOKOUT_TICKS,
+   * as x, y, heading: along its route as it sails it (see sail), gathering
+   * and taking off way, slowing for bends and to stop at its goal, and
+   * swinging round no faster than it can turn. `pace` is the share of its
+   * speed it keeps to. Running out along the dock, it goes straight out
+   * keeping its heading and stops to turn at the end; casting off, it is
+   * taken to lie where it is.
+   */
+  private plot(b: Boat, pace: number): Float64Array {
+    const v = B.VESSELS[b.vessel];
+    const n = Math.floor(B.LOOKOUT_TICKS / B.PLOT_STEP) + 1;
+    const out = new Float64Array(n * 3);
+    const w = this.map.w;
+    const xs = [b.x];
+    const ys = [b.y];
+    const runOut = b.berthing === 'out' && b.lineup !== undefined;
+    const route = b.undock ? [] : runOut ? [b.lineup!] : b.path;
+    for (const i of route) {
+      xs.push((i % w) + 0.5);
+      ys.push(Math.floor(i / w) + 0.5);
+    }
+    const accel = v.speed * B.BOAT_ACCEL;
+    const bend = (a: number) =>
+      v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(a), Math.PI / 2)) ** 2);
+    const stops = b.state !== 'leaving' || runOut;
+    let x = b.x;
+    let y = b.y;
+    let d = b.dir;
+    let speed = Math.max(0, (b.speed ?? 0) - (b.sternway ?? 0));
+    let leg = 1;
+    let left = 0;
+    for (let k = 1; k < xs.length; k++) left += Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1]);
+    for (let t = 0; t < n * B.PLOT_STEP; t++) {
+      if (t % B.PLOT_STEP === 0) {
+        const s = (t / B.PLOT_STEP) * 3;
+        out[s] = x;
+        out[s + 1] = y;
+        out[s + 2] = d;
+      }
+      if (leg >= xs.length) continue;
+      const lx = xs[leg] - x;
+      const ly = ys[leg] - y;
+      const reach = Math.hypot(lx, ly);
+      const along = Math.atan2(ly, lx);
+      let desired = v.speed * (runOut ? 0.75 : 1);
+      if (!runOut) {
+        // Swings round onto the leg as it goes, slowing to turn.
+        const err = wrapAngle(along - d);
+        const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
+        d = wrapAngle(d + clamp(err, -turn, turn));
+        desired = bend(err);
+        if (leg + 1 < xs.length) {
+          const corner = wrapAngle(
+            Math.atan2(ys[leg + 1] - ys[leg], xs[leg + 1] - xs[leg]) - along,
+          );
+          desired = Math.min(desired, Math.sqrt(bend(corner) ** 2 + 2 * accel * reach));
+        }
+      }
+      if (stops) desired = Math.min(desired, Math.sqrt(2 * accel * left) + 0.004);
+      speed += clamp(desired * pace - speed, -accel * B.BOAT_BRAKE, accel);
+      speed = Math.max(0, speed);
+      // Along the route, leg after leg.
+      let go = Math.min(speed, left);
+      left -= go;
+      while (go > 0 && leg < xs.length) {
+        const rx = xs[leg] - x;
+        const ry = ys[leg] - y;
+        const r = Math.hypot(rx, ry);
+        if (r <= go) {
+          x = xs[leg];
+          y = ys[leg];
+          go -= r;
+          leg++;
+        } else {
+          x += (rx / r) * go;
+          y += (ry / r) * go;
+          go = 0;
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The first point at which two plots bring the hulls closer than they
+   * should pass (or, already that close, closer still), and the least
+   * clear water between them; null when they keep clear.
+   */
+  private meeting(
+    b: Boat,
+    mine: Float64Array,
+    o: Boat,
+    theirs: Float64Array,
+  ): { at: number; gap: number } | null {
+    const v = B.VESSELS[b.vessel];
+    const w = B.VESSELS[o.vessel];
+    const n = mine.length / 3;
+    // Too far apart to meet within the lookout at all.
+    const span = (v.speed + w.speed) * B.LOOKOUT_TICKS + (v.length + w.length) / 2 + 1;
+    if (Math.hypot(theirs[0] - mine[0], theirs[1] - mine[1]) > span) return null;
+    const reach = (v.length + w.length) / 2 + B.PASSING_GAP;
+    let limit = B.PASSING_GAP;
+    let at = -1;
+    let least = Infinity;
+    for (let k = 0; k < n; k++) {
+      const s = k * 3;
+      if (Math.hypot(theirs[s] - mine[s], theirs[s + 1] - mine[s + 1]) > reach) continue;
+      const gap = hullGap(
+        mine[s],
+        mine[s + 1],
+        mine[s + 2],
+        v,
+        theirs[s],
+        theirs[s + 1],
+        theirs[s + 2],
+        w,
+      );
+      if (k === 0) {
+        limit = Math.min(B.PASSING_GAP, gap - 0.05);
+        continue;
+      }
+      least = Math.min(least, gap);
+      if (gap < limit && at < 0) at = k;
+    }
+    return at < 0 ? null : { at, gap: least };
+  }
+
+  /**
+   * Which of two boats under way keeps clear, as at sea: of `b`, whether it
+   * gives way to `o`, stands on, or (meeting head on) both alter to
+   * starboard. A boat handling, coming alongside or pulling out, goes
+   * first, then the bigger ship. Between boats of a size the one
+   * overtaking keeps clear, and of two crossing the one with the other on
+   * its starboard side. Anything else goes by right of way (see outranks).
+   */
+  private burden(b: Boat, o: Boat): 'give' | 'stand' | 'both' {
+    const handling = (q: Boat) => this.handling.has(q) || this.pullingOut(q);
+    if (handling(b) !== handling(o)) return handling(b) ? 'stand' : 'give';
+    if (handling(b)) return this.outranks(o, b) ? 'give' : 'stand';
+    const lb = B.VESSELS[b.vessel].length;
+    const lo = B.VESSELS[o.vessel].length;
+    if (lb > lo * 1.3) return 'stand';
+    if (lo > lb * 1.3) return 'give';
+    // Where each sees the other, starboard positive.
+    const seen = wrapAngle(Math.atan2(o.y - b.y, o.x - b.x) - b.dir);
+    const seenBy = wrapAngle(Math.atan2(b.y - o.y, b.x - o.x) - o.dir);
+    // More than two points abaft the beam: coming up from astern.
+    const abaft = Math.PI * 0.625;
+    if (Math.abs(seenBy) > abaft && Math.abs(seen) < abaft) return 'give';
+    if (Math.abs(seen) > abaft && Math.abs(seenBy) < abaft) return 'stand';
+    if (
+      Math.abs(wrapAngle(o.dir - b.dir)) > 2.6 &&
+      Math.abs(seen) < 0.5 &&
+      Math.abs(seenBy) < 0.5
+    ) {
+      return 'both';
+    }
+    if (seen > 0 && seenBy < 0) return 'give';
+    if (seen < 0 && seenBy > 0) return 'stand';
+    return this.outranks(o, b) ? 'give' : 'stand';
   }
 
   /**
@@ -3264,7 +3541,8 @@ export class World {
           ([x, y, r]) => Math.hypot(m.xOf(b.berth) + 0.5 - x, m.yOf(b.berth) + 0.5 - y) < r + 1,
         );
       if (o.room && !bound && this.outranks(o, b)) {
-        const into = this.intoRoom(me, o.room.spots, look);
+        // Running out along the dock it may be going astern: look that way.
+        const into = this.intoRoom(b.berthing === 'out' ? this.wakeOf(b) : me, o.room.spots, look);
         if (into !== null) {
           this.roomWait.add(b);
           if (into < 0) {
@@ -4660,7 +4938,13 @@ export class World {
         raiseAsk: p.raiseAsk,
       });
     }
+    const kind = (q: Boat) =>
+      q.vessel === 'feeder' ? 'feeder ship' : q.vessel === 'coaster' ? 'coaster' : 'boat';
     for (const b of this.boats) {
+      const plot = this.plots.get(b);
+      const clear = this.keepingClear.get(b);
+      const giving =
+        clear && clear.pace < 1 ? this.boats.find((q) => q.id === clear.of) : undefined;
       entities.push({
         id: b.id,
         kind: 'boat',
@@ -4671,7 +4955,7 @@ export class World {
         moving: b.path.length > 0,
         name: b.company,
         activity:
-          b.state === 'approaching'
+          (b.state === 'approaching'
             ? 'Sailing in from sea'
             : b.state === 'anchored'
               ? 'Waiting at anchor for a berth'
@@ -4679,7 +4963,10 @@ export class World {
                 ? 'Sailing to the jetty'
                 : b.state === 'moored'
                   ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
-                  : 'Heading back out to sea',
+                  : 'Heading back out to sea') +
+          (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : ''),
+        plot: plot && [...plot].flatMap((v, k) => (k % 9 < 2 ? [Math.round(v * 100) / 100] : [])),
+        givingWayTo: giving?.id,
         variant: b.variant,
         capacity:
           b.vessel === 'feeder'

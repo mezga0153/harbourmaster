@@ -4,6 +4,7 @@ import {
   Float32BufferAttribute,
   Group,
   InstancedMesh,
+  Line,
   LineBasicMaterial,
   LineDashedMaterial,
   LineLoop,
@@ -34,6 +35,8 @@ export class Overlay {
   private reach: InstancedMesh;
   /** The marked ways in and out, through the buoys in order. */
   private channels: LineSegments[];
+  /** Where a selected boat plots it will be, and the boat it is giving way to. */
+  private plots: Line[];
 
   constructor() {
     const square = new BufferGeometry();
@@ -109,7 +112,51 @@ export class Overlay {
       return line;
     });
 
-    this.group.add(this.hover, this.ghosts, this.ring, this.arrow, this.reach, ...this.channels);
+    this.plots = [0xffd23f, 0xff8a3d].map((color) => {
+      const line = new Line(
+        new BufferGeometry(),
+        new LineDashedMaterial({
+          color,
+          dashSize: 0.3,
+          gapSize: 0.2,
+          transparent: true,
+          opacity: 0.95,
+          depthTest: false,
+        }),
+      );
+      line.renderOrder = 10;
+      line.visible = false;
+      line.frustumCulled = false;
+      return line;
+    });
+
+    this.group.add(
+      this.hover,
+      this.ghosts,
+      this.ring,
+      this.arrow,
+      this.reach,
+      ...this.channels,
+      ...this.plots,
+    );
+  }
+
+  /**
+   * The course a selected boat plots, as x, y pairs, and that of the boat it
+   * is giving way to; null hides one.
+   */
+  setPlots(plots: [number[] | null, number[] | null]): void {
+    plots.forEach((plot, k) => {
+      const line = this.plots[k];
+      line.visible = !!plot && plot.length >= 4;
+      if (!plot || !line.visible) return;
+      const pos: number[] = [];
+      for (let j = 0; j + 1 < plot.length; j += 2) pos.push(plot[j], 0.08, plot[j + 1]);
+      line.geometry.dispose();
+      line.geometry = new BufferGeometry();
+      line.geometry.setAttribute('position', new Float32BufferAttribute(pos, 3));
+      line.computeLineDistances();
+    });
   }
 
   /**

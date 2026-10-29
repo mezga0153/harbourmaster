@@ -72,6 +72,15 @@ function showReach(): void {
   renderer.overlay.setReach(m, route, bays, cutOff);
 }
 
+/** With a boat selected, show where it plots it will be, and the boat it gives way to. */
+function showPlots(): void {
+  const s = selection.peek();
+  const es = snapshot.peek()?.entities;
+  const boat = s?.type === 'entity' ? es?.find((e) => e.id === s.id && e.kind === 'boat') : null;
+  const other = boat?.givingWayTo !== undefined ? es?.find((e) => e.id === boat.givingWayTo) : null;
+  renderer.overlay.setPlots([boat?.plot ?? null, other?.plot ?? null]);
+}
+
 // Models load in parallel with the worker starting up; messages wait for them.
 const assetsReady = loadAssets();
 let inbox = Promise.resolve();
@@ -111,6 +120,7 @@ function handle(msg: WorkerMessage): void {
   }
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
+  showPlots();
   for (const ev of msg.events) {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
     else renderer.showMoney(ev.amount, ev.x, ev.y);
