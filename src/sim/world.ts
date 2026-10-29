@@ -7104,8 +7104,8 @@ export class World {
         reaches(b),
     );
     if (!boat) return this.loadShip(c);
-    // A container crane lifts them a bay at a time, from the top down, in
-    // its own share of the ship when others work it too.
+    // A container crane lifts them a tier at a time, from the top down, so
+    // the ship stays even, in its own share of it when others work it too.
     if (boxes && !this.liftingFrom(c, boat)) {
       c.liftBoat = boat.id;
       c.liftSlot = this.deckSlot(c, boat, false);
@@ -7226,9 +7226,10 @@ export class World {
 
   /**
    * The deck slot a container crane lifts from next, or with `load` sets an
-   * export into: in its own bays while it has work there, a bay at a time,
-   * from the top down unloading and the bottom up loading; -1 if none is
-   * left that another crane is not already at.
+   * export into: a tier at a time across the whole ship, to keep it even,
+   * from the top down unloading and the bottom up loading; in its own bays
+   * while there is work in that tier there; -1 if none is left that another
+   * crane is not already at.
    */
   private deckSlot(c: Crane, b: Boat, load: boolean): number {
     const taken = new Set<number>();
@@ -7248,7 +7249,7 @@ export class World {
     for (let k = 0; k < total; k++) {
       if (used.has(k) || taken.has(k)) continue;
       const p = deckPlace(k);
-      const key = [off(p.bay), p.bay, load ? p.tier : -p.tier, p.row];
+      const key = [load ? p.tier : -p.tier, off(p.bay), p.bay, p.row];
       const at = key.findIndex((v, i) => v !== bestKey[i]);
       if (best < 0 || (at >= 0 && key[at] < bestKey[at])) {
         best = k;

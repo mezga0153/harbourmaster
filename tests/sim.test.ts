@@ -2247,17 +2247,26 @@ describe('Container Port tier', () => {
         name: 'Test Feeders',
         color: 0,
         boatEvery: 1,
-        cratesMin: 12,
-        cratesMax: 12,
+        cratesMin: 30,
+        cratesMax: 30,
         fee: 150,
       },
       world.tick + 10,
       0,
     );
     let stacked = 0;
+    // The tier each container came off, ship by ship: a tier at a time, top down.
+    const tiers = new Map<number, number[]>();
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       world.step();
       stacked = Math.max(stacked, world.cranes.get(at)!.stack.length);
+      const v = world.snapshot().cranes.find((c) => c.idx === at)!;
+      if (v.working === 'unload') {
+        const list = tiers.get(v.workBoat!) ?? [];
+        const tier = Math.floor(v.workSlot! / (B.FEEDER_BAYS * B.FEEDER_ROWS));
+        if (list.at(-1) !== tier) list.push(tier);
+        tiers.set(v.workBoat!, list);
+      }
       // No trucks under or round the crane: they load at the yard.
       for (const k of world.trucks) {
         const at = m.idx(Math.floor(k.x), Math.floor(k.y));
@@ -2266,6 +2275,8 @@ describe('Container Port tier', () => {
     }
     expect(stacked).toBeGreaterThan(1);
     expect(world.stats.containers).toBeGreaterThan(0);
+    expect([...tiers.values()].some((list) => list.length > 1)).toBe(true);
+    for (const list of tiers.values()) expect(list).toEqual([...list].sort((a, b) => b - a));
     // Taken down, it leaves the quay it stood on.
     world.command({ type: 'bulldoze', tiles: [tiles[3]] });
     expect(tiles.every((i) => m.build[i] === Build.Quay)).toBe(true);
