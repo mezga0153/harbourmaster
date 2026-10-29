@@ -1957,7 +1957,7 @@ describe('Container Port tier', () => {
     expect(gantry.stackerJobs).toBe(0);
   });
 
-  it('keeps a container looking the same from the crane to the yard and the truck', () => {
+  it('keeps a container looking the same from the ship to the yard and the truck', () => {
     const world = feederPort(true);
     world['addContract'](
       {
@@ -1972,8 +1972,11 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    // Every container comes from the one feeder line, so all look alike.
-    const looks = new Set<number>();
+    // Every container is seen first on a feeder's deck, and wherever it goes
+    // after that it looks as it did there.
+    const deck = new Set<number>();
+    const after = new Set<number>();
+    const yards = new Set<number>();
     const carried = { stacker: 0, truck: 0 };
     for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
       world.step();
@@ -1981,21 +1984,28 @@ describe('Container Port tier', () => {
       for (const t of world.trucks) {
         if (!t.boxes || t.cargo === 0) continue;
         carried.truck++;
-        for (const f of t.looks ?? []) looks.add(Math.round(f * 100));
+        for (const l of t.looks ?? []) after.add(l);
       }
-      if (k % 20) continue;
+      if (k % 5) continue;
       const s = world.snapshot();
-      for (const c of s.cranes) for (const l of c.looks ?? []) looks.add(l);
-      for (const y of s.yards) for (const l of y.looks) looks.add(l);
+      for (const c of s.cranes) for (const l of c.looks ?? []) after.add(l);
+      for (const y of s.yards) {
+        for (const l of y.looks) {
+          after.add(l);
+          yards.add(l);
+        }
+      }
       for (const e of s.entities) {
-        if (e.kind === 'boat' || !e.looks?.length) continue;
-        for (const l of e.looks) looks.add(l);
+        if (!e.looks?.length) continue;
+        for (const l of e.looks) (e.kind === 'boat' ? deck : after).add(l);
         if (e.kind === 'stacker') carried.stacker++;
       }
     }
     expect(carried.stacker).toBeGreaterThan(0);
     expect(carried.truck).toBeGreaterThan(0);
-    expect([...looks]).toEqual([15000]);
+    expect([...after].filter((l) => !deck.has(l))).toEqual([]);
+    // And they are not all alike.
+    expect(yards.size).toBeGreaterThan(2);
   });
 
   it('keeps yard gantries off the tiles trucks load a yard from', () => {

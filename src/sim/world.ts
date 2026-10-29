@@ -184,6 +184,8 @@ interface Dockhand extends Agent {
   bayIdx: number;
   /** Stackers: the ship each container carried came off, by id. */
   cargoFrom?: number[];
+  /** Stackers: how each container carried looks; see boxLookOf. */
+  cargoLooks?: number[];
   /** Exports: the ship they are going on board, or the crane they go to; else -1. */
   toBoat?: number;
   toCrane?: number;
@@ -213,6 +215,9 @@ interface Crane {
   stackFrom?: number[];
   /** Container cranes: exports set down for it to lift on board, and those on the way. */
   outStack?: number[];
+  /** Container cranes: how each container on the stack, and each export, looks. */
+  stackLooks?: number[];
+  outLooks?: number[];
   outReserved?: number;
   timer: number;
   angle: number;
@@ -268,6 +273,8 @@ interface Boat extends Agent {
   out?: number;
   outIncoming?: number;
   loadIdle?: number;
+  /** Feeders: how each export taken on board looks. */
+  outLooks?: number[];
   /**
    * Exports it takes on board this visit: what was waiting in the port when
    * it was unloaded, less what other ships had claimed. Set then.
@@ -369,7 +376,7 @@ interface Truck extends Agent {
   papers?: number;
   /** Containers reach stackers are bringing it, or taking off it. */
   coming?: number;
-  /** Container trucks: the fee of each container on board, which is how it looks. */
+  /** Container trucks: how each container on board looks, in load order. */
   looks?: number[];
   taking?: number;
   idle: number;
@@ -423,6 +430,9 @@ interface Bay {
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
   truckReserved?: number;
+  /** Container yards: how each container, and each export, looks. */
+  boxLooks?: number[];
+  exportLooks?: number[];
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.
@@ -635,12 +645,23 @@ function hullGap(
 }
 
 /**
- * How a container looks, from its fee: every container a shipping line or
- * shipper sends carries the same fee, so they all wear its colours, from
- * the ship through the crane, stacker and yard to the truck.
+ * How a container looks, which the renderer turns into its paint: fixed by
+ * the ship or truck that brought it and its place on board, and kept beside
+ * its fee wherever it goes, so it keeps its colours from ship to truck.
  */
-function boxLook(fee: number): number {
-  return Math.round(fee * 100);
+function boxLookOf(from: number, k: number): number {
+  return from * 97 + k;
+}
+
+/**
+ * The looks kept beside a list of containers, the same length as it: any
+ * missing (from older saves) made up at the front, any spare dropped.
+ */
+function aligned(items: number[], looks: number[] | undefined, seed: number): number[] {
+  const out = looks ?? [];
+  while (out.length < items.length) out.unshift(boxLookOf(seed, 1000 + out.length));
+  if (out.length > items.length) out.splice(0, out.length - items.length);
+  return out;
 }
 
 function cancelFee(c: Contract): number {
@@ -4043,6 +4064,7 @@ export class World {
           const at = ready.findIndex((r) => this.isClear(r));
           if (at >= 0) {
             ready.splice(at, 1);
+            p.cargoLooks = this.boxLooks(yard).splice(at, 1);
             fee = yard.boxes.splice(at, 1)[0];
           } else t.coming = Math.max(0, (t.coming ?? 0) - 1);
         } else {
@@ -4050,6 +4072,7 @@ export class World {
           if (t.cargo > 0) {
             t.cargo--;
             fee = t.value;
+            p.cargoLooks = [boxLookOf(t.id, t.cargo)];
           }
         }
         if (fee === undefined) {
@@ -4090,13 +4113,15 @@ export class World {
       if (live && t) {
         t.cargo++;
         t.value += fee;
-        (t.looks ??= []).push(fee);
+        (t.looks ??= []).push(...this.carriedLooks(p));
         t.idle = 0;
       } else if (yard) {
         this.readyList(yard).push(0);
+        this.boxLooks(yard).push(...this.carriedLooks(p));
         yard.boxes.push(fee);
       }
     } else if (yard) {
+      this.exportLooks(yard).push(...this.carriedLooks(p));
       (yard.exports ??= []).push(fee);
       yard.exportIncoming = Math.max(0, (yard.exportIncoming ?? 0) - 1);
     }
@@ -5660,6 +5685,8 @@ export class World {
           const from = p.cargoFrom ?? [];
           this.readyList(bay).push(...p.cargoFees.map((_, k) => this.customsFor(from[k])));
           p.cargoFrom = undefined;
+          this.boxLooks(bay).push(...this.carriedLooks(p));
+          p.cargoLooks = undefined;
         }
         (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         if (boxy) this.tip('customs');
@@ -6078,7 +6105,12 @@ export class World {
     if (!ship) return;
     let take: (() => number) | null = null;
     if (boxes) {
-      if (c.outStack?.length) take = () => c.outStack!.shift()!;
+      if (c.outStack?.length) {
+        take = () => {
+          (ship.outLooks ??= []).push(this.outLooks(c).shift()!);
+          return c.outStack!.shift()!;
+        };
+      }
     } else {
       const store = this.jibStores(c).find(
         (a) => (a.exports?.length ?? 0) - (a.outReserved ?? 0) > 0,
@@ -6256,6 +6288,7 @@ export class World {
       crane.reserved = Math.max(0, crane.reserved - p.planned);
       const n = Math.min(p.planned, crane.stack.length);
       p.cargoFrom = crane.kind === 'jib' ? undefined : (crane.stackFrom ?? []).splice(0, n);
+      p.cargoLooks = crane.kind === 'jib' ? undefined : this.stackLooks(crane).splice(0, n);
       return crane.stack.splice(0, n);
     }
     if (p.stockIdx >= 0) {
@@ -6266,7 +6299,9 @@ export class World {
       if (p.outbound && !pile.pile) {
         pile.outReserved = Math.max(0, (pile.outReserved ?? 0) - p.planned);
         const out = (pile.exports ??= []);
-        return out.splice(0, Math.min(p.planned, out.length));
+        const n = Math.min(p.planned, out.length);
+        p.cargoLooks = this.exportLooks(pile).splice(0, n);
+        return out.splice(0, n);
       }
       pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
       const fees = pile.crates.splice(0, Math.min(p.planned, pile.crates.length));
@@ -6383,6 +6418,31 @@ export class World {
     return r >= 0 && r <= this.tick;
   }
 
+  /** How the containers on a crane's stack look, kept beside them. */
+  private stackLooks(c: Crane): number[] {
+    return (c.stackLooks = aligned(c.stack, c.stackLooks, c.idx));
+  }
+
+  /** How the exports set down for a crane look. */
+  private outLooks(c: Crane): number[] {
+    return (c.outLooks = aligned(c.outStack ?? [], c.outLooks, c.idx + 1));
+  }
+
+  /** How the containers in a yard look. */
+  private boxLooks(b: Bay): number[] {
+    return (b.boxLooks = aligned(b.boxes, b.boxLooks, b.idx));
+  }
+
+  /** How the exports waiting in storage look. */
+  private exportLooks(b: Bay): number[] {
+    return (b.exportLooks = aligned(b.exports ?? [], b.exportLooks, b.idx + 1));
+  }
+
+  /** How the containers a stacker carries look. */
+  private carriedLooks(p: Dockhand): number[] {
+    return (p.cargoLooks = aligned(p.cargoFees, p.cargoLooks, p.id));
+  }
+
   /** Containers customs have cleared. */
   private cleared(b: Bay): number {
     return this.readyList(b).filter((r) => this.isClear(r)).length;
@@ -6474,11 +6534,13 @@ export class World {
         return true;
       }
       crane.outReserved = Math.max(0, (crane.outReserved ?? 0) - p.planned);
+      this.outLooks(crane).push(...this.carriedLooks(p));
       (crane.outStack ??= []).push(...p.cargoFees);
     } else if (p.outbound && this.dest(p.bayIdx)?.tiles) {
       // Into storage by a jib crane, for it to lift on board.
       const store = this.dest(p.bayIdx)!;
       store.exportIncoming = Math.max(0, (store.exportIncoming ?? 0) - p.planned);
+      this.exportLooks(store).push(...this.carriedLooks(p));
       (store.exports ??= []).push(...p.cargoFees);
     } else return false;
     p.carrying = 0;
@@ -6547,8 +6609,10 @@ export class World {
     const store = [...(boxy ? this.yards : this.bays).values()]
       .filter((b) => this.takesExports(b) && bayRoom(b, boxy) >= p.carrying)
       .sort((a, b) => this.distTo(here, a) - this.distTo(here, b))[0];
-    if (store) (store.exports ??= []).push(...p.cargoFees);
-    else this.message(`${p.name} had nowhere to take the exports and put them down.`, 'bad');
+    if (store) {
+      this.exportLooks(store).push(...this.carriedLooks(p));
+      (store.exports ??= []).push(...p.cargoFees);
+    } else this.message(`${p.name} had nowhere to take the exports and put them down.`, 'bad');
     p.carrying = 0;
     p.cargoFees = [];
     p.planned = 0;
@@ -6631,6 +6695,8 @@ export class World {
       return;
     }
     c.pallets = boat.vessel === 'coaster';
+    // Off the top of its deck: the slot the ship drew it in.
+    if (c.kind !== 'jib') this.stackLooks(c).push(boxLookOf(boat.id, boat.crates));
     c.stack.push(boat.fee);
     if (c.kind !== 'jib') {
       (c.stackFrom ??= []).push(boat.id);
@@ -7108,6 +7174,7 @@ export class World {
           return;
         }
         if (++t.timer % loadTicks(bay) !== 0) return;
+        this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
         if (--t.cargo <= 0) {
@@ -7138,9 +7205,9 @@ export class World {
         const at = t.boxes && bay.yard ? this.readyList(bay).findIndex((r) => this.isClear(r)) : 0;
         if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
+          if (t.boxes && bay.yard) (t.looks ??= []).push(this.boxLooks(bay).splice(at, 1)[0]);
           const fee = stock.splice(at, 1)[0];
           t.value += fee;
-          if (t.boxes) (t.looks ??= []).push(fee);
           t.cargo++;
           t.idle = 0;
         } else {
@@ -7780,7 +7847,7 @@ export class World {
         y: p.y,
         dir: p.dir,
         load: p.carrying,
-        looks: p.kind === 'stacker' ? p.cargoFees.map(boxLook) : undefined,
+        looks: p.kind === 'stacker' ? [...this.carriedLooks(p)] : undefined,
         moving: p.path.length > 0,
         name: p.name,
         activity:
@@ -7834,7 +7901,10 @@ export class World {
         // Its line's containers, then the exports it has taken on.
         looks:
           b.vessel === 'feeder'
-            ? [...Array(b.crates).fill(b.fee), ...Array(b.out ?? 0).fill(0)].map(boxLook)
+            ? [
+                ...Array.from({ length: b.crates }, (_, k) => boxLookOf(b.id, k)),
+                ...(b.outLooks = aligned(Array(b.out ?? 0).fill(0), b.outLooks, b.id)),
+              ]
             : undefined,
         moving: b.path.length > 0,
         name: b.company,
@@ -7905,7 +7975,9 @@ export class World {
         load: t.cargo,
         // A shipper's containers are all alike; the rest as they were loaded.
         looks: t.boxes
-          ? (t.exports || !t.looks ? Array(t.cargo).fill(t.value) : t.looks).map(boxLook)
+          ? t.exports
+            ? Array.from({ length: t.cargo }, (_, k) => boxLookOf(t.id, k))
+            : [...aligned(Array(t.cargo).fill(0), t.looks, t.id)]
           : undefined,
         moving: t.path.length > 0,
         name: t.company,
@@ -7991,7 +8063,7 @@ export class World {
         idx: y.idx,
         boxes: y.boxes.length,
         exports: y.exports?.length ?? 0,
-        looks: [...y.boxes, ...(y.exports ?? [])].map(boxLook),
+        looks: [...this.boxLooks(y), ...this.exportLooks(y)],
         outgoing: !!y.outgoing,
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),
@@ -8036,7 +8108,7 @@ export class World {
         kind: c.kind,
         stack: c.stack.length,
         out: c.outStack?.length ?? 0,
-        looks: c.kind === 'jib' ? undefined : [...c.stack, ...(c.outStack ?? [])].map(boxLook),
+        looks: c.kind === 'jib' ? undefined : [...this.stackLooks(c), ...this.outLooks(c)],
         max: craneStack(c),
         angle: c.angle,
         busy: c.busy,
