@@ -287,6 +287,7 @@ export class Renderer {
       );
       this.layers.entities.update(now, time);
       this.layers.water.setWakes(this.layers.entities.wakes());
+      this.layers.water.setStirs(this.layers.entities.stirs());
       this.layers.structures.setTrain(this.layers.trains.update(now));
       this.layers.structures.update(dt, time);
       (this.layers.seabed.userData.time as { value: number }).value = time;

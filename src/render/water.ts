@@ -15,9 +15,10 @@ import {
   type Texture,
   UnsignedByteType,
   Vector3,
+  Vector4,
 } from 'three';
 import type { GameMap } from '../sim/map';
-import { WAKE_MAX, WAKE_POINTS, type Wake } from './entities';
+import { STIR_MAX, WAKE_MAX, WAKE_POINTS, type Stir, type Wake } from './entities';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 
@@ -56,6 +57,10 @@ const fragmentShader = /* glsl */ `
   // distance back from the leading end, strength).
   uniform highp sampler2D uWakes;
   uniform int uWakeCount;
+  // The water each boat stirs where it lies, two each: (x, z, heading,
+  // half length), then (half beam, engine wash, how much shows, phase).
+  uniform vec4 uStirs[STIR_MAX * 2];
+  uniform int uStirCount;
   varying vec2 vXZ;
 
   // Slow swell that follows the coastline; only drives the surf.
@@ -193,6 +198,71 @@ const fragmentShader = /* glsl */ `
     return vec2(foam, min(churn, 1.0));
   }
 
+  // The water every boat stirs where it lies, whatever its speed, like
+  // wake(): small ripples lapping out from the hull and a broken waterline,
+  // and while it works its engine at low speed, a patch of boiling wash at
+  // the stern: astern of it going ahead, thrown forward along the hull
+  // going astern.
+  vec2 stir(vec2 p, inout vec3 n) {
+    float foam = 0.0;
+    float churn = 0.0;
+    vec2 tilt = vec2(0.0);
+    for (int b = 0; b < STIR_MAX; b++) {
+      if (b >= uStirCount) break;
+      vec4 s0 = uStirs[b * 2];
+      vec4 s1 = uStirs[b * 2 + 1];
+      // None of it once the boat has way enough to lay a wake.
+      float calm = s1.z;
+      if (calm < 0.01) continue;
+      vec2 r = p - s0.xy;
+      float reach = s0.w + 1.4;
+      if (dot(r, r) > reach * reach) continue;
+      vec2 fwd = vec2(cos(s0.z), sin(s0.z));
+      vec2 port = vec2(-fwd.y, fwd.x);
+      float a = dot(r, fwd);
+      float c = dot(r, port);
+      float halfBeam = s1.x;
+      // Distance out from the hull, taken as a capsule, and which way is out.
+      float core = max(s0.w - halfBeam, 0.0);
+      vec2 q = vec2(a - clamp(a, -core, core), c);
+      float ql = max(length(q), 1e-4);
+      float d = ql - halfBeam;
+      vec2 outward = (fwd * q.x + port * q.y) / ql;
+
+      // Lapping: low ripples running out from the hull as it rocks, their
+      // crests catching the light, and broken water along the waterline.
+      float lap = exp(-max(d, 0.0) * 3.0) * smoothstep(-0.04, 0.02, d) * calm;
+      float ripple = sin(d * 18.0 - uTime * 2.4 + s1.w);
+      tilt += outward * ripple * lap * 0.55;
+      float grain = noise(p * 13.0 + vec2(uTime * 0.6, -uTime * 0.4) + s1.w);
+      float line = (1.0 - smoothstep(0.02, 0.1, abs(d))) * smoothstep(0.35, 0.7, grain) * calm;
+      foam = max(foam, line * 0.8);
+      churn = max(churn, lap * (0.2 + max(ripple, 0.0) * 0.3));
+
+      // Engine wash at the stern.
+      float work = abs(s1.y) * calm;
+      if (work < 0.01) continue;
+      float astern = step(s1.y, 0.0);
+      vec2 stern = s0.xy - fwd * s0.w;
+      // Going ahead it is pushed out astern; going astern, forward along
+      // both sides of the hull.
+      vec2 centre = stern - fwd * mix(0.3, -0.35, astern) * (0.6 + work * 0.6);
+      vec2 w = p - centre;
+      float wa = dot(w, fwd) / (0.45 + work * 0.35 + astern * 0.2);
+      float wc = dot(w, port) / (halfBeam * 1.3 + work * 0.25);
+      float blob = 1.0 - smoothstep(0.35, 1.0, length(vec2(wa, wc)));
+      blob *= work * smoothstep(-0.02, 0.03, d);
+      if (blob < 0.01) continue;
+      vec2 boil = vec2(noise(p * 9.0 + uTime * 2.2 + s1.w), noise(p * 9.0 - uTime * 2.2 + 7.0)) - 0.5;
+      tilt += boil * blob * 2.2;
+      float fizz = noise(p * 16.0 - uTime * 1.8) * 0.5 + grain * 0.5;
+      foam = max(foam, blob * smoothstep(0.4, 0.75, fizz) * 0.85);
+      churn = max(churn, blob * 0.9);
+    }
+    n = normalize(n + vec3(tilt.x, 0.0, tilt.y));
+    return vec2(foam, min(churn, 1.0));
+  }
+
   void main() {
     vec4 field = texture2D(uField, vXZ / uSize);
     float depth = field.r;
@@ -204,6 +274,7 @@ const fragmentShader = /* glsl */ `
 
     vec3 n = waterNormal(vXZ);
     vec2 stirred = wake(vXZ, n);
+    stirred = max(stirred, stir(vXZ, n));
     // Churned water is full of bubbles, so it goes a paler, milkier blue.
     col = mix(col, uShallow * 1.2 + 0.08, stirred.y * 0.45);
     col *= 0.78 + 0.34 * max(dot(n, uSun), 0.0);
@@ -275,7 +346,7 @@ export class Water {
     }
 
     this.material = new ShaderMaterial({
-      defines: { WAKE_MAX, WAKE_POINTS, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
+      defines: { WAKE_MAX, WAKE_POINTS, STIR_MAX, WAKE_SPREAD: WAKE_SPREAD.toFixed(3) },
       vertexShader,
       fragmentShader,
       transparent: true,
@@ -294,6 +365,8 @@ export class Water {
         uView: { value: new Vector3(0, 1, 0) },
         uWakes: { value: this.wakeTex },
         uWakeCount: { value: 0 },
+        uStirs: { value: Array.from({ length: STIR_MAX * 2 }, () => new Vector4()) },
+        uStirCount: { value: 0 },
       },
     });
 
@@ -334,6 +407,16 @@ export class Water {
     });
     this.material.uniforms.uWakeCount.value = wakes.length;
     this.wakeTex.needsUpdate = true;
+  }
+
+  /** Boats stirring the water around them this frame. */
+  setStirs(stirs: Stir[]): void {
+    const u = this.material.uniforms.uStirs.value as Vector4[];
+    stirs.forEach((s, b) => {
+      u[b * 2].set(s.x, s.z, s.dir, s.half);
+      u[b * 2 + 1].set(s.beam, s.work, s.calm, s.phase);
+    });
+    this.material.uniforms.uStirCount.value = stirs.length;
   }
 
   dispose(): void {

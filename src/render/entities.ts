@@ -28,6 +28,9 @@ interface Entry {
   /** Going ahead (the wake starts at the bow) or astern (at the stern). */
   ahead?: boolean;
   heel?: number;
+  /** How hard it is working its engine at low speed, see Stir. */
+  work?: number;
+  stir?: Stir;
 }
 
 /** Most wakes drawn at once, and points along each. */
@@ -80,6 +83,32 @@ interface Track {
   samples: Sample[];
   /** Still moving with its boat: the head is as strong as the boat is going. */
   attached: boolean;
+}
+
+/** Most boats whose hulls stir the water around them at once. */
+export const STIR_MAX = 32;
+/** How quickly engine wash builds up and dies away, per game second. */
+const WORK_RISE = 2;
+const WORK_FALL = 0.6;
+
+/**
+ * The water a boat stirs where it lies, whatever its speed: ripples lapping
+ * out from the hull, and while it works its engine at low speed (creeping
+ * ahead or astern, crabbing in, swinging round) churned wash at the stern.
+ */
+export interface Stir {
+  x: number;
+  z: number;
+  dir: number;
+  /** Half the waterline length and half the beam. */
+  half: number;
+  beam: number;
+  /** Engine wash, 0 to 1; negative going astern, when it is thrown forward. */
+  work: number;
+  /** All of it, 0 to 1: none once the boat lays a wake. */
+  calm: number;
+  /** Sets each boat's ripples apart. */
+  phase: number;
 }
 
 /** A boat's track through the water, newest first, for the sea to churn up. */
@@ -223,6 +252,24 @@ export class Entities {
           time: sim,
           power,
         };
+        // Working the engine at low speed: creeping or crabbing along, or
+        // swinging round, ahead or astern. Once it has way enough to lay a
+        // wake, the wake takes over and the water round the hull is left be.
+        const calm = Math.max(0, 1 - power * 3);
+        const swing = Math.min(1, Math.abs(turn) / (hull.turn * this.snapTicks));
+        const busy = Math.min(1, Math.max(swing, way * 3));
+        const wr = busy > (e.work ?? 0) ? WORK_RISE : WORK_FALL;
+        e.work = (e.work ?? 0) + (busy - (e.work ?? 0)) * (1 - Math.exp(-dt * wr));
+        e.stir = {
+          x,
+          z: y,
+          dir,
+          half: hull.length * WATERLINE,
+          beam: hull.beam / 2,
+          work: ahead ? e.work : -e.work,
+          calm,
+          phase: (id * 2.39) % 6.28,
+        };
         const track = (e.track ??= {
           beam: hull.beam,
           length: hull.length * WATERLINE * 2,
@@ -290,6 +337,13 @@ export class Entities {
       .sort((a, b) => b.strength - a.strength)
       .slice(0, WAKE_MAX)
       .map((w) => w.wake);
+  }
+
+  /** Every boat stirring the water around it, for the sea to draw. */
+  stirs(): Stir[] {
+    const out: Stir[] = [];
+    for (const e of this.entries.values()) if (e.stir) out.push(e.stir);
+    return out.slice(0, STIR_MAX);
   }
 
   /** Current world position, for the selection ring and info panel. */
