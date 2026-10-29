@@ -445,12 +445,14 @@ export class Entities {
         root.position.set(x, surfaceY(this.map, x, y), y);
         if (e.model.trailer) this.trail(e, e.model.trailer, x, y, dir, cur.moving, dt);
       }
-      if (cur.kind === 'forklift' || cur.kind === 'dockhand') {
+      if (cur.kind === 'forklift') {
         const down = this.lower(e, prev, t, dt);
-        const forks = e.model.forks;
-        if (forks) forks.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
+        e.model.forks!.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
       }
-      if (cur.kind === 'dockhand') pose(e.model, cur.moving, cur.load > 0, time * 12 + id);
+      if (cur.kind === 'dockhand') {
+        const down = this.lower(e, prev, t, dt);
+        pose(e.model, cur.moving, cur.load > 0, time * 12 + id, down);
+      }
       if (e.alert) {
         e.alert.visible = cur.alert;
         e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);

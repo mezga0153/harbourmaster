@@ -33,6 +33,12 @@ const KNIT = [0xb33a32, 0x24324a, 0x3fa34d, 0x6b3a7a, 0xd9822b];
 const BOOTS = 0x3a2a1e;
 const REFLECT = 0xdfe6ea;
 const C_WHITE = 0xf4f4f0;
+/** Where a crate is held out in front, and where it is set down. */
+const HELD = { x: 0.11, y: 0.17 };
+const SET_DOWN = { x: 0.16, y: 0 };
+/** Height of the hips, and how far forward someone bends to the ground. */
+const HIP = 0.15;
+const BEND = 1;
 
 export function worker(seed: number, crate: (size: number) => Object3D): Worker {
   const rng = new Rng(seed * 2654435761 + 17);
@@ -105,7 +111,7 @@ export function worker(seed: number, crate: (size: number) => Object3D): Worker 
   }
 
   const load = crate(0.15);
-  load.position.set(0.11, 0.17, 0);
+  load.position.set(HELD.x, HELD.y, 0);
   load.visible = false;
   body.add(load);
   return { root, body, limbs: { legL, legR, armL, armR }, load };
@@ -113,25 +119,49 @@ export function worker(seed: number, crate: (size: number) => Object3D): Worker 
 
 /**
  * Walk cycle: legs and arms swing in opposite pairs. Someone carrying a
- * crate holds both arms out in front instead.
+ * crate holds both arms out in front instead. Stooping (0 to 1), they bend
+ * forward from the hips with their arms down, to take hold of a crate on
+ * the ground or set one down there.
  */
 export function pose(
-  w: { body?: Object3D; limbs?: Limbs },
+  w: { body?: Object3D; limbs?: Limbs; crates?: Object3D[] },
   moving: boolean,
   carrying: boolean,
   phase: number,
+  stoop = 0,
 ): void {
   const l = w.limbs;
   if (!l) return;
+  const bend = BEND * stoop;
   const swing = moving ? Math.sin(phase) * 0.65 : 0;
-  l.legL.rotation.z = swing;
-  l.legR.rotation.z = -swing;
+  // The legs stay upright as the body bends over them.
+  l.legL.rotation.z = swing * (1 - stoop) + bend;
+  l.legR.rotation.z = -swing * (1 - stoop) + bend;
+  // Hands down by the sides of a crate on the ground.
+  const reach = bend + 0.36;
   if (carrying) {
-    l.armL.rotation.z = l.armR.rotation.z = 1.25;
+    l.armL.rotation.z = l.armR.rotation.z = 1.25 + (reach - 1.25) * stoop;
   } else {
     const idle = moving ? 0 : Math.sin(phase * 0.15) * 0.05;
-    l.armL.rotation.z = -swing * 0.8 + idle;
-    l.armR.rotation.z = swing * 0.8 + idle;
+    l.armL.rotation.z = (-swing * 0.8 + idle) * (1 - stoop) + reach * stoop;
+    l.armR.rotation.z = (swing * 0.8 + idle) * (1 - stoop) + reach * stoop;
   }
-  if (w.body) w.body.position.y = moving ? Math.abs(Math.sin(phase)) * 0.015 : 0;
+  const body = w.body;
+  if (!body) return;
+  // Bent from the hips, which stay where they are.
+  const sin = Math.sin(bend);
+  const cos = Math.cos(bend);
+  const bob = moving ? Math.abs(Math.sin(phase)) * 0.015 * (1 - stoop) : 0;
+  const bx = -HIP * sin;
+  const by = HIP - HIP * cos;
+  body.rotation.z = -bend;
+  body.position.set(bx, by + bob, 0);
+  // The crate goes down with the hands, level, to the ground in front.
+  const load = w.crates?.[0];
+  if (load) {
+    const x = HELD.x + (SET_DOWN.x - HELD.x) * stoop - bx;
+    const y = HELD.y + (SET_DOWN.y - HELD.y) * stoop - by;
+    load.position.set(x * cos - y * sin, x * sin + y * cos, 0);
+    load.rotation.z = bend;
+  }
 }

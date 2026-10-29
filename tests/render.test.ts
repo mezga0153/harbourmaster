@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { turnAbout } from '../src/render/entities';
+import { Vector3 } from 'three';
+import { Entities, turnAbout } from '../src/render/entities';
 import { settle } from '../src/render/structures';
+import { World } from '../src/sim/world';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -57,5 +59,36 @@ describe('Forklifts turning about', () => {
         else expect(backing).toBe(true);
       }
     }
+  });
+});
+
+describe('Dockhands handling crates', () => {
+  it('have a crate down on the ground as it leaves or reaches their hands', () => {
+    const world = World.create(7);
+    const entities = new Entities(world.map);
+    const crate = new Vector3();
+    const held = new Map<number, { shown: boolean; y: number }>();
+    let handed = 0;
+    for (let t = 0, now = 0; t < 800; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        for (const { view, pos } of entities.worldPositions()) {
+          if (view.kind !== 'dockhand') continue;
+          const shown = entities.slotShown(view.id, 0);
+          const y = entities.slotPosition(view.id, 0, crate)!.y - pos.y;
+          const was = held.get(view.id);
+          if (was && was.shown !== shown) {
+            handed++;
+            expect(Math.min(y, was.y)).toBeLessThan(0.01);
+          }
+          held.set(view.id, { shown, y });
+        }
+      }
+    }
+    expect(handed).toBeGreaterThan(4);
   });
 });
