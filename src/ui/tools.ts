@@ -43,6 +43,14 @@ export const BULLDOZE_TOOL: ToolDef = {
   note: 'Clear',
 };
 
+export const UNMARK_TOOL: ToolDef = {
+  tool: 'unmark',
+  icon: 'eraser',
+  label: 'Unmark',
+  note: 'Clear marks',
+  hint: 'Drag over storage areas and machines-only ground to clear their marks, whatever kind they are, leaving the port road or quay as it was. Storage gives back what bulldozing it would; cargo stored on cleared tiles is lost. The ground round cranes and a gantry crane’s rails stays kept for port machines',
+};
+
 export const CATEGORIES: Category[] = [
   {
     id: 'roads',

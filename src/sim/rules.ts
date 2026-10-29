@@ -259,6 +259,24 @@ export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean
     : 'Storage is marked out on port roads and quays';
 }
 
+/**
+ * What the Unmark tool takes off a tile: its storage, and its mark for port
+ * machines only, but never the ground kept for machines round a crane or a
+ * gantry crane's rails. With what clearing the storage gives back.
+ */
+export function unmarkable(map: GameMap, i: number): { store: boolean; machines: boolean } {
+  if (!map.buildable(i)) return { store: false, machines: false };
+  return {
+    store: map.store[i] !== 0,
+    machines: forkliftOnly(map, i) && gantryOver(map, i, true) < 0,
+  };
+}
+
+export function unmarkRefund(map: GameMap, i: number): number {
+  const kind = storeKindAt(map, i);
+  return kind ? Math.floor(STORE_COST[kind] * B.BULLDOZE_REFUND) : 0;
+}
+
 /** Step towards the front for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
 export const FACING: readonly (readonly [number, number])[] = [
   [1, 0],

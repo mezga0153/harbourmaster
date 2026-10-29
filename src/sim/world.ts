@@ -83,6 +83,8 @@ import {
   placementError,
   ROTATABLE,
   storeError,
+  unmarkable,
+  unmarkRefund,
   STORE_COST,
   STORE_LABEL,
   STORE_TIER,
@@ -1163,6 +1165,8 @@ export class World {
         return this.bulldoze(cmd.tiles);
       case 'forkliftOnly':
         return this.markForkliftOnly(cmd.tiles, cmd.on);
+      case 'unmark':
+        return this.unmark(cmd.tiles);
       case 'store':
         return this.markStore(cmd.tiles, cmd.kind, cmd.on);
       case 'terraform':
@@ -1329,6 +1333,37 @@ export class World {
   }
 
   /** Mark port road and quay tiles out as storage, or clear them, for a refund. */
+  /**
+   * Clear whatever marks lie on the tiles: storage, which gives back what
+   * bulldozing it would, and machines-only marks, for nothing. The ground
+   * kept round cranes and gantry rails stays as it is.
+   */
+  private unmark(tiles: number[]): void {
+    let refund = 0;
+    let stores = false;
+    let any = false;
+    for (const i of tiles) {
+      if (i < 0 || i >= this.map.build.length) continue;
+      const what = unmarkable(this.map, i);
+      if (what.store) {
+        refund += unmarkRefund(this.map, i);
+        this.map.store[i] = Store.None;
+        stores = true;
+      }
+      if (what.machines) this.map.orient[i] &= ~FORKLIFT_ONLY;
+      if (what.store || what.machines) {
+        this.dirty.add(i);
+        any = true;
+      }
+    }
+    if (stores) this.rebuildStores();
+    if (refund > 0) {
+      this.book('construction', refund);
+      this.moneyAt(refund, tiles[tiles.length - 1]);
+    }
+    if (!any) this.message('Nothing marked out here that can be cleared', 'bad');
+  }
+
   private markStore(tiles: number[], kind: StoreKind, on: boolean): void {
     const tier = STORE_TIER[kind];
     if (this.tier < tier) {

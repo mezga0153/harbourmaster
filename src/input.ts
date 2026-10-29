@@ -23,6 +23,9 @@ import {
   craneGround,
   loadingSpots,
   truckReach,
+  machinesOnly,
+  unmarkable,
+  unmarkRefund,
 } from './sim/rules';
 import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
@@ -123,6 +126,7 @@ export class Input {
     if (t === 'select') this.mode = 'select';
     else if (
       t === 'bulldoze' ||
+      t === 'unmark' ||
       t === 'forkliftOnly' ||
       isStoreTool(t) ||
       t === 'dredge' ||
@@ -173,6 +177,7 @@ export class Input {
         if (t === 'tug') this.send({ type: 'buyTug', tile: tiles[0] });
         else if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
+        else if (t === 'unmark') this.send({ type: 'unmark', tiles });
         else if (t === 'dredge' || t === 'reclaim') {
           this.send({ type: 'terraform', tiles, raise: t === 'reclaim' });
         } else if (t === 'forkliftOnly') {
@@ -277,7 +282,7 @@ export class Input {
     const ex = map.xOf(end);
     const ey = map.yOf(end);
     const out: number[] = [];
-    if (isStoreTool(tool.value) || tool.value === 'parking') {
+    if (isStoreTool(tool.value) || tool.value === 'parking' || tool.value === 'unmark') {
       for (let y = Math.min(sy, ey); y <= Math.max(sy, ey); y++) {
         for (let x = Math.min(sx, ex); x <= Math.max(sx, ex); x++) out.push(map.idx(x, y));
       }
@@ -311,6 +316,7 @@ export class Input {
     }
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
+    if (t === 'unmark') return this.previewUnmark(map, this.tilesFor(i));
     if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
     if (t === 'jibCrane' || t === 'harbourCrane') this.showCraneGround(map, t, i, 0);
     if (t === 'jetty' || t === 'quay') this.showDocks(map);
@@ -378,6 +384,29 @@ export class Input {
   private marking(first: number): boolean {
     const map = this.getMap();
     return !map || !forkliftOnly(map, this.dragStart ?? first);
+  }
+
+  /** What a drag of the Unmark tool would clear, and give back. */
+  private previewUnmark(map: GameMap, tiles: number[]): void {
+    const ok = tiles.map((t) => {
+      const what = unmarkable(map, t);
+      return what.store || what.machines;
+    });
+    this.renderer.overlay.setGhosts(map, tiles, ok);
+    this.renderer.overlay.setArrow(map, null, 0);
+    const count = ok.filter(Boolean).length;
+    const near = tiles.some((t) => machinesOnly(map, t) && !forkliftOnly(map, t));
+    preview.value = {
+      count,
+      rotatable: false,
+      value: tiles.reduce((n, t, k) => n + (ok[k] ? unmarkRefund(map, t) : 0), 0),
+      error:
+        count > 0
+          ? null
+          : near
+            ? 'The ground round a crane is always kept for port machines'
+            : 'Nothing marked out here',
+    };
   }
 
   private previewMarking(map: GameMap, tiles: number[]): void {

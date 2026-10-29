@@ -12,6 +12,8 @@ export type Command =
   | { type: 'bulldoze'; tiles: number[] }
   /** Mark port road and quay tiles for port machines only, or clear the mark. */
   | { type: 'forkliftOnly'; tiles: number[]; on: boolean }
+  /** Clear storage and machines-only marks, wherever they can be. */
+  | { type: 'unmark'; tiles: number[] }
   /** Mark port road and quay tiles out as storage, or clear them. */
   | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }
   /** Dredge (dig the seabed deeper, or the shore out into sea) or reclaim (fill it in). */

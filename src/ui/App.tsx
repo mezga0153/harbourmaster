@@ -17,7 +17,14 @@ import { RailwayPanel, TownPanel } from './Town';
 import { TOWN_STAGES } from '../sim/town';
 import { Icon, type IconName } from './icons';
 import { thumbnail } from '../render/thumbs';
-import { BULLDOZE_TOOL, CATEGORIES, SELECT_TOOL, type Category, type ToolDef } from './tools';
+import {
+  BULLDOZE_TOOL,
+  CATEGORIES,
+  SELECT_TOOL,
+  UNMARK_TOOL,
+  type Category,
+  type ToolDef,
+} from './tools';
 import {
   openCategory,
   panel,
@@ -863,6 +870,7 @@ function BuildBar({ actions }: { actions: Actions }) {
         </div>
         <div class="dock-group">
           <ToolButton t={BULLDOZE_TOOL} active={current === 'bulldoze'} />
+          <ToolButton t={UNMARK_TOOL} active={current === 'unmark'} />
           <button
             class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
             onClick={() => togglePanel('staff')}

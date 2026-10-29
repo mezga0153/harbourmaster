@@ -37,6 +37,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M10 11v5M14 11v5" />
     </>
   ),
+  eraser: (
+    <>
+      <path d="M8 20l-4-4a2 2 0 010-2.8l9.2-9.2a2 2 0 012.8 0l4 4a2 2 0 010 2.8L13 18" />
+      <path d="M8 20h12M10 8l6 6" />
+    </>
+  ),
   hire: (
     <>
       <circle cx="9" cy="8" r="3.5" />

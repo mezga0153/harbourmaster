@@ -22,6 +22,7 @@ export type Tool =
   | 'tug'
   | StoreTool
   | 'bulldoze'
+  | 'unmark'
   | 'forkliftOnly'
   | 'dredge'
   | 'reclaim';

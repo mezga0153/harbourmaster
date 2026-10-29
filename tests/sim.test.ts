@@ -997,6 +997,37 @@ describe('Buildings', () => {
     expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
   });
 
+  it('clears storage and machines-only marks with Unmark, but not the ground round a crane', () => {
+    const world = World.create(7);
+    world.boats.length = 0;
+    world.tier = 2;
+    world.cash = 100_000;
+    const m = world.map;
+    const r = m.yOf(m.entry);
+    const jetty = [...Array(m.w).keys()]
+      .map((x) => m.idx(x, r))
+      .filter((i) => m.build[i] === Build.Jetty);
+    world.command({ type: 'build', kind: 'quay', tiles: jetty });
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [jetty[jetty.length - 1]] });
+    const store = jetty[0];
+    const marked = jetty[1];
+    const crane = jetty[jetty.length - 2];
+    world.command({ type: 'store', tiles: [store], kind: 'crates', on: true });
+    world.command({ type: 'forkliftOnly', tiles: [marked], on: true });
+    expect(m.store[store]).toBe(Store.Crates);
+    expect(forkliftOnly(m, marked)).toBe(true);
+    const cash = world.cash;
+    world.command({ type: 'unmark', tiles: [store, marked, crane] });
+    expect(m.store[store]).toBe(Store.None);
+    expect(forkliftOnly(m, marked)).toBe(false);
+    expect(world.bays.has(store)).toBe(false);
+    // Storage gives back what bulldozing it would; the quay stays.
+    expect(world.cash).toBeGreaterThan(cash);
+    expect(m.build[store]).toBe(Build.Quay);
+    // Beside the crane it is still for port machines only.
+    expect(machinesOnly(m, crane)).toBe(true);
+  });
+
   it('keeps storage by a crane to the way it is marked out, in or out', () => {
     const world = World.create(7);
     world.boats.length = 0;
