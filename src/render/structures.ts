@@ -437,25 +437,15 @@ export class Structures {
         return g;
       }
       case Build.Parking: {
-        // Asphalt outside the port, port paving inside it, with a diagonal
-        // white line between each space and the next, across the strip.
+        // Asphalt outside the port, port paving inside it, and a white line
+        // corner to corner across each tile, between one space and the next,
+        // at the angle trucks park at; kept inside the tile, off the roads.
         const { inside, acrossX } = this.lotAt(i);
         const y = inside ? QUAY_Y : top + 0.05;
         g.add(box(1, y - top, 1, inside ? C.quayTop : C.asphalt, 0.5, top, 0.5));
-        for (const o of [0, 1]) {
-          const [x, z] = acrossX ? [0.5, o] : [o, 0.5];
-          const line = box(
-            acrossX ? 1.25 : 0.035,
-            0.008,
-            acrossX ? 0.035 : 1.25,
-            C.marking,
-            x,
-            y,
-            z,
-          );
-          line.rotation.y = Math.PI / 4;
-          g.add(line);
-        }
+        const line = box(1.3, 0.008, 0.035, C.marking, 0.5, y, 0.5);
+        line.rotation.y = acrossX ? -Math.PI / 4 : Math.PI / 4;
+        g.add(line);
         return g;
       }
       case Build.Gate: {
