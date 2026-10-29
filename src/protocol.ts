@@ -234,6 +234,8 @@ export interface YardView {
   workTruck?: number;
   workSlot?: number;
   workPhase?: number;
+  /** One container the gantry has taken up (-1) or set down (+1) that the counts do not have yet. */
+  lifted: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

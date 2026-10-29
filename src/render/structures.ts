@@ -279,10 +279,11 @@ export class Structures {
       workTruck?: number;
       workSlot?: number;
       workPhase?: number;
+      lifted?: number;
     }[],
   ): void {
     for (const y of yards) {
-      this.fill(y.tiles, y.boxes + y.exports, true, y.looks);
+      this.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true, y.looks);
       // Its gantry, at work or not, and where in the yard the container
       // it is moving lies, or for one coming off a truck, where it goes.
       const tiles = new Set(y.tiles);
@@ -358,7 +359,9 @@ export class Structures {
       // Over the very container slot on the truck, front or back of a long one.
       const at = g.truck !== undefined ? this.truckSlot?.(g.truck, g.slot, this.slotAt) : null;
       if (at) g.frame.worldToLocal(at);
-      const lane = { x: at ? at.x : g.laneAt, z: at ? at.z : 0, drop: g.laneDrop };
+      const lane = at
+        ? { x: at.x, z: at.z, drop: g.trolley.position.y - (at.y + BOX_HEIGHT + 0.04) }
+        : { x: g.laneAt, z: 0, drop: g.laneDrop };
       const [from, to] = g.work === 'load' ? [yard, lane] : [lane, yard];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);

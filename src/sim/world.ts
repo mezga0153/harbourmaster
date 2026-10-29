@@ -547,6 +547,22 @@ interface Source {
   rank: number;
 }
 
+/** A yard gantry at work, for the view; see gantryWork. */
+type GantryWork = {
+  working?: 'load' | 'unload';
+  workLook?: number;
+  workAt?: number;
+  workTruck?: number;
+  workSlot?: number;
+  workPhase?: number;
+};
+/**
+ * How far through a yard gantry's lift the spreader has taken the container
+ * up, and set it down; the renderer's lift keeps to these.
+ */
+const LIFT_TAKEN = 0.125;
+const LIFT_SET = 0.625;
+
 /** Room left at a bay for crates, or at a container yard for containers. */
 function bayRoom(b: Bay, boxes: boolean): number {
   if (b.pile) return boxes ? 0 : B.PILE_CRATES - b.crates.length - b.incoming;
@@ -4045,25 +4061,59 @@ export class World {
    * What a yard's gantry is doing, for the view: a truck it is loading or
    * unloading, and where that truck stands along its rails.
    */
-  private gantryWork(y: Bay): { working?: 'load' | 'unload'; workLook?: number; workAt?: number } {
+  private gantryWork(y: Bay): GantryWork {
     if (!this.yardGantry(y)) return {};
     // A terminal tractor first: it lifts one off for the yard, or exports on.
     const p = this.gantryTractor(y);
     if (p) {
       const workAt = this.gantryLane(y)?.get(p.goal) ?? 0;
+      const lift = { workAt, workTruck: p.id, workSlot: 0 };
+      const workPhase = clamp(1 - p.timer / (B.YARD_GANTRY_TICKS * Math.max(1, p.planned)), 0, 1);
       if (p.state === 'dropping') {
-        return { working: 'unload', workLook: this.carriedLooks(p)[0], workAt };
+        return { working: 'unload', workLook: this.carriedLooks(p)[0], workPhase, ...lift };
       }
-      return { working: 'load', workLook: this.exportLooks(y)[0], workAt };
+      return { working: 'load', workLook: this.exportLooks(y)[0], workPhase, ...lift };
     }
     const t = this.gantryTruck(y);
     if (!t) return {};
     const workAt = this.gantryLane(y)?.get(t.goal) ?? 0;
+    const workPhase = (t.timer % B.YARD_GANTRY_TICKS) / B.YARD_GANTRY_TICKS;
     if (t.state === 'delivering') {
-      return { working: 'unload', workLook: boxLookOf(t.id, t.cargo - 1), workAt };
+      const look = boxLookOf(t.id, t.cargo - 1);
+      return {
+        working: 'unload',
+        workLook: look,
+        workAt,
+        workTruck: t.id,
+        workSlot: t.cargo - 1,
+        workPhase,
+      };
     }
     const at = this.readyList(y).findIndex((r) => this.isClear(r));
-    return { working: 'load', workLook: this.boxLooks(y)[at], workAt };
+    const look = this.boxLooks(y)[at];
+    return {
+      working: 'load',
+      workLook: look,
+      workAt,
+      workTruck: t.id,
+      workSlot: t.cargo,
+      workPhase,
+    };
+  }
+
+  /**
+   * Containers a yard gantry is part way through lifting, by the truck or
+   * tractor it is working: off it once the spreader has it, on it once set
+   * down. The sim moves each at the end of the lift; the view shows it
+   * where the gantry has it.
+   */
+  private gantryLifts(): Map<number, GantryWork & { yard: number }> {
+    const lifts = new Map<number, GantryWork & { yard: number }>();
+    for (const y of this.yards.values()) {
+      const w = this.gantryWork(y);
+      if (w.workTruck !== undefined) lifts.set(w.workTruck, { ...w, yard: y.idx });
+    }
+    return lifts;
   }
 
   /**
@@ -4077,6 +4127,49 @@ export class World {
         ((p.state === 'dropping' && p.bayIdx === y.idx) ||
           (p.state === 'picking' && p.stockIdx === y.idx)),
     );
+  }
+
+  /**
+   * A truck's or tractor's load as it looks while a yard gantry lifts: one
+   * fewer once taken off, one more once set down.
+   */
+  private liftedLoad(
+    load: number,
+    looks: number[] | undefined,
+    lift: GantryWork | undefined,
+  ): { load: number; looks?: number[] } {
+    const p = lift?.workPhase ?? 0;
+    if (lift?.working === 'unload' && p >= LIFT_TAKEN) {
+      return { load: load - 1, looks: looks?.slice(0, load - 1) };
+    }
+    if (lift?.working === 'load' && p >= LIFT_SET && lift.workLook !== undefined) {
+      return { load: load + 1, looks: looks && [...looks, lift.workLook] };
+    }
+    return { load, looks };
+  }
+
+  /**
+   * A yard's containers as they look, and its gantry at work: less the one
+   * it has taken up to load, plus one it has set down off a truck.
+   */
+  private yardLooks(
+    y: Bay,
+    lifts: Map<number, GantryWork & { yard: number }>,
+  ): GantryWork & { looks: number[]; lifted: number } {
+    const looks = [...this.boxLooks(y), ...this.exportLooks(y)];
+    const w = [...lifts.values()].find((l) => l.yard === y.idx) ?? this.gantryWork(y);
+    const p = w.workPhase ?? 0;
+    let lifted = 0;
+    if (w.working === 'load' && p >= LIFT_TAKEN) {
+      const k = looks.indexOf(w.workLook ?? -1);
+      if (k >= 0) looks.splice(k, 1);
+      lifted = -1;
+    } else if (w.working === 'unload' && p >= LIFT_SET && w.workLook !== undefined) {
+      looks.push(w.workLook);
+      lifted = 1;
+    }
+    const { working, workLook, workAt, workTruck, workSlot, workPhase } = w;
+    return { looks, lifted, working, workLook, workAt, workTruck, workSlot, workPhase };
   }
 
   /** At a yard with a gantry, waiting while it works another truck or a tractor. */
@@ -8095,6 +8188,7 @@ export class World {
   snapshot(): Snapshot {
     const entities: EntityView[] = [];
     const staff: StaffView[] = [];
+    const lifts = this.gantryLifts();
     for (const p of this.people) {
       entities.push({
         id: p.id,
@@ -8102,8 +8196,11 @@ export class World {
         x: p.x,
         y: p.y,
         dir: p.dir,
-        load: p.carrying,
-        looks: isBoxy(p) ? [...this.carriedLooks(p)] : undefined,
+        ...this.liftedLoad(
+          p.carrying,
+          isBoxy(p) ? [...this.carriedLooks(p)] : undefined,
+          lifts.get(p.id),
+        ),
         moving: p.path.length > 0,
         name: p.name,
         activity:
@@ -8228,13 +8325,16 @@ export class World {
         x: this.lanePos(t)[0],
         y: this.lanePos(t)[1],
         dir: t.dir,
-        load: t.cargo,
         // A shipper's containers are all alike; the rest as they were loaded.
-        looks: t.boxes
-          ? t.exports
-            ? Array.from({ length: t.cargo }, (_, k) => boxLookOf(t.id, k))
-            : [...aligned(Array(t.cargo).fill(0), t.looks, t.id)]
-          : undefined,
+        ...this.liftedLoad(
+          t.cargo,
+          t.boxes
+            ? t.exports
+              ? Array.from({ length: t.cargo }, (_, k) => boxLookOf(t.id, k))
+              : [...aligned(Array(t.cargo).fill(0), t.looks, t.id)]
+            : undefined,
+          lifts.get(t.id),
+        ),
         moving: t.path.length > 0,
         name: t.company,
         activity:
@@ -8321,8 +8421,7 @@ export class World {
         idx: y.idx,
         boxes: y.boxes.length,
         exports: y.exports?.length ?? 0,
-        looks: [...this.boxLooks(y), ...this.exportLooks(y)],
-        ...this.gantryWork(y),
+        ...this.yardLooks(y, lifts),
         outgoing: !!y.outgoing,
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),
