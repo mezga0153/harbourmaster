@@ -110,6 +110,9 @@ interface YardGantryParts {
   laneAt: number;
   /** The truck it is working, and the container slot on it it lifts from or sets down in. */
   truck?: number;
+  /** Its yard, by first tile, and how many like the one it moves were there as the lift began. */
+  yard?: number;
+  base: number;
   slot: number;
   work: 'load' | 'unload' | null;
   look: number;
@@ -137,6 +140,8 @@ interface CraneParts {
 }
 
 interface ShipGantryParts {
+  /** Its main tile, which its stack's slots are kept under (as -1 - idx). */
+  idx: number;
   /** Laid out as built: x along the quay edge, the water off +z. */
   frame: Object3D;
   /** Legs, portal, boom and trolley, running along x on the rails. */
@@ -154,6 +159,8 @@ interface ShipGantryParts {
   phase: number;
   /** Containers on the stack between its legs, and exports, for where the next goes. */
   stacked: number;
+  /** How many like the one it moves were on its stack as the lift began. */
+  base: number;
 }
 
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
@@ -172,6 +179,8 @@ export class Structures {
   private yardGantries = new Map<number, YardGantryParts>();
   /** Where a truck's container slot is in the world; set by the renderer. */
   truckSlot?: (id: number, k: number, out: Vector3) => Vector3 | null;
+  /** Whether a truck's, tractor's or ship's container slot `k` shows a container. */
+  slotShown?: (id: number, k: number) => boolean;
   private slotAt = new Vector3();
   /** Game speed, so a gantry's lift takes as long as it does in the game. */
   private speed = 1;
@@ -266,7 +275,10 @@ export class Structures {
       g.work = v.working ?? null;
       if (v.workBoat !== undefined) g.boat = v.workBoat;
       if (v.workSlot !== undefined) g.slot = v.workSlot;
-      if (v.workLook !== undefined) g.look = v.workLook;
+      if (v.workLook !== undefined && v.workLook !== g.look) {
+        g.look = v.workLook;
+        g.base = this.kept(-1 - v.idx, g.look);
+      }
       // Kept in step with the game, without jumping for a small difference.
       if (v.workPhase !== undefined) {
         const off = ((v.workPhase - g.phase + 1.5) % 1) - 0.5;
@@ -340,7 +352,9 @@ export class Structures {
    */
   private runShipGantry(c: CraneParts, g: ShipGantryParts, dt: number): void {
     const cycle = GANTRY_TICKS / TICKS_PER_SECOND;
+    const was = g.phase;
     g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
+    if (g.phase < was || !g.work) g.base = this.kept(-1 - g.idx, g.look);
     const trolley = c.slew;
     let x = g.carriage.position.x;
     let z = -0.3;
@@ -374,6 +388,15 @@ export class Structures {
       const a = take - 0.15;
       const b = take + 0.15;
       const d = set - 0.15;
+      // Handed over, it is on the spreader from when it leaves the ship's
+      // deck or the stack until it shows where it is set down, never on
+      // neither.
+      const onDeck = () => !!this.slotShown?.(g.boat, g.slot);
+      const onStack = () => this.kept(-1 - g.idx, g.look);
+      const [gone, there] =
+        g.work === 'unload'
+          ? [() => !onDeck(), () => onStack() > g.base]
+          : [() => onStack() < g.base, onDeck];
       if (p < a) {
         const t = ease(p / a);
         x = g.carriage.position.x + (from.x - g.carriage.position.x) * t;
@@ -382,7 +405,7 @@ export class Structures {
         x = from.x;
         z = from.z;
         drop = dip((p - a) / (b - a), from.drop);
-        carry = p >= take;
+        carry = p >= take || gone();
       } else if (p < d) {
         const t = ease((p - b) / (d - b));
         x = from.x + (to.x - from.x) * t;
@@ -392,7 +415,7 @@ export class Structures {
         x = to.x;
         z = to.z;
         drop = dip((p - d) / (1 - d), to.drop);
-        carry = p < set;
+        carry = p < set || !there();
       }
     }
     x = Math.max(g.from, Math.min(g.to, x));
@@ -406,6 +429,15 @@ export class Structures {
     c.hook.position.y = -drop;
     g.load.visible = carry;
     if (carry) paintContainer(g.load, g.look);
+  }
+
+  /**
+   * How many containers that look like `look` are kept under `key` (a yard,
+   * or a crane's stack): counted at the start of a lift, more or fewer show
+   * when one has been set down there or taken away.
+   */
+  private kept(key: number, look: number): number {
+    return (this.slots.get(key) ?? []).reduce((n, l) => n + (l === look ? 1 : 0), 0);
   }
 
   /**
@@ -443,6 +475,7 @@ export class Structures {
       const tiles = new Set(y.tiles);
       for (const [i, g] of this.yardGantries) {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
+        const was = g.work;
         g.work = y.working ?? null;
         g.laneAt = y.workAt ?? 0;
         g.truck = y.workTruck;
@@ -453,8 +486,14 @@ export class Structures {
           const off = ((y.workPhase - g.phase + 1.5) % 1) - 0.5;
           g.phase = Math.abs(off) > 0.15 ? y.workPhase : (g.phase + off * 0.5 + 1) % 1;
         }
+        const same = y.workLook === g.look && y.working === was;
         if (y.workLook !== undefined) g.look = y.workLook;
-        g.pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
+        g.yard = y.tiles[0];
+        if (!same) g.base = this.kept(g.yard, g.look);
+        // Once it has lifted a container out of the yard its slot is empty:
+        // it is still going from there.
+        const pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
+        g.pick = pick ?? (y.working && same ? g.pick : null);
       }
     }
   }
@@ -500,7 +539,9 @@ export class Structures {
   private runYardGantry(g: YardGantryParts, dt: number): void {
     // One lift a cycle, as long as one takes in the game.
     const cycle = YARD_GANTRY_TICKS / TICKS_PER_SECOND;
+    const was = g.phase;
     g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
+    if (g.phase < was || !g.work) g.base = this.kept(g.yard ?? -1, g.look);
     // Idle, it stays where it last worked.
     let x = g.carriage.position.x;
     let z = Math.max(0.6, g.far / 2);
@@ -520,11 +561,19 @@ export class Structures {
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
       const dip = (t: number, depth: number) => 0.2 + (depth - 0.2) * Math.sin(t * Math.PI);
+      // Handed over, it is on the spreader from when it leaves the yard or
+      // the truck until it shows where it is set down, never on neither.
+      const inYard = () => this.kept(g.yard ?? -1, g.look);
+      const onTruck = () => g.truck !== undefined && !!this.slotShown?.(g.truck, g.slot);
+      const [gone, there] =
+        g.work === 'load'
+          ? [() => inYard() < g.base, onTruck]
+          : [() => !onTruck(), () => inYard() > g.base];
       if (p < 0.25) {
         x = from.x;
         z = from.z;
         drop = dip(p / 0.25, from.drop);
-        carry = p > 0.125;
+        carry = p > 0.125 || gone();
       } else if (p < 0.5) {
         const t = ease((p - 0.25) / 0.25);
         x = from.x + (to.x - from.x) * t;
@@ -534,7 +583,7 @@ export class Structures {
         x = to.x;
         z = to.z;
         drop = dip((p - 0.5) / 0.25, to.drop);
-        carry = p < 0.625;
+        carry = p < 0.625 || !there();
       } else {
         const t = ease((p - 0.75) / 0.25);
         x = to.x + (from.x - to.x) * t;
@@ -1069,6 +1118,7 @@ export class Structures {
           laneDrop: h - 0.28 - BOX_HEIGHT,
           pick: null,
           laneAt: 0,
+          base: 0,
           slot: 0,
           work: null,
           look: 0,
@@ -1165,6 +1215,7 @@ export class Structures {
           busy: false,
           fixed: true,
           sts: {
+            idx: i,
             frame: g,
             carriage,
             from: 1 - left - 0.6,
@@ -1176,6 +1227,7 @@ export class Structures {
             look: 0,
             phase: 0,
             stacked: 0,
+            base: 0,
           },
         });
         return g;

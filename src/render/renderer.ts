@@ -112,6 +112,7 @@ export class Renderer {
     const entities = new Entities(map);
     // A yard gantry reaches for the container slot on the truck it works.
     structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
     const trains = new Trains(map);
     const scenery = new Group();
     const trees = buildTrees(map);

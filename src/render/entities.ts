@@ -362,6 +362,11 @@ export class Entities {
     return e ? out.copy(e.model.root.position) : null;
   }
 
+  /** Whether a truck's, tractor's or ship's container slot `k` shows a container. */
+  slotShown(id: number, k: number): boolean {
+    return !!this.entries.get(id)?.model.crates[k]?.visible;
+  }
+
   /** Where a truck's container slot `k` is in the world, or null. */
   slotPosition(id: number, k: number, out: Vector3): Vector3 | null {
     const slot = this.entries.get(id)?.model.crates[k];
