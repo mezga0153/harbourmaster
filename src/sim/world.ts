@@ -196,6 +196,8 @@ interface Dockhand extends Agent {
   cargoFrom?: number[];
   /** Stackers: how each container carried looks; see boxLookOf. */
   cargoLooks?: number[];
+  /** A tractor under a gantry crane: what the crane set straight on it off the ship. */
+  handed?: { fees: number[]; looks: number[]; from: number[] };
   /** Exports: the ship they are going on board, or the crane they go to; else -1. */
   toBoat?: number;
   toCrane?: number;
@@ -243,6 +245,12 @@ interface Crane {
    * onto from its stack (`give`), or an export off onto its stack.
    */
   serving?: { id: number; give: boolean };
+  /**
+   * A gantry crane: the place on its landing stack each container lifted
+   * off is in, and each export; see cranePlaces.
+   */
+  places?: number[];
+  outPlaces?: number[];
 }
 
 /**
@@ -585,6 +593,9 @@ function yardPlace(k: number): { tile: number; stack: number; tier: number } {
     tier: Math.floor(r / YARD_STACKS),
   };
 }
+
+/** Stacks side by side on a gantry crane's landing stack, two along and two deep. */
+const CRANE_STACKS = 4;
 
 /** Ticks a crane takes to lift one crate or container. */
 function craneTicks(c: Crane): number {
@@ -4353,7 +4364,12 @@ export class World {
     if (pick) {
       const crane = this.cranes.get(p.craneIdx);
       if (crane)
-        return this.craneHand(p, crane) ?? { crane: crane.idx, look: this.stackLooks(crane)[0] };
+        return (
+          this.craneHand(p, crane) ?? {
+            crane: crane.idx,
+            look: this.stackLooks(crane)[Math.max(0, this.craneTop(crane, false))],
+          }
+        );
       const yard = this.yards.get(p.stockIdx);
       if (!yard || !p.outbound) return undefined;
       const reach = p.kind === 'stacker' ? this.reachFrom(yard, p.goal) : undefined;
@@ -4363,7 +4379,8 @@ export class World {
     }
     if (p.toCrane !== undefined && p.toCrane >= 0) {
       const crane = this.cranes.get(p.toCrane);
-      return (crane && this.craneHand(p, crane)) ?? { crane: p.toCrane };
+      const place = crane?.kind === 'gantry' ? this.nextCranePlace(crane) : undefined;
+      return (crane && this.craneHand(p, crane)) ?? { crane: p.toCrane, place };
     }
     if (p.toBoat !== undefined && p.toBoat >= 0) return undefined;
     const yard = this.yards.get(p.bayIdx);
@@ -6410,7 +6427,10 @@ export class World {
     for (const crane of this.cranes.values()) {
       if ((crane.kind !== 'jib') !== boxy) continue;
       if (crane.pallets && crane.stack.length > 0 && !forks) continue;
-      const avail = crane.stack.length - crane.reserved;
+      // A tractor goes to a gantry crane working a ship too, for it to set
+      // one straight on it.
+      const ship = p.kind === 'tractor' && this.unloadingAt(crane) ? 1 : 0;
+      const avail = crane.stack.length + ship - crane.reserved;
       if (avail > 0) sources.push({ tile: this.pickTile(crane), avail, crane, rank: 0 });
     }
     if (hands) {
@@ -6851,10 +6871,13 @@ export class World {
         }
         if (c.liftSlot! < 0) return;
         take = () => {
-          (ship.outLooks ??= []).push(this.outLooks(c).shift()!);
+          // Off the top of the stacks, at a gantry crane.
+          const i = Math.max(0, this.craneTop(c, true));
+          if (c.kind === 'gantry') this.cranePlaces(c).out.splice(i, 1);
+          (ship.outLooks ??= []).push(...this.outLooks(c).splice(i, 1));
           this.outSlots(ship).push(c.liftSlot!);
           c.liftSlot = undefined;
-          return c.outStack!.shift()!;
+          return c.outStack!.splice(i, 1)[0];
         };
       }
     } else {
@@ -7057,7 +7080,30 @@ export class World {
       p.craneIdx = -1;
       if (!crane) return [];
       crane.reserved = Math.max(0, crane.reserved - p.planned);
+      // Set straight onto it off the ship.
+      if (p.handed) {
+        const { fees, looks, from } = p.handed;
+        p.handed = undefined;
+        p.cargoFrom = from;
+        p.cargoLooks = looks;
+        return fees;
+      }
       const n = Math.min(p.planned, crane.stack.length);
+      if (crane.kind === 'gantry') {
+        // Off the top of its stacks, one at a time.
+        const fees: number[] = [];
+        p.cargoFrom = [];
+        p.cargoLooks = [];
+        for (let k = 0; k < n; k++) {
+          const i = this.craneTop(crane, false);
+          if (i < 0) break;
+          this.cranePlaces(crane).stack.splice(i, 1);
+          p.cargoFrom.push(...(crane.stackFrom ?? []).splice(i, 1));
+          p.cargoLooks.push(...this.stackLooks(crane).splice(i, 1));
+          fees.push(...crane.stack.splice(i, 1));
+        }
+        return fees;
+      }
       p.cargoFrom = crane.kind === 'jib' ? undefined : (crane.stackFrom ?? []).splice(0, n);
       p.cargoLooks = crane.kind === 'jib' ? undefined : this.stackLooks(crane).splice(0, n);
       return crane.stack.splice(0, n);
@@ -7710,6 +7756,14 @@ export class World {
   private updateCrane(c: Crane): void {
     c.busy = false;
     this.jibJobs.delete(c);
+    // A tractor waiting under it for a container there is none of goes.
+    if (c.kind === 'gantry' && c.stack.length === 0 && !this.unloadingAt(c)) {
+      for (const p of this.people) {
+        if (p.state === 'picking' && this.underGantry(p) === c && p.timer > 1 && !p.handed) {
+          p.timer = 1;
+        }
+      }
+    }
     if (this.serveTractor(c)) return;
     const boxes = c.kind !== 'jib';
     const store = boxes
@@ -7747,21 +7801,112 @@ export class World {
       return;
     }
     c.pallets = boat.vessel === 'coaster';
-    // Out of the slot on its deck the ship drew it in.
+    // Out of the slot on its deck the ship drew it in: onto a tractor
+    // waiting under a gantry crane for one, or else its stack.
     if (c.kind !== 'jib') {
       const slot = c.liftSlot ?? boat.crates + (boat.lifted?.length ?? 0);
-      this.stackLooks(c).push(boxLookOf(boat.id, slot));
+      const look = boxLookOf(boat.id, slot);
       (boat.lifted ??= []).push(slot);
       c.liftSlot = undefined;
-    }
-    c.stack.push(boat.fee);
-    if (c.kind !== 'jib') {
-      (c.stackFrom ??= []).push(boat.id);
+      const tractor = this.directTo(c);
+      if (tractor) {
+        tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
+        tractor.timer = 1;
+      } else {
+        this.stackLooks(c).push(look);
+        c.stack.push(boat.fee);
+        (c.stackFrom ??= []).push(boat.id);
+      }
       if (boat.crates === 0) {
         boat.lifted = [];
         this.shipUnloaded(boat);
       }
+      return;
     }
+    c.stack.push(boat.fee);
+  }
+
+  /** A gantry crane with a ship alongside still to unload. */
+  private unloadingAt(c: Crane): boolean {
+    if (c.kind !== 'gantry') return false;
+    return this.boats.some(
+      (b) =>
+        b.state === 'moored' && b.vessel === 'feeder' && b.crates > 0 && this.craneReaches(c, b),
+    );
+  }
+
+  /** A terminal tractor waiting under a gantry crane for a container, for it to set one straight on. */
+  private directTo(c: Crane): Dockhand | undefined {
+    if (c.kind !== 'gantry') return undefined;
+    return this.people.find(
+      (p) => p.state === 'picking' && this.underGantry(p) === c && p.timer > 1 && !p.handed,
+    );
+  }
+
+  /**
+   * The places on a gantry crane's landing stack its containers and exports
+   * are in, kept beside them: four stacks, four high; one set down goes in
+   * the lowest free place with one under it.
+   */
+  private cranePlaces(c: Crane): { stack: number[]; out: number[] } {
+    const stack = (c.places ??= []);
+    const out = (c.outPlaces ??= []);
+    if (stack.length > c.stack.length) stack.length = c.stack.length;
+    if (out.length > (c.outStack?.length ?? 0)) out.length = c.outStack?.length ?? 0;
+    const used = new Set<number>();
+    for (const list of [stack, out]) {
+      list.forEach((k, i) => {
+        if (k >= craneStack(c) || used.has(k)) list[i] = -1;
+        else used.add(k);
+      });
+    }
+    for (const [list, n] of [
+      [stack, c.stack.length],
+      [out, c.outStack?.length ?? 0],
+    ] as const) {
+      for (let i = 0; i < n; i++) {
+        if (i < list.length && list[i] >= 0) continue;
+        const k = this.freeCranePlace(c, used);
+        list[i] = k;
+        used.add(k);
+      }
+    }
+    return { stack, out };
+  }
+
+  /** The lowest free place on a gantry crane's stack with one under it, or -1. */
+  private freeCranePlace(c: Crane, used: Set<number>): number {
+    for (let k = 0; k < craneStack(c); k++) {
+      if (!used.has(k) && (k < CRANE_STACKS || used.has(k - CRANE_STACKS))) return k;
+    }
+    return -1;
+  }
+
+  /** Where the next container set down on a gantry crane's stack goes. */
+  private nextCranePlace(c: Crane): number {
+    const { stack, out } = this.cranePlaces(c);
+    return this.freeCranePlace(c, new Set([...stack, ...out]));
+  }
+
+  /**
+   * The container (with `out`, the export) on a gantry crane's stack with
+   * none on it, highest first, to take next; -1 if none. Any other crane's
+   * comes off in turn.
+   */
+  private craneTop(c: Crane, out: boolean): number {
+    if (c.kind !== 'gantry') return (out ? (c.outStack?.length ?? 0) : c.stack.length) > 0 ? 0 : -1;
+    const places = this.cranePlaces(c);
+    const used = new Set([...places.stack, ...places.out]);
+    let best = -1;
+    let high = -1;
+    (out ? places.out : places.stack).forEach((k, i) => {
+      if (used.has(k + CRANE_STACKS)) return;
+      if (k > high) {
+        best = i;
+        high = k;
+      }
+    });
+    return best;
   }
 
   /**
@@ -7774,11 +7919,13 @@ export class World {
     const serve = c.serving;
     const p = serve && this.people.find((q) => q.id === serve.id);
     if (serve && p) {
+      const top = Math.max(0, this.craneTop(c, false));
       return {
         working: serve.give ? 'give' : 'take',
         workTruck: p.id,
-        workLook: serve.give ? this.stackLooks(c)[0] : this.carriedLooks(p)[0],
+        workLook: serve.give ? this.stackLooks(c)[top] : this.carriedLooks(p)[0],
         workPhase: c.timer / craneTicks(c),
+        workPlace: serve.give ? this.cranePlaces(c).stack[top] : this.nextCranePlace(c),
       };
     }
     const k = c.liftSlot;
@@ -7786,12 +7933,22 @@ export class World {
     const b = this.boats.find((q) => q.id === c.liftBoat);
     if (!b) return {};
     const unload = this.liftingFrom(c, b);
+    const gantry = c.kind === 'gantry';
+    const top = this.craneTop(c, true);
+    // Straight onto a tractor waiting under it, or onto its stack.
+    const tractor = unload ? this.directTo(c) : undefined;
     return {
       working: unload ? 'unload' : 'load',
       workBoat: b.id,
       workSlot: k,
-      workLook: unload ? boxLookOf(b.id, k) : this.outLooks(c)[0],
+      workLook: unload ? boxLookOf(b.id, k) : this.outLooks(c)[Math.max(0, top)],
       workPhase: c.timer / craneTicks(c),
+      workTruck: tractor?.id,
+      workPlace: !gantry
+        ? undefined
+        : unload
+          ? this.nextCranePlace(c)
+          : this.cranePlaces(c).out[Math.max(0, top)],
     };
   }
 
@@ -7945,7 +8102,13 @@ export class World {
       c.serving = undefined;
       // Only between lifts: never part way through one off the ship.
       if (c.timer > 0) return false;
-      p = this.people.find((q) => waiting(q) && (q.state === 'dropping' || c.stack.length > 0));
+      // A ship alongside to unload sets one straight on a tractor instead.
+      p = this.people.find(
+        (q) =>
+          waiting(q) &&
+          !q.handed &&
+          (q.state === 'dropping' || (c.stack.length > 0 && !this.unloadingAt(c))),
+      );
       if (!p) return false;
       c.serving = { id: p.id, give: p.state === 'picking' };
     }
@@ -7963,22 +8126,41 @@ export class World {
    * lifting one onto a tractor or off one has it, off the stack once its
    * spreader has it, or on once set down.
    */
-  private servedStack(c: Crane, set: number): { stack: number; out: number; looks?: number[] } {
+  private servedStack(
+    c: Crane,
+    set: number,
+  ): { stack: number; out: number; looks?: number[]; places?: number[] } {
     const stack = c.stack.length + set;
     const out = c.outStack?.length ?? 0;
     if (c.kind === 'jib') return { stack, out };
     const looks = [...this.stackLooks(c), ...this.outLooks(c)];
+    const gantry = c.kind === 'gantry';
+    const at = gantry ? this.cranePlaces(c) : undefined;
+    const places = at && [...at.stack, ...at.out];
+    const less = (i: number) => {
+      looks.splice(i, 1);
+      places?.splice(i, 1);
+    };
     const serve = c.serving;
     const p = serve && this.people.find((q) => q.id === serve.id);
     const phase = c.timer / craneTicks(c);
     if (serve?.give && phase >= B.CRANE_LIFT_TAKEN && stack > 0) {
-      looks.shift();
-      return { stack: stack - 1, out, looks };
+      less(Math.max(0, this.craneTop(c, false)));
+      return { stack: stack - 1, out, looks, places };
     }
     if (serve && !serve.give && p && phase >= B.CRANE_LIFT_SET) {
-      return { stack, out: out + 1, looks: [...looks, ...this.carriedLooks(p)] };
+      places?.push(this.nextCranePlace(c));
+      return { stack, out: out + 1, looks: [...looks, ...this.carriedLooks(p)], places };
     }
-    return { stack, out, looks };
+    // A gantry crane putting an export on board: off the stack once its
+    // spreader has it (the ship shows it once it is set down; see deckView).
+    const ship = this.boats.find((b) => b.id === c.liftBoat);
+    const loading = gantry && c.busy && !serve && ship && !this.liftingFrom(c, ship);
+    if (loading && c.liftSlot !== undefined && phase >= B.CRANE_LIFT_TAKEN && out > 0) {
+      less(stack + Math.max(0, this.craneTop(c, true)));
+      return { stack, out: out - 1, looks, places };
+    }
+    return { stack, out, looks, places };
   }
 
   /**
@@ -7989,12 +8171,27 @@ export class World {
     p: Dockhand,
     view: { load: number; looks?: number[] },
   ): { load: number; looks?: number[] } {
+    if (p.handed) return { load: p.handed.fees.length, looks: [...p.handed.looks] };
     const c = this.underGantry(p);
-    const serve = c?.serving;
-    if (!c || !serve || serve.id !== p.id) return view;
+    if (!c) return view;
     const phase = c.timer / craneTicks(c);
+    // Set straight on it off the ship.
+    const ship = this.boats.find((b) => b.id === c.liftBoat);
+    if (
+      !c.serving &&
+      this.directTo(c) === p &&
+      ship &&
+      c.liftSlot !== undefined &&
+      this.liftingFrom(c, ship) &&
+      phase >= B.CRANE_LIFT_SET
+    ) {
+      return { load: 1, looks: [boxLookOf(ship.id, c.liftSlot)] };
+    }
+    const serve = c.serving;
+    if (!serve || serve.id !== p.id) return view;
     if (serve.give && phase >= B.CRANE_LIFT_SET) {
-      return { load: view.load + 1, looks: [...(view.looks ?? []), this.stackLooks(c)[0]] };
+      const top = Math.max(0, this.craneTop(c, false));
+      return { load: view.load + 1, looks: [...(view.looks ?? []), this.stackLooks(c)[top]] };
     }
     if (!serve.give && phase >= B.CRANE_LIFT_TAKEN) return { load: 0, looks: [] };
     return view;

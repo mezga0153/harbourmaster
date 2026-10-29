@@ -2231,10 +2231,13 @@ describe('Container Port tier', () => {
       0,
     );
     let given = 0;
+    let direct = 0;
     const pick = footprint(m, 'gantryCrane', at, f)[2];
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
       const v = world.snapshot().cranes.find((c) => c.idx === at)!;
+      // Off the ship straight onto one waiting under it.
+      if (v.working === 'unload' && v.workTruck !== undefined) direct++;
       if (v.working === 'give') {
         given++;
         // The tractor waits in the bay between the legs, not in the stack.
@@ -2242,8 +2245,33 @@ describe('Container Port tier', () => {
         expect(world['tileOf'](p)).toBe(pick);
       }
     }
-    expect(given).toBeGreaterThan(0);
+    expect(given + direct).toBeGreaterThan(0);
+    expect(direct).toBeGreaterThan(0);
     expect(world.stats.containers).toBeGreaterThan(0);
+  });
+
+  it('takes containers off a gantry crane’s stack only from the top', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const [{ at, f }] = gantryPier(world, t.crane);
+    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const c = world.cranes.get(at)!;
+    // Four on the ground, one on top of the first.
+    for (let k = 0; k < 5; k++) {
+      c.stack.push(100 + k);
+      (c.stackFrom ??= []).push(-1);
+    }
+    const places = world['cranePlaces'](c).stack;
+    expect(places).toEqual([0, 1, 2, 3, 4]);
+    // The one on top comes off first; the one under it is not free till then.
+    expect(world['craneTop'](c, false)).toBe(4);
+    c.stack.splice(4, 1);
+    c.stackFrom!.splice(4, 1);
+    places.splice(4, 1);
+    expect([0, 1, 2, 3]).toContain(world['craneTop'](c, false));
   });
 
   it('keeps terminal tractors away from a yard with no gantry', () => {

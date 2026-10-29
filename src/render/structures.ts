@@ -322,8 +322,10 @@ interface ShipGantryParts {
   work: 'load' | 'unload' | 'give' | 'take' | null;
   boat: number;
   slot: number;
-  /** The tractor it is lifting a container onto or off. */
+  /** The tractor it is lifting a container onto or off, or setting one straight on off the ship. */
   truck: number;
+  /** The place on its stack the container it moves is in, or goes. */
+  place?: number;
   look: number;
   /** How far through a lift, 0 to 1, kept in step with the game. */
   phase: number;
@@ -338,6 +340,8 @@ export class Structures {
   readonly group = new Group();
   private tiles = new Map<number, Object3D>();
   private stacks = new Map<number, BayStack>();
+  /** Gantry cranes' stacks: each container's look and place, as the game has them. */
+  private cranePlaces = new Map<number, { looks: number[]; places: number[] }>();
   /** Which container is in which slot, by yard (its first tile) or crane; see settle. */
   private slots = new Map<number, number[]>();
   /** Each container yard's tiles, by its first. */
@@ -440,12 +444,25 @@ export class Structures {
     for (const v of views) {
       const c = this.cranes.get(v.idx);
       if (!c) continue;
-      // Exports set down for a container crane wait on its stack too.
-      const order = v.looks ? this.settled(-1 - v.idx, v.looks) : undefined;
-      c.stack.forEach((o, k) => {
-        o.visible = k < v.stack + v.out;
-        if (order && k < order.length) paintContainer(o, order[k]);
-      });
+      // Exports set down for a container crane wait on its stack too: on a
+      // gantry crane's each in the place the game has it.
+      if (v.places && v.looks) {
+        const at = new Map<number, number>();
+        v.places.forEach((k, j) => at.set(k, v.looks![j]));
+        c.stack.forEach((o, k) => {
+          const look = at.get(k);
+          o.visible = look !== undefined;
+          if (look !== undefined) paintContainer(o, look);
+        });
+        this.slots.set(-1 - v.idx, [...v.looks]);
+        this.cranePlaces.set(v.idx, { looks: v.looks, places: v.places });
+      } else {
+        const order = v.looks ? this.settled(-1 - v.idx, v.looks) : undefined;
+        c.stack.forEach((o, k) => {
+          o.visible = k < v.stack + v.out;
+          if (order && k < order.length) paintContainer(o, order[k]);
+        });
+      }
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
       if (c.jib) {
@@ -458,7 +475,10 @@ export class Structures {
       const tractor = v.working === 'give' || v.working === 'take';
       if (c.sts) c.sts.work = v.working ?? null;
       else if (c.mhc) c.mhc.work = tractor ? null : ((v.working as 'load' | 'unload') ?? null);
-      if (c.sts && v.workTruck !== undefined) c.sts.truck = v.workTruck;
+      if (c.sts) {
+        c.sts.truck = v.workTruck ?? -1;
+        c.sts.place = v.workPlace;
+      }
       if (v.workBoat !== undefined) g.boat = v.workBoat;
       if (v.workSlot !== undefined) g.slot = v.workSlot;
       if (v.workLook !== undefined && v.workLook !== g.look) {
@@ -557,11 +577,14 @@ export class Structures {
     let carry = false;
     // Its other end: a slot on the ship's deck, or on a tractor under it.
     const tractor = g.work === 'give' || g.work === 'take';
+    // Off the ship straight onto a tractor under it, rather than its stack.
+    const direct = g.work === 'unload' && g.truck >= 0;
     const ship = !g.work
       ? null
       : tractor
         ? this.truckSlot?.(g.truck, 0, this.slotAt)
         : this.truckSlot?.(g.boat, g.slot, this.slotAt);
+    const onto = direct ? this.truckSlot?.(g.truck, 0, new Vector3()) : null;
     if (g.work && ship) {
       g.frame.updateWorldMatrix(true, false);
       g.frame.worldToLocal(ship);
@@ -574,15 +597,20 @@ export class Structures {
       // container it gives a tractor.
       const order = this.slots.get(-1 - g.idx) ?? [];
       const k =
-        g.work === 'give'
-          ? Math.max(0, order.indexOf(g.look))
-          : Math.max(0, Math.min(c.stack.length - 1, g.stacked - (g.work === 'load' ? 1 : 0)));
-      const slot = c.stack[k];
-      const pile = {
-        x: slot.position.x,
-        z: slot.position.z,
-        drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
-      };
+        g.place !== undefined && g.place >= 0
+          ? g.place
+          : g.work === 'give'
+            ? Math.max(0, order.indexOf(g.look))
+            : Math.max(0, Math.min(c.stack.length - 1, g.stacked - (g.work === 'load' ? 1 : 0)));
+      const slot = c.stack[Math.min(c.stack.length - 1, k)];
+      if (onto) g.frame.worldToLocal(onto);
+      const pile = onto
+        ? { x: onto.x, z: onto.z, drop: trolley.position.y - (onto.y + BOX_HEIGHT + 0.04) }
+        : {
+            x: slot.position.x,
+            z: slot.position.z,
+            drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
+          };
       const [from, to] = g.work === 'unload' || g.work === 'take' ? [deck, pile] : [pile, deck];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
@@ -599,7 +627,13 @@ export class Structures {
       // neither.
       const onDeck = () =>
         tractor ? !!this.slotShown?.(g.truck, 0) : !!this.slotShown?.(g.boat, g.slot);
-      const onStack = () => this.kept(-1 - g.idx, g.look);
+      // Where it is set down: the tractor, for one straight off the ship.
+      const onStack = () =>
+        direct
+          ? this.slotShown?.(g.truck, 0)
+            ? g.base + 1
+            : g.base
+          : this.kept(-1 - g.idx, g.look);
       const [gone, there] =
         g.work === 'unload' || g.work === 'take'
           ? [() => !onDeck(), () => onStack() > g.base]
@@ -612,7 +646,8 @@ export class Structures {
         x = from.x;
         z = from.z;
         drop = dip((p - a) / (b - a), from.drop);
-        carry = p >= take || gone();
+        // Only once it has left where it was: never on both at once.
+        carry = gone();
       } else if (p < d) {
         const t = ease((p - b) / (d - b));
         x = from.x + (to.x - from.x) * t;
@@ -1128,7 +1163,15 @@ export class Structures {
    */
   containerAt(at: HandAt, out: Vector3): number | null {
     let slot: Object3D | undefined;
-    if (at.crane !== undefined) {
+    const placed = at.crane !== undefined ? this.cranePlaces.get(at.crane) : undefined;
+    if (at.crane !== undefined && placed) {
+      // A gantry crane's stack, each in its place.
+      const stack = this.cranes.get(at.crane)?.stack ?? [];
+      const j = at.look === undefined ? -1 : placed.looks.indexOf(at.look);
+      const k = j >= 0 ? placed.places[j] : at.place;
+      slot = k === undefined ? undefined : stack[k];
+      if (at.look !== undefined && !slot?.visible) slot = undefined;
+    } else if (at.crane !== undefined) {
       const stack = this.cranes.get(at.crane)?.stack ?? [];
       const order = this.slots.get(-1 - at.crane) ?? [];
       const k = at.look === undefined ? order.length : order.indexOf(at.look);
