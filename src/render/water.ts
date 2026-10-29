@@ -158,6 +158,9 @@ const fragmentShader = /* glsl */ `
       float s = 0.0;
       float l = 0.0;
       float a = 0.0;
+      // How far past the oldest point of the track: water the boat never
+      // came through, where its wake must not show.
+      float past = 0.0;
       vec2 back = vec2(1.0, 0.0);
       for (int k = 0; k < WAKE_POINTS - 1; k++) {
         if (k >= count - 1) break;
@@ -176,13 +179,15 @@ const fragmentShader = /* glsl */ `
           a = mix(p0.w, p1.w, clamp(t / len, 0.0, 1.0));
           back = dir;
           l = dot(p - p0.xy, vec2(-dir.y, dir.x));
+          past = k == count - 2 ? max(along - len, 0.0) : 0.0;
         }
       }
       float halfBeam = hull.x;
       float side = abs(l);
       // Nothing ahead of the stem: the wake starts right at the bow, and
       // fades out along the track as the water settles behind the boat.
-      float on = a * smoothstep(0.0, 0.08, s);
+      // Nor beyond where the boat started laying it.
+      float on = a * smoothstep(0.0, 0.08, s) * (1.0 - smoothstep(0.0, 0.3, past));
       if (on < 0.01) continue;
 
       // The arms of the V: a ridge of broken water spreading out at a
