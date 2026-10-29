@@ -2708,7 +2708,7 @@ describe('Container Port tier', () => {
     const b = coaster(1001);
     world.boats.push(a, b);
     // Four crates waiting to go out: the first ship ready claims them all.
-    world['exportsWaiting'] = () => 4;
+    world['exportsFor'] = () => 4;
     expect(world['stillLoading'](a)).toBe(true);
     expect(a.loadQuota).toBe(4);
     expect(world['stillLoading'](b)).toBe(false);

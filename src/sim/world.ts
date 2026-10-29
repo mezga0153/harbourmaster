@@ -6429,6 +6429,28 @@ export class World {
   }
 
   /**
+   * Exports this ship could take on: from storage, and those already set
+   * down where they go on board it, at its own crane or on the quay by it,
+   * or left behind by a ship gone; not those at another berth for the ship
+   * lying there or to come, nor shippers' cargo still outside the port.
+   */
+  private exportsFor(b: Boat): number {
+    const boxes = b.vessel === 'feeder';
+    let n = 0;
+    for (const s of boxes ? this.yards.values() : this.bays.values()) n += s.exports?.length ?? 0;
+    if (boxes) {
+      for (const c of this.cranes.values()) {
+        if (this.craneReaches(c, b)) n += c.outStack?.length ?? 0;
+      }
+    } else {
+      for (const p of this.piles.values()) {
+        if (p.out && (this.pileFor(b, p.idx) || this.stranded(p))) n += p.crates.length;
+      }
+    }
+    return n;
+  }
+
+  /**
    * A ship unloaded stays to take exports on board while any are waiting and
    * being brought to it, until it is full or nothing has come for a while.
    */
@@ -6444,7 +6466,7 @@ export class World {
         .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
         .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
       const room = outCap(b) - (b.out ?? 0);
-      const take = clamp(this.exportsWaiting(boxes) - claimed, 0, room);
+      const take = clamp(this.exportsFor(b) - claimed, 0, room);
       b.loadQuota = (b.out ?? 0) + take;
       // The line allows time to load as well as to unload.
       b.grace += take * B.MOORED_TICKS_PER_CRATE;
@@ -6458,7 +6480,7 @@ export class World {
         (n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0) - (o.outIncoming ?? 0)),
         0,
       );
-    if (this.exportsWaiting(boxes) - theirs <= 0) return false;
+    if (this.exportsFor(b) - theirs <= 0) return false;
     // Its own cargo still being cleared off the crane comes first.
     const busy = [...this.cranes.values()].some(
       (c) => c.stack.length > 0 && this.craneReaches(c, b),
