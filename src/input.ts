@@ -473,7 +473,7 @@ export class Input {
       tiles,
       tiles.map(() => !error),
     );
-    this.renderer.overlay.setArrow(map, i, f);
+    this.renderer.overlay.setArrow(map, i, f, tiles);
     preview.value = {
       count: error ? 0 : 1,
       rotatable: true,

@@ -167,7 +167,7 @@ function handle(msg: WorkerMessage): void {
 
 if (import.meta.env.DEV) {
   // Handle for poking at the game from the console or a test driver.
-  Object.assign(window, { __hm: { renderer, send, map: () => map, snapshot, selection } });
+  Object.assign(window, { __hm: { renderer, send, map: () => map, snapshot, selection, tool } });
   // Mirror the game into .debug/ for tools outside the browser.
   void import('./debug/bridge').then((b) =>
     b.startBridge({ worker, send, renderer, map: () => map }),

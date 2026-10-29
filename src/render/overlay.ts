@@ -1,6 +1,7 @@
 import {
   BufferGeometry,
   Color,
+  DoubleSide,
   Float32BufferAttribute,
   Group,
   InstancedMesh,
@@ -87,15 +88,31 @@ export class Overlay {
     this.ring.renderOrder = 10;
     this.ring.visible = false;
 
-    // Points out of a building's front while it is being placed.
-    const tri = new BufferGeometry();
-    tri.setAttribute(
+    // Points out of a building's front while it is being placed: a shaft
+    // from just inside the front edge (z = 0) and a head beyond it, along +z.
+    // Drawn from both sides, so it shows whichever way its faces wind.
+    const arrow = new BufferGeometry();
+    const [w, h, back, neck, tip] = [0.08, 0.24, -0.3, 0.18, 0.55];
+    arrow.setAttribute(
       'position',
-      new Float32BufferAttribute([-0.2, 0, 0.12, 0.2, 0, 0.12, 0, 0, 0.42], 3),
+      new Float32BufferAttribute(
+        [
+          ...[-w, 0, back, w, 0, neck, w, 0, back],
+          ...[-w, 0, back, -w, 0, neck, w, 0, neck],
+          ...[-h, 0, neck, 0, 0, tip, h, 0, neck],
+        ],
+        3,
+      ),
     );
     this.arrow = new Mesh(
-      tri,
-      new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false }),
+      arrow,
+      new MeshBasicMaterial({
+        color: 0xffd23f,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        side: DoubleSide,
+      }),
     );
     this.arrow.renderOrder = 10;
     this.arrow.visible = false;
@@ -246,15 +263,34 @@ export class Overlay {
     if (this.hints.instanceColor) this.hints.instanceColor.needsUpdate = true;
   }
 
-  /** Arrow on tile `i` pointing the way a building faces (0 +x, 1 +y, …). */
-  setArrow(map: GameMap, i: number | null, facing: number): void {
+  /**
+   * Arrow out of the front of a building being placed on tile `i`, the way
+   * it faces (0 +x, 1 +y, …): from the middle of the front edge of its
+   * `tiles` (just `i` for a one-tile building).
+   */
+  setArrow(map: GameMap, i: number | null, facing: number, tiles: number[] = []): void {
     this.arrow.visible = i !== null;
     if (i === null) return;
-    const x = map.xOf(i);
-    const y = map.yOf(i);
-    this.arrow.position.set(x + 0.5, surfaceY(map, x, y) + 0.06, y + 0.5);
-    // The triangle points along +z (facing 1); turn it like the buildings.
+    const all = tiles.length > 0 ? tiles : [i];
     const [dx, dy] = FACING[facing & 3];
+    let cx = 0;
+    let cy = 0;
+    for (const t of all) {
+      cx += map.xOf(t) + 0.5;
+      cy += map.yOf(t) + 0.5;
+    }
+    cx /= all.length;
+    cy /= all.length;
+    // How far the front edge lies from the middle, along the facing.
+    let front = 0;
+    for (const t of all) {
+      front = Math.max(front, (map.xOf(t) + 0.5 - cx) * dx + (map.yOf(t) + 0.5 - cy) * dy + 0.5);
+    }
+    const x = cx + dx * front;
+    const y = cy + dy * front;
+    const top = Math.max(...all.map((t) => surfaceY(map, map.xOf(t), map.yOf(t))));
+    this.arrow.position.set(x, top + 0.08, y);
+    // The arrow points along +z (facing 1); turn it like the buildings.
     this.arrow.rotation.y = Math.atan2(dx, dy);
   }
 

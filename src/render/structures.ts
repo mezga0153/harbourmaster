@@ -280,6 +280,27 @@ export class Structures {
     this.tiles.set(i, obj);
   }
 
+  /**
+   * Whether the building on tile `i` joins another of its kind beside it,
+   * facing the same way, on its left (-x) and right (+x) as it is drawn,
+   * facing +z before it is turned (see turn).
+   */
+  private joins(i: number): { left: boolean; right: boolean } {
+    const m = this.map;
+    const f = m.orient[i] & 3;
+    const [dx, dy] = FACING[f];
+    // Its +x in the world, once turned to face (dx, dy).
+    const [rx, ry] = [dy, -dx];
+    const same = (sx: number, sy: number) => {
+      const x = m.xOf(i) + sx;
+      const y = m.yOf(i) + sy;
+      if (!m.inBounds(x, y)) return false;
+      const n = m.idx(x, y);
+      return m.build[n] === m.build[i] && (m.orient[n] & 3) === f;
+    };
+    return { left: same(-rx, -ry), right: same(rx, ry) };
+  }
+
   private is(i: number, dx: number, dy: number, ...codes: number[]): boolean {
     const x = this.map.xOf(i) + dx;
     const y = this.map.yOf(i) + dy;
@@ -327,22 +348,33 @@ export class Structures {
         this.crossing(g, i, top);
         return g;
       case Build.Office: {
-        // Harbour office: two storeys, a control room on top, radio mast and flag.
+        // Harbour office: two storeys, a control room on top, radio mast and
+        // flag. Offices side by side, facing the same way, make one long
+        // block with a single entrance, control room, mast and flag.
+        const { left, right } = this.joins(i);
+        const [x0, x1] = [left ? 0 : 0.15, right ? 1 : 0.85];
+        const lead = !left;
         g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.05;
-        g.add(box(0.7, 0.4, 0.62, C.cabin, 0.5, y, 0.5));
+        g.add(box(x1 - x0, 0.4, 0.62, C.cabin, (x0 + x1) / 2, y, 0.5));
+        const [w0, w1] = [left ? 0 : 0.22, right ? 1 : 0.78];
         for (const z of [0.18, 0.82]) {
-          g.add(box(0.56, 0.06, 0.012, C.window, 0.5, y + 0.08, z));
-          g.add(box(0.56, 0.06, 0.012, C.window, 0.5, y + 0.25, z));
+          g.add(box(w1 - w0, 0.06, 0.012, C.window, (w0 + w1) / 2, y + 0.08, z));
+          g.add(box(w1 - w0, 0.06, 0.012, C.window, (w0 + w1) / 2, y + 0.25, z));
         }
-        g.add(box(0.74, 0.03, 0.66, C.sign, 0.5, y + 0.4, 0.5));
-        g.add(box(0.36, 0.16, 0.36, C.window, 0.5, y + 0.43, 0.5));
-        g.add(box(0.42, 0.03, 0.42, C.sign, 0.5, y + 0.59, 0.5));
-        g.add(cyl(0.012, 0.42, C.chassis, 0.62, y + 0.62, 0.62));
-        g.add(cyl(0.012, 0.5, C.chassis, 0.16, y, 0.84));
-        g.add(box(0.012, 0.1, 0.14, C.funnel, 0.16, y + 0.4, 0.91));
-        // Front door, towards +z like every building before it is turned.
-        g.add(box(0.16, 0.22, 0.02, C.woodDark, 0.5, y, 0.82));
+        const [r0, r1] = [left ? 0 : 0.13, right ? 1 : 0.87];
+        g.add(box(r1 - r0, 0.03, 0.66, C.sign, (r0 + r1) / 2, y + 0.4, 0.5));
+        if (lead) {
+          g.add(box(0.36, 0.16, 0.36, C.window, 0.5, y + 0.43, 0.5));
+          g.add(box(0.42, 0.03, 0.42, C.sign, 0.5, y + 0.59, 0.5));
+          g.add(cyl(0.012, 0.42, C.chassis, 0.62, y + 0.62, 0.62));
+          // Front door, towards +z like every building before it is turned.
+          g.add(box(0.16, 0.22, 0.02, C.woodDark, 0.5, y, 0.82));
+        }
+        if (!right) {
+          g.add(cyl(0.012, 0.5, C.chassis, 0.16 + (left ? 0.68 : 0), y, 0.84));
+          g.add(box(0.012, 0.1, 0.14, C.funnel, 0.16 + (left ? 0.68 : 0), y + 0.4, 0.91));
+        }
         return g;
       }
       case Build.PortRoad: {
@@ -617,18 +649,26 @@ export class Structures {
       }
       case Build.Depot: {
         // Concrete apron, a garage with its door at the front (+z), a pump.
+        // Depots side by side, facing the same way, make one long garage
+        // with a door for each bay and a pump at the end.
+        const { left, right } = this.joins(i);
         g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.05;
-        g.add(box(0.84, 0.36, 0.56, C.depotWall, 0.5, y, 0.32));
-        g.add(box(0.88, 0.04, 0.6, C.depotRoof, 0.5, y + 0.36, 0.32));
+        const [x0, x1] = [left ? 0 : 0.08, right ? 1 : 0.92];
+        g.add(box(x1 - x0, 0.36, 0.56, C.depotWall, (x0 + x1) / 2, y, 0.32));
+        const [r0, r1] = [left ? 0 : 0.06, right ? 1 : 0.94];
+        g.add(box(r1 - r0, 0.04, 0.6, C.depotRoof, (r0 + r1) / 2, y + 0.36, 0.32));
         g.add(box(0.46, 0.28, 0.02, C.chassis, 0.5, y, 0.6));
         for (let k = 0; k < 4; k++) {
           g.add(box(0.46, 0.012, 0.024, C.quayWall, 0.5, y + 0.04 + k * 0.065, 0.6));
         }
         // Hazard stripe across the apron and a red fuel pump.
-        g.add(box(0.9, 0.008, 0.05, C.stripe, 0.5, y, 0.9));
-        g.add(box(0.1, 0.22, 0.08, C.funnel, 0.88, y, 0.8));
-        g.add(box(0.11, 0.05, 0.09, C.cabin, 0.88, y + 0.16, 0.8));
+        const [s0, s1] = [left ? 0 : 0.05, right ? 1 : 0.95];
+        g.add(box(s1 - s0, 0.008, 0.05, C.stripe, (s0 + s1) / 2, y, 0.9));
+        if (!right) {
+          g.add(box(0.1, 0.22, 0.08, C.funnel, 0.88, y, 0.8));
+          g.add(box(0.11, 0.05, 0.09, C.cabin, 0.88, y + 0.16, 0.8));
+        }
         return g;
       }
       case Build.BreakHut: {
