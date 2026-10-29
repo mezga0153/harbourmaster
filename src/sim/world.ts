@@ -5,6 +5,7 @@ import type {
   ContractView,
   CraneView,
   EntityView,
+  HandAt,
   Ledger,
   LedgerCategory,
   SimEvent,
@@ -4220,6 +4221,75 @@ export class World {
       if (w.workTruck !== undefined) lifts.set(w.workTruck, { ...w, yard: y.idx });
     }
     return lifts;
+  }
+
+  /**
+   * A reach stacker or terminal tractor taking a container off where it is
+   * or setting one down, for the view to work it there in step.
+   */
+  private handView(
+    p: Dockhand,
+  ): Pick<EntityView, 'handStage' | 'handPhase' | 'handTicks' | 'handAt'> {
+    if (p.kind !== 'stacker' && p.kind !== 'tractor') return {};
+    if (p.state !== 'picking' && p.state !== 'dropping') return {};
+    const pick = p.state === 'picking';
+    const ticks = this.handlingTicks(p, pick ? B.PICK_TICKS : B.DROP_TICKS);
+    return {
+      handStage: pick ? 'pick' : 'drop',
+      handPhase: clamp(1 - p.timer / ticks, 0, 1),
+      handTicks: ticks,
+      handAt: this.handAt(p, pick),
+    };
+  }
+
+  /** Where a stacker or tractor is taking a container from, or setting one down. */
+  private handAt(p: Dockhand, pick: boolean): HandAt | undefined {
+    const first = (y: Bay) => (y.tiles ?? [y.idx])[0];
+    // Under a yard gantry, a tractor stands along the lane for it to lift.
+    const lane = (y: Bay): HandAt => {
+      const along = p.kind === 'tractor' ? this.laneHeading(y) : undefined;
+      return along === undefined ? { yard: first(y) } : { yard: first(y), along };
+    };
+    if (p.truckId !== undefined) {
+      const t = this.trucks.find((q) => q.id === p.truckId);
+      const yard = this.yards.get(p.bayIdx);
+      if (!t || !yard) return undefined;
+      // Off the stack onto the truck, or off the truck onto the stack.
+      if (pick !== !!p.truckLoad) return { truck: t.id, slot: pick ? t.cargo - 1 : t.cargo };
+      if (!pick) return { yard: first(yard), place: this.nextYardSlot(yard) };
+      const at = this.clearTop(yard);
+      if (at < 0) return undefined;
+      const place = this.yardSlots(yard).boxes[at];
+      return { yard: first(yard), look: this.boxLooks(yard)[at], place };
+    }
+    if (pick) {
+      const crane = this.cranes.get(p.craneIdx);
+      if (crane) return { crane: crane.idx, look: this.stackLooks(crane)[0] };
+      const yard = this.yards.get(p.stockIdx);
+      if (!yard || !p.outbound) return undefined;
+      const at = Math.max(0, this.yardTop(yard, true));
+      const place = this.yardSlots(yard).exports[at];
+      return { ...lane(yard), look: this.exportLooks(yard)[at], place };
+    }
+    if (p.toCrane !== undefined && p.toCrane >= 0) return { crane: p.toCrane };
+    if (p.toBoat !== undefined && p.toBoat >= 0) return undefined;
+    const yard = this.yards.get(p.bayIdx);
+    if (!yard) return undefined;
+    // Where it will be stacked, by when customs clear it.
+    const ready = p.outbound ? undefined : this.customsFor(p.cargoFrom?.[0]);
+    return { ...lane(yard), place: this.nextYardSlot(yard, ready) };
+  }
+
+  /** Which way the lane under a yard's gantry runs, as a heading; see gantryLane. */
+  private laneHeading(y: Bay): number | undefined {
+    const m = this.map;
+    const area = new Set(y.tiles ?? [y.idx]);
+    const g = m.build.findIndex(
+      (b, i) => b === Build.YardGantry && m.neighbors4(i).some((n) => area.has(n)),
+    );
+    if (g < 0) return undefined;
+    const into = m.neighbors4(g).find((n) => area.has(n))!;
+    return Math.atan2(m.xOf(g) - m.xOf(into), m.yOf(into) - m.yOf(g));
   }
 
   /**
@@ -8815,6 +8885,7 @@ export class World {
         capacity: p.capacity,
         alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
         why: this.workerWhy(p),
+        ...this.handView(p),
       });
       staff.push({
         id: p.id,

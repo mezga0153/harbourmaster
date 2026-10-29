@@ -114,6 +114,8 @@ export class Renderer {
     structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
     structures.slotShown = (id, k) => entities.slotShown(id, k);
     structures.slotObject = (id, k) => entities.slotObject(id, k);
+    // Stackers and tractors pull up to the container they take or set down.
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
     const trains = new Trains(map);
     const scenery = new Group();
     const trees = buildTrees(map);

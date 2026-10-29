@@ -86,6 +86,33 @@ export interface EntityView {
   givingWayTo?: number;
   /** Why it is held up, when it is, and what would help. */
   why?: string;
+  /**
+   * Reach stackers and terminal tractors at work: taking a container off
+   * where it is ('pick') or setting one down ('drop'), how far through
+   * that they are (0 to 1) and how many ticks it takes in all. The
+   * container changes hands at the end. `handAt`: where, if known.
+   */
+  handStage?: 'pick' | 'drop';
+  handPhase?: number;
+  handTicks?: number;
+  handAt?: HandAt;
+}
+
+/**
+ * Where a machine takes a container from or sets one down: a crane's stack
+ * (by the crane), a yard (by its first tile) or a truck's container slot;
+ * the container by how it looks, or with no look the next free place.
+ * `along`: at a yard gantry, which way the lane under it runs, as a heading.
+ */
+export interface HandAt {
+  crane?: number;
+  yard?: number;
+  truck?: number;
+  slot?: number;
+  look?: number;
+  along?: number;
+  /** In a yard: the place it is stacked in, or goes; see YardView.slots. */
+  place?: number;
 }
 
 export interface CraneView {

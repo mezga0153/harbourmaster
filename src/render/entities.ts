@@ -1,6 +1,6 @@
 import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS } from '../sim/balance';
-import type { EntityView } from '../protocol';
+import type { EntityView, HandAt } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { isMachineKind } from '../sim/machines';
 import { TICKS_PER_SECOND } from '../sim/types';
@@ -9,13 +9,18 @@ import {
   boat,
   FORKS_EMPTY,
   FORKS_LOADED,
+  CARRY_LOW,
   forklift,
+  headingOf,
   person,
   paintLoad,
+  reachTo,
   showDeck,
   showLoad,
   stacker,
+  STACKER_REACH,
   tractor,
+  TRAILER_AT,
   truck,
   type Model,
 } from './models';
@@ -47,6 +52,9 @@ interface Entry {
   about?: About;
   /** Forklifts: how far off their way they were when they turned off it part way round. */
   slip?: { x: number; y: number; yaw: number; left: number };
+  /** Stackers and tractors: how they stood last frame, and the container they are handing over. */
+  pose?: Pose;
+  hand?: Hand;
 }
 
 interface About {
@@ -63,6 +71,38 @@ interface About {
 const FOLD = (80 * Math.PI) / 180;
 /** How quickly a trailer settles straight behind a truck standing still, per game second. */
 const SETTLE = 3;
+
+/** Where a machine stands and which way it faces; for a stacker, how high it holds a container. */
+interface Pose {
+  x: number;
+  z: number;
+  dir: number;
+  h: number;
+}
+
+/** A reach stacker or tractor taking a container off where it is, or setting one down. */
+interface Hand {
+  stage: 'pick' | 'drop';
+  /** How far through it was when first shown, and how it stood. */
+  start?: number;
+  from: Pose;
+  /** Which way it faces to work the container. */
+  face?: number;
+  /** A tractor under a yard gantry: its container, on the map, which it turns about. */
+  pivot?: { x: number; z: number };
+  /** Game time the container changed hands, as it goes back to driving. */
+  done?: number;
+}
+
+/** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
+const HAND_SETTLE = 0.5;
+/** How far a stacker lifts a container clear of the others as it moves it. */
+const CLEAR = 0.1;
+
+const ease = (t: number) => {
+  const c = Math.min(1, Math.max(0, t));
+  return c * c * (3 - 2 * c);
+};
 
 /** Most wakes drawn at once, and points along each. */
 export const WAKE_MAX = 32;
@@ -256,6 +296,13 @@ export class Entities {
   private sim = 0;
   /** Wakes left behind by boats that have gone or turned about. */
   private loose: Track[] = [];
+  /**
+   * Where a container lies on a crane's stack or in a yard, for a stacker
+   * or tractor to hand it over there: its base, and which way its length
+   * runs as a heading. Set by the renderer.
+   */
+  containerAt?: (at: HandAt, out: Vector3) => number | null;
+  private slotAt = new Vector3();
 
   constructor(private map: GameMap) {}
 
@@ -413,6 +460,8 @@ export class Entities {
           track.samples.unshift(tail);
           if (track.samples.length > WAKE_POINTS - 2) track.samples.pop();
         }
+      } else if (cur.kind === 'stacker' || cur.kind === 'tractor') {
+        this.handle(e, x, y, dir, t);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? FORK_KEEP : 0.2;
@@ -552,6 +601,119 @@ export class Entities {
     const step = dt * (goal > was ? DOWN_RATE : UP_RATE);
     e.down = was + Math.max(-step, Math.min(step, goal - was));
     return e.down;
+  }
+
+  /**
+   * A reach stacker or terminal tractor drives keeping to the right of the
+   * tile. At work it pulls up to the container it takes or sets down: a
+   * stacker side on to it, its spreader brought down onto it by the end;
+   * a tractor with its trailer under it, or under a yard gantry turned to
+   * stand along the lane. It is there as the container changes hands,
+   * then goes back to driving.
+   */
+  private handle(e: Entry, x: number, y: number, dir: number, t: number): void {
+    const v = e.view;
+    const keep = 0.2;
+    const drive: Pose = {
+      x: x - Math.sin(dir) * keep,
+      z: y + Math.cos(dir) * keep,
+      dir,
+      h: CARRY_LOW,
+    };
+    let pose = drive;
+    if (v.handStage) {
+      if (e.hand?.stage !== v.handStage || e.hand.done !== undefined) {
+        e.hand = { stage: v.handStage, from: e.pose ?? drive };
+      }
+      const w = e.hand;
+      // Ahead of the last snapshot as the game is, so it gets there just as
+      // the container changes hands.
+      const now = Math.min(
+        1,
+        (v.handPhase ?? 0) + (t * this.snapTicks) / Math.max(1, v.handTicks ?? 1),
+      );
+      // Seen part way through, at speed, it does the rest in what is left.
+      w.start ??= now;
+      const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
+      const goal = this.workPose(v, w, drive) ?? { ...drive, h: 0 };
+      // Under a gantry, a tractor is lined up before the spreader comes down.
+      const a = ease(phase / (w.pivot ? 0.08 : 0.4));
+      const clear = Math.max(w.from.h, goal.h) + CLEAR;
+      pose = {
+        x: w.from.x + (goal.x - w.from.x) * a,
+        z: w.from.z + (goal.z - w.from.z) * a,
+        dir: lerpAngle(w.from.dir, goal.dir, a),
+        h:
+          phase < 0.4
+            ? w.from.h + (clear - w.from.h) * ease(phase / 0.4)
+            : clear + (goal.h - clear) * ease((phase - 0.4) / 0.3),
+      };
+    } else if (e.hand) {
+      const w = e.hand;
+      if (w.done === undefined) {
+        w.done = this.sim;
+        w.from = e.pose ?? drive;
+      }
+      const s = (this.sim - w.done) / HAND_SETTLE;
+      if (s >= 1) e.hand = undefined;
+      else {
+        const a = ease(s);
+        pose = {
+          x: w.from.x + (drive.x - w.from.x) * a,
+          z: w.from.z + (drive.z - w.from.z) * a,
+          dir: lerpAngle(w.from.dir, drive.dir, a),
+          h: w.from.h + (drive.h - w.from.h) * a + CLEAR * Math.sin(Math.PI * s),
+        };
+      }
+    }
+    e.pose = pose;
+    const root = e.model.root;
+    root.position.set(pose.x, surfaceY(this.map, pose.x, pose.z), pose.z);
+    root.rotation.y = -pose.dir;
+    if (e.model.reach) reachTo(e.model.reach, pose.h);
+  }
+
+  /** Where a stacker or tractor stands to hand a container over, or null if it is not known. */
+  private workPose(v: EntityView, w: Hand, drive: Pose): Pose | null {
+    const at = v.handAt;
+    if (!at) return null;
+    const stacker = v.kind === 'stacker';
+    const hold = stacker ? STACKER_REACH : TRAILER_AT;
+    const ahead = (face: number, d: number) => [Math.cos(face) * d, Math.sin(face) * d];
+    if (at.along !== undefined) {
+      // Turned about its container, which the gantry's spreader is over.
+      const [dx, dz] = ahead(w.from.dir, hold);
+      w.pivot ??= { x: w.from.x + dx, z: w.from.z + dz };
+      w.face ??= Math.cos(at.along - w.from.dir) >= 0 ? at.along : at.along + Math.PI;
+      const [fx, fz] = ahead(w.face, hold);
+      return { x: w.pivot.x - fx, z: w.pivot.z - fz, dir: w.face, h: CARRY_LOW };
+    }
+    const p = this.slotAt;
+    const heading = this.handSlot(at, p);
+    if (heading === null) return null;
+    // A stacker takes a container side on; a tractor's trailer lies along it.
+    const lie = stacker ? heading + Math.PI / 2 : heading;
+    // From whichever side is nearer, sooner than turn right round.
+    const cost = (face: number) => {
+      const [dx, dz] = ahead(face, hold);
+      return (
+        Math.hypot(p.x - dx - drive.x, p.z - dz - drive.z) + 0.4 * (1 - Math.cos(face - drive.dir))
+      );
+    };
+    w.face ??= cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
+    const [dx, dz] = ahead(w.face, hold);
+    const x = p.x - dx;
+    const z = p.z - dz;
+    return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z) };
+  }
+
+  /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */
+  private handSlot(at: HandAt, out: Vector3): number | null {
+    if (at.truck === undefined) return this.containerAt?.(at, out) ?? null;
+    const slot = this.entries.get(at.truck)?.model.crates[at.slot ?? 0];
+    if (!slot) return null;
+    slot.getWorldPosition(out);
+    return headingOf(slot);
   }
 
   /** Leave a wake to settle where it lies. */
