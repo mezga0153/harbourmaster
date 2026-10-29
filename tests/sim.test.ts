@@ -1414,6 +1414,38 @@ describe('Rules of the road', () => {
     expect(gone[0]).toBeGreaterThan(B.truckLength(6, false) + 1);
   });
 
+  it('lets the one to go in a ring go once any of them has waited long, not only itself', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    const ring = [
+      truck(world, 10.5, 20.5, 0, [m.idx(30, 20)]),
+      truck(world, 11.5, 20.5, -Math.PI / 2, [m.idx(11, 1)]),
+      truck(world, 11.5, 19.5, Math.PI, [m.idx(1, 19)]),
+      truck(world, 10.5, 19.5, Math.PI / 2, [m.idx(10, 40)]),
+    ] as (ReturnType<typeof truck> & { passing?: { ids: number[]; x: number; y: number } })[];
+    for (let k = 0; k < B.TRUCK_RING_AFTER; k++) ring.forEach((t) => world['pace'](t)());
+    for (let k = 0; k < 5; k++) ring.slice(1).forEach((t) => world['pace'](t)());
+    // The lowest numbered, the one to go, has only just stopped again.
+    ring[0].held = 1;
+    world['pace'](ring[0])();
+    expect(ring[0].passing).toBeDefined();
+  });
+
+  it('does not wait for a truck straight on past where it turns off', () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // Heading west, to turn north at (19, 20).
+    const t = truck(world, 20.5, 20.5, Math.PI, [m.idx(19, 20), m.idx(19, 19), m.idx(19, 18)]);
+    // One coming down the road beside, a tile further on west.
+    const o = truck(world, 18.5, 20.2, Math.PI / 2, [m.idx(18, 30)]);
+    expect(world['ahead'](t, o)).toBe(-1);
+    // But one standing where it turns is in its way.
+    o.x = 19.5;
+    expect(world['ahead'](t, o)).toBeGreaterThan(0);
+  });
+
   it('undoes a ring of trucks however many there are in it, as round a loop of roads', () => {
     const world = World.create(7);
     world.trucks.length = 0;
@@ -1482,6 +1514,7 @@ describe('Rules of the road', () => {
       Array.from({ length: to - from + 1 }, (_, k) => m.idx(20, from + k));
     const coming = truck(world, 20.5, 4.5, Math.PI / 2, lane(5, 13));
     coming.state = 'toBay' as never;
+    coming.bayIdx = 0;
     world['loadingDocks'] = () => docks;
     world['freeDockSet'] = () => new Set(docks.slice(0, 3));
     world['drivePath'] = () => [m.entry];
@@ -1492,6 +1525,25 @@ describe('Rules of the road', () => {
     // From ahead of it, it would stop where that one has yet to get past.
     const ahead = world['dockFor'](bay, (d: number) => lane(8, m.yOf(d)));
     expect(ahead).toBeNull();
+  });
+
+  it("drives on past where a truck bound for another bay's spot will stand", () => {
+    const world = World.create(7);
+    world.trucks.length = 0;
+    const m = world.map;
+    // The way to a spot further on runs along another yard's loading lane,
+    // where a truck is on its way in to (20, 12).
+    const lane = (from: number, to: number) =>
+      Array.from({ length: to - from + 1 }, (_, k) => m.idx(20, from + k));
+    const coming = truck(world, 20.5, 4.5, Math.PI / 2, lane(5, 12));
+    coming.state = 'toBay' as never;
+    coming.bayIdx = 1;
+    const dock = m.idx(20, 16);
+    world['loadingDocks'] = () => [dock];
+    world['freeDockSet'] = () => new Set([dock]);
+    world['drivePath'] = () => [m.entry];
+    const to = world['dockFor']({ idx: 0 } as never, () => lane(0, 16));
+    expect(to?.dock).toBe(dock);
   });
 
   it('gets past a truck loading in its lane on a wide road, by the other lane', () => {

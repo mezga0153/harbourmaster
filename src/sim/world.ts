@@ -924,6 +924,8 @@ export class World {
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
   private junctionCache: Uint8Array | null = null;
+  /** Trucks and port machines by id, this tick; see ring. */
+  private vehicleCache: { tick: number; by: Map<number, Vehicle> } | null = null;
   /** Where trucks and machines are about to drive, this tick; see crossings. */
   private crossingCache: { tick: number; at: Map<number, Crossing[]> } | null = null;
   /** Where trucks can turn about; see turnable. */
@@ -8913,6 +8915,9 @@ export class World {
    * that does not drive up the lane through a truck already standing at a
    * spot: one beyond it waits until there is a way past, rather than going
    * through it. The furthest along such a lane first. Null when there is none.
+   * Only this bay's own trucks count for the order along its lane: one
+   * driving on past another's, as a road on through a yard's loading lane,
+   * gets by those at it in traffic.
    */
   private dockFor(
     bay: Bay,
@@ -8920,12 +8925,12 @@ export class World {
     len = 1,
   ): { dock: number; path: number[] } | null {
     const m = this.map;
-    const standing = this.trucks.filter((o) => this.docked(o));
+    const standing = this.trucks.filter((o) => this.docked(o) && o.bayIdx === bay.idx);
     // Trucks on their way in to a loading spot: where each will stand, and
     // how far the nearest of them still has to go to each tile of its way
-    // there.
+    // there, where this one would stop in its way.
     const coming = this.trucks.filter((o) => o.state === 'toBay' && o.path.length > 0);
-    const willStand = new Set(coming.map((o) => o.goal));
+    const willStand = new Set(coming.filter((o) => o.bayIdx === bay.idx).map((o) => o.goal));
     const onTheirWay = new Map<number, number>();
     for (const o of coming) {
       o.path.slice(0, -1).forEach((i, k) => {
@@ -9351,7 +9356,15 @@ export class World {
           (d) => this.routeFrom(t, d, this.truckCost(bay.idx, -1, t)),
           this.lengthOf(t),
         );
-        if (!to) return;
+        if (!to) {
+          // No free spot it could get to and drive away from again: it
+          // gives up in a while, and the bay shows why.
+          if (!this.dockRouted && this.freeDockSet(bay).size > 0) {
+            this.cutOff(bay, this.dockTurn);
+            if ((t.idle += 10) >= B.TRUCK_GIVE_UP) this.leavePark(t);
+          }
+          return;
+        }
         const { dock, path } = to;
         t.park = undefined;
         t.path = path;
@@ -9713,12 +9726,14 @@ export class World {
    * rest, minding only what else is about, until it has gone its own length
    * and is clear of where they were all caught. Not only while it is held
    * up: once it moves it no longer is, and it would stop again at once
-   * behind the one it was waiting on.
+   * behind the one it was waiting on. It goes once any of them has waited
+   * long enough, not only itself: one that has just edged onto another
+   * tile has its own wait start again.
    */
   private passRing(v: Vehicle): void {
-    if (this.heldFor(v) > B.TRUCK_RING_AFTER) {
-      const ring = this.ring(v);
-      if (ring) v.passing = { ids: ring, x: v.x, y: v.y };
+    const ring = this.heldFor(v) > 0 ? this.ring(v) : null;
+    if (ring && Math.max(...[v, ...ring].map((o) => this.heldFor(o))) > B.TRUCK_RING_AFTER) {
+      v.passing = { ids: ring.map((o) => o.id), x: v.x, y: v.y };
     }
     const pass = v.passing;
     if (pass && Math.hypot(v.x - pass.x, v.y - pass.y) > this.vehicleLength(v) + B.TRUCK_GAP) {
@@ -9734,9 +9749,13 @@ export class World {
    * way, as only going on through that undoes the knot: the lowest numbered
    * such, or of them all if none is.
    */
-  private ring(t: Vehicle): number[] | null {
-    const by = new Map<number, Vehicle>(this.trucks.map((o) => [o.id, o]));
-    for (const q of this.people) if (isBoxy(q)) by.set(q.id, q);
+  private ring(t: Vehicle): Vehicle[] | null {
+    if (this.vehicleCache?.tick !== this.tick) {
+      const by = new Map<number, Vehicle>(this.trucks.map((o) => [o.id, o]));
+      for (const q of this.people) if (isBoxy(q)) by.set(q.id, q);
+      this.vehicleCache = { tick: this.tick, by };
+    }
+    const by = this.vehicleCache.by;
     let at: Vehicle | undefined = t;
     const ring: Vehicle[] = [t];
     // However far round: a loop of roads can fill all the way.
@@ -9748,7 +9767,7 @@ export class World {
           (v) => Math.cos(this.goingTo(by.get(v.blocker!)!) - this.goingTo(v)) < 0.7,
         );
         const go = (across.length > 0 ? across : ring).reduce((a, b) => (b.id < a.id ? b : a));
-        return go === t ? ring.slice(1).map((v) => v.id) : null;
+        return go === t ? ring.slice(1) : null;
       }
       ring.push(at);
     }
@@ -9757,15 +9776,30 @@ export class World {
 
   /**
    * How far ahead of truck `t` truck `o` is, in its lane and not coming the
-   * other way on its own side of the road; -1 if it is not.
+   * other way on its own side of the road, short of where it turns off;
+   * -1 if it is not.
    */
   private ahead(t: Truck, o: Truck): number {
-    const reach = 3 + this.lengthOf(t);
+    const m = this.map;
+    let reach = 3 + this.lengthOf(t);
     // The way it is about to go, which for one setting off from where it
     // stood may not be the way it faces yet.
     const dir = this.goingTo(t);
     const hx = Math.cos(dir);
     const hy = Math.sin(dir);
+    // Only as far as the tile where its way turns: what is straight on past
+    // that is off its way, as one in the lane beside it it turns away from.
+    let along0 = 0;
+    for (const i of t.path) {
+      const dx = m.xOf(i) + 0.5 - t.x;
+      const dy = m.yOf(i) + 0.5 - t.y;
+      if (Math.abs(dy * hx - dx * hy) > 0.05) {
+        reach = Math.min(reach, along0 + 0.5);
+        break;
+      }
+      along0 = dx * hx + dy * hy;
+      if (along0 > reach) break;
+    }
     const tx = t.x - hy * B.TRUCK_LANE;
     const ty = t.y + hx * B.TRUCK_LANE;
     const [ox, oy] = this.lanePos(o);
