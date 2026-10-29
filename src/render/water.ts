@@ -178,7 +178,13 @@ const fragmentShader = /* glsl */ `
           s = p0.z + t;
           a = mix(p0.w, p1.w, clamp(t / len, 0.0, 1.0));
           back = dir;
-          l = dot(p - p0.xy, vec2(-dir.y, dir.x));
+          // How far out to the side: the whole way to the track, not just
+          // across this stretch of it. Measured across alone, water off the
+          // end of a stretch counted as on its line however far beyond it
+          // lay, and where a boat turned or worked back and forth its wake
+          // ran off in rays over water it never came through.
+          float lat = dot(p - p0.xy, vec2(-dir.y, dir.x));
+          l = lat < 0.0 ? -d : d;
           past = k == count - 2 ? max(along - len, 0.0) : 0.0;
         }
       }
