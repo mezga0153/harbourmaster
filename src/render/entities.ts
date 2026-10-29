@@ -8,6 +8,7 @@ import {
   boat,
   forklift,
   person,
+  paintLoad,
   showLoad,
   stacker,
   truck,
@@ -175,6 +176,7 @@ export class Entities {
       }
       e.view = v;
       showLoad(e.model, v.load);
+      if (v.looks) paintLoad(e.model, v.looks);
     }
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {

@@ -369,6 +369,8 @@ interface Truck extends Agent {
   papers?: number;
   /** Containers reach stackers are bringing it, or taking off it. */
   coming?: number;
+  /** Container trucks: the fee of each container on board, which is how it looks. */
+  looks?: number[];
   taking?: number;
   idle: number;
   timer: number;
@@ -630,6 +632,15 @@ function hullGap(
         toSegment(b1x, b1y, a0x, a0y, a1x, a1y),
       );
   return keels - (av.beam + bv.beam) / 2;
+}
+
+/**
+ * How a container looks, from its fee: every container a shipping line or
+ * shipper sends carries the same fee, so they all wear its colours, from
+ * the ship through the crane, stacker and yard to the truck.
+ */
+function boxLook(fee: number): number {
+  return Math.round(fee * 100);
 }
 
 function cancelFee(c: Contract): number {
@@ -4079,6 +4090,7 @@ export class World {
       if (live && t) {
         t.cargo++;
         t.value += fee;
+        (t.looks ??= []).push(fee);
         t.idle = 0;
       } else if (yard) {
         this.readyList(yard).push(0);
@@ -7123,7 +7135,9 @@ export class World {
         const at = t.boxes && bay.yard ? this.readyList(bay).findIndex((r) => this.isClear(r)) : 0;
         if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
-          t.value += stock.splice(at, 1)[0];
+          const fee = stock.splice(at, 1)[0];
+          t.value += fee;
+          if (t.boxes) (t.looks ??= []).push(fee);
           t.cargo++;
           t.idle = 0;
         } else {
@@ -7644,6 +7658,7 @@ export class World {
         y: p.y,
         dir: p.dir,
         load: p.carrying,
+        looks: p.kind === 'stacker' ? p.cargoFees.map(boxLook) : undefined,
         moving: p.path.length > 0,
         name: p.name,
         activity:
@@ -7694,6 +7709,11 @@ export class World {
         y: b.y,
         dir: b.dir,
         load: b.crates + (b.out ?? 0),
+        // Its line's containers, then the exports it has taken on.
+        looks:
+          b.vessel === 'feeder'
+            ? [...Array(b.crates).fill(b.fee), ...Array(b.out ?? 0).fill(0)].map(boxLook)
+            : undefined,
         moving: b.path.length > 0,
         name: b.company,
         activity:
@@ -7762,6 +7782,10 @@ export class World {
         y: t.y + (t.state === 'parked' ? 0 : Math.cos(t.dir) * B.TRUCK_LANE),
         dir: t.dir,
         load: t.cargo,
+        // A shipper's containers are all alike; the rest as they were loaded.
+        looks: t.boxes
+          ? (t.exports || !t.looks ? Array(t.cargo).fill(t.value) : t.looks).map(boxLook)
+          : undefined,
         moving: t.path.length > 0,
         name: t.company,
         activity:
@@ -7846,6 +7870,7 @@ export class World {
         idx: y.idx,
         boxes: y.boxes.length,
         exports: y.exports?.length ?? 0,
+        looks: [...y.boxes, ...(y.exports ?? [])].map(boxLook),
         outgoing: !!y.outgoing,
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),
@@ -7890,6 +7915,7 @@ export class World {
         kind: c.kind,
         stack: c.stack.length,
         out: c.outStack?.length ?? 0,
+        looks: c.kind === 'jib' ? undefined : [...c.stack, ...(c.outStack ?? [])].map(boxLook),
         max: craneStack(c),
         angle: c.angle,
         busy: c.busy,

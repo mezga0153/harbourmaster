@@ -1928,6 +1928,47 @@ describe('Container Port tier', () => {
     expect(gantry.stackerJobs).toBe(0);
   });
 
+  it('keeps a container looking the same from the crane to the yard and the truck', () => {
+    const world = feederPort(true);
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    // Every container comes from the one feeder line, so all look alike.
+    const looks = new Set<number>();
+    const carried = { stacker: 0, truck: 0 };
+    for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
+      world.step();
+      // A truck is not loaded for long: look at every one, every tick.
+      for (const t of world.trucks) {
+        if (!t.boxes || t.cargo === 0) continue;
+        carried.truck++;
+        for (const f of t.looks ?? []) looks.add(Math.round(f * 100));
+      }
+      if (k % 20) continue;
+      const s = world.snapshot();
+      for (const c of s.cranes) for (const l of c.looks ?? []) looks.add(l);
+      for (const y of s.yards) for (const l of y.looks) looks.add(l);
+      for (const e of s.entities) {
+        if (e.kind === 'boat' || !e.looks?.length) continue;
+        for (const l of e.looks) looks.add(l);
+        if (e.kind === 'stacker') carried.stacker++;
+      }
+    }
+    expect(carried.stacker).toBeGreaterThan(0);
+    expect(carried.truck).toBeGreaterThan(0);
+    expect([...looks]).toEqual([15000]);
+  });
+
   it('keeps yard gantries off the tiles trucks load a yard from', () => {
     const world = feederPort(false);
     const m = world.map;

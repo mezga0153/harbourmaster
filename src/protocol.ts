@@ -69,6 +69,8 @@ export interface EntityView {
   vessel?: string;
   /** Carries containers rather than crates. */
   boxes?: boolean;
+  /** Containers carried: how each looks, in load order. */
+  looks?: number[];
   /** Boats under way: where it plots it will be over the next while, as x, y pairs. */
   plot?: number[];
   /** Boats: the boat it is giving way to. */
@@ -83,6 +85,8 @@ export interface CraneView {
   stack: number;
   /** Container cranes: exports set down for it to lift on board. */
   out: number;
+  /** Container cranes: how each container on the stack looks, then the exports. */
+  looks?: number[];
   /** Most it sets down before waiting for them to be taken away. */
   max: number;
   angle: number;
@@ -203,6 +207,8 @@ export interface BayView {
 export interface YardView {
   idx: number;
   boxes: number;
+  /** How each container looks, then each export. */
+  looks: number[];
   /** Cleared by customs, so the trucks may take them. */
   cleared: number;
   /** Containers waiting here to go out on a ship. */

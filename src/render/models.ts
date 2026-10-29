@@ -3,7 +3,7 @@ import { hash01 } from '../sim/noise';
 import { BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
 import { coasterShip, feederShip, fishingBoat, tugBoat } from './craft';
 import { C } from './palette';
-import { box, cyl } from './parts';
+import { box, cyl, mat } from './parts';
 import { worker, type Limbs } from './people';
 import { truckModel } from './vehicles';
 
@@ -70,7 +70,10 @@ export function container(seed: number, x = 0, y = 0, z = 0): Object3D {
     const paint = Math.floor(pick * PAINTS.length);
     kenney.root.traverse((o) => {
       const mesh = o as Mesh;
-      if (mesh.isMesh) mesh.geometry = paintedBox(mesh.geometry, paint);
+      if (!mesh.isMesh) return;
+      // Kept to repaint it by (see paintContainer).
+      mesh.userData.base = mesh.geometry;
+      mesh.geometry = paintedBox(mesh.geometry, paint);
     });
     g.add(kenney.root);
   } else {
@@ -79,6 +82,32 @@ export function container(seed: number, x = 0, y = 0, z = 0): Object3D {
   }
   g.position.set(x, y, z);
   return g;
+}
+
+/**
+ * Repaint a container for how it looks (the sim's boxLook), so it keeps its
+ * colours as it goes from ship to crane, stacker, yard and truck.
+ */
+export function paintContainer(box: Object3D, look: number): void {
+  if (box.userData.look === look) return;
+  box.userData.look = look;
+  const pick = hash01(look, 7, 13);
+  box.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    if (mesh.userData.base) {
+      mesh.geometry = paintedBox(mesh.userData.base, Math.floor(pick * PAINTS.length));
+    } else {
+      mesh.material = mat(FALLBACK_PAINTS[Math.floor(pick * FALLBACK_PAINTS.length)]);
+    }
+  });
+}
+
+/** Repaint the containers a model carries, in load order. */
+export function paintLoad(model: Model, looks: number[]): void {
+  model.crates.forEach((c, k) => {
+    if (k < looks.length) paintContainer(c, looks[k]);
+  });
 }
 
 export function crate(size: number, x = 0, y = 0, z = 0): Group {

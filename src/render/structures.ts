@@ -22,7 +22,7 @@ import {
   storesOutgoing,
 } from '../sim/types';
 import { BOX_HEIGHT } from './assets';
-import { container, crate } from './models';
+import { container, crate, paintContainer } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { bake, pavements, townBuilding } from './town';
@@ -151,7 +151,10 @@ export class Structures {
       const c = this.cranes.get(v.idx);
       if (!c) continue;
       // Exports set down for a container crane wait on its stack too.
-      c.stack.forEach((o, k) => (o.visible = k < v.stack + v.out));
+      c.stack.forEach((o, k) => {
+        o.visible = k < v.stack + v.out;
+        if (v.looks && k < v.looks.length) paintContainer(o, v.looks[k]);
+      });
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
     }
@@ -208,8 +211,8 @@ export class Structures {
     }
   }
 
-  setYards(yards: { boxes: number; exports: number; tiles: number[] }[]): void {
-    for (const y of yards) this.fill(y.tiles, y.boxes + y.exports, true);
+  setYards(yards: { boxes: number; exports: number; tiles: number[]; looks: number[] }[]): void {
+    for (const y of yards) this.fill(y.tiles, y.boxes + y.exports, true, y.looks);
   }
 
   setBays(bays: BayView[]): void {
@@ -279,13 +282,19 @@ export class Structures {
   }
 
   /** Show a storage area's goods, a tile's worth at a time from its first tile. */
-  private fill(tiles: number[], count: number, boxes: boolean): void {
+  private fill(tiles: number[], count: number, boxes: boolean, looks?: number[]): void {
     let left = count;
+    let at = 0;
     for (const t of tiles) {
       const stack = this.stacks.get(t);
       if (!stack) continue;
       const items = boxes ? stack.boxes : stack.crates;
-      items.forEach((o, k) => (o.visible = k < left));
+      items.forEach((o, k) => {
+        o.visible = k < left;
+        // Each container as it looks, in the order they were stacked.
+        if (looks && o.visible && at + k < looks.length) paintContainer(o, looks[at + k]);
+      });
+      at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
     }
   }
