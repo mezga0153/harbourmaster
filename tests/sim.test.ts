@@ -2084,7 +2084,7 @@ describe('Container Port tier', () => {
       // rails run along.
       if (t.state === 'dropping' && t.bayIdx === yard.idx) {
         lifting++;
-        expect(world['gantryLane'](yard).has(world['tileOf'](t))).toBe(true);
+        expect(world['gantryLane'](yard)?.has(world['tileOf'](t))).toBe(true);
         if (world.snapshot().yards.some((y) => y.working === 'unload')) shown++;
       }
     }
@@ -2445,6 +2445,30 @@ describe('Container Port tier', () => {
     expect(world.stats.exported ?? 0).toBeGreaterThan(0);
     expect(loadingTicks).toBeGreaterThan(0);
     expect(allowed).toBeGreaterThan(0);
+  });
+
+  it('has forklifts take exports left on the quay back into storage once their ship has gone', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    const store = world.yards.get(t.yard)!.tiles!;
+    world.command({ type: 'store', tiles: store, kind: 'boxes', on: false });
+    world.command({ type: 'store', tiles: store, kind: 'cratesOut', on: true });
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
+    // Crates set down for a coaster that has sailed without them.
+    const quay = m.build.findIndex((b, i) => b === Build.Quay && !m.store[i]);
+    const pile = world['pileAt'](quay, false, true);
+    pile.crates.push(...Array(6).fill(20));
+    world.piles.set(quay, pile);
+    expect(world['stranded'](pile)).toBe(true);
+    const out = world.bays.get(store[0])!;
+    for (let k = 0; k < TICKS_PER_DAY && (out.exports?.length ?? 0) < 6; k++) world.step();
+    expect(world.piles.get(quay)?.crates.length ?? 0).toBe(0);
+    expect(out.exports?.length).toBe(6);
   });
 
   it('sails once nothing in the port is left for it, and says what it waits on', () => {
