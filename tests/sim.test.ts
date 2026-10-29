@@ -2345,6 +2345,37 @@ describe('Container Port tier', () => {
     expect(allowed).toBeGreaterThan(0);
   });
 
+  it('sails once nothing in the port is left for it, and says what it waits on', () => {
+    const world = World.create(7);
+    const template = world.boats[0];
+    world.boats.length = 0;
+    const coaster = (id: number) => ({
+      ...template,
+      id,
+      vessel: 'coaster' as const,
+      state: 'moored' as const,
+      crates: 0,
+      reserved: 0,
+      out: 0,
+      loadQuota: undefined,
+      timer: 0,
+    });
+    const a = coaster(1000);
+    const b = coaster(1001);
+    world.boats.push(a, b);
+    // Four crates waiting to go out: the first ship ready claims them all.
+    world['exportsWaiting'] = () => 4;
+    expect(world['stillLoading'](a)).toBe(true);
+    expect(a.loadQuota).toBe(4);
+    expect(world['stillLoading'](b)).toBe(false);
+    expect(b.loadQuota).toBe(0);
+    // Its words say it is ready, not taking exports on.
+    const words = (id: number) =>
+      world.snapshot().entities.find((e) => e.kind === 'boat' && e.id === id)!.activity;
+    expect(words(1000)).toMatch(/^Taking exports on board, 0 of 4/);
+    expect(words(1001)).toMatch(/^Ready to sail/);
+  });
+
   it('keeps shippers away until there is parking outside the port', () => {
     const world = World.create(7);
     world.tier = 2;

@@ -280,6 +280,8 @@ interface Boat extends Agent {
    * it was unloaded, less what other ships had claimed. Set then.
    */
   loadQuota?: number;
+  /** Loaded and ready to sail: what it is still waiting on, if anything. */
+  holdUp?: 'fairway' | 'tug' | 'others' | 'room';
   berth: number;
   jetty: number;
   timer: number;
@@ -3121,11 +3123,20 @@ export class World {
           b.timer = 0;
           return;
         }
-        if (b.crates === 0 && b.reserved === 0 && ++b.timer > 30) {
-          const ready = !this.boxedIn(b) && !this.letsGoFirst(b) && this.tugReady(b);
-          if (ready && this.takeFairway(b, true)) {
-            this.depart(b, false);
-          }
+        if (b.crates === 0 && b.reserved === 0) {
+          // Done loading for this visit: it takes on nothing more while it waits to sail.
+          b.loadQuota = b.out ?? 0;
+          if (++b.timer <= 30) return;
+          b.holdUp = this.boxedIn(b)
+            ? 'room'
+            : this.letsGoFirst(b)
+              ? 'others'
+              : !this.tugReady(b)
+                ? 'tug'
+                : this.takeFairway(b, true)
+                  ? undefined
+                  : 'fairway';
+          if (!b.holdUp) this.depart(b, false);
         }
         return;
       }
@@ -6071,13 +6082,36 @@ export class World {
       b.grace += take * B.MOORED_TICKS_PER_CRATE;
     }
     if ((b.out ?? 0) >= b.loadQuota) return false;
-    if (this.exportsWaiting(b.vessel === 'feeder') === 0) return false;
+    // Nothing left in the port that other ships alongside are not taking.
+    const boxes = b.vessel === 'feeder';
+    const theirs = this.boats
+      .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
+      .reduce(
+        (n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0) - (o.outIncoming ?? 0)),
+        0,
+      );
+    if (this.exportsWaiting(boxes) - theirs <= 0) return false;
     // Its own cargo still being cleared off the crane comes first.
     const busy = [...this.cranes.values()].some(
       (c) => c.stack.length > 0 && this.craneReaches(c, b),
     );
     b.loadIdle = busy ? 0 : (b.loadIdle ?? 0) + 1;
     return b.loadIdle < B.LOAD_WAIT;
+  }
+
+  /** What an unloaded ship alongside is doing: taking exports on, or waiting to sail. */
+  private readyWords(b: Boat): string {
+    const out = b.out ?? 0;
+    if (b.loadQuota === undefined || out < b.loadQuota || (b.outIncoming ?? 0) > 0) {
+      return `Taking exports on board, ${out}${b.loadQuota ? ` of ${b.loadQuota}` : ''}`;
+    }
+    const why = {
+      fairway: ', waiting for the way out to clear',
+      tug: ', waiting for its tug',
+      others: ', letting a ship ready before it go first',
+      room: ', waiting for a ship turning off its berth',
+    };
+    return `Ready to sail${out > 0 ? ` with ${out} exports` : ''}${b.holdUp ? why[b.holdUp] : ''}`;
   }
 
   /** Exports go on board: the shipper pays for each as it does. */
@@ -7915,8 +7949,8 @@ export class World {
               ? 'Waiting at anchor for a berth'
               : b.state === 'arriving'
                 ? 'Sailing to the jetty'
-                : b.state === 'moored' && b.crates === 0 && outCap(b) > 0
-                  ? `Taking exports on board, ${b.out ?? 0} of ${outCap(b)}`
+                : b.state === 'moored' && b.crates === 0 && b.reserved === 0
+                  ? this.readyWords(b)
                   : b.state === 'moored'
                     ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
                     : 'Heading back out to sea') +
