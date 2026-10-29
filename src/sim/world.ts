@@ -3997,20 +3997,42 @@ export class World {
     return free > wanting;
   }
 
-  /** What a yard's gantry is doing, for the view: a truck it is loading or unloading. */
-  private gantryWork(y: Bay): { working?: 'load' | 'unload'; workLook?: number } {
-    if (!this.yardGantry(y)) return {};
+  /**
+   * The truck a yard's gantry is loading or unloading: one at a time, the
+   * first with a container to move.
+   */
+  private gantryTruck(y: Bay): Truck | undefined {
+    let ready: boolean | undefined;
     for (const t of this.trucks) {
       if (t.bayIdx !== y.idx || !t.boxes) continue;
+      if (t.state === 'delivering' && t.cargo > 0) return t;
       if (t.state === 'loading' && t.cargo < t.capacity) {
-        const at = this.readyList(y).findIndex((r) => this.isClear(r));
-        if (at >= 0) return { working: 'load', workLook: this.boxLooks(y)[at] };
-      }
-      if (t.state === 'delivering' && t.cargo > 0) {
-        return { working: 'unload', workLook: boxLookOf(t.id, t.cargo - 1) };
+        ready ??= this.readyList(y).some((r) => this.isClear(r));
+        if (ready) return t;
       }
     }
-    return {};
+    return undefined;
+  }
+
+  /**
+   * What a yard's gantry is doing, for the view: a truck it is loading or
+   * unloading, and where that truck stands along its rails.
+   */
+  private gantryWork(y: Bay): { working?: 'load' | 'unload'; workLook?: number; workAt?: number } {
+    if (!this.yardGantry(y)) return {};
+    const t = this.gantryTruck(y);
+    if (!t) return {};
+    const workAt = this.gantryLane(y)?.get(t.goal) ?? 0;
+    if (t.state === 'delivering') {
+      return { working: 'unload', workLook: boxLookOf(t.id, t.cargo - 1), workAt };
+    }
+    const at = this.readyList(y).findIndex((r) => this.isClear(r));
+    return { working: 'load', workLook: this.boxLooks(y)[at], workAt };
+  }
+
+  /** At a yard with a gantry, waiting while it works another truck. */
+  private gantryElsewhere(t: Truck, bay: Bay): boolean {
+    return t.boxes && !!bay.yard && this.yardGantry(bay) && this.gantryTruck(bay) !== t;
   }
 
   /** Ticks a truck takes to load or unload one at a bay or yard: a yard gantry lifts at its own pace. */
@@ -6280,6 +6302,13 @@ export class World {
     return null;
   }
 
+  /** Some outgoing storage of its kind has room for a shipper's truck's load. */
+  private outgoingRoom(t: Truck): boolean {
+    return [...(t.boxes ? this.yards : this.bays).values()].some(
+      (b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo,
+    );
+  }
+
   /** Say, at most once a day, that shippers' trucks are waiting because no outgoing storage has room. */
   private outgoingFull(boxes: boolean): void {
     const kind = boxes ? 'boxes' : 'crates';
@@ -6870,12 +6899,46 @@ export class World {
     if (cached) return cached;
     const most = Math.max(1, Math.floor(a.tiles!.length / B.STORE_TILES_PER_TRUCK));
     const spots = loadingSpots(this.map, a.tiles!, this.truckReach());
-    // At a yard with a gantry, trucks load under it, where it reaches out
-    // over the lane beside the yard: it lifts their containers there.
-    const under = a.yard ? spots.filter((s) => this.map.build[s] === Build.YardGantry) : [];
-    const out = under.length > 0 ? under : spots.slice(0, most);
+    // At a yard with a gantry, trucks load in the lane its rails run along,
+    // beside the yard: under it, and either way along the yard from it.
+    // Where trucks cannot get to that lane, they load where they can.
+    const rails = a.yard ? this.gantryLane(a) : null;
+    const lane = rails
+      ? spots
+          .filter((s) => rails.has(s))
+          .sort((p, q) => Math.abs(rails.get(p)!) - Math.abs(rails.get(q)!))
+      : [];
+    const out = (lane.length > 0 ? lane : spots).slice(0, most);
     this.spotCache.set(a.idx, out);
     return out;
+  }
+
+  /**
+   * The lane a yard's gantry runs along on its rails, beside the yard: each
+   * tile with how far it is from the gantry (along the frame's +x, which is
+   * (dy, -dx) on the map, for the gantry's own offset (dx, dy) into the
+   * yard), as far as the yard runs either way. Null without a gantry.
+   */
+  private gantryLane(a: Bay): Map<number, number> | null {
+    const m = this.map;
+    const area = new Set(a.tiles ?? [a.idx]);
+    const g = m.build.findIndex(
+      (b, i) => b === Build.YardGantry && m.neighbors4(i).some((n) => area.has(n)),
+    );
+    if (g < 0) return null;
+    const into = m.neighbors4(g).find((n) => area.has(n))!;
+    const dx = m.xOf(into) - m.xOf(g);
+    const dy = m.yOf(into) - m.yOf(g);
+    const lane = new Map<number, number>([[g, 0]]);
+    for (const sign of [1, -1]) {
+      for (let k = 1; ; k++) {
+        const x = m.xOf(g) + dy * k * sign;
+        const y = m.yOf(g) - dx * k * sign;
+        if (!m.inBounds(x + dx, y + dy) || !area.has(m.idx(x + dx, y + dy))) break;
+        lane.set(m.idx(x, y), k * sign);
+      }
+    }
+    return lane;
   }
 
   /**
@@ -7203,7 +7266,7 @@ export class World {
           if (this.tick < (t.papers ?? 0) || (this.tick + t.id) % 10 !== 0) return;
           const to = this.exportStore(t);
           if (!to) {
-            this.outgoingFull(t.boxes);
+            if (!this.outgoingRoom(t)) this.outgoingFull(t.boxes);
             return;
           }
           // Containers wait parked until the yard's gantry or a stacker is free.
@@ -7260,6 +7323,7 @@ export class World {
           }
           return;
         }
+        if (this.gantryElsewhere(t, bay)) return;
         if (++t.timer % this.truckTicks(t, bay) !== 0) return;
         this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
@@ -7273,6 +7337,7 @@ export class World {
       case 'loading': {
         if (!bay) return this.truckLeave(t);
         const every = this.truckTicks(t, bay);
+        if (t.cargo < t.capacity && this.gantryElsewhere(t, bay)) return;
         if (++t.timer % every !== 0) return;
         // Containers at a yard with no gantry go on by reach stacker: it
         // waits while one is on its way.
@@ -7864,7 +7929,9 @@ export class World {
 
   private truckWhy(t: Truck): string | undefined {
     if (t.exports && t.state === 'parked' && this.tick >= (t.papers ?? Infinity)) {
-      return `No container yard or crate storage with room for its load, and a free spot beside it to unload.`;
+      return this.outgoingRoom(t)
+        ? `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken. More tiles along the side trucks use give more spots.`
+        : `No outgoing ${t.boxes ? 'container yard' : 'crate storage'} has room for its load.`;
     }
     if (t.state !== 'loading') return undefined;
     const bay = this.dest(t.bayIdx);
@@ -8072,7 +8139,9 @@ export class World {
           t.exports && (t.state === 'toPark' || t.state === 'parked')
             ? this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
               ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
-              : `Paperwork done, waiting for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
+              : this.outgoingRoom(t)
+                ? `Paperwork done, waiting for a free spot to unload at the outgoing storage`
+                : `Paperwork done, waiting for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
             : t.exports && t.state === 'toBay'
               ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
               : t.state === 'delivering'

@@ -225,6 +225,8 @@ export interface YardView {
    */
   working?: 'load' | 'unload';
   workLook?: number;
+  /** How far along its rails the truck it is working stands, from the gantry. */
+  workAt?: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

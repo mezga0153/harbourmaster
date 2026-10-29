@@ -85,6 +85,8 @@ interface YardGantryParts {
   laneDrop: number;
   /** Where in the yard the container it is moving is, in the frame; see slotFor. */
   pick: { x: number; z: number; drop: number } | null;
+  /** How far along the rails the truck it is working stands. */
+  laneAt: number;
   work: 'load' | 'unload' | null;
   look: number;
   /** How far through a lift, 0 to 1. */
@@ -262,6 +264,7 @@ export class Structures {
       looks: number[];
       working?: 'load' | 'unload';
       workLook?: number;
+      workAt?: number;
     }[],
   ): void {
     for (const y of yards) {
@@ -272,6 +275,7 @@ export class Structures {
       for (const [i, g] of this.yardGantries) {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
         g.work = y.working ?? null;
+        g.laneAt = y.workAt ?? 0;
         if (y.workLook !== undefined) g.look = y.workLook;
         g.pick = y.working ? this.slotFor(g, y.tiles, y.working, y.workLook) : null;
       }
@@ -329,7 +333,7 @@ export class Structures {
       // Between the container in the yard and the truck in the lane under
       // the gantry, where it reaches out over the edge of the yard.
       const yard = g.pick ?? { x: 0, z: Math.max(0.8, g.far * 0.6), drop: g.laneDrop };
-      const lane = { x: 0, z: 0, drop: g.laneDrop };
+      const lane = { x: g.laneAt, z: 0, drop: g.laneDrop };
       const [from, to] = g.work === 'load' ? [yard, lane] : [lane, yard];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
@@ -881,6 +885,7 @@ export class Structures {
           // Down to a truck's deck in the lane under it, set down there.
           laneDrop: h - 0.28 - BOX_HEIGHT,
           pick: null,
+          laneAt: 0,
           work: null,
           look: 0,
           phase: 0,
