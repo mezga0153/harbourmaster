@@ -865,9 +865,22 @@ export function truckCost(
     if (!here) return Infinity;
     const there = from === undefined || from < 0 ? null : way(from);
     const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
-    return jump ? Infinity : 1;
+    if (jump) return Infinity;
+    // Keep to the right on a road wider than one: a tile with road to its
+    // right, the way the truck is going, is the oncoming lane.
+    if (from !== undefined && from >= 0 && here !== 'gate') {
+      const dx = map.xOf(i) - map.xOf(from);
+      const dy = map.yOf(i) - map.yOf(from);
+      const rx = map.xOf(i) - dy;
+      const ry = map.yOf(i) + dx;
+      if (map.inBounds(rx, ry) && way(map.idx(rx, ry)) === here) return 1 + KEEP_RIGHT;
+    }
+    return 1;
   };
 }
+
+/** What driving in the left-hand lane of a wide road costs a truck, on top of a tile. */
+const KEEP_RIGHT = 1.5;
 
 /**
  * How far trucks drive from the highway to each tile they can get to, or

@@ -1268,7 +1268,9 @@ describe('Rules of the road', () => {
   it('keeps its distance behind a truck going its way, but passes one coming the other way', () => {
     const world = World.create(7);
     world.trucks.length = 0;
-    const a = truck(world, 10.5, 20.5, 0, [1]);
+    // On its way east, as it faces.
+    const east = [world.map.idx(20, 20)];
+    const a = truck(world, 10.5, 20.5, 0, east);
     // Up to speed, gathering it as it goes.
     const pace = () => {
       for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) world['pace'](a)();
@@ -1276,7 +1278,7 @@ describe('Rules of the road', () => {
     };
     expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
     // Close ahead, going the same way: it holds back.
-    const b = truck(world, 11, 20.5, 0, [1]);
+    const b = truck(world, 11, 20.5, 0, east);
     expect(pace()).toBe(0);
     // Coming the other way it is in the other lane.
     b.dir = Math.PI;

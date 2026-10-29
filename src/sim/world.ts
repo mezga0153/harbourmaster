@@ -8787,8 +8787,30 @@ export class World {
       // Off the map at the end of the way, it drives on out.
       const stop = t.state !== 'leaving';
       if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, B.TRUCK_SPEED, Infinity, stop);
-      return this.drive(t, B.TRUCK_SPEED, this.gapAhead(t) - B.TRUCK_GAP, stop);
+      const room = Math.min(this.gapAhead(t) - B.TRUCK_GAP, this.toStopLine(t));
+      return this.drive(t, B.TRUCK_SPEED, room, stop);
     };
+  }
+
+  /**
+   * How far a truck can go before its front bumper reaches the edge of a
+   * tile it may not drive into yet (a junction it must give way at, or a
+   * level crossing with the barriers down): a long truck stops with its
+   * nose at the line, not in the junction. Infinity if none is near.
+   */
+  private toStopLine(t: Truck): number {
+    if (t.path.length === 0) return Infinity;
+    const m = this.map;
+    const here = this.tileOf(t);
+    const half = this.lengthOf(t) / 2;
+    const enter = this.mayEnter(t);
+    let d = Math.hypot(m.xOf(t.path[0]) + 0.5 - t.x, m.yOf(t.path[0]) + 0.5 - t.y);
+    for (let k = 0; k < t.path.length && d - 0.5 < half + 1.5; k++) {
+      const i = t.path[k];
+      if (i !== here && !enter(i)) return d - 0.5 - half;
+      d += 1;
+    }
+    return Infinity;
   }
 
   /** Where a truck is on the road: on the right-hand side of it, or in the middle of a parking space. */
@@ -8800,8 +8822,11 @@ export class World {
   /** Room to the back of the nearest truck ahead in the same lane, going the same way; Infinity if none. */
   private gapAhead(t: Truck): number {
     // Trucks each waiting on the next all the way round, as where a wide
-    // road crosses itself: the lowest numbered goes on regardless.
-    const ring = (t.held ?? 0) > B.TRUCK_RING_AFTER && this.inRing(t);
+    // road crosses itself: the lowest numbered of them squeezes on through.
+    if ((t.held ?? 0) > B.TRUCK_RING_AFTER && this.inRing(t)) {
+      t.blocker = undefined;
+      return Infinity;
+    }
     let best = Infinity;
     t.blocker = undefined;
     for (const o of this.trucks) {
@@ -8810,7 +8835,6 @@ export class World {
       const along = this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
-      if (ring && this.rolling(o) === false && this.onRoad(o) && o.blocker !== undefined) continue;
       // Bumper to bumper: half of each truck's length off the middles.
       const gap = along - (this.lengthOf(t) + this.lengthOf(o)) / 2;
       if (gap < best) {
@@ -8844,16 +8868,29 @@ export class World {
    */
   private ahead(t: Truck, o: Truck): number {
     const reach = 3 + this.lengthOf(t);
-    const hx = Math.cos(t.dir);
-    const hy = Math.sin(t.dir);
-    const [tx, ty] = this.lanePos(t);
+    // The way it is about to go, which for one setting off from where it
+    // stood may not be the way it faces yet.
+    const dir = this.goingTo(t);
+    const hx = Math.cos(dir);
+    const hy = Math.sin(dir);
+    const tx = t.x - hy * B.TRUCK_LANE;
+    const ty = t.y + hx * B.TRUCK_LANE;
     const [ox, oy] = this.lanePos(o);
     const dx = ox - tx;
     const dy = oy - ty;
     const along = dx * hx + dy * hy;
     if (along < 0 || along > reach) return -1;
-    if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - t.dir) < -0.2) return -1;
+    if (Math.abs(dy * hx - dx * hy) > 0.45 || Math.cos(o.dir - dir) < -0.2) return -1;
     return along;
+  }
+
+  /** Which way a truck is going: towards the next tile on its way, or the way it faces. */
+  private goingTo(t: Truck): number {
+    const next = t.path[0];
+    if (next === undefined) return t.dir;
+    const dx = this.map.xOf(next) + 0.5 - t.x;
+    const dy = this.map.yOf(next) + 0.5 - t.y;
+    return Math.hypot(dx, dy) > 1e-3 ? Math.atan2(dy, dx) : t.dir;
   }
 
   /** How long a truck is, in tiles. */
@@ -8988,8 +9025,12 @@ export class World {
    */
   private mayEnter(t: Truck): (i: number) => boolean {
     return (i) => {
-      if (!this.level(i)) return false;
       const m = this.map;
+      // Its nose already over the line: it is committed, and goes on
+      // rather than stop across the junction.
+      const d = Math.hypot(m.xOf(i) + 0.5 - t.x, m.yOf(i) + 0.5 - t.y);
+      if (d - 0.5 < this.lengthOf(t) / 2 - 0.05 && i === t.path[0]) return true;
+      if (!this.level(i)) return false;
       const here = this.tileOf(t);
       const fromParking = m.build[here] === Build.Parking && m.build[i] !== Build.Parking;
       if (!this.junctions()[i] && !fromParking) return true;
