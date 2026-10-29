@@ -103,6 +103,37 @@ const ease = (t: number) => {
   return c * c * (3 - 2 * c);
 };
 
+/** Straight across from one pose to another, turning as it goes, `a` of the way. */
+function slide(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
+  return {
+    x: from.x + (to.x - from.x) * a,
+    z: from.z + (to.z - from.z) * a,
+    dir: lerpAngle(from.dir, to.dir, a),
+  };
+}
+
+/**
+ * Driven from one pose to another, `a` (0 to 1) of the way, as a machine
+ * would: it turns to face the way it is going (or straight away from it, to
+ * back there), drives straight there, then turns as it is to stand; never
+ * sliding sideways. A short way it just edges across.
+ */
+function driveTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.08) return slide(from, to, ease(a));
+  let way = Math.atan2(dz, dx);
+  // Backing is less turning if the way is behind it.
+  if (Math.cos(way - from.dir) < 0) way += Math.PI;
+  if (a < 0.25) return { x: from.x, z: from.z, dir: lerpAngle(from.dir, way, ease(a / 0.25)) };
+  if (a < 0.75) {
+    const t = ease((a - 0.25) / 0.5);
+    return { x: from.x + dx * t, z: from.z + dz * t, dir: way };
+  }
+  return { x: to.x, z: to.z, dir: lerpAngle(way, to.dir, ease((a - 0.75) / 0.25)) };
+}
+
 /** Most wakes drawn at once, and points along each. */
 export const WAKE_MAX = 32;
 export const WAKE_POINTS = 32;
@@ -640,13 +671,13 @@ export class Entities {
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
       const goal = this.workPose(v, w, drive) ?? { ...drive, h: 0 };
-      // Under a gantry, a tractor is lined up before the spreader comes down.
-      const a = ease(phase / (w.pivot ? 0.08 : 0.4));
+      // Under a gantry, a tractor is lined up before the spreader comes down;
+      // otherwise it drives up to where it works it.
+      const a = phase / (w.pivot ? 0.08 : 0.4);
       const clear = Math.max(w.from.h, goal.h) + CLEAR;
+      const at = w.pivot ? slide(w.from, goal, ease(a)) : driveTo(w.from, goal, a);
       pose = {
-        x: w.from.x + (goal.x - w.from.x) * a,
-        z: w.from.z + (goal.z - w.from.z) * a,
-        dir: lerpAngle(w.from.dir, goal.dir, a),
+        ...at,
         h:
           phase < 0.4
             ? w.from.h + (clear - w.from.h) * ease(phase / 0.4)
@@ -663,9 +694,7 @@ export class Entities {
       else {
         const a = ease(s);
         pose = {
-          x: w.from.x + (drive.x - w.from.x) * a,
-          z: w.from.z + (drive.z - w.from.z) * a,
-          dir: lerpAngle(w.from.dir, drive.dir, a),
+          ...driveTo(w.from, drive, s),
           h: w.from.h + (drive.h - w.from.h) * a + CLEAR * Math.sin(Math.PI * s),
         };
       }

@@ -138,7 +138,9 @@ export interface CraneView {
    * export onto it, the ship, the deck slot, how the container looks, and
    * how far through the lift it is (0 to 1).
    */
-  working?: 'load' | 'unload';
+  working?: 'load' | 'unload' | 'give' | 'take';
+  /** A gantry crane lifting a container onto a terminal tractor ('give') or off one ('take'). */
+  workTruck?: number;
   workBoat?: number;
   workSlot?: number;
   workLook?: number;

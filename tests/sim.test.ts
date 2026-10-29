@@ -2196,6 +2196,54 @@ describe('Container Port tier', () => {
     expect(world.stats.containers).toBeGreaterThan(0);
   });
 
+  it('has a gantry crane lift containers onto tractors waiting under it, clear of its stack', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    const [{ at, f }] = gantryPier(world, t.crane);
+    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const yard = world.yards.get(t.yard)!;
+    const spot: number = world['storeSpots'](yard)[0];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.YardGantry);
+    for (let k = world.people.length - 1; k >= 0; k--) {
+      if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
+    }
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 6,
+        cratesMax: 6,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    let given = 0;
+    const pick = footprint(m, 'gantryCrane', at, f)[2];
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      const v = world.snapshot().cranes.find((c) => c.idx === at)!;
+      if (v.working === 'give') {
+        given++;
+        // The tractor waits in the bay between the legs, not in the stack.
+        const p = world.people.find((q) => q.id === v.workTruck)!;
+        expect(world['tileOf'](p)).toBe(pick);
+      }
+    }
+    expect(given).toBeGreaterThan(0);
+    expect(world.stats.containers).toBeGreaterThan(0);
+  });
+
   it('keeps terminal tractors away from a yard with no gantry', () => {
     const world = feederPort(true);
     for (let k = world.people.length - 1; k >= 0; k--) {

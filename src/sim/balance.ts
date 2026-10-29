@@ -113,6 +113,8 @@ export const TRUCK_SPEED = 0.7;
 export const TRUCK_LANE = 0.18;
 /** Room a truck keeps behind the one ahead of it, bumper to bumper, in tiles. */
 export const TRUCK_GAP = 0.25;
+/** Ticks trucks held up behind each other in a ring wait before the lowest numbered goes on. */
+export const TRUCK_RING_AFTER = 40;
 /** A truck's length in tiles: a container truck by how many it carries, a crate truck by its size. */
 export function truckLength(capacity: number, boxes: boolean): number {
   // A container truck pulls a trailer for each, coupled one behind another.
@@ -287,6 +289,8 @@ export const STACKER_SPEED = 0.32;
 export const TRACTOR_PRICE = 3500;
 export const TRACTOR_WAGE = 50;
 export const TRACTOR_SPEED = 0.45;
+/** Long enough for a tractor to wait under a gantry crane for it to lift a container on or off. */
+export const TRACTOR_WAIT_TICKS = 100_000;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers

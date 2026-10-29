@@ -314,9 +314,12 @@ interface ShipGantryParts {
   to: number;
   /** The container on the spreader, shown while it carries one. */
   load: Object3D;
-  work: 'load' | 'unload' | null;
+  /** Off the ship or onto it, or a container onto a tractor under it or off one. */
+  work: 'load' | 'unload' | 'give' | 'take' | null;
   boat: number;
   slot: number;
+  /** The tractor it is lifting a container onto or off. */
+  truck: number;
   look: number;
   /** How far through a lift, 0 to 1, kept in step with the game. */
   phase: number;
@@ -448,7 +451,10 @@ export class Structures {
       const g = c.sts ?? c.mhc;
       if (!g) continue;
       g.stacked = v.stack + v.out;
-      g.work = v.working ?? null;
+      const tractor = v.working === 'give' || v.working === 'take';
+      if (c.sts) c.sts.work = v.working ?? null;
+      else if (c.mhc) c.mhc.work = tractor ? null : ((v.working as 'load' | 'unload') ?? null);
+      if (c.sts && v.workTruck !== undefined) c.sts.truck = v.workTruck;
       if (v.workBoat !== undefined) g.boat = v.workBoat;
       if (v.workSlot !== undefined) g.slot = v.workSlot;
       if (v.workLook !== undefined && v.workLook !== g.look) {
@@ -545,7 +551,13 @@ export class Structures {
     let z = -0.3;
     let drop = c.rest;
     let carry = false;
-    const ship = g.work ? this.truckSlot?.(g.boat, g.slot, this.slotAt) : null;
+    // Its other end: a slot on the ship's deck, or on a tractor under it.
+    const tractor = g.work === 'give' || g.work === 'take';
+    const ship = !g.work
+      ? null
+      : tractor
+        ? this.truckSlot?.(g.truck, 0, this.slotAt)
+        : this.truckSlot?.(g.boat, g.slot, this.slotAt);
     if (g.work && ship) {
       g.frame.updateWorldMatrix(true, false);
       g.frame.worldToLocal(ship);
@@ -554,15 +566,20 @@ export class Structures {
         z: ship.z,
         drop: trolley.position.y - (ship.y + BOX_HEIGHT + 0.04),
       };
-      // The next free place on the stack, or the export on top of it.
-      const k = Math.max(0, Math.min(c.stack.length - 1, g.stacked - (g.work === 'load' ? 1 : 0)));
+      // The next free place on the stack, the export on top of it, or the
+      // container it gives a tractor.
+      const order = this.slots.get(-1 - g.idx) ?? [];
+      const k =
+        g.work === 'give'
+          ? Math.max(0, order.indexOf(g.look))
+          : Math.max(0, Math.min(c.stack.length - 1, g.stacked - (g.work === 'load' ? 1 : 0)));
       const slot = c.stack[k];
       const pile = {
         x: slot.position.x,
         z: slot.position.z,
         drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
       };
-      const [from, to] = g.work === 'unload' ? [deck, pile] : [pile, deck];
+      const [from, to] = g.work === 'unload' || g.work === 'take' ? [deck, pile] : [pile, deck];
       const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
       const dip = (t: number, depth: number) => c.rest + (depth - c.rest) * Math.sin(t * Math.PI);
@@ -576,10 +593,11 @@ export class Structures {
       // Handed over, it is on the spreader from when it leaves the ship's
       // deck or the stack until it shows where it is set down, never on
       // neither.
-      const onDeck = () => !!this.slotShown?.(g.boat, g.slot);
+      const onDeck = () =>
+        tractor ? !!this.slotShown?.(g.truck, 0) : !!this.slotShown?.(g.boat, g.slot);
       const onStack = () => this.kept(-1 - g.idx, g.look);
       const [gone, there] =
-        g.work === 'unload'
+        g.work === 'unload' || g.work === 'take'
           ? [() => !onDeck(), () => onStack() > g.base]
           : [() => onStack() < g.base, onDeck];
       if (p < a) {
@@ -624,7 +642,7 @@ export class Structures {
       o.children[2].visible = !!v.pallets;
       o.position.y = QUAY_Y + lift + (k < 5 ? 0 : 0.15 + lift);
     });
-    j.work = v.working ?? null;
+    j.work = v.working === 'load' || v.working === 'unload' ? v.working : null;
     j.boat = v.workBoat ?? -1;
     j.slot = v.workSlot ?? 0;
     j.store = v.workStore;
@@ -1958,6 +1976,7 @@ export class Structures {
             load,
             work: null,
             boat: -1,
+            truck: -1,
             slot: 0,
             look: 0,
             phase: 0,

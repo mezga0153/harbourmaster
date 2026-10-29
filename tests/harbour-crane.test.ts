@@ -45,6 +45,11 @@ function terminal(world: World): number {
   world.command({ type: 'bulldoze', tiles: [corner - 1, corner + m.w - 1] });
   world.command({ type: 'build', kind: 'portGate', tiles: [corner + m.w - 1], facing: 1 });
   world.command({ type: 'build', kind: 'portRoad', tiles: [corner - 1] });
+  // And a port road along the far side of the yard, for the stackers to
+  // work its stacks from: they never drive across them.
+  const round = [corner - 1 - m.w, corner - m.w, corner + 1 - m.w];
+  world.command({ type: 'bulldoze', tiles: round });
+  world.command({ type: 'build', kind: 'portRoad', tiles: round });
   const depot = m.idx(start, r - 3);
   world.command({ type: 'bulldoze', tiles: [depot] });
   world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
