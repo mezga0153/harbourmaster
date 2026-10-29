@@ -10,7 +10,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, footprint, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
+import { EXTENSION, FACING, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import { HIGHWAY_X, TOWN } from '../sim/town';
@@ -23,7 +23,13 @@ import {
   storesOutgoing,
   TICKS_PER_SECOND,
 } from '../sim/types';
-import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN, GANTRY_TICKS, YARD_GANTRY_TICKS } from '../sim/balance';
+import {
+  CRANE_LIFT_SET,
+  CRANE_LIFT_TAKEN,
+  GANTRY_RAILS,
+  GANTRY_TICKS,
+  YARD_GANTRY_TICKS,
+} from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
 import { container, crate, paintContainer } from './models';
 import { C } from './palette';
@@ -390,15 +396,25 @@ export class Structures {
       }
     }
     x = Math.max(g.from, Math.min(g.to, x));
-    g.carriage.position.x += (x - g.carriage.position.x) * Math.min(1, dt * 10);
+    const follow = this.follow(dt);
+    g.carriage.position.x += (x - g.carriage.position.x) * follow;
     // The trolley's along the boom from the carriage.
-    trolley.position.z += (z - trolley.position.z) * Math.min(1, dt * 10);
+    trolley.position.z += (z - trolley.position.z) * follow;
     trolley.position.x = 0;
     c.rope.scale.y = drop;
     c.rope.position.y = -drop / 2;
     c.hook.position.y = -drop;
     g.load.visible = carry;
     if (carry) paintContainer(g.load, g.look);
+  }
+
+  /**
+   * How far a gantry's carriage and trolley close on where they are going
+   * this frame: quickly, in game time, so they are right over a container
+   * by the time the spreader comes down on it, at any game speed.
+   */
+  private follow(dt: number): number {
+    return 1 - Math.exp(-dt * Math.max(1, this.speed) * 30);
   }
 
   setSpeed(speed: number): void {
@@ -525,8 +541,9 @@ export class Structures {
         z = to.z + (from.z - to.z) * t;
       }
     }
-    g.carriage.position.x += (x - g.carriage.position.x) * Math.min(1, dt * 10);
-    g.trolley.position.z += (z - g.trolley.position.z) * Math.min(1, dt * 10);
+    const follow = this.follow(dt);
+    g.carriage.position.x += (x - g.carriage.position.x) * follow;
+    g.trolley.position.z += (z - g.trolley.position.z) * follow;
     g.rope.scale.y = drop;
     g.rope.position.y = -drop / 2;
     g.spreader.position.y = -drop;
@@ -1069,38 +1086,12 @@ export class Structures {
         // runs on rails along the quay, its boom reaching out across the
         // whole ship and back over the bay between its back legs, where it
         // sets the containers down.
-        const m = this.map;
         const y = QUAY_Y;
         const top = y + 1.55;
-        // The rails run on along the quay as far as it goes, three tiles
-        // either way at most, for it to work the length of a ship.
-        const [a, r] = footprint(m, 'gantryCrane', i, m.orient[i]);
-        const [rx, ry] = [m.xOf(r) - m.xOf(a), m.yOf(r) - m.yOf(a)];
-        const [bx, by] = [m.xOf(i) - m.xOf(a), m.yOf(i) - m.yOf(a)];
-        const back = footprint(m, 'gantryCrane', i, m.orient[i])[2];
-        const [kx, ky] = [m.xOf(back) - m.xOf(a), m.yOf(back) - m.yOf(a)];
-        const paved = (x: number, z: number) => {
-          if (!m.inBounds(x, z)) return false;
-          const b = m.build[m.idx(x, z)];
-          return (
-            b === Build.Quay ||
-            b === Build.Gantry ||
-            b === Build.HarbourCrane ||
-            b === Build.JibCrane
-          );
-        };
-        const run = (sign: number, from: number) => {
-          let k = 0;
-          while (k < 3) {
-            const x = m.xOf(a) + bx + rx * sign * (from + k);
-            const z = m.yOf(a) + by + ry * sign * (from + k);
-            if (!paved(x, z) || !paved(x + kx, z + ky)) break;
-            k++;
-          }
-          return k;
-        };
-        const left = run(-1, 1);
-        const right = run(1, 2);
+        // The rails run along the quay the length of a ship, centred on it,
+        // kept clear for it when it was built.
+        const left = GANTRY_RAILS / 2 - 1;
+        const right = GANTRY_RAILS / 2 - 1;
         for (const z of [-0.85, 0.85]) {
           g.add(box(2 + left + right, 0.02, 0.05, C.chassis, 1 + (right - left) / 2, y, z));
         }

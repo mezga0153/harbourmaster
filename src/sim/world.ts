@@ -59,6 +59,8 @@ import {
   bulldozeTiles,
   bulldozeValue,
   footprint,
+  gantryGround,
+  gantryOver,
   harbourCentre,
   partOrient,
   FORKLIFT_ONLY,
@@ -1198,7 +1200,10 @@ export class World {
         }
         if (kind === 'yardGantry') this.tip('yardGantry');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
-        if (kind === 'gantryCrane') this.addCrane(i, 'gantry');
+        if (kind === 'gantryCrane') {
+          this.addCrane(i, 'gantry');
+          this.keepForMachines(gantryGround(this.map, i, f));
+        }
       }
       if (skipped.length === left.length) break;
       left = skipped;
@@ -1237,6 +1242,16 @@ export class World {
     if (kind !== 'jetty') return null;
     const blocked = this.boats.some((b) => b.berth === i || this.tileOf(b) === i);
     return blocked ? 'A boat is in the way' : null;
+  }
+
+  /** Mark port roads and quays for port machines only, free: round a gantry crane's rails. */
+  private keepForMachines(tiles: number[]): void {
+    for (const t of tiles) {
+      const b = this.map.build[t];
+      if ((b !== Build.Quay && b !== Build.PortRoad) || forkliftOnly(this.map, t)) continue;
+      this.map.orient[t] |= FORKLIFT_ONLY;
+      this.dirty.add(t);
+    }
   }
 
   private markForkliftOnly(tiles: number[], on: boolean): void {
@@ -1496,6 +1511,8 @@ export class World {
   }
 
   private bulldoze(tiles: number[]): void {
+    // Ground a gantry crane taken down kept for machines, to give back.
+    const freed: number[] = [];
     let net = 0;
     let lastError: string | null = null;
     let stores = false;
@@ -1518,7 +1535,10 @@ export class World {
       }
       this.book('construction', value);
       net += value;
-      if (this.map.build[i] === Build.Gantry) this.cranes.delete(i);
+      if (this.map.build[i] === Build.Gantry) {
+        this.cranes.delete(i);
+        freed.push(...gantryGround(this.map, i, this.map.orient[i] & 3));
+      }
       if (this.map.build[i] === Build.JibCrane || this.map.build[i] === Build.HarbourCrane) {
         // Taking down a crane leaves the quay it stood on.
         this.cranes.delete(i);
@@ -1546,6 +1566,12 @@ export class World {
       this.dirty.add(i);
     }
     if (stores) this.rebuildStores();
+    // What no other gantry crane's rails still need goes back to everyone.
+    for (const t of freed) {
+      if (!forkliftOnly(this.map, t) || gantryOver(this.map, t, true) >= 0) continue;
+      this.map.orient[t] &= ~FORKLIFT_ONLY;
+      this.dirty.add(t);
+    }
     if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
     else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
   }

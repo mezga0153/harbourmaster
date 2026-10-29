@@ -96,7 +96,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Gantry,
     label: 'Gantry crane',
     cost: B.GANTRY_COST,
-    hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down in the bay between its legs, ${B.GANTRY_STACK} at most, where only reach stackers collect them, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. It runs on rails along the quay to each bay of the ship in turn; put two side by side along one berth and they share the ship out between them, working it twice as fast. The ground round it is for port machines only. $${B.GANTRY_RUNNING_COST}/day to run`,
+    hint: `Ship-to-shore crane: lifts containers off feeder ships three times as fast as a harbour crane and sets them down in the bay between its legs, ${B.GANTRY_STACK} at most, where reach stackers or terminal tractors collect them, never the hauliers' trucks. 2×2 on quay, two tiles along the quay edge facing open water. It runs on rails along the quay to each bay of the ship in turn, so it needs ${B.GANTRY_RAILS} tiles of clear quay edge, the length of a ship, kept for its rails, and the ground a tile round them is for port machines only. Put two side by side along one berth and they share the rails and the ship out between them, working it twice as fast. $${B.GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   tugBerth: {
@@ -197,6 +197,9 @@ export const OUTSIDE = 'Beyond the port’s land';
 /** Only port roads and plain quay can be marked for port machines only. */
 export function forkliftOnlyError(map: GameMap, i: number): string | null {
   if (!map.buildable(i)) return OUTSIDE;
+  if (forkliftOnly(map, i) && gantryOver(map, i, true) >= 0) {
+    return 'Kept for port machines round a gantry crane’s rails';
+  }
   const b = map.build[i];
   return b === Build.PortRoad || b === Build.Quay
     ? null
@@ -249,6 +252,7 @@ export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean
     return map.store[i] === code ? null : `Not marked out as ${STORE_LABEL[kind].toLowerCase()}`;
   if (map.store[i] === code) return 'Already marked out';
   if (map.store[i]) return 'Marked out for other storage: clear that first';
+  if (gantryOver(map, i) >= 0) return 'Kept clear for a gantry crane’s rails';
   const b = map.build[i];
   return b === Build.PortRoad || b === Build.Quay
     ? null
@@ -312,6 +316,52 @@ export function partOrient(facing: number, k: number): number {
   return k === 0 ? facing : facing | EXTENSION | (k << PART_SHIFT);
 }
 
+/**
+ * The quay a gantry crane at `i` runs on: both rows of its rails along the
+ * quay edge, the length of a container ship, centred on the crane.
+ */
+export function gantryRails(map: GameMap, i: number, facing: number): number[] {
+  const out: number[] = [];
+  const from = 1 - B.GANTRY_RAILS / 2;
+  for (let r = from; r < from + B.GANTRY_RAILS; r++) {
+    for (const f of [0, -1]) out.push(offset(map, i, facing, r, f));
+  }
+  return out;
+}
+
+/** A gantry crane's rails and the land a tile round them: kept for port machines. */
+export function gantryGround(map: GameMap, i: number, facing: number): number[] {
+  const out: number[] = [];
+  const from = 1 - B.GANTRY_RAILS / 2;
+  for (let r = from - 1; r <= from + B.GANTRY_RAILS; r++) {
+    for (const f of [0, -1, -2]) {
+      const t = offset(map, i, facing, r, f);
+      if (t >= 0) out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
+ * The gantry crane (its main tile) whose rails run over tile `i`, or with
+ * `ground` whose ground round them takes it in; -1 if none.
+ */
+export function gantryOver(map: GameMap, i: number, ground = false): number {
+  const reach = B.GANTRY_RAILS + 1;
+  const x = map.xOf(i);
+  const y = map.yOf(i);
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      if (!map.inBounds(x + dx, y + dy)) continue;
+      const g = map.idx(x + dx, y + dy);
+      if (map.build[g] !== Build.Gantry || map.orient[g] & EXTENSION) continue;
+      const tiles = (ground ? gantryGround : gantryRails)(map, g, map.orient[g] & 3);
+      if (tiles.includes(i)) return g;
+    }
+  }
+  return -1;
+}
+
 /** The main tile of the building covering `i`. */
 export function anchorOf(map: GameMap, i: number): number {
   const o = map.orient[i];
@@ -369,9 +419,21 @@ export function placementError(
       const n = frontOf(map, t, facing);
       return n >= 0 && map.ocean[n] === 1 && map.build[n] === Build.None;
     };
-    return sea(tiles[0]) && sea(tiles[1])
-      ? null
-      : 'Put the gantry at the quay edge, its front two tiles facing open water';
+    if (!sea(tiles[0]) || !sea(tiles[1])) {
+      return 'Put the gantry at the quay edge, its front two tiles facing open water';
+    }
+    // Its rails run the length of a ship along the edge: clear quay, or
+    // another gantry crane sharing them.
+    const rails = gantryRails(map, i, facing);
+    const clear = (t: number) => quay(t) || (t >= 0 && map.build[t] === Build.Gantry);
+    const edge = rails.filter((_, k) => k % 2 === 0);
+    if (!rails.every(clear) || !edge.every(sea)) {
+      return `A gantry crane runs on rails along ${B.GANTRY_RAILS} tiles of clear quay edge, the length of a container ship: clear the quay either side of it`;
+    }
+    return null;
+  }
+  if (footprint(map, kind, i, facing).some((t) => t >= 0 && gantryOver(map, t) >= 0)) {
+    return 'Kept clear for a gantry crane’s rails';
   }
   if (kind === 'yardGantry') {
     const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
@@ -969,6 +1031,12 @@ export function craneGround(
     return out;
   };
   const zone = around(1);
+  if (kind === 'gantryCrane') {
+    // Its rails, in blue, the length of a ship, and the ground round them.
+    const rails = gantryRails(map, i, facing).filter((t) => t >= 0);
+    for (const t of gantryGround(map, i, facing)) zone.add(t);
+    return { zone: [...zone].filter((t) => !rails.includes(t)), reach: rails };
+  }
   const reach = kind === 'jibCrane' ? [...around(B.JIB_REACH)].filter((t) => !zone.has(t)) : [];
   return { zone: [...zone], reach };
 }

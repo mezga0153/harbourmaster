@@ -253,6 +253,8 @@ export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
 export const GANTRY_COST = 30000;
 export const GANTRY_TICKS = 16;
 export const GANTRY_STACK = 16;
+/** Quay a gantry crane's rails run along, centred on it: the length of a container ship. */
+export const GANTRY_RAILS = 6;
 export const GANTRY_RUNNING_COST = 300;
 /** A yard gantry, which loads the trucks at a container yard. */
 export const YARD_GANTRY_COST = 12000;

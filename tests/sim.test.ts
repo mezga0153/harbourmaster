@@ -12,10 +12,14 @@ import {
   footprint,
   forkliftOnly,
   frontOf,
+  gantryGround,
+  gantryRails,
+  machinesOnly,
   needsWideSpace,
   parkingLots,
   placementCost,
   placementError,
+  storeError,
   terraformError,
   walkable,
   walkableAt,
@@ -1791,6 +1795,30 @@ describe('Container Port tier', () => {
   }
 
   /**
+   * Run the terminal's pier on out into deeper water, its harbour crane
+   * cleared away, for gantry cranes' rails along its side: where one can go.
+   */
+  function gantryPier(world: World, crane: number): { at: number; f: number }[] {
+    const m = world.map;
+    const end = m.xOf(crane);
+    const row = m.yOf(crane);
+    world.command({ type: 'bulldoze', tiles: [crane] });
+    for (const y of [row, row + 1]) {
+      for (let x = end + 1; x <= end + 6; x++) {
+        world.command({ type: 'build', kind: 'quay', tiles: [m.idx(x, y)] });
+      }
+    }
+    const spots: { at: number; f: number }[] = [];
+    for (let x = end - 4; x <= end + 6; x++) {
+      for (let f = 0; f < 4; f++) {
+        const at = m.idx(x, row);
+        if (placementError(m, 'gantryCrane', at, undefined, f) === null) spots.push({ at, f });
+      }
+    }
+    return spots;
+  }
+
+  /**
    * A tug berth beside the docks, as far from the feeder berth at the crane
    * as there is room for, and a tug lying in it.
    */
@@ -2204,14 +2232,13 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const m = world.map;
-    world.command({ type: 'bulldoze', tiles: [t.crane] });
-    expect(m.build[t.crane]).toBe(Build.Quay);
-    const f = bestFacing(m, 'gantryCrane', t.crane);
-    expect(placementError(m, 'gantryCrane', t.crane, undefined, f)).toBeNull();
-    world.command({ type: 'build', kind: 'gantryCrane', tiles: [t.crane], facing: f });
-    const tiles = footprint(m, 'gantryCrane', t.crane, f);
+    const spots = gantryPier(world, t.crane);
+    expect(spots.length).toBeGreaterThan(0);
+    const { at, f } = spots[0];
+    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const tiles = footprint(m, 'gantryCrane', at, f);
     expect(tiles.every((i) => m.build[i] === Build.Gantry)).toBe(true);
-    expect(world.cranes.get(t.crane)!.kind).toBe('gantry');
+    expect(world.cranes.get(at)!.kind).toBe('gantry');
     expect(world.capacity().boxes.berths).toBeGreaterThan(0);
     world['addContract'](
       {
@@ -2230,7 +2257,7 @@ describe('Container Port tier', () => {
     let stacked = 0;
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       world.step();
-      stacked = Math.max(stacked, world.cranes.get(t.crane)!.stack.length);
+      stacked = Math.max(stacked, world.cranes.get(at)!.stack.length);
       // No trucks under or round the crane: they load at the yard.
       for (const k of world.trucks) {
         const at = m.idx(Math.floor(k.x), Math.floor(k.y));
@@ -2242,7 +2269,35 @@ describe('Container Port tier', () => {
     // Taken down, it leaves the quay it stood on.
     world.command({ type: 'bulldoze', tiles: [tiles[3]] });
     expect(tiles.every((i) => m.build[i] === Build.Quay)).toBe(true);
-    expect(world.cranes.has(t.crane)).toBe(false);
+    expect(world.cranes.has(at)).toBe(false);
+  });
+
+  it('keeps a ship’s length of quay clear for a gantry crane’s rails, and a tile round them for machines', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    expect(t).not.toBeNull();
+    const m = world.map;
+    const spots = gantryPier(world, t.crane);
+    // Not where its rails would run off the quay.
+    expect(spots.length).toBeGreaterThan(0);
+    const { at, f } = spots[0];
+    world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
+    const rails = gantryRails(m, at, f);
+    expect(rails).toHaveLength(2 * B.GANTRY_RAILS);
+    const free = rails.filter((i) => m.build[i] === Build.Quay);
+    expect(free.length).toBeGreaterThan(0);
+    for (const i of free) {
+      expect(placementError(m, 'jibCrane', i)).toMatch(/rails/);
+      expect(storeError(m, i, 'boxes', true)).toMatch(/rails/);
+    }
+    const ground = gantryGround(m, at, f).filter((i) => m.build[i] === Build.Quay);
+    expect(ground.every((i) => machinesOnly(m, i))).toBe(true);
+    // Taken down, the quay is everyone's again.
+    world.command({ type: 'bulldoze', tiles: [at] });
+    expect(ground.some((i) => machinesOnly(m, i))).toBe(false);
+    expect(placementError(m, 'jibCrane', free[0]) ?? '').not.toMatch(/rails/);
   });
 
   it('has two gantry cranes over one ship share its bays out and work it together', () => {
@@ -2252,19 +2307,13 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const m = world.map;
-    world.command({ type: 'bulldoze', tiles: [t.crane] });
     // Two side by side along the edge of the pier, each 2 wide.
+    const spots = gantryPier(world, t.crane);
     let pair: [number, number, number] | null = null;
-    for (let x = m.xOf(t.crane); x > m.xOf(t.crane) - 8 && !pair; x--) {
-      for (const row of [m.yOf(t.crane), m.yOf(t.crane) + 1]) {
-        for (let f = 0; f < 4 && !pair; f++) {
-          const at = m.idx(x, row);
-          const tiles = footprint(m, 'gantryCrane', at, f);
-          const next = at + 2 * (tiles[1] - tiles[0]);
-          const ok = (i: number) => placementError(m, 'gantryCrane', i, undefined, f) === null;
-          if (ok(at) && ok(next)) pair = [at, next, f];
-        }
-      }
+    for (const { at, f } of spots) {
+      const tiles = footprint(m, 'gantryCrane', at, f);
+      const next = at + 2 * (tiles[1] - tiles[0]);
+      if (!pair && spots.some((q) => q.at === next && q.f === f)) pair = [at, next, f];
     }
     expect(pair).not.toBeNull();
     const [first, second, f] = pair!;
@@ -2286,27 +2335,26 @@ describe('Container Port tier', () => {
       world.tick + 10,
       0,
     );
-    let together = 0;
-    const bays = new Map<number, Set<number>>([
-      [first, new Set()],
-      [second, new Set()],
+    const bay = (slot: number) =>
+      Math.floor((slot % (B.FEEDER_BAYS * B.FEEDER_ROWS)) / B.FEEDER_ROWS);
+    // Bays each works while both are at the same ship.
+    const bays = new Map<number, number[]>([
+      [first, []],
+      [second, []],
     ]);
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
       const views = world.snapshot().cranes.filter((c) => c.working === 'unload');
-      if (views.length === 2 && views[0].workBoat === views[1].workBoat) together++;
-      for (const c of views) {
-        bays
-          .get(c.idx)
-          ?.add(Math.floor((c.workSlot! % (B.FEEDER_BAYS * B.FEEDER_ROWS)) / B.FEEDER_ROWS));
-      }
+      if (views.length < 2 || views[0].workBoat !== views[1].workBoat) continue;
+      for (const c of views) bays.get(c.idx)!.push(bay(c.workSlot!));
     }
-    expect(together).toBeGreaterThan(0);
-    // Each kept to its own half of the ship.
+    // Each in its own half of the ship, never in the other's.
     const [a, b] = [...bays.values()];
-    expect(a.size).toBeGreaterThan(0);
-    expect(b.size).toBeGreaterThan(0);
-    expect([...a].some((bay) => b.has(bay))).toBe(false);
+    expect(a.length).toBeGreaterThan(0);
+    const halves = (list: number[]) => new Set(list.map((n) => n < B.FEEDER_BAYS / 2));
+    expect(halves(a).size).toBe(1);
+    expect(halves(b).size).toBe(1);
+    expect([...halves(a)][0]).not.toBe([...halves(b)][0]);
   });
 
   it('lets trucks take containers only once customs have cleared them', () => {
