@@ -120,9 +120,9 @@ export class Structures {
   }
 
   /** Each parking tile's lot: inside the port or out, and whether its spaces run across x. */
-  private lots: Map<number, { inside: boolean; acrossX: boolean }> | null = null;
+  private lots: Map<number, { inside: boolean; acrossX: boolean; wide: boolean }> | null = null;
 
-  private lotAt(i: number): { inside: boolean; acrossX: boolean } {
+  private lotAt(i: number): { inside: boolean; acrossX: boolean; wide: boolean } {
     if (!this.lots) {
       const m = this.map;
       this.lots = new Map();
@@ -139,10 +139,11 @@ export class Structures {
           ? !lot.outside
           : !near.some((b) => isPublicRoad(b)) &&
             near.some((b) => b === Build.PortRoad || b === Build.Quay);
-        for (const t of lot.tiles) this.lots.set(t, { inside, acrossX });
+        const wide = space ? space.tiles.length === 2 : Math.min(w, h) === 2;
+        for (const t of lot.tiles) this.lots.set(t, { inside, acrossX, wide });
       }
     }
-    return this.lots.get(i) ?? { inside: false, acrossX: false };
+    return this.lots.get(i) ?? { inside: false, acrossX: false, wide: false };
   }
 
   setCranes(views: CraneView[]): void {
@@ -442,9 +443,18 @@ export class Structures {
         // truck stands across the middle of its tile, so the lines run through
         // the tile's edges: each tile draws the half of each line inside it,
         // and the lines stop at the ends of the lot, off the roads.
-        const { inside, acrossX } = this.lotAt(i);
+        const { inside, acrossX, wide } = this.lotAt(i);
         const y = inside ? QUAY_Y : top + 0.05;
         g.add(box(1, y - top, 1, inside ? C.quayTop : C.asphalt, 0.5, top, 0.5));
+        // Two tiles wide, a truck stands across the middle of both, where
+        // the corners of the tiles meet: the lines between the spaces run
+        // corner to corner across each tile, joining up across the strip.
+        if (wide) {
+          const line = box(1.3, 0.008, 0.035, C.marking, 0.5, y, 0.5);
+          line.rotation.y = acrossX ? -Math.PI / 4 : Math.PI / 4;
+          g.add(line);
+          return g;
+        }
         // Along the lines, which run with the parked trucks.
         const [vx, vz] = acrossX ? [Math.SQRT1_2, Math.SQRT1_2] : [Math.SQRT1_2, -Math.SQRT1_2];
         for (const o of [0, 1]) {
