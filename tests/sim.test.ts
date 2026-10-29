@@ -2021,15 +2021,42 @@ describe('Container Port tier', () => {
     expect(yards.size).toBeGreaterThan(2);
   });
 
-  it('keeps yard gantries off the tiles trucks load a yard from', () => {
-    const world = feederPort(false);
+  it('lets trucks drive in under a yard gantry to load', () => {
+    const world = feederPort(true);
     const m = world.map;
     const yard = [...world.yards.values()][0];
-    const spots: number[] = world['storeSpots'](yard);
-    expect(spots.length).toBeGreaterThan(0);
-    for (const s of spots) expect(placementError(m, 'yardGantry', s)).toMatch(/Trucks load/);
-    // Another side of the yard will do.
-    expect(m.build.some((_, i) => !placementError(m, 'yardGantry', i))).toBe(true);
+    const spot: number = world['storeSpots'](yard)[0];
+    expect(placementError(m, 'yardGantry', spot)).toBeNull();
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.YardGantry);
+    // The trucks still reach the yard, from under the gantry too.
+    expect(world['storeSpots'](yard)).toContain(spot);
+    world['addContract'](
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    let loaded = 0;
+    let working = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
+      const before = world.trucks.reduce((n, t) => n + (t.boxes ? t.cargo : 0), 0);
+      world.step();
+      loaded += Math.max(0, world.trucks.reduce((n, t) => n + (t.boxes ? t.cargo : 0), 0) - before);
+      // The gantry does it: no stacker works a truck here.
+      expect(world.people.some((p) => p.truckId !== undefined)).toBe(false);
+      if (k % 10 === 0 && world.snapshot().yards.some((y) => y.working)) working++;
+    }
+    expect(loaded).toBeGreaterThan(0);
+    // And shows it at work, for its trolley to run.
+    expect(working).toBeGreaterThan(0);
   });
 
   it('brings a container ship in and out without its hull touching the docks', () => {

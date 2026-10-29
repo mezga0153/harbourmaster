@@ -3980,6 +3980,27 @@ export class World {
     return free > wanting;
   }
 
+  /** What a yard's gantry is doing, for the view: a truck it is loading or unloading. */
+  private gantryWork(y: Bay): { working?: 'load' | 'unload'; workLook?: number } {
+    if (!this.yardGantry(y)) return {};
+    for (const t of this.trucks) {
+      if (t.bayIdx !== y.idx || !t.boxes) continue;
+      if (t.state === 'loading' && t.cargo < t.capacity) {
+        const at = this.readyList(y).findIndex((r) => this.isClear(r));
+        if (at >= 0) return { working: 'load', workLook: this.boxLooks(y)[at] };
+      }
+      if (t.state === 'delivering' && t.cargo > 0) {
+        return { working: 'unload', workLook: boxLookOf(t.id, t.cargo - 1) };
+      }
+    }
+    return {};
+  }
+
+  /** Ticks a truck takes to load or unload one at a bay or yard: a yard gantry lifts at its own pace. */
+  private truckTicks(t: Truck, bay: Bay): number {
+    return t.boxes && bay.yard && this.yardGantry(bay) ? B.YARD_GANTRY_TICKS : loadTicks(bay);
+  }
+
   /** A container truck at a yard with no gantry, which reach stackers load or unload. */
   private byStacker(t: Truck, bay: Bay): boolean {
     return t.boxes && !!bay.yard && !this.yardGantry(bay);
@@ -7218,7 +7239,7 @@ export class World {
           }
           return;
         }
-        if (++t.timer % loadTicks(bay) !== 0) return;
+        if (++t.timer % this.truckTicks(t, bay) !== 0) return;
         this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
@@ -7230,7 +7251,7 @@ export class World {
       }
       case 'loading': {
         if (!bay) return this.truckLeave(t);
-        const every = loadTicks(bay);
+        const every = this.truckTicks(t, bay);
         if (++t.timer % every !== 0) return;
         // Containers at a yard with no gantry go on by reach stacker: it
         // waits while one is on its way.
@@ -8109,6 +8130,7 @@ export class World {
         boxes: y.boxes.length,
         exports: y.exports?.length ?? 0,
         looks: [...this.boxLooks(y), ...this.exportLooks(y)],
+        ...this.gantryWork(y),
         outgoing: !!y.outgoing,
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),

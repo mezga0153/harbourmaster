@@ -110,7 +110,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.YardGantry,
     label: 'Yard gantry',
     cost: B.YARD_GANTRY_COST,
-    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
+    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   breakHut: {
@@ -377,13 +377,8 @@ export function placementError(
     const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
     if (!paved || map.store[i]) return 'A yard gantry stands on port road or quay, beside a yard';
     const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
-    if (!yard) return 'Put it beside a container yard: it spans the stacks to load the trucks';
-    // Not where the trucks stand to load at storage beside it (see loadingSpots).
-    const served = map.neighbors4(i).some((n) => map.store[n] && !machinesOnly(map, n));
-    if (served && truckReach(map)[i] >= 0) {
-      return 'Trucks load the storage from here: put the gantry on another side of the yard';
-    }
-    return null;
+    // Trucks still drive under it, to load, so it may stand where they do.
+    return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
   }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
@@ -774,7 +769,9 @@ export function truckCost(
     // A parking space is driven through from the road on one side to the
     // road on the other, which are of a kind; see parkingLots.
     if (b === Build.Parking) return space?.has(i) ? 'gate' : null;
-    if (b === Build.PortRoad || b === Build.Quay) return forkliftOnly(map, i) ? null : 'port';
+    // Trucks drive under a yard gantry, to load from it.
+    const paved = b === Build.PortRoad || b === Build.Quay || b === Build.YardGantry;
+    if (paved) return forkliftOnly(map, i) ? null : 'port';
     if (b === Build.Gate) return 'gate';
     const a = anchorOf(map, i);
     return a === target || a === home ? 'gate' : null;
@@ -826,7 +823,8 @@ export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): 
     for (const n of map.neighbors4(t)) {
       if (area.has(n) || reach[n] < 0 || map.store[n]) continue;
       const b = map.build[n];
-      if (b !== Build.PortRoad && b !== Build.Quay) continue;
+      // Under a yard gantry too, which loads them there.
+      if (b !== Build.PortRoad && b !== Build.Quay && b !== Build.YardGantry) continue;
       spots.add(n);
     }
   }
@@ -868,7 +866,7 @@ export function parkingLots(map: GameMap): ParkingLot[] {
     if (i < 0) return null;
     const b = map.build[i];
     if (isPublicRoad(b) && b !== Build.Crossing) return 'road';
-    const port = b === Build.PortRoad || b === Build.Quay;
+    const port = b === Build.PortRoad || b === Build.Quay || b === Build.YardGantry;
     return port && !forkliftOnly(map, i) && !map.store[i] && !nearCrane(map, i) ? 'port' : null;
   };
   for (let i = 0; i < map.build.length; i++) {

@@ -219,6 +219,12 @@ export interface YardView {
   byCrane: boolean;
   /** A yard gantry beside it loads the trucks; else the reach stackers do. */
   gantry: boolean;
+  /**
+   * Its gantry at work: lifting containers onto a truck, or a shipper's
+   * off one; and how the one it is moving looks.
+   */
+  working?: 'load' | 'unload';
+  workLook?: number;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

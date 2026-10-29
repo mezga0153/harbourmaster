@@ -20,7 +20,9 @@ import {
   isTownBuilding,
   storesBoxes,
   storesOutgoing,
+  TICKS_PER_SECOND,
 } from '../sim/types';
+import { YARD_GANTRY_TICKS } from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
 import { container, crate, paintContainer } from './models';
 import { C } from './palette';
@@ -63,6 +65,23 @@ interface CrossingParts {
   angle: number;
 }
 
+interface YardGantryParts {
+  /** Runs along the beam, along +z of the frame: out over the yard, back over the lane. */
+  trolley: Object3D;
+  /** Hoist rope from the trolley, scaled to its length, and the spreader on its end. */
+  rope: Object3D;
+  spreader: Object3D;
+  /** The container on the spreader, shown while it carries one. */
+  load: Object3D;
+  /** How far along the beam the far legs stand, and how far the spreader lowers. */
+  far: number;
+  lift: number;
+  work: 'load' | 'unload' | null;
+  look: number;
+  /** How far through a lift, 0 to 1. */
+  phase: number;
+}
+
 interface CraneParts {
   /** Rotates about Y to point the jib at the boat being unloaded. */
   slew: Object3D;
@@ -92,6 +111,10 @@ export class Structures {
   /** Buoys, bobbing on the swell. */
   private buoys = new Map<number, Object3D>();
   private crossings = new Map<number, CrossingParts>();
+  /** Yard gantries, by tile, for their trolley to run as they load trucks. */
+  private yardGantries = new Map<number, YardGantryParts>();
+  /** Game speed, so a gantry's lift takes as long as it does in the game. */
+  private speed = 1;
   /** Cargo landed on the quay, by tile. */
   private piles = new Map<number, { group: Group; crates: Object3D[]; pallets: boolean }>();
   private train: Train | null = null;
@@ -195,6 +218,7 @@ export class Structures {
       g.angle += ((g.open ? 1.4 : 0) - g.angle) * Math.min(1, dt * 5);
       g.boom.rotation.z = -g.angle;
     }
+    for (const g of this.yardGantries.values()) this.runYardGantry(g, dt);
     for (const c of this.cranes.values()) {
       if (c.fixed) {
         // Out over the ship and back in over the bay between the legs.
@@ -214,8 +238,73 @@ export class Structures {
     }
   }
 
-  setYards(yards: { boxes: number; exports: number; tiles: number[]; looks: number[] }[]): void {
-    for (const y of yards) this.fill(y.tiles, y.boxes + y.exports, true, y.looks);
+  setSpeed(speed: number): void {
+    this.speed = speed;
+  }
+
+  setYards(
+    yards: {
+      boxes: number;
+      exports: number;
+      tiles: number[];
+      looks: number[];
+      working?: 'load' | 'unload';
+      workLook?: number;
+    }[],
+  ): void {
+    for (const y of yards) {
+      this.fill(y.tiles, y.boxes + y.exports, true, y.looks);
+      // Its gantry, at work or not.
+      const tiles = new Set(y.tiles);
+      for (const [i, g] of this.yardGantries) {
+        if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
+        g.work = y.working ?? null;
+        if (y.workLook !== undefined) g.look = y.workLook;
+      }
+    }
+  }
+
+  /**
+   * A yard gantry at work runs its trolley out over the stacks, lowers the
+   * spreader, lifts a container, runs back over the truck lane below it and
+   * sets it down on the truck; unloading a shipper's truck, the other way
+   * round. Idle, it waits over the middle with the spreader up.
+   */
+  private runYardGantry(g: YardGantryParts, dt: number): void {
+    // One lift a cycle, as long as one takes in the game.
+    const cycle = YARD_GANTRY_TICKS / TICKS_PER_SECOND;
+    g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
+    const stacks = Math.max(0.8, g.far * 0.6);
+    const lane = 0.05;
+    let z = Math.max(0.6, g.far / 2);
+    let drop = 0.2;
+    let carry = false;
+    if (g.work) {
+      const [from, to] = g.work === 'load' ? [stacks, lane] : [lane, stacks];
+      const p = g.phase;
+      const ease = (t: number) => t * t * (3 - 2 * t);
+      const dip = (t: number) => 0.2 + (g.lift - 0.2) * Math.sin(t * Math.PI);
+      if (p < 0.25) {
+        z = from;
+        drop = dip(p / 0.25);
+        carry = p > 0.125;
+      } else if (p < 0.5) {
+        z = from + (to - from) * ease((p - 0.25) / 0.25);
+        carry = true;
+      } else if (p < 0.75) {
+        z = to;
+        drop = dip((p - 0.5) / 0.25);
+        carry = p < 0.625;
+      } else {
+        z = to + (from - to) * ease((p - 0.75) / 0.25);
+      }
+    }
+    g.trolley.position.z += (z - g.trolley.position.z) * Math.min(1, dt * 10);
+    g.rope.scale.y = drop;
+    g.rope.position.y = -drop / 2;
+    g.spreader.position.y = -drop;
+    g.load.visible = carry;
+    if (carry) paintContainer(g.load, g.look);
   }
 
   setBays(bays: BayView[]): void {
@@ -320,6 +409,7 @@ export class Structures {
       this.gates.delete(i);
       this.buoys.delete(i);
       this.crossings.delete(i);
+      this.yardGantries.delete(i);
     }
     let obj = this.make(i);
     if ((FACES.has(this.map.build[i]) || isTownBuilding(this.map.build[i])) && obj) {
@@ -682,13 +772,31 @@ export class Structures {
         for (const x of [-0.4, 0.4]) {
           frame.add(box(0.1, 0.12, far + 0.45, C.craneYellow, x, y + h, (far - 0.35) / 2));
         }
+        // The trolley with its cab, the hoist ropes and the spreader on them,
+        // and the container it is lifting, if any.
         const trolley = new Group();
         trolley.position.set(0, y + h, Math.max(0.6, far / 2));
         trolley.add(box(0.6, 0.08, 0.3, C.chassis, 0, 0.12, 0));
         trolley.add(box(0.2, 0.16, 0.2, C.window, 0.18, -0.16, 0));
-        trolley.add(box(0.012, 0.55, 0.012, C.chassis, 0, -0.55, 0));
-        trolley.add(box(0.5, 0.04, 0.16, C.stripe, 0, -0.6, 0));
+        const rope = box(0.012, 1, 0.012, C.chassis);
+        const spreader = new Group();
+        spreader.add(box(0.5, 0.04, 0.16, C.stripe, 0, -0.04, 0));
+        const load = container(i, 0, -0.04 - BOX_HEIGHT, 0);
+        load.visible = false;
+        spreader.add(load);
+        trolley.add(rope, spreader);
         frame.add(trolley);
+        this.yardGantries.set(i, {
+          trolley,
+          rope,
+          spreader,
+          load,
+          far,
+          lift: h - 0.15,
+          work: null,
+          look: 0,
+          phase: 0,
+        });
         // Laid out along +z, then turned to face the yard.
         frame.position.set(0.5, 0, 0.5);
         frame.rotation.y = Math.atan2(dx, dy);
