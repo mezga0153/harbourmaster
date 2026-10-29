@@ -334,6 +334,8 @@ interface ShipGantryParts {
   /** The place on its stack the container it moves is in, or goes. */
   place?: number;
   look: number;
+  /** Waiting on the game to hand a container over, not to be brought into step meanwhile. */
+  holding?: boolean;
   /** How far through a lift, 0 to 1, kept in step with the game. */
   phase: number;
   /** Containers on the stack between its legs, and exports, for where the next goes. */
@@ -490,7 +492,9 @@ export class Structures {
       }
       // Kept in step with the game, without jumping for a small difference,
       // nor while a harbour crane waits on the game to hand a container over.
-      if (v.workPhase !== undefined && !c.mhc?.held) {
+      // A gantry waiting on a hand-over is let go once the game is on to its next lift.
+      const waits = c.sts?.holding && v.workPhase !== undefined && v.workPhase >= CRANE_LIFT_TAKEN;
+      if (v.workPhase !== undefined && !c.mhc?.held && !waits) {
         const off = ((v.workPhase - g.phase + 1.5) % 1) - 0.5;
         g.phase = Math.abs(off) > 0.15 ? v.workPhase : (g.phase + off * 0.5 + 1) % 1;
       }
@@ -615,7 +619,6 @@ export class Structures {
             drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
           };
       const [from, to] = g.work === 'unload' || g.work === 'take' ? [deck, pile] : [pile, deck];
-      const p = g.phase;
       const ease = (t: number) => t * t * (3 - 2 * t);
       const dip = (t: number, depth: number) => c.rest + (depth - c.rest) * Math.sin(t * Math.PI);
       const take = CRANE_LIFT_TAKEN;
@@ -641,6 +644,13 @@ export class Structures {
         g.work === 'unload' || g.work === 'take'
           ? [() => !onDeck(), () => onStack() > g.base]
           : [() => onStack() < g.base, onDeck];
+      // Nor does it lift one while it still shows where it was, or come up
+      // again before it shows where it is set down: ahead of the game, the
+      // spreader waits down on it.
+      g.holding = false;
+      if (was <= take && g.phase > take && !gone()) [g.phase, g.holding] = [take, true];
+      if (was <= set && g.phase > set && !there()) [g.phase, g.holding] = [set, true];
+      const p = g.phase;
       if (p < a) {
         const t = ease(p / a);
         x = g.carriage.position.x + (from.x - g.carriage.position.x) * t;
