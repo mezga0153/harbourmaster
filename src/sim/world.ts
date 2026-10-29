@@ -6860,6 +6860,12 @@ export class World {
     return this.readyList(b).filter((r) => this.isClear(r)).length;
   }
 
+  /** Ticks since the longest-cleared container in this yard cleared customs, or 0. */
+  private clearedFor(b: Bay): number {
+    const since = Math.min(Infinity, ...this.readyList(b).filter((r) => this.isClear(r)));
+    return Number.isFinite(since) ? this.tick - since : 0;
+  }
+
   /** Containers whose ship is still being unloaded, so customs have not started on them. */
   private pending(b: Bay): number {
     return this.readyList(b).filter((r) => r < 0).length;
@@ -7596,13 +7602,14 @@ export class World {
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
       // A container truck goes only for a full load: as many cleared
-      // containers as it carries that no other truck is coming for.
+      // containers as it carries that no other truck is coming for; or for
+      // what there is, once that has been waiting a good while.
       const boxes = this.unclaimed(bay, true);
+      const boxTruck = (h: (typeof hauliers)[number]) => free(h) && h.terms.cargo === 'container';
       const haulier =
         (boxes > 0
-          ? hauliers.find(
-              (h) => free(h) && h.terms.cargo === 'container' && boxes >= h.terms.capacity,
-            )
+          ? (hauliers.find((h) => boxTruck(h) && boxes >= h.terms.capacity) ??
+            (this.clearedFor(bay) >= B.PART_LOAD_WAIT ? hauliers.find(boxTruck) : undefined))
           : undefined) ??
         (this.unclaimed(bay, false) > 0
           ? hauliers.find(

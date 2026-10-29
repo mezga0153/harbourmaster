@@ -2407,21 +2407,26 @@ describe('Container Port tier', () => {
     );
     const yard = world.yards.get(t.yard)!;
     const sent = () => world.trucks.filter((k) => k.boxes && k.bayIdx === t.yard).length;
-    // One cleared: no truck comes for it.
+    // One just cleared: no truck comes for it yet.
     yard.boxes.push(100);
-    yard.boxReady = [0];
-    for (let k = 0; k < 300; k++) world.step();
+    yard.boxReady = [world.tick];
+    for (let k = 0; k < B.PART_LOAD_WAIT / 2; k++) world.step();
     expect(sent()).toBe(0);
     expect(yard.boxes).toHaveLength(1);
     // A second: one comes, and takes both.
     yard.boxes.push(100);
-    yard.boxReady!.push(0);
+    yard.boxReady!.push(world.tick);
     let most = 0;
     for (let k = 0; k < 400; k++) {
       world.step();
       most = Math.max(most, sent());
     }
     expect(most).toBe(1);
+    expect(yard.boxes).toHaveLength(0);
+    // A last one on its own is fetched in the end, rather than left for good.
+    yard.boxes.push(100);
+    yard.boxReady!.push(world.tick);
+    for (let k = 0; k < B.PART_LOAD_WAIT + 400; k++) world.step();
     expect(yard.boxes).toHaveLength(0);
   });
 
