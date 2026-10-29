@@ -214,7 +214,9 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
       : b.demand > b.lifting
         ? 'Containers bottleneck: lifting them off the ships. Build another harbour crane, or a gantry crane: several can work one ship.'
         : b.demand > b.moving
-          ? 'Containers bottleneck: moving them from the cranes to the yards. Buy reach stackers.'
+          ? (snapshot.value?.yards ?? []).some((y) => !y.gantry)
+            ? 'Containers bottleneck: reach stackers. They take containers from the cranes to the yards, and without a yard gantry load the trucks too. Buy more, or build yard gantries.'
+            : 'Containers bottleneck: moving them from the cranes to the yards. Buy reach stackers.'
           : b.demand > b.trucking
             ? 'Containers bottleneck: trucking. Sign a container haulier, and mark out container yards beside a public road or behind a port gate.'
             : null;
@@ -236,7 +238,7 @@ function ContainerSummary({ cap }: { cap: Capacity }) {
           label="Moved"
           value={b.moving}
           demand={b.demand}
-          hint="Reach stackers take them from the cranes to the container yards"
+          hint="Reach stackers take them from the cranes to the container yards, and load the trucks at yards without a yard gantry"
           below={stock && `${stock.boxCustoms} in customs`}
         />
         <Kpi

@@ -209,6 +209,8 @@ export interface YardView {
   exports: number;
   outgoing: boolean;
   byCrane: boolean;
+  /** A yard gantry beside it loads the trucks; else the reach stackers do. */
+  gantry: boolean;
   /** Ticks until the next container clears, or -1. */
   nextClear: number;
   /** Containers whose ship is still being unloaded: customs start once it is. */

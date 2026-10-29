@@ -1101,6 +1101,7 @@ export class World {
         if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
           this.tip('cranes');
         }
+        if (kind === 'yardGantry') this.tip('yardGantry');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
         if (kind === 'gantryCrane') this.addCrane(i, 'gantry');
       }
@@ -1878,7 +1879,11 @@ export class World {
     const avg = cranes.length && yards.length ? walk / cranes.length : 0;
     const stackers = this.people.filter((p) => p.kind === 'stacker').length;
     const trip = (2 * avg * 1.2) / B.STACKER_SPEED + (B.PICK_TICKS + B.DROP_TICKS) * 2.5;
-    const moving = avg > 0 ? stackers * ((TICKS_PER_DAY * 0.85) / trip) : 0;
+    // Without a yard gantry the stackers also lift each container onto its
+    // truck: a short trip from the stack to the road beside it, and handling.
+    const bare = yards.length ? yards.filter((y) => !this.yardGantry(y)).length / yards.length : 0;
+    const loading = (2 * 1.5 * 1.2) / B.STACKER_SPEED + (B.PICK_TICKS + B.DROP_TICKS) * 2.5;
+    const moving = avg > 0 ? stackers * ((TICKS_PER_DAY * 0.85) / (trip + bare * loading)) : 0;
     let trucking = 0;
     // Trucks load beside the yards, one at a time at each spot, while the
     // others are away on their rounds.
@@ -7587,6 +7592,7 @@ export class World {
         exports: y.exports?.length ?? 0,
         outgoing: !!y.outgoing,
         byCrane: this.byCrane(y),
+        gantry: this.yardGantry(y),
         cleared: this.cleared(y),
         nextClear: this.nextClear(y),
         pending: this.pending(y),

@@ -136,6 +136,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           their legs, {B.GANTRY_STACK} at most. Only reach stackers collect from there.
         </p>
         <p>
+          <b>Yard gantries</b> span a container yard from beside it and lift containers on and off
+          the trucks there, so the reach stackers do not have to.
+        </p>
+        <p>
           The ground round every crane is for port machines only: no dockhands, no hauliers' trucks.
           Placing or selecting a crane shows it in red, and a jib crane's reach in blue.
         </p>
@@ -264,6 +268,12 @@ export const TOPICS: Record<TopicId, Topic> = {
           may take them. Yards hold a ship's load and a day of traffic: when they fill, the stackers
           stop, then the cranes, and ships wait. Select a yard to see what is in customs and when
           the next one clears.
+        </p>
+        <p>
+          Every container is moved by machine. Reach stackers bring them from the cranes to the
+          yard, and, unless a <b>yard gantry</b> stands beside the yard, lift them onto the trucks
+          too, and off the shippers' trucks: twice the work for the stackers. A yard gantry spans
+          the yard from a port road or quay tile beside it and does the trucks itself.
         </p>
       </>
     ),
