@@ -1011,9 +1011,12 @@ export class World {
   /** When each container ship lately finished unloading, by id, for customs. */
   unloadedAt = new Map<number, number>();
   private warnedOffice = false;
-  private warnedParking = false;
-  /** When the player was last told no storage for exports of this kind has room. */
-  private warnedOutFull = { crates: -Infinity, boxes: -Infinity };
+  /** When each repeating warning may next be given, and the gap after that. Not saved. */
+  private nags = new Map<string, { next: number; gap: number }>();
+  /** Demurrage charged since midnight, told once a day at most. */
+  private demurrageToday = { amount: 0, ships: 0 };
+  /** Lines signed this session whose first boat has not come in, to say when it does. Not saved. */
+  private firstBoat = new Set<string>();
   private warnedBigTrucks = false;
   private warnedBoxTrucks = false;
   private warnedStuck = false;
@@ -1958,7 +1961,8 @@ export class World {
       this.addOffer(kind);
       // Nobody of that kind wants to deal: maybe the other kind does.
       if (this.offers.length === before) this.addOffer(kind === 'haulier' ? 'fishery' : 'haulier');
-      if (this.offers.length > before) {
+      // The Contracts button counts the offers: only an empty board is news.
+      if (before === 0 && this.offers.length > 0) {
         this.message(`New contract offer from ${this.offers.at(-1)!.terms.name}.`, 'info');
       }
     }
@@ -1973,6 +1977,7 @@ export class World {
     // A new fishery sends its first boat soon after signing.
     this.addContract(offer.terms, this.tick + this.rng.int(60, 240), offer.signingFee);
     this.message(`Signed with ${offer.terms.name}.`, 'good');
+    this.firstBoat.add(offer.terms.name);
   }
 
   private cancelContract(id: number): void {
@@ -2029,9 +2034,8 @@ export class World {
     );
     if (demurrage > 0) {
       this.penalty(demurrage, this.tileOf(b));
-      if (demurrage >= 30) {
-        this.message(`${b.company} charged $${demurrage} demurrage for waiting.`, 'bad');
-      }
+      this.demurrageToday.amount += demurrage;
+      this.demurrageToday.ships++;
     }
     if (gaveUp && b.crates > 0) {
       const claim = Math.round(b.crates * b.fee * B.LOST_CARGO_SHARE);
@@ -2071,7 +2075,8 @@ export class World {
     this.bayFullTicks = 0;
     if (!fullForLong) return;
     const trucks = this.hauliers().reduce((n, c) => n + c.terms.fleet, 0);
-    this.message(
+    this.nag(
+      'bays',
       trucks < this.bays.size
         ? 'Crates are piling up in the truck bays. Sign another haulier for more trucks.'
         : 'Truck bays keep filling up. Each bay loads one truck at a time, so build another truck bay.',
@@ -2380,6 +2385,15 @@ export class World {
       if (this.tick - at > TICKS_PER_DAY * 3) this.unloadedAt.delete(id);
     }
     if (this.town) townDay(this.town, this.jobs(), this.map);
+    const late = this.demurrageToday;
+    this.demurrageToday = { amount: 0, ships: 0 };
+    if (late.amount >= B.DEMURRAGE_NOTICE) {
+      this.nag(
+        'demurrage',
+        `Ships kept waiting cost $${late.amount.toLocaleString('en-US')} in demurrage today, from ${late.ships} ship${late.ships === 1 ? '' : 's'}.`,
+        'bad',
+      );
+    }
     this.checkMorale();
     this.raiseRequests();
     this.refreshCandidates();
@@ -3404,7 +3418,7 @@ export class World {
           b.speed = 0;
           const queue = this.boats.filter((q) => q.state === 'anchored').length;
           if (!this.tryBerth(b) && queue === 1) {
-            this.message('Boats are queueing at the anchorage. Every berth is taken.', 'info');
+            this.nag('queue', 'Boats are queueing at the anchorage. Every berth is taken.', 'info');
           }
         }
         return;
@@ -3453,10 +3467,14 @@ export class World {
               : b.vessel === 'coaster'
                 ? 'crates on pallets'
                 : 'crates';
-          this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
+          // Only a new line's first boat is news; the rest are routine.
+          if (this.firstBoat.delete(b.company)) {
+            this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
+          }
           if (b.vessel === 'coaster') this.tip('pallets');
           if (b.vessel === 'coaster' && !this.people.some((p) => p.kind === 'forklift')) {
-            this.message(
+            this.nag(
+              'pallets',
               'Pallets wait on the quay until a forklift takes them on. Buy one at a depot.',
               'bad',
             );
@@ -6317,13 +6335,15 @@ export class World {
     if (p.needsRepair) {
       p.needsRepair = false;
       p.path = [];
-      if (this.goToDepot(p, 'repair')) {
-        this.message(`${p.name} is limping back to the depot for repairs.`, 'info');
-        return true;
-      }
+      // Routine: the machine says so when picked, and shows a warning sign.
+      if (this.goToDepot(p, 'repair')) return true;
       // No depot to reach: a mechanic comes out, at double the price.
       this.startRepair(p, B.REPAIR_COST * 2);
-      this.message(`${p.name} has broken down with no depot to reach. Mechanic called out.`, 'bad');
+      this.nag(
+        'callout',
+        `${p.name} has broken down with no depot to reach. Mechanic called out at double the price.`,
+        'bad',
+      );
       return true;
     }
     if (p.fuel < B.LOW_FUEL && this.goToDepot(p, 'refuel')) return true;
@@ -6850,7 +6870,6 @@ export class World {
       case 'broken':
         if (--p.timer <= 0) {
           p.state = 'idle';
-          this.message(`${p.name} is repaired and back at work.`, 'info');
         }
         return;
       case 'toBreak': {
@@ -7641,16 +7660,13 @@ export class World {
       if (!space || !into) {
         c.nextBoatTick = this.tick + 60;
         this.tip('parking');
-        if (!this.warnedParking) {
-          this.warnedParking = true;
-          this.message(
-            `${c.terms.name}'s trucks need parking outside the port, by a public road, to do their paperwork.`,
-            'bad',
-          );
-        }
+        this.nag(
+          'parking',
+          `${c.terms.name}'s trucks need parking outside the port, by a public road, to do their paperwork.`,
+          'bad',
+        );
         continue;
       }
-      this.warnedParking = false;
       c.nextBoatTick = this.tick + Math.round((TICKS_PER_DAY * c.terms.capacity) / c.terms.perDay);
       this.trucks.push({
         id: this.nextId++,
@@ -7705,13 +7721,12 @@ export class World {
     );
   }
 
-  /** Say, at most once a day, that shippers' trucks are waiting because no outgoing storage has room. */
+  /** Say, now and then, that shippers' trucks are waiting because no outgoing storage has room. */
   private outgoingFull(boxes: boolean): void {
     const kind = boxes ? 'boxes' : 'crates';
-    if (this.tick - this.warnedOutFull[kind] < TICKS_PER_DAY) return;
-    this.warnedOutFull[kind] = this.tick;
     const stores = [...(boxes ? this.yards : this.bays).values()].filter((b) => b.outgoing);
-    this.message(
+    this.nag(
+      `outFull:${kind}`,
       stores.length === 0
         ? `Shippers' trucks are waiting with ${boxes ? 'containers' : 'crates'} to ship: mark out ${boxes ? 'a container yard' : 'crate storage'} for cargo going out.`
         : `Outgoing ${boxes ? 'container yards are' : 'crate storage is'} full: shippers' trucks are waiting in parking. Mark out more, or get ships loading.`,
@@ -8409,7 +8424,7 @@ export class World {
       p.state = 'toDrop';
       return;
     }
-    this.message(`${p.name} had nowhere to take their load and put it down.`, 'bad');
+    this.nag('putDown', `${p.name} had nowhere to take their load and put it down.`, 'bad');
     p.carrying = 0;
     p.cargoFees = [];
     p.planned = 0;
@@ -8455,7 +8470,12 @@ export class World {
     if (store) {
       this.exportLooks(store).push(...this.carriedLooks(p));
       (store.exports ??= []).push(...p.cargoFees);
-    } else this.message(`${p.name} had nowhere to take the exports and put them down.`, 'bad');
+    } else
+      this.nag(
+        'putDownExports',
+        `${p.name} had nowhere to take the exports and put them down.`,
+        'bad',
+      );
     p.carrying = 0;
     p.cargoFees = [];
     p.planned = 0;
@@ -10769,6 +10789,18 @@ export class World {
 
   private message(text: string, tone: 'info' | 'good' | 'bad'): void {
     this.events.push({ kind: 'message', text, tone });
+  }
+
+  /**
+   * A warning that comes back while the trouble lasts: given at once, then
+   * again after a day, two, four and at most eight, so it is never noise.
+   */
+  private nag(key: string, text: string, tone: 'info' | 'good' | 'bad'): void {
+    const n = this.nags.get(key);
+    if (n && this.tick < n.next) return;
+    const gap = n ? Math.min(n.gap * 2, TICKS_PER_DAY * 8) : TICKS_PER_DAY;
+    this.nags.set(key, { next: this.tick + gap, gap });
+    this.message(text, tone);
   }
 
   /** Have the advisor explain something, the first time it comes up in a game. */

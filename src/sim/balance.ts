@@ -90,6 +90,8 @@ export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded har
 
 // Money penalties. See the Contracts panel for how they are explained.
 export const DEMURRAGE_PER_DAY = 300; // per boat, for each day it is kept waiting
+/** A day's demurrage below this is not worth a message; the Finance panel still shows it. */
+export const DEMURRAGE_NOTICE = 100;
 export const LOST_CARGO_SHARE = 1; // of the cargo value, when a boat leaves still loaded
 export const BREACH_MULTIPLIER = 2; // a walk-out costs this many times the signing fee…
 export const BREACH_MIN = 1000; // …and never less than this
