@@ -5367,6 +5367,7 @@ export class World {
       workYard,
       workLegs,
       workTicks,
+      workStart: w.workStart,
     };
   }
 

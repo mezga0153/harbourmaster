@@ -2725,8 +2725,10 @@ describe('Container Port tier', () => {
     expect(world['gantryFor'](tractor)).toBe(true);
     expect(world['gantryElsewhere'](t as never, yard)).toBe(true);
     expect(world['gantryWork'](yard).workTruck).toBe(tractorId);
-    // A lift of its own, begun when it was.
+    // A lift of its own, begun when it was, and the view is told so.
     expect(world['gantryWork'](yard).workStart).toBe(first! + 3);
+    const view = world['yardLooks'](yard, new Map());
+    expect(view.workStart).toBe(first! + 3);
   });
 
   it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {
