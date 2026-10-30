@@ -191,13 +191,15 @@ export function paintLoad(model: Model, looks: number[]): void {
   });
 }
 
-/** What a crate holds, as painted on its sides: the catch off the boats. */
-export const CRATE_ICONS = ['fish', 'crab', 'shrimp', 'shell', 'octopus'] as const;
+/**
+ * What a crate holds, as painted on its sides: for now all of it fish off
+ * the boats; goods and the like to come, each with its own picture.
+ */
+export const CRATE_ICONS = ['fish'] as const;
 /** Per picture, the materials of a box's six faces: on the four sides, none top and bottom. */
 let iconMats: Material[][] | null | undefined;
 const iconBand = new BoxGeometry(1, 1, 1);
 const none = new MeshBasicMaterial({ visible: false });
-let nextIcon = 0;
 
 /** A little picture of each, drawn once; none where there is nothing to draw on, as in tests. */
 function iconMaterials(): Material[][] | null {
@@ -206,8 +208,7 @@ function iconMaterials(): Material[][] | null {
   iconMats = CRATE_ICONS.map((name) => {
     const cv = document.createElement('canvas');
     cv.width = cv.height = 64;
-    const g = cv.getContext('2d')!;
-    drawIcon(g, name);
+    drawIcon(cv.getContext('2d')!, name);
     const tex = new CanvasTexture(cv);
     tex.colorSpace = SRGBColorSpace;
     const side = new MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.4 });
@@ -217,107 +218,69 @@ function iconMaterials(): Material[][] | null {
 }
 
 function drawIcon(g: CanvasRenderingContext2D, name: (typeof CRATE_ICONS)[number]): void {
-  const eye = (x: number, y: number, r = 4) => {
-    g.fillStyle = '#fff';
-    g.beginPath();
-    g.arc(x, y, r, 0, Math.PI * 2);
-    g.fill();
-    g.fillStyle = '#222';
-    g.beginPath();
-    g.arc(x + r * 0.25, y, r * 0.5, 0, Math.PI * 2);
-    g.fill();
-  };
   g.lineJoin = 'round';
+  g.lineCap = 'round';
   switch (name) {
-    case 'fish':
-      g.fillStyle = '#3f8fd8';
-      g.beginPath();
-      g.moveTo(14, 32);
-      g.lineTo(4, 20);
-      g.lineTo(4, 44);
-      g.closePath();
-      g.fill();
-      g.beginPath();
-      g.ellipse(34, 32, 22, 14, 0, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = '#7fc0f2';
-      g.beginPath();
-      g.ellipse(36, 36, 14, 6, 0, 0, Math.PI * 2);
-      g.fill();
-      eye(46, 28);
-      break;
-    case 'crab':
-      g.strokeStyle = '#d8452f';
+    case 'fish': {
+      // A round, friendly fish: a fat body, a forked tail, a fin on top,
+      // a big eye and a little smile, outlined dark to read from afar.
+      const ink = '#1d3557';
       g.lineWidth = 4;
-      for (const s of [-1, 1]) {
-        for (const k of [0, 1, 2]) {
-          g.beginPath();
-          g.moveTo(32 + s * 12, 38 + k * 5);
-          g.lineTo(32 + s * 26, 44 + k * 6);
-          g.stroke();
-        }
-      }
-      g.fillStyle = '#e8573f';
-      for (const s of [-1, 1]) {
-        g.beginPath();
-        g.arc(32 + s * 22, 18, 7, 0, Math.PI * 2);
-        g.fill();
-      }
+      g.strokeStyle = ink;
+      // Tail.
+      g.fillStyle = '#f4a259';
       g.beginPath();
-      g.ellipse(32, 38, 18, 12, 0, 0, Math.PI * 2);
-      g.fill();
-      eye(26, 30, 4);
-      eye(38, 30, 4);
-      break;
-    case 'shrimp':
-      g.strokeStyle = '#f08a8a';
-      g.lineWidth = 12;
-      g.lineCap = 'round';
-      g.beginPath();
-      g.arc(32, 30, 16, Math.PI * 0.15, Math.PI * 1.25);
-      g.stroke();
-      g.strokeStyle = '#f6b3a8';
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(44, 22);
-      g.lineTo(58, 10);
-      g.stroke();
-      eye(42, 26, 3.5);
-      break;
-    case 'shell':
-      g.fillStyle = '#f2c14e';
-      g.beginPath();
-      g.moveTo(32, 54);
-      g.arc(32, 34, 22, Math.PI * 1.05, Math.PI * 1.95);
+      g.moveTo(20, 32);
+      g.lineTo(5, 17);
+      g.quadraticCurveTo(10, 32, 5, 47);
       g.closePath();
       g.fill();
-      g.strokeStyle = '#c9932a';
-      g.lineWidth = 3;
-      for (const a of [-0.6, -0.3, 0, 0.3, 0.6]) {
-        g.beginPath();
-        g.moveTo(32, 52);
-        g.lineTo(32 + Math.sin(a) * 22, 34 - Math.cos(a) * 20);
-        g.stroke();
-      }
-      break;
-    case 'octopus':
-      g.strokeStyle = '#9b59c9';
-      g.lineWidth = 5;
-      g.lineCap = 'round';
-      for (let k = 0; k < 5; k++) {
-        const x = 14 + k * 9;
-        g.beginPath();
-        g.moveTo(x, 34);
-        g.quadraticCurveTo(x + 5, 46, x - 2, 56);
-        g.stroke();
-      }
-      g.fillStyle = '#b06fdc';
+      g.stroke();
+      // Fin on top.
       g.beginPath();
-      g.ellipse(32, 26, 18, 16, 0, 0, Math.PI * 2);
+      g.moveTo(26, 18);
+      g.quadraticCurveTo(36, 6, 46, 18);
+      g.closePath();
       g.fill();
-      eye(26, 26, 4);
-      eye(38, 26, 4);
+      g.stroke();
+      // Body.
+      g.fillStyle = '#4ea8de';
+      g.beginPath();
+      g.ellipse(36, 33, 22, 16, 0, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      // Pale belly.
+      g.fillStyle = '#a9def9';
+      g.beginPath();
+      g.ellipse(38, 39, 14, 7, 0, 0, Math.PI * 2);
+      g.fill();
+      // Big eye with a shine.
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.arc(46, 28, 6.5, 0, Math.PI * 2);
+      g.fill();
+      g.lineWidth = 2;
+      g.stroke();
+      g.fillStyle = ink;
+      g.beginPath();
+      g.arc(47.5, 28.5, 3.5, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.arc(48.5, 27, 1.3, 0, Math.PI * 2);
+      g.fill();
+      // Smile.
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(51, 36, 4, Math.PI * 0.1, Math.PI * 0.8);
+      g.stroke();
+      // A rosy cheek.
+      g.fillStyle = '#f7a1b5';
+      g.beginPath();
+      g.arc(42, 37, 2.5, 0, Math.PI * 2);
+      g.fill();
       break;
+    }
   }
 }
 
@@ -340,8 +303,8 @@ export function crate(size: number, x = 0, y = 0, z = 0): Group {
   // Body and lid are stacked, not overlapping, so no faces share a plane.
   g.add(box(size, size * 0.82, size, C.crate));
   g.add(box(size * 1.04, size * 0.18, size * 1.04, C.crateLid, 0, size * 0.82));
-  // What it holds, painted on its four sides.
-  const k = nextIcon++ % CRATE_ICONS.length;
+  // What it holds, painted on its four sides: fish, for now.
+  const k = 0;
   g.userData.icon = k;
   const mats = iconMaterials();
   if (mats) {
