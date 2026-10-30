@@ -30,3 +30,10 @@ Run the game's simulation in a Node process (vitest, as above, or a script
 that loads a save into `World`), never by starting Chrome or another browser.
 Only drive a browser when asked to fix animations or what the game looks
 like, where screenshots of the drawn game are needed.
+
+## Progression
+
+How the town and the port grow, step by step (landmarks the town opens as
+the port supplies it, each lifting the town's size cap and unlocking
+contracts, cargo or buildings), is in `progression.md`. Keep it up to date
+when changing tiers, town growth, contracts or what unlocks what.
