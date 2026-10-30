@@ -473,10 +473,18 @@ interface Boat extends Agent {
   castDock?: number;
   /** Casting off: 1 easing sideways off the dock, 2 backing out. */
   undock?: number;
-  /** Ticks left squeezing past other boats after being wedged in. */
+  /** Ticks left squeezing past other boats after being wedged in, and the boats it squeezes past. */
   squeeze?: number;
+  squeezePast?: number[];
   /** Ticks a boat lying still has kept it from going ahead, however it swings meanwhile. */
   stillFor?: number;
+  /**
+   * Ticks held up by a boat under way that gets nowhere either, as one met
+   * head on backing off along its own way; and until when it is going round
+   * it, every hull under way in its reckoning. Not saved.
+   */
+  headOn?: number;
+  roundUntil?: number;
   /**
    * Ticks it has been beside the clear water off a moored boat's bow or
    * stern, and the tick that was last counted; see giveWay.
@@ -492,8 +500,11 @@ interface Boat extends Agent {
   room?: { spots: [number, number, number][]; until: number; turning?: boolean };
   /** Has turned for sea after pulling out, and given its room back. */
   turned?: boolean;
-  /** Leaving: the tiles of its way out left once it is out of sight, when it goes. */
-  goneAt?: number;
+  /**
+   * Leaving: how far it has sailed since it cast off. Out of sight once
+   * that is as far as boats come into sight on their way in.
+   */
+  sailed?: number;
   /** The ticks it came in from sea, moored, was unloaded, and done loading. */
   came?: number;
   mooredAt?: number;
@@ -4114,8 +4125,13 @@ export class World {
             this.freeFairway(b);
           }
         }
-        // Out of sight, out on the open sea: it is gone.
-        if (this.sail(b, null) !== 'moving' || b.path.length <= (b.goneAt ?? 0)) {
+        const [x, y] = [b.x, b.y];
+        const r = this.sail(b, null);
+        // Out of sight, out on the open sea: it is gone. By how far it has
+        // sailed, not where it is on its way, as that is planned anew
+        // whenever it finds another way out.
+        b.sailed = (b.sailed ?? 0) + Math.hypot(b.x - x, b.y - y);
+        if (r !== 'moving' || (b.sailed >= B.SAIL_IN_TILES && this.outOfSight(b))) {
           this.freeFairway(b);
           this.boats = this.boats.filter((q) => q !== b);
         }
@@ -4179,6 +4195,26 @@ export class World {
       b.berthing !== 'align' &&
       Math.hypot(gx - b.x, gy - b.y) < 3;
     if (moor !== null && (remaining < 1.6 || close)) {
+      // A boat pulling out, held up with this one in its way: it backs off
+      // its berth to let it by, rather than wait alongside it for good.
+      if (v.length < B.CAREFUL_LENGTH && this.inWayOfHeld(b)) {
+        const d = Math.hypot(b.x - gx, b.y - gy);
+        const [ux, uy] =
+          d > 0.05 ? [(b.x - gx) / d, (b.y - gy) / d] : [-Math.cos(b.dir), -Math.sin(b.dir)];
+        const nx = b.x + ux * v.speed * 0.2;
+        const ny = b.y + uy * v.speed * 0.2;
+        const ships = this.stillNear(b);
+        if (
+          this.navigable(nx, ny, this.boatCostFor(b.draft)) &&
+          this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
+          !this.crowds(b, nx, ny)
+        ) {
+          b.x = nx;
+          b.y = ny;
+        }
+        b.speed = 0;
+        return 'moving';
+      }
       const left = Math.min(remaining, Math.hypot(gx - b.x, gy - b.y));
       const flip = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? Math.PI : 0;
       const err = wrapAngle(moor + flip - b.dir);
@@ -4226,11 +4262,11 @@ export class World {
           const closer = near < left - 1e-4 && (near > 0.5 || off < 0.3);
           const swung = off < Math.abs(err) - 1e-4;
           if (!closer && !swung) return false;
+          // Wedged there for good, it may brush the dock or a moored boat
+          // getting in, but never close on a boat under way.
           return (
-            stuck ||
-            (this.clips(b, x, y, d, ships) <= now &&
-              !this.crowds(b, x, y, d) &&
-              !this.intoClaimed(b, x, y))
+            (stuck || (this.clips(b, x, y, d, ships) <= now && !this.intoClaimed(b, x, y))) &&
+            !this.crowds(b, x, y, d)
           );
         });
         const was = left;
@@ -4254,8 +4290,8 @@ export class World {
           // hull clears the dock, nor on top of another boat passing its
           // berth, short of being wedged there for good.
           const crowded =
-            (this.crowds(b, nx, ny) || this.intoClaimed(b, nx, ny)) &&
-            (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
+            this.crowds(b, nx, ny) ||
+            (this.intoClaimed(b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER);
           const slide =
             !crowded &&
             ((b.held ?? 0) > 150 ||
@@ -4287,7 +4323,8 @@ export class World {
     // Aim at the furthest of the next few waypoints with open water to it;
     // the ones before it are as good as passed.
     // Clear water means clear of other boats lying still, too.
-    const avoid = this.seaWay(b);
+    // Going round a boat met head on, all of them.
+    const avoid = this.seaWay(b, (b.roundUntil ?? 0) > this.tick);
     // And no nearer a pier's corner, or a boat lying at its berth, than
     // where it is or where it aims for: it keeps the wide circle round them
     // that it planned.
@@ -4363,6 +4400,24 @@ export class World {
     }
     const way = this.giveWay(b);
     b.stillFor = way.still ? (b.stillFor ?? 0) + 1 : 0;
+    // Held up a while by a boat under way that gets nowhere either, as two
+    // met head on, one backing off along its own way in front of the other:
+    // it goes round it, as round a boat lying still.
+    const stuckOn =
+      !!way.by &&
+      way.by.state !== 'moored' &&
+      way.by.state !== 'anchored' &&
+      way.speed < 0.2 &&
+      (way.by.speed ?? 0) < B.VESSELS[way.by.vessel].speed * 0.2;
+    b.headOn = stuckOn ? (b.headOn ?? 0) + 1 : 0;
+    if (b.headOn > B.HEAD_ON_TICKS && !b.berthing && !b.undock) {
+      b.headOn = 0;
+      const round = this.route(b, this.tileOf(b), goal, this.seaWay(b, true));
+      if (round && round.length > 0) {
+        b.path = round;
+        b.roundUntil = this.tick + B.HEAD_ON_TICKS * 2;
+      }
+    }
     // The rules of the road, out on open water: look ahead for boats on a
     // collision course.
     const road = free && !b.squeeze ? this.rulesOfTheRoad(b) : { bias: 0, slow: 1 };
@@ -4407,7 +4462,7 @@ export class World {
       if (coast > 0) {
         const nx = b.x + Math.cos(b.dir) * coast;
         const ny = b.y + Math.sin(b.dir) * coast;
-        if (this.navigable(nx, ny, this.boatCostFor(b.draft))) {
+        if (this.navigable(nx, ny, this.boatCostFor(b.draft)) && !this.crowds(b, nx, ny)) {
           b.x = nx;
           b.y = ny;
           b.speed = coast;
@@ -4416,7 +4471,7 @@ export class World {
       }
       this.goAstern(b);
       if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER) {
-        b.squeeze = 200;
+        this.startSqueeze(b);
         b.held = 0;
         b.stall = 0;
       }
@@ -4436,7 +4491,8 @@ export class World {
     // A boat already touching something may only get clearer.
     const ships = this.stillNear(b);
     const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const fits = (x: number, y: number, d: number) => this.clips(b, x, y, d, ships) <= now;
+    const fits = (x: number, y: number, d: number) =>
+      this.clips(b, x, y, d, ships) <= now && !this.crowds(b, x, y, d);
     // Room is only needed as far as the goal: past a berth lies the dock.
     const reach = Math.min(v.length / 2 + 1, remaining);
     // Take any sternway off before going ahead again.
@@ -4714,9 +4770,12 @@ export class World {
     const cost = this.boatCostFor(b.draft);
     const ships = this.stillNear(b);
     const now = this.clips(b, b.x, b.y, b.dir, ships);
-    // Squeezing past as a last resort, it may brush the dock too.
+    // Squeezing past as a last resort, it may brush the dock too. Else its
+    // hull comes no nearer another boat's, under way or not, once close.
     const fits = (x: number, y: number, d: number) =>
-      (b.squeeze ?? 0) > 0 || (this.navigable(x, y, cost) && this.clips(b, x, y, d, ships) <= now);
+      ((b.squeeze ?? 0) > 0 ||
+        (this.navigable(x, y, cost) && this.clips(b, x, y, d, ships) <= now)) &&
+      !this.crowds(b, x, y, d);
     // Take any sternway off before going ahead again.
     if ((b.sternway ?? 0) > 0) {
       const back = Math.max(0, (b.sternway ?? 0) - v.speed * B.BOAT_ACCEL * 2);
@@ -4779,7 +4838,7 @@ export class World {
     // resort so the harbour never locks up for good.
     if (b.squeeze) b.squeeze--;
     else if (b.held > B.BOAT_WEDGED_AFTER || (b.stall ?? 0) > B.BOAT_WEDGED_AFTER * 2) {
-      b.squeeze = 200;
+      this.startSqueeze(b);
       b.held = 0;
       b.stall = 0;
     }
@@ -4846,7 +4905,8 @@ export class World {
       const sy = b.y + ay * step;
       const room =
         this.navigable(sx, sy, cost) &&
-        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
+        !this.crowds(b, sx, sy);
       if (off < clear && room) {
         b.x += ax * step;
         b.y += ay * step;
@@ -4873,7 +4933,8 @@ export class World {
       const swung = wrapAngle(b.dir + clamp(err, -swing, swing));
       const ships = this.stillNear(b);
       const roomAstern =
-        this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
+        this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
+        !this.crowds(b, sx, sy, swung);
       const clear =
         roomAstern &&
         this.boats.every(
@@ -4913,7 +4974,10 @@ export class World {
     const sternX = sx - Math.cos(b.dir) * 0.3;
     const sternY = sy - Math.sin(b.dir) * 0.3;
     const moved =
-      this.clearAstern(b) && this.navigable(sx, sy, cost) && this.navigable(sternX, sternY, cost);
+      this.clearAstern(b) &&
+      this.navigable(sx, sy, cost) &&
+      this.navigable(sternX, sternY, cost) &&
+      !this.crowds(b, sx, sy);
     if (moved) {
       b.x = sx;
       b.y = sy;
@@ -6490,12 +6554,57 @@ export class World {
   /** Moving to x, y heading `dir` would bring the hull up against another boat's. */
   private crowds(b: Boat, x: number, y: number, dir = b.dir): boolean {
     const v = B.VESSELS[b.vessel];
+    // Squeezing past as a last resort, through the boats it is wedged
+    // against, but no nearer any other.
     return this.boats.some((o) => {
       const w = B.VESSELS[o.vessel];
       if (o === b || Math.hypot(o.x - x, o.y - y) > (v.length + w.length) / 2 + 1) return false;
+      if (this.squeezingPast(b, o)) return false;
+      const before = hullGap(b.x, b.y, b.dir, v, o.x, o.y, o.dir, w);
       const after = hullGap(x, y, dir, v, o.x, o.y, o.dir, w);
-      return after < 0.1 && after < hullGap(b.x, b.y, b.dir, v, o.x, o.y, o.dir, w);
+      return after < 0.1 && after < before;
     });
+  }
+
+  /**
+   * Another boat with right of way over this one, under way but held up a
+   * while, with this one in the water it would go on into.
+   */
+  private inWayOfHeld(b: Boat): Boat | undefined {
+    const me = this.hullOf(b);
+    return this.boats.find((o) => {
+      if (o === b || o.state === 'moored' || o.state === 'anchored') return false;
+      if ((o.held ?? 0) <= 20 || !this.outranks(o, b)) return false;
+      if (Math.hypot(o.x - b.x, o.y - b.y) > 6) return false;
+      const ov = B.VESSELS[o.vessel];
+      const look = ov.length / 2 + 0.6 + ov.speed / (2 * B.BOAT_ACCEL);
+      return this.inWay(this.wakeOf(o), me, look) !== null;
+    });
+  }
+
+  /**
+   * Wedged in for good: squeeze past the boats it is wedged against, for a
+   * while, as a last resort so the harbour never locks up. Only those: it
+   * keeps clear of any other that comes near meanwhile.
+   */
+  private startSqueeze(b: Boat): void {
+    const v = B.VESSELS[b.vessel];
+    b.squeeze = 200;
+    // Never over a boat lying still, moored or at anchor.
+    b.squeezePast = this.boats
+      .filter(
+        (o) =>
+          o !== b &&
+          o.state !== 'moored' &&
+          o.state !== 'anchored' &&
+          hullGap(b.x, b.y, b.dir, v, o.x, o.y, o.dir, B.VESSELS[o.vessel]) < B.WEDGED_GAP,
+      )
+      .map((o) => o.id);
+  }
+
+  /** Squeezing past this boat, one it was wedged against; see startSqueeze. */
+  private squeezingPast(b: Boat, o: Boat): boolean {
+    return (b.squeeze ?? 0) > 0 && !!b.squeezePast?.includes(o.id);
   }
 
   /** Boats lying still near this one, that its hull must keep clear of. */
@@ -6585,9 +6694,10 @@ export class World {
     for (const b of this.boats) {
       if (b.state === 'moored' || b.state === 'anchored') continue;
       // A boat that has lain still a while, waiting or swinging round where
-      // it lies, is plotted lying there until it gets going again.
+      // it lies, or backing out of another's way, is plotted lying there
+      // until it gets going ahead again: it is not coming on along its way.
       const v = B.VESSELS[b.vessel];
-      const moving = (b.speed ?? 0) + (b.sternway ?? 0) > v.speed * 0.1;
+      const moving = (b.speed ?? 0) > v.speed * 0.1 && !b.astern;
       const still = moving ? 0 : (this.stillFor.get(b) ?? 0) + 1;
       this.stillFor.set(b, still);
       this.plots.set(b, this.plot(b, still > 10 ? 0 : (this.keepingClear.get(b)?.pace ?? 1)));
@@ -6930,7 +7040,7 @@ export class World {
    * sail through each other; one that is wedged in all the same squeezes
    * past in the end rather than lock up the harbour.
    */
-  private giveWay(b: Boat): { speed: number; makeWay: number; still?: boolean } {
+  private giveWay(b: Boat): { speed: number; makeWay: number; still?: boolean; by?: Boat } {
     const me = this.hullOf(b);
     const v = B.VESSELS[b.vessel];
     // Looks out as far as it takes to stop gently from full speed, so it
@@ -6945,6 +7055,8 @@ export class World {
     let stopped = false;
     /** The moored ship it stopped for, if one did. */
     let stoppedBy: Boat | undefined;
+    /** The boat that holds it back most. */
+    let by: Boat | undefined;
     // Held up a while beside the clear water off moored boats' ends, it goes
     // on past them minding only their hulls, until it is clear of them all:
     // counted however it creeps meanwhile, so it does not stop again at
@@ -6970,8 +7082,9 @@ export class World {
       if (o === b) continue;
       const other = this.hullOf(o);
       const still = o.state === 'moored' || o.state === 'anchored';
-      // Squeezing past boats under way, never over one lying still.
-      if (wedged && !still) continue;
+      // Squeezing past the boats under way it is wedged against, never over
+      // one lying still, nor into one only coming its way.
+      if (wedged && !still && this.squeezingPast(b, o)) continue;
       if (comingRound && still) continue;
       // Keep out of the water a ship pulling out of its berth has claimed,
       // stopping short of it; already inside and heading further in, back
@@ -7025,7 +7138,9 @@ export class World {
             ? 0
             : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
           const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
-          speed = Math.min(speed, clamp(safe / v.speed, 0, 1));
+          const slow = clamp(safe / v.speed, 0, 1);
+          if (slow < speed) by = o;
+          speed = Math.min(speed, slow);
           if (still && speed <= 0.05) {
             stopped = true;
             if (o.state === 'moored') stoppedBy = o;
@@ -7036,7 +7151,9 @@ export class World {
             if (o.state === 'moored') stoppedBy ??= o;
           }
         } else {
-          speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
+          const slow = clamp((gap - room) / 0.5, 0, 1);
+          if (slow < speed) by = o;
+          speed = Math.min(speed, slow);
         }
       }
       // Something with right of way is held up, and this boat is in its way;
@@ -7051,7 +7168,12 @@ export class World {
           : -1;
       const lead = head === o.id ? o : this.boats.find((q) => q.id === head);
       if (!lead || lead === b || !this.outranks(lead, b)) continue;
-      if (this.inWay(this.wakeOf(o), me, other.half + 0.8) !== null) makeWay = head;
+      // As far ahead as that one looks out: out of its way, not just off its bow.
+      const ov = B.VESSELS[o.vessel];
+      const theirs = other.half + 0.6 + (ov.speed * ov.speed) / (2 * ov.speed * B.BOAT_ACCEL);
+      if (this.inWay(this.wakeOf(o), me, Math.max(other.half + 0.8, theirs)) !== null) {
+        makeWay = head;
+      }
     }
     if (b.keptTick !== this.tick) {
       b.keptTick = this.tick;
@@ -7063,7 +7185,7 @@ export class World {
       b.waitedAt = this.tick;
       this.countWait(b, b.state === 'arriving' && speed <= 0.1 ? stoppedBy : undefined);
     }
-    return { speed, makeWay, still: held };
+    return { speed, makeWay, still: held, by };
   }
 
   /**
@@ -7406,15 +7528,21 @@ export class World {
     );
     b.goal = exit;
     b.path = this.via(from, stops, exit, this.byDocks(this.seaWay(b), from, exit)) ?? [];
-    b.goneAt = this.inSight(b, [...b.path].reverse());
+    b.sailed = 0;
     b.best = Infinity;
+  }
+
+  /** Not where another boat is, so none goes out of sight beside one. */
+  private outOfSight(b: Boat): boolean {
+    return this.boats.every(
+      (o) => o === b || Math.hypot(o.x - b.x, o.y - b.y) > B.VESSELS[o.vessel].length + 2,
+    );
   }
 
   /**
    * How many tiles from the start of a way in from sea a boat comes into
-   * sight, B.SAIL_IN_TILES of it from the end; reversed, how many of a way
-   * out it is still in sight for. Not where another boat is, so none comes
-   * into sight on top of one.
+   * sight, B.SAIL_IN_TILES of it from the end. Not where another boat is,
+   * so none comes into sight on top of one.
    */
   private inSight(b: Boat, path: number[]): number {
     const m = this.map;

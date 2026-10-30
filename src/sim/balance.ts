@@ -272,6 +272,10 @@ export const BERTH_BLOCKED_TICKS = 60;
 export const WAIT_CREEP = 2;
 /** Tiles out from its berth a boat holding a fairway lets a boat pulling out go first. */
 export const FAIRWAY_FAR = 5;
+/** Hulls this close are wedged against each other: a boat squeezing past goes through only those. */
+export const WEDGED_GAP = 0.3;
+/** Ticks held up by a boat under way that is stuck too before a boat goes round it. */
+export const HEAD_ON_TICKS = 40;
 /** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */
 export const TUG_BERTH_COST = 1500;
 export const TUG_PRICE = 6000;
