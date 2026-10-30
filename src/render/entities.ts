@@ -24,7 +24,7 @@ import {
   truck,
   type Model,
 } from './models';
-import { fidget, fidgetAt, pose, sit } from './people';
+import { fidget, fidgetAt, HELD, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import type { Trailer } from './vehicles';
 
@@ -1404,16 +1404,19 @@ export class Entities {
       load.visible = true;
       w.early = true;
       // From the moment they reach it and bend to it, flying up over the
-      // side to their hands by the time it is theirs.
+      // side to where they will hold it, there by the time it is theirs.
       const walk = w.walk ?? 0;
       const g = ease(Math.max(0, ((w.at ?? 0) - walk) / Math.max(0.05, 1 - walk)));
-      const to = w.place.clone().lerp(load.getWorldPosition(new Vector3()), g);
+      const to = w.place.clone().lerp(this.holdAt(e), g);
       to.y += Math.sin(Math.PI * g) * 0.12;
       load.position.copy(load.parent.worldToLocal(to));
       return;
     }
-    // Already in their hands.
-    if (w.stage === 'pick' && w.early) return;
+    // Already where they hold it, as they straighten up with it.
+    if (w.stage === 'pick' && w.early) {
+      load.position.copy(load.parent.worldToLocal(this.holdAt(e)));
+      return;
+    }
     if (!load.visible || down <= 0) return;
     // Setting one down straight after taking it up, as off a stack onto a
     // truck beside it, it goes over from one to the other as they go on.
@@ -1421,6 +1424,13 @@ export class Entities {
     const to = w.taken ? w.taken.clone().lerp(w.place, on) : w.place;
     const from = load.getWorldPosition(new Vector3()).lerp(to, w.taken ? down : down * on);
     load.position.copy(load.parent.worldToLocal(from));
+  }
+
+  /** Where a dockhand holds a crate carrying it, standing straight. */
+  private holdAt(e: Entry): Vector3 {
+    const root = e.model.root;
+    root.updateMatrixWorld();
+    return root.localToWorld(new Vector3(HELD.x, HELD.y, 0));
   }
 
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */
