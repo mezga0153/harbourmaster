@@ -217,3 +217,78 @@ describe('Articulated trucks', () => {
     expect(Math.abs(bends.at(-1)!) * DEG).toBeLessThan(2);
   });
 });
+
+describe('A truck through a jog', () => {
+  it('cuts across the two corners at 45 degrees without slowing, and still slows for a real corner', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const w = m.w;
+    const at = (x: number, y: number) => m.idx(x, y);
+    const top = B.TRUCK_SPEED;
+    // East along row 10, a jog north a tile, and on east along row 9.
+    const truck = (path: number[]) =>
+      ({
+        id: 1,
+        contractId: 1,
+        x: 2.5,
+        y: 10.5,
+        dir: 0,
+        path,
+        goal: path[path.length - 1],
+        v: top,
+        trail: [at(1, 10), at(2, 10)],
+      }) as never as { x: number; y: number; dir: number; v: number; path: number[] };
+    const jog = [
+      ...[3, 4, 5].map((x) => at(x, 10)),
+      at(5, 9),
+      ...Array.from({ length: 14 }, (_, k) => at(6 + k, 9)),
+    ];
+    const t = truck(jog);
+    const points = world['steerPoints'](t as never, 6) as {
+      x: number;
+      y: number;
+      passes: boolean;
+    }[];
+    // Down the middle of row 10, onto the diagonal at the edge into (5,10),
+    // across to the edge between (5,9) and (6,9), and on down row 9.
+    expect(points.map((p) => [p.x, p.y, p.passes])).toEqual([
+      [3.5, 10.5, true],
+      [4.5, 10.5, true],
+      [5, 10.5, false],
+      [5.5, 10, true],
+      [6, 9.5, true],
+      [6.5, 9.5, true],
+      [7.5, 9.5, true],
+    ]);
+    let slowest = Infinity;
+    const headings = new Set<number>();
+    for (let k = 0; k < 20 && t.x < 8; k++) {
+      world['move'](
+        t as never,
+        () => 1,
+        false,
+        () => world['drive'](t as never, top),
+      );
+      slowest = Math.min(slowest, t.v);
+      headings.add(Math.round((t.dir * 180) / Math.PI));
+    }
+    expect(t.y).toBeCloseTo(9.5, 5);
+    expect(slowest).toBeGreaterThan(top * 0.99);
+    expect([...headings].every((h) => h === 0 || h === -45)).toBe(true);
+    // A real corner, north and on, it still slows for.
+    const turn = [at(3, 10), at(4, 10), ...Array.from({ length: 12 }, (_, k) => at(4, 9 - k))];
+    const u = truck(turn);
+    let slow = Infinity;
+    for (let k = 0; k < 20; k++) {
+      world['move'](
+        u as never,
+        () => 1,
+        false,
+        () => world['drive'](u as never, top),
+      );
+      slow = Math.min(slow, u.v);
+    }
+    expect(slow).toBeLessThan(top * 0.6);
+    void w;
+  });
+});

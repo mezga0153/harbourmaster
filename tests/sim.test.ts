@@ -2796,6 +2796,89 @@ describe('Container Port tier', () => {
     expect(view.workStart).toBe(first! + 3);
   });
 
+  it('lets a truck go as soon as a yard gantry has its container up, and sets it down after', () => {
+    const world = World.create(7, 96);
+    world.trucks.length = 0;
+    const yard = { idx: 5, tiles: [5], yard: true, outgoing: true, boxes: [], crates: [] } as never;
+    world.yards.set(5, yard);
+    world['yardGantry'] = () => true;
+    const t = {
+      id: world.nextId++,
+      boxes: true,
+      exports: true,
+      bayIdx: 5,
+      state: 'delivering',
+      cargo: 1,
+      value: 210,
+      timer: 0,
+      path: [],
+      x: 0.5,
+      y: 0.5,
+      dir: 0,
+    };
+    world.trucks.push(t as never);
+    world['gantryTruck'] = () => t as never;
+    world['headOut'] = (() => {
+      t.state = 'leaving';
+    }) as never;
+    const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown; exports?: number[] };
+    world['updateTruck'](t as never);
+    const taken: number = world['takenIn'](yard);
+    const start = y.gantryLift!.start;
+    let left = -1;
+    let set = -1;
+    for (let k = 0; k < 200 && set < 0; k++) {
+      world.tick++;
+      if (t.state === 'delivering') world['updateTruck'](t as never);
+      if (t.state === 'leaving' && left < 0) left = world.tick - start;
+      // Meanwhile it takes on no other.
+      if (y.gantryHeld)
+        expect(world['gantryElsewhere']({ ...t, id: 999 } as never, yard)).toBe(true);
+      if (y.gantryHeld && world['liftDone'](yard)) world['settleGantry'](yard);
+      if (left >= 0 && !y.gantryHeld && set < 0) set = world.tick - start;
+    }
+    // Off as soon as the spreader had it, well before it was set down.
+    expect(left).toBe(taken);
+    expect(set).toBeGreaterThan(left);
+    expect(y.exports).toEqual([210]);
+  });
+
+  it('lets a tractor go as soon as a gantry crane has its export up', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const { at } = placeGantry(world, gantryPier(world, t.crane));
+    const crane = world.cranes.get(at)!;
+    const depot = world.map.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    const p = world.people.find((q) => q.kind === 'tractor')!;
+    // Waiting under it with an export to set down on its stack.
+    Object.assign(p, {
+      state: 'dropping',
+      toCrane: at,
+      craneIdx: -1,
+      carrying: 1,
+      cargoFees: [210],
+      cargoLooks: [9],
+      planned: 1,
+      outbound: true,
+      timer: 1000,
+    });
+    crane.outReserved = 1;
+    world['underGantry'] = (q: unknown) => (q === p ? crane : undefined);
+    let free = -1;
+    for (let k = 1; k <= 40; k++) {
+      world['serveTractor'](crane);
+      if (p.state === 'idle' && free < 0) free = k;
+      if (free > 0 && !crane.serving) break;
+    }
+    expect(free).toBe(world['craneTakenIn'](crane));
+    expect(p.carrying).toBe(0);
+    expect(crane.outStack).toEqual([210]);
+    expect(crane.outReserved).toBe(0);
+  });
+
   it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {
     const world = feederPort(true);
     const yard = [...world.yards.values()][0];
@@ -2890,7 +2973,7 @@ describe('Container Port tier', () => {
     );
     let given = 0;
     let direct = 0;
-    const pick = footprint(m, 'gantryCrane', at, f)[2];
+    const lane = new Set(gantryRails(m, at, f).filter((_, k) => k % 2 === 1));
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
       const v = world.snapshot().cranes.find((c) => c.idx === at)!;
@@ -2898,14 +2981,55 @@ describe('Container Port tier', () => {
       if (v.working === 'unload' && v.workTruck !== undefined) direct++;
       if (v.working === 'give') {
         given++;
-        // The tractor waits in the bay between the legs, not in the stack.
+        // The tractor waits along the row behind the stack, never in the stack.
         const p = world.people.find((q) => q.id === v.workTruck)!;
-        expect(world['tileOf'](p)).toBe(pick);
+        expect(lane.has(world['tileOf'](p))).toBe(true);
+        expect(world['craneStackTiles']().has(world['tileOf'](p))).toBe(false);
       }
     }
     expect(given + direct).toBeGreaterThan(0);
     expect(direct).toBeGreaterThan(0);
     expect(world.stats.containers).toBeGreaterThan(0);
+  }, 30_000);
+
+  it('never has a tractor turn about on a road, only at a depot or under a crane or gantry', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const m = world.map;
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
+    const yard = world.yards.get(t.yard)!;
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    const turn = (i: number) => world['roomToTurn'](i) as boolean;
+    expect(turn(depot)).toBe(true);
+    // Under the gantry crane, along its rails behind the stack, and in the yard gantry's lane.
+    expect(
+      gantryRails(m, at, f)
+        .filter((_, k) => k % 2 === 1)
+        .some(turn),
+    ).toBe(true);
+    expect([...world['gantryLane'](yard)!.keys()].every(turn)).toBe(true);
+    // Nowhere on the roads, however wide or wherever they meet.
+    const lane = new Set<number>(world['lineUpCache']!.keys());
+    const roads = m.build
+      .map((b, i) => (b === Build.PortRoad && !lane.has(i) ? i : -1))
+      .filter((i) => i >= 0);
+    expect(roads.length).toBeGreaterThan(10);
+    expect(roads.some(turn)).toBe(false);
+    // Part way round a corner it cannot turn back the way it came, whichever way it faces.
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    const p = world.people.find((q) => q.kind === 'tractor')!;
+    const road = roads.find((i) => m.neighbors4(i).filter((n) => roads.includes(n)).length >= 2)!;
+    const from = m.neighbors4(road).find((n) => roads.includes(n))!;
+    p.x = m.xOf(road) + 0.5;
+    p.y = m.yOf(road) + 0.5;
+    p.came = from;
+    p.dir = Math.atan2(m.yOf(road) - m.yOf(from), m.xOf(road) - m.xOf(from)) + Math.PI / 2;
+    expect(world['tileBehind'](p)).toBe(from);
+    const back = world['pathFor'](p, road, from) as number[] | null;
+    expect(back === null || back[0] !== from).toBe(true);
   });
 
   it('has tractors line up along a gantry crane’s rails, beside its stack, for it to lift onto', () => {
@@ -2947,7 +3071,6 @@ describe('Container Port tier', () => {
     const lane = new Set(gantryRails(m, at, f).filter((_, k) => k % 2 === 1));
     const pick = footprint(m, 'gantryCrane', at, f)[2];
     const quay = world['quayHeading'](crane);
-    let together = 0;
     let offBay = 0;
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
@@ -2963,7 +3086,6 @@ describe('Container Port tier', () => {
       }
       const tiles = new Set(waiting.map((p) => world['tileOf'](p)));
       expect(tiles.size).toBe(waiting.length);
-      if (waiting.length >= 2) together++;
       // And the crane lifts onto one standing along from its legs.
       const v = world.snapshot().cranes.find((c) => c.idx === at)!;
       const to = world.people.find((q) => q.id === v.workTruck);
@@ -2971,10 +3093,34 @@ describe('Container Port tier', () => {
         offBay++;
       }
     }
-    expect(together).toBeGreaterThan(0);
     expect(offBay).toBeGreaterThan(0);
     expect(world.stats.containers).toBeGreaterThan(0);
-  });
+    // Two coming in one after the other: the first as far along as it can
+    // go, the second short of it, each on a tile of its own in the row.
+    const [a, b] = world.people.filter((p) => p.kind === 'tractor');
+    const entry = [...lane]
+      .sort(
+        (x, y) =>
+          Math.abs(m.xOf(x) - m.xOf(pick)) +
+          Math.abs(m.yOf(x) - m.yOf(pick)) -
+          (Math.abs(m.xOf(y) - m.xOf(pick)) + Math.abs(m.yOf(y) - m.yOf(pick))),
+      )
+      .at(-1)!;
+    for (const p of [a, b]) {
+      p.state = 'idle';
+      p.x = m.xOf(entry) + 0.5;
+      p.y = m.yOf(entry) + 0.5;
+    }
+    world.people = world.people.filter((p) => p.kind !== 'tractor' || p === a || p === b);
+    const ahead: number = world['craneSpot'](a, crane);
+    a.state = 'toPickup';
+    a.goal = ahead;
+    const behind: number = world['craneSpot'](b, crane);
+    expect(lane.has(ahead) && lane.has(behind)).toBe(true);
+    expect(behind).not.toBe(ahead);
+    const d = (i: number) => Math.abs(m.xOf(i) - m.xOf(entry)) + Math.abs(m.yOf(i) - m.yOf(entry));
+    expect(d(behind)).toBeLessThan(d(ahead));
+  }, 30_000);
 
   it('calls tractors ahead to a gantry crane a ship is coming in to, and sets containers straight onto those pulling in', () => {
     const world = World.create(7, 96);

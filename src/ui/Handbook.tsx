@@ -166,6 +166,12 @@ export const TOPICS: Record<TopicId, Topic> = {
           <b>Reach stackers</b> take containers from the harbour and gantry cranes to the container
           yards.
         </p>
+        <p>
+          <b>Terminal tractors</b> carry containers between the cranes and yards with a gantry. With
+          a trailer behind, they cannot turn about on a road: only at a depot, under a crane, or in
+          the lane under a gantry. Elsewhere they go on round, so give them a way round. Once a
+          crane or gantry has a tractor's container up, the tractor goes on its way.
+        </p>
         <p>Select a machine or a depot to see everywhere it can drive.</p>
       </>
     ),

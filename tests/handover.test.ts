@@ -186,6 +186,8 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
   const source = new Map<number, { at: Vector3; heading: number }>();
   const last = new Map<number, { at: Vector3; heading: number; view: EntityView }>();
   const shown = new Map<number, boolean>();
+  const wasUnder = new Map<number, boolean>();
+  const shownAt = new Map<number, { at: Vector3; heading: number }>();
   const yard = [...world.yards.values()][0];
   const gantry = [...structures['yardGantries'].values()][0];
   let now = 0;
@@ -248,18 +250,25 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
         // Under the yard gantry: off the trailer onto its spreader in the
         // same frame, square, with the spreader on it.
         const p = world.people.find((q) => q.id === v.id)!;
-        const under =
+        // Lifted off, it goes on its way at once: under it, or just now.
+        const now =
           (p.state === 'dropping' && p.bayIdx === yard.idx) ||
           (p.state === 'picking' && p.stockIdx === yard.idx);
+        const under = now || !!wasUnder.get(v.id);
+        if (frame === 3) wasUnder.set(v.id, now);
         const onTrailer = crate.visible;
         const onSpreader = gantry.load.visible;
         if (under && onTrailer && onSpreader) seen.doubled++;
         if (under && shown.get(v.id) && !onTrailer) {
           if (!onSpreader) seen.dropped++;
-          seen.lifts.push(at.distanceTo(gantry.load.getWorldPosition(new Vector3())));
-          seen.liftSkew.push(Math.abs(Math.sin(heading - headingOf(gantry.load))));
+          // Against where it last showed on the trailer: the tractor may
+          // already be pulling away.
+          const was = shownAt.get(v.id) ?? { at, heading };
+          seen.lifts.push(was.at.distanceTo(gantry.load.getWorldPosition(new Vector3())));
+          seen.liftSkew.push(Math.abs(Math.sin(was.heading - headingOf(gantry.load))));
         }
         shown.set(v.id, onTrailer);
+        if (onTrailer) shownAt.set(v.id, { at: at.clone(), heading });
       }
       now += 25;
     }

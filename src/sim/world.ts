@@ -173,6 +173,8 @@ interface Agent {
   goal: number;
   /** Trucks and port machines: how fast it is going, in tiles a tick; see drive. */
   v?: number;
+  /** Trucks: the last two tiles of its way it has passed, the older first; see steerPoints. */
+  trail?: [number, number];
 }
 
 type DockhandState =
@@ -267,6 +269,8 @@ interface Dockhand extends Agent {
   blocker?: number;
   /** The tile of crane stack on its way it last looked for a way round; see walk. */
   replanned?: number;
+  /** The tile it last drove in from, which it may not turn back to where it cannot turn about. */
+  came?: number;
   /** The ring it is driving on through, and where it set off from; see passRing. */
   passing?: { ids: number[]; x: number; y: number };
 }
@@ -310,7 +314,16 @@ interface Crane {
    * A gantry crane: the terminal tractor under it it is lifting a container
    * onto from its stack (`give`), or an export off onto its stack.
    */
-  serving?: { id: number; give: boolean; ship?: number };
+  serving?: {
+    id: number;
+    give: boolean;
+    ship?: number;
+    /**
+     * Taken off the tractor, which has gone on its way: on the spreader
+     * until set down on the stack or on board.
+     */
+    held?: { fees: number[]; looks: number[]; planned: number };
+  };
   /**
    * A gantry crane: the place on its landing stack each container lifted
    * off is in, and each export; see cranePlaces.
@@ -584,6 +597,12 @@ interface Bay {
    * there meanwhile.
    */
   gantryTo?: number;
+  /**
+   * Container yards: a container its gantry has lifted off a truck or
+   * tractor that has gone on its way, on the spreader until it is set down
+   * at the end of the lift; see offToGantry.
+   */
+  gantryHeld?: GantryHeld;
   /** Exports promised to workers on their way to take them on board. */
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
@@ -775,6 +794,23 @@ interface Source {
   rank: number;
 }
 
+/** A container on a yard gantry's spreader, lifted off a truck or tractor that has gone. */
+interface GantryHeld {
+  /** The truck or tractor it came off, and where along the rails that stood. */
+  by: number;
+  at: number;
+  /** Its container slot on that, for the view. */
+  slot: number;
+  fees: number[];
+  looks: number[];
+  /** The ship each came off, for customs; for a tractor's imports. */
+  from?: number[];
+  /** A shipper's export, or one a tractor brought back, rather than one in from a ship. */
+  exports: boolean;
+  /** How many were planned to come here, held as incoming until set down. */
+  planned: number;
+}
+
 /** A yard gantry at work, for the view; see gantryWork. */
 type GantryWork = {
   working?: 'load' | 'unload';
@@ -790,6 +826,8 @@ type GantryWork = {
   workTicks?: number;
   /** The tick the lift began: a new one begins with a new tick. */
   workStart?: number;
+  /** The truck or tractor it came off has gone: the container is on the spreader alone. */
+  released?: boolean;
 };
 
 /**
@@ -1915,6 +1953,8 @@ export class World {
    */
   private rebuildStores(): void {
     const m = this.map;
+    // Any container on a gantry's spreader goes down first, with the rest.
+    for (const y of this.yards.values()) this.settleGantry(y);
     const old = [...this.bays.values(), ...this.yards.values()].filter((b) => b.tiles);
     const held = new Map<number, number[]>();
     const ready = new Map<number, number[]>();
@@ -2708,6 +2748,7 @@ export class World {
     if (this.tick % 10 === 0) this.spawnTrucks();
     if (this.tick % 10 === 5) this.spawnShipments();
     for (const t of [...this.trucks]) this.updateTruck(t);
+    for (const y of this.yards.values()) if (y.gantryHeld && this.liftDone(y)) this.settleGantry(y);
     stepRail(this.rail, this.scenery, this.tick, this.map.h, this.town?.stage ?? 0);
     if (this.town && this.tick % B.TOWN_BUILD_TICKS === 0) this.buildTown(this.town);
   }
@@ -4837,6 +4878,20 @@ export class World {
     // none: it stands where it set the last one down, rather than show a
     // lift for the next one waiting that has not begun.
     const on = this.gantryHolder(y);
+    // Setting down one lifted off a truck or tractor that has gone on.
+    const h = y.gantryHeld;
+    if (!on && h && y.gantryLift) {
+      return {
+        working: 'unload',
+        workLook: h.looks[0],
+        workAt: h.at,
+        workTruck: h.by,
+        workSlot: h.slot,
+        workYard: y.gantryTo,
+        released: true,
+        ...this.liftView(y, h.by),
+      };
+    }
     if (!on || !y.gantryLift) return {};
     const p = isTruck(on) ? undefined : on;
     if (p) {
@@ -4886,7 +4941,7 @@ export class World {
     y: Bay,
     id: number,
   ): { workPhase: number; workLegs?: number[]; workTicks?: number; workStart?: number } {
-    const l = y.gantryOn === id ? y.gantryLift : undefined;
+    const l = y.gantryOn === id || y.gantryHeld?.by === id ? y.gantryLift : undefined;
     if (!l) return { workPhase: 0 };
     const total = liftTicks(l);
     return {
@@ -4941,6 +4996,56 @@ export class World {
     return !l || this.tick - l.start >= liftTicks(l);
   }
 
+  /** Ticks from the start of a yard gantry's lift until its spreader has the container up. */
+  private takenIn(y: Bay): number {
+    const l = y.gantryLift;
+    // Not before the view has it taken: half way through taking it up.
+    return l ? l.legs[0] + Math.ceil(l.legs[1] / 2) : 0;
+  }
+
+  /** Whether a yard gantry's spreader has taken up the container it is lifting. */
+  private liftTaken(y: Bay): boolean {
+    const l = y.gantryLift;
+    return !l || this.tick - l.start >= this.takenIn(y);
+  }
+
+  /**
+   * A yard gantry has lifted a container off the truck or tractor it was
+   * working: that one is free to go, and the gantry carries the container
+   * on and sets it down at the end of the lift, taking on no other till then.
+   */
+  private offToGantry(y: Bay, held: GantryHeld): void {
+    y.gantryHeld = held;
+    y.gantryOn = undefined;
+  }
+
+  /** A yard gantry sets down the container it lifted off a truck or tractor gone on its way. */
+  private settleGantry(y: Bay): void {
+    const h = y.gantryHeld;
+    if (!h) return;
+    const to = y.gantryTo;
+    if (h.exports) {
+      if (to !== undefined && h.fees.length === 1) this.yardSlots(y).exports.push(to);
+      this.exportLooks(y).push(...h.looks);
+      (y.exports ??= []).push(...h.fees);
+      y.exportIncoming = Math.max(0, (y.exportIncoming ?? 0) - h.planned);
+    } else {
+      // Customs clear it a while after it is stacked, as any other.
+      const ready = h.fees.map((_, k) => this.customsFor(h.from?.[k]));
+      if (to !== undefined && h.fees.length === 1) this.yardSlots(y).boxes.push(to);
+      this.readyList(y).push(...ready);
+      this.boxLooks(y).push(...h.looks);
+      y.boxes.push(...h.fees);
+      bayIncoming(y, true, -h.planned);
+      this.stats.containers += h.fees.length;
+      this.tip('customs');
+    }
+    y.gantryHeld = y.gantryTo = undefined;
+    // It stands where it set the container down, for the next.
+    if (y.gantryLift) y.gantryAt = y.gantryLift.to;
+    y.gantryLift = undefined;
+  }
+
   /**
    * Containers a yard gantry is part way through lifting, by the truck or
    * tractor it is working: off it once the spreader has it, on it once set
@@ -4951,7 +5056,8 @@ export class World {
     const lifts = new Map<number, GantryWork & { yard: number }>();
     for (const y of this.yards.values()) {
       const w = this.gantryWork(y);
-      if (w.workTruck !== undefined) lifts.set(w.workTruck, { ...w, yard: y.idx });
+      // Only those still on, or still being lifted onto, the truck or tractor.
+      if (w.workTruck !== undefined && !w.released) lifts.set(w.workTruck, { ...w, yard: y.idx });
     }
     return lifts;
   }
@@ -5251,14 +5357,21 @@ export class World {
       return place === undefined || place < 0 ? this.pickTile(c) : this.besideStack(c, place);
     }
     // A tractor at a gantry crane lines up along its rails behind the
-    // stack, beside the containers: the free place nearest the bay
-    // between its legs.
+    // stack, beside the containers. Never turning about on the way, it
+    // drives on along the row and out the far end: it goes as far along
+    // as it can before another standing there, or going there, so those
+    // after it stop short of it rather than wait to get past.
     if (p.kind === 'tractor' && c.kind === 'gantry') {
       const lane = this.craneLane(c);
       const stack = this.craneStackTiles();
-      return (
-        lane.find((t) => !this.spotTaken(t, p) && !stack.has(t)) ?? lane[0] ?? this.pickTile(c)
-      );
+      const here = this.tileOf(p);
+      const free = (t: number) => !this.spotTaken(t, p) && !stack.has(t);
+      let deepest = -1;
+      for (const t of [...lane].sort((a, b) => this.dist(here, a) - this.dist(here, b))) {
+        if (!free(t)) break;
+        deepest = t;
+      }
+      return deepest >= 0 ? deepest : (lane.find(free) ?? lane[0] ?? this.pickTile(c));
     }
     if (p.kind !== 'tractor' || c.kind !== 'harbour') return this.pickTile(c);
     const m = this.map;
@@ -5400,6 +5513,8 @@ export class World {
     if (!t.boxes || !bay.yard || !this.yardGantry(bay)) return false;
     const on = this.gantryHolder(bay);
     if (on) return on !== t;
+    // Still setting down one it lifted off another.
+    if (bay.gantryHeld) return true;
     if (this.gantryTractor(bay) !== undefined || this.gantryTruck(bay) !== t) return true;
     bay.gantryOn = t.id;
     // Loading, the container it takes up, whatever customs clear meanwhile;
@@ -5449,13 +5564,17 @@ export class World {
     if (!y || !this.yardGantry(y)) return true;
     const on = this.gantryHolder(y);
     if (on) return on === p;
+    // Still setting down one it lifted off another.
+    if (y.gantryHeld) return false;
     y.gantryOn = p.id;
     const lane = this.gantryLane(y)?.get(p.goal) ?? 0;
     // Setting one down, where it goes, by when customs clear it; taking
     // exports up, the one on top. It takes as long as its way along the rails.
+    // Lifted off, the tractor need wait only until the spreader has it.
     if (p.state === 'dropping') {
       this.keepGantryTo(y, this.stackedAt(p, y, this.customsFor(p.cargoFrom?.[0])));
-      p.timer = this.startLift(y, lane, this.slotAlong(y, y.gantryTo));
+      this.startLift(y, lane, this.slotAlong(y, y.gantryTo));
+      p.timer = Math.max(1, this.takenIn(y));
     } else {
       const top = this.yardTop(y, true);
       p.timer = this.startLift(y, this.slotAlong(y, this.yardSlots(y).exports[top]), lane);
@@ -7045,6 +7164,7 @@ export class World {
       p.squeeze = false;
       // Only real progress clears the wait; shuffling within a tile does not.
       p.blocked = 0;
+      p.came = before;
     }
     // Congestion is measured on working trips only, not strolls or breaks.
     const working = WORKING.has(p.state);
@@ -7385,11 +7505,19 @@ export class World {
     return this.lineUpCache.get(goal) ?? null;
   }
 
-  /** The tile behind a machine, the way it faces, or -1 when it is not facing square. */
+  /**
+   * The tile behind a machine: the one it drove in from, so that one part
+   * way round a corner cannot turn back that way; else the way it mostly
+   * faces, as one parked at an angle.
+   */
   private tileBehind(p: Dockhand): number {
     const m = this.map;
-    const dx = Math.round(Math.cos(p.dir));
-    const dy = Math.round(Math.sin(p.dir));
+    const here = this.tileOf(p);
+    if (p.came !== undefined && m.neighbors4(here).includes(p.came)) return p.came;
+    const c = Math.cos(p.dir);
+    const s = Math.sin(p.dir);
+    const dx = Math.abs(c) >= Math.abs(s) ? Math.sign(c) : 0;
+    const dy = Math.abs(c) >= Math.abs(s) ? 0 : Math.sign(s);
     if (Math.abs(dx) + Math.abs(dy) !== 1) return -1;
     const x = m.xOf(this.tileOf(p)) - dx;
     const y = m.yOf(this.tileOf(p)) - dy;
@@ -7397,24 +7525,15 @@ export class World {
   }
 
   /**
-   * Where a tractor has room to turn about: where three or more ways meet,
-   * in a block of paving two by two or more, at a depot, or under a crane.
+   * Where a tractor may turn about: never on a road, a tractor and its
+   * trailer being too long to come round on one, but at a depot, and under
+   * a crane or a yard gantry, where it pulls in to be lifted onto or off and
+   * has room to manoeuvre. Anywhere else it goes on round the roads.
    */
   private roomToTurn(i: number): boolean {
     const m = this.map;
     if (m.build[i] === Build.Depot || isCrane(m.build[i])) return true;
-    const ok = (x: number, y: number) =>
-      m.inBounds(x, y) && Number.isFinite(this.driveCost(m.idx(x, y)));
-    const x = m.xOf(i);
-    const y = m.yOf(i);
-    if (!ok(x, y)) return false;
-    const ways = m.neighbors4(i).filter((n) => Number.isFinite(this.driveCost(n))).length;
-    return (
-      ways >= 3 ||
-      [-1, 1].some((dx) =>
-        [-1, 1].some((dy) => ok(x + dx, y) && ok(x, y + dy) && ok(x + dx, y + dy)),
-      )
-    );
+    return this.lineUpAt(i) !== null;
   }
 
   private updateDockhand(p: Dockhand): void {
@@ -7575,7 +7694,31 @@ export class World {
         }
         if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
-        const gantryTo = this.gantryDone(this.yards.get(p.bayIdx), p.id);
+        // Under a yard gantry, off the trailer onto its spreader: the tractor
+        // goes on its way, and the gantry sets it down.
+        const gy = this.yards.get(p.bayIdx);
+        if (p.kind === 'tractor' && gy && gy.gantryOn === p.id && gy.gantryLift) {
+          this.offToGantry(gy, {
+            by: p.id,
+            at: this.gantryLane(gy)?.get(p.goal) ?? 0,
+            slot: 0,
+            fees: p.cargoFees,
+            looks: this.carriedLooks(p),
+            from: p.cargoFrom,
+            exports: !!p.outbound,
+            planned: p.planned,
+          });
+          p.carrying = 0;
+          p.cargoFees = [];
+          p.cargoLooks = undefined;
+          p.cargoFrom = undefined;
+          p.planned = 0;
+          p.bayIdx = -1;
+          p.outbound = false;
+          p.state = 'idle';
+          return;
+        }
+        const gantryTo = this.gantryDone(gy, p.id);
         if (this.dropOutbound(p)) return;
         const bay = this.dest(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
@@ -9619,23 +9762,25 @@ export class World {
     if (c.kind === 'jib') return this.jibWork(c, jibs.get(c));
     const serve = c.serving;
     const p = serve && this.people.find((q) => q.id === serve.id);
-    if (serve && p && serve.ship !== undefined && c.liftSlot !== undefined) {
+    // Taken off a tractor already gone on, it still has it.
+    const on = !!p || !!serve?.held;
+    if (serve && on && serve.ship !== undefined && c.liftSlot !== undefined) {
       // Off the tractor straight on board.
       return {
         working: 'load',
         workBoat: serve.ship,
         workSlot: c.liftSlot,
-        workTruck: p.id,
-        workLook: this.carriedLooks(p)[0],
+        workTruck: serve.id,
+        workLook: this.servedLooks(c, p)[0],
         workPhase: c.timer / craneTicks(c),
       };
     }
-    if (serve && p) {
-      const top = Math.max(0, this.takingAt(p, c));
+    if (serve && on) {
+      const top = p && serve.give ? Math.max(0, this.takingAt(p, c)) : 0;
       return {
         working: serve.give ? 'give' : 'take',
-        workTruck: p.id,
-        workLook: serve.give ? this.stackLooks(c)[top] : this.carriedLooks(p)[0],
+        workTruck: serve.id,
+        workLook: serve.give ? this.stackLooks(c)[top] : this.servedLooks(c, p)[0],
         workPhase: c.timer / craneTicks(c),
         workPlace: serve.give ? this.cranePlaces(c).stack[top] : this.nextCranePlace(c, true),
       };
@@ -9763,10 +9908,11 @@ export class World {
     looks.push(...b.outLooks);
     for (const c of lifting) {
       const late = c.timer / craneTicks(c);
-      const tractor = c.serving?.ship === b.id && this.people.find((q) => q.id === c.serving!.id);
-      if (tractor && late >= B.CRANE_LIFT_SET) {
+      const tractor =
+        c.serving?.ship === b.id ? this.people.find((q) => q.id === c.serving!.id) : undefined;
+      if ((tractor || c.serving?.held) && c.serving?.ship === b.id && late >= B.CRANE_LIFT_SET) {
         deck.push(c.liftSlot!);
-        looks.push(this.carriedLooks(tractor)[0]);
+        looks.push(this.servedLooks(c, tractor)[0]);
       } else if (!this.liftingFrom(c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
         deck.push(c.liftSlot!);
         looks.push(this.outLooks(c)[Math.max(0, this.craneTop(c, true))]);
@@ -9814,7 +9960,9 @@ export class World {
     if (c.kind === 'jib') return false;
     const waiting = (p: Dockhand) => this.underGantry(p) === c && p.timer > 1;
     let p = c.serving && this.people.find((q) => q.id === c.serving!.id);
-    if (!p || !waiting(p)) {
+    // One taken off a tractor already gone on: it sees that lift through.
+    if (c.serving?.held) p = undefined;
+    else if (!p || !waiting(p)) {
       c.serving = undefined;
       // Only between lifts: never part way through one off the ship or on
       // board it. One left part way, its ship gone, counts for nothing.
@@ -9853,11 +10001,42 @@ export class World {
       }
     }
     c.busy = true;
-    if (++c.timer < craneTicks(c)) return true;
+    ++c.timer;
+    // An export off a tractor: once the spreader has it, the tractor is
+    // free to go on its way, and the crane carries it on by itself.
+    const serving = c.serving!;
+    if (p && !serving.give && !serving.held && c.timer >= this.craneTakenIn(c)) {
+      serving.held = { fees: p.cargoFees, looks: this.carriedLooks(p), planned: p.planned };
+      p.carrying = 0;
+      p.cargoFees = [];
+      p.cargoLooks = undefined;
+      p.planned = 0;
+      p.toBoat = -1;
+      p.toCrane = -1;
+      p.outbound = false;
+      p.state = 'idle';
+      p = undefined;
+    }
+    if (c.timer < craneTicks(c)) return true;
     c.timer = 0;
-    const ship = c.serving?.ship;
     c.serving = undefined;
-    const on = this.boats.find((b) => b.id === ship && b.state === 'moored');
+    const on = this.boats.find((b) => b.id === serving.ship && b.state === 'moored');
+    const held = serving.held;
+    if (held) {
+      c.outReserved = Math.max(0, (c.outReserved ?? 0) - held.planned);
+      if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
+        // Set down on board the ship it is loading.
+        (on.outLooks ??= []).push(...held.looks);
+        this.outSlots(on).push(c.liftSlot);
+        this.shipOut(on, held.fees);
+        c.liftSlot = undefined;
+      } else {
+        this.outLooks(c).push(...held.looks);
+        (c.outStack ??= []).push(...held.fees);
+      }
+      return true;
+    }
+    if (!p) return true;
     if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
       this.onBoardFrom(c, p, on, c.liftSlot);
       c.liftSlot = undefined;
@@ -9866,6 +10045,17 @@ export class World {
     // Done: the tractor has it, or the stack has, as it finishes.
     p.timer = 1;
     return true;
+  }
+
+  /** Ticks into a container crane's lift until its spreader has the container up. */
+  private craneTakenIn(c: Crane): number {
+    // Not before the view has it taken.
+    return Math.ceil(B.CRANE_LIFT_TAKEN * craneTicks(c));
+  }
+
+  /** How the containers a crane is lifting for a tractor look: on its spreader, or still on the tractor. */
+  private servedLooks(c: Crane, p: Dockhand | undefined): number[] {
+    return c.serving?.held?.looks ?? (p ? this.carriedLooks(p) : []);
   }
 
   /** A crane has lifted a tractor's export straight on board a ship, into deck slot `slot`. */
@@ -9911,9 +10101,15 @@ export class World {
       less(Math.max(0, this.takingAt(p, c)));
       return { stack: stack - 1, out, looks, places };
     }
-    if (serve && !serve.give && serve.ship === undefined && p && phase >= B.CRANE_LIFT_SET) {
+    if (
+      serve &&
+      !serve.give &&
+      serve.ship === undefined &&
+      (p || serve.held) &&
+      phase >= B.CRANE_LIFT_SET
+    ) {
       places?.push(this.nextCranePlace(c, true));
-      return { stack, out: out + 1, looks: [...looks, ...this.carriedLooks(p)], places };
+      return { stack, out: out + 1, looks: [...looks, ...this.servedLooks(c, p)], places };
     }
     // A gantry crane putting an export on board: off the stack once its
     // spreader has it (the ship shows it once it is set down; see deckView).
@@ -11147,13 +11343,25 @@ export class World {
           return;
         }
         if (this.gantryElsewhere(t, bay)) return;
-        if (bay.gantryOn === t.id ? !this.liftDone(bay) : ++t.timer % this.truckTicks(t, bay) !== 0)
-          return;
-        const gantryTo = this.gantryDone(bay, t.id);
-        if (gantryTo !== undefined) this.yardSlots(bay).exports.push(gantryTo);
-        this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
-        (bay.exports ??= []).push(t.value);
-        bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
+        if (bay.gantryOn === t.id) {
+          // Off the truck onto the gantry's spreader: it may go on its way
+          // now, while the gantry carries it along and sets it down.
+          if (!this.liftTaken(bay)) return;
+          this.offToGantry(bay, {
+            by: t.id,
+            at: this.gantryLane(bay)?.get(t.goal) ?? 0,
+            slot: t.cargo - 1,
+            fees: [t.value],
+            looks: [boxLookOf(t.id, t.cargo - 1)],
+            exports: true,
+            planned: 1,
+          });
+        } else {
+          if (++t.timer % this.truckTicks(t, bay) !== 0) return;
+          this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
+          (bay.exports ??= []).push(t.value);
+          bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
+        }
         if (--t.cargo <= 0) {
           this.tip('exports');
           this.headOut(t);
@@ -12129,6 +12337,7 @@ export class World {
     const w = this.map.w;
     let budget = speedAt(this.tileOf(a));
     let repaths = 0;
+    const cuts = 'contractId' in a;
     while (budget > 1e-6 && a.path.length > 0) {
       const next = a.path[0];
       // Hold back at the edge of a tile someone else is standing on.
@@ -12150,8 +12359,11 @@ export class World {
         a.path = p;
         continue;
       }
-      const tx = (next % w) + 0.5;
-      const ty = Math.floor(next / w) + 0.5;
+      // A truck steers across the corner through a jog; anything else to
+      // the middle of each tile.
+      const at = cuts ? this.steerPoints(a, 1)[0] : undefined;
+      const tx = at ? at.x : (next % w) + 0.5;
+      const ty = at ? at.y : Math.floor(next / w) + 0.5;
       const dx = tx - a.x;
       const dy = ty - a.y;
       const d = Math.hypot(dx, dy);
@@ -12159,8 +12371,11 @@ export class World {
       if (d <= budget) {
         a.x = tx;
         a.y = ty;
-        a.path.shift();
         budget -= d;
+        // On the edge it comes into the corner by, it has passed no tile yet.
+        if (at && !at.passes) continue;
+        const passed = a.path.shift()!;
+        if (cuts) a.trail = [a.trail?.[1] ?? -1, passed];
       } else {
         a.x += (dx / d) * budget;
         a.y += (dy / d) * budget;
@@ -12169,6 +12384,61 @@ export class World {
     }
     if (a.path.length === 0) a.v = 0;
     return a.path.length === 0 ? 'arrived' : 'moving';
+  }
+
+  /**
+   * Where a truck steers for the next `n` tiles of its way: the middle of
+   * each, but through a jog, two corners one after the other turning one
+   * way and then back as from one lane to the next, across the corners at
+   * 45 degrees, from the edge it comes into the first by to the edge it
+   * leaves the last by, rather than square round both; a staircase of them
+   * all the way in one straight line. Each point says whether reaching it
+   * passes a tile of the way: the edge it comes into a jog by passes none.
+   */
+  private steerPoints(a: Agent, n: number): { x: number; y: number; passes: boolean }[] {
+    const m = this.map;
+    const w = m.w;
+    const path = a.path;
+    const step = (from: number | undefined, to: number | undefined) => {
+      if (from === undefined || to === undefined || from < 0 || to < 0) return 0;
+      const d = to - from;
+      return d === 1 || d === -1 || d === w || d === -w ? d : 0;
+    };
+    const mid = (i: number) => ({ x: (i % w) + 0.5, y: Math.floor(i / w) + 0.5 });
+    const edge = (p: number, q: number) => {
+      const a0 = mid(p);
+      const b0 = mid(q);
+      return { x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2 };
+    };
+    const before = (k: number, back: number): number | undefined => {
+      const j = k - back;
+      if (j >= 0) return path[j];
+      return a.trail?.[2 + j];
+    };
+    const out: { x: number; y: number; passes: boolean }[] = [];
+    for (let k = 0; k < Math.min(n, path.length); k++) {
+      const t = path[k];
+      const p = before(k, 1);
+      const din = step(p, t);
+      const dout = step(t, path[k + 1]);
+      const corner = din !== 0 && dout !== 0 && dout !== din && dout !== -din;
+      // Turning back the way it went before the last corner, on from a
+      // jog's diagonal; or about to, at the next tile.
+      const stair = corner && step(before(k, 2), p) === dout;
+      const ahead = corner && step(path[k + 1], path[k + 2]) === din;
+      if (stair || ahead) {
+        if (!stair) {
+          // Onto the diagonal at the edge it comes in by, unless past it.
+          const e = edge(p!, t);
+          const ux = din === 1 ? 1 : din === -1 ? -1 : 0;
+          const uy = din === w ? 1 : din === -w ? -1 : 0;
+          const past = k === 0 && (a.x - e.x) * ux + (a.y - e.y) * uy > -1e-6;
+          if (!past) out.push({ ...e, passes: false });
+        }
+        out.push({ ...edge(t, path[k + 1]), passes: true });
+      } else out.push({ ...mid(t), passes: true });
+    }
+    return out;
   }
 
   /**
@@ -12190,17 +12460,23 @@ export class World {
     let y = a.y;
     let heading = a.dir;
     let run = 0;
+    // Where it steers, as move does: across the corner through a jog.
+    const points =
+      'contractId' in a
+        ? this.steerPoints(a, Math.min(a.path.length, Math.ceil(sight) + 2))
+        : a.path.map((i) => ({ x: (i % w) + 0.5, y: Math.floor(i / w) + 0.5, passes: true }));
     let k = 0;
-    for (; k < a.path.length && run <= sight; k++) {
-      const nx = (a.path[k] % w) + 0.5;
-      const ny = Math.floor(a.path[k] / w) + 0.5;
+    for (; k < points.length && run <= sight; k++) {
+      const nx = points[k].x;
+      const ny = points[k].y;
       const len = Math.hypot(nx - x, ny - y);
       const dir = len > 1e-6 ? Math.atan2(ny - y, nx - x) : heading;
-      // A bend where this stretch meets the last.
+      // A bend where this stretch meets the last. Into a jog's diagonal and
+      // out of it, half a corner either way, it need not slow.
       if (k > 0 && len > 1e-6) {
         const bend = Math.abs(wrapAngle(dir - heading));
         const corner = top * Math.max(B.CORNER_SPEED, Math.cos(Math.min(bend, Math.PI / 2)));
-        if (bend > 0.05) want = Math.min(want, by(corner, run));
+        if (bend > Math.PI / 4 + 0.01) want = Math.min(want, by(corner, run));
       }
       run += len;
       x = nx;
@@ -12208,7 +12484,9 @@ export class World {
       heading = dir;
     }
     // Stopping at the end of the way, creeping the last bit.
-    if (stop && k === a.path.length) want = Math.min(want, Math.max(by(0, run), top * 0.15));
+    if (stop && k === points.length && points.length >= a.path.length) {
+      want = Math.min(want, Math.max(by(0, run), top * 0.15));
+    }
     const v = a.v ?? 0;
     a.v = want < v ? want : Math.min(want, v + accel);
     return a.v;

@@ -228,6 +228,12 @@ interface YardGantryParts {
   startZ: number;
   /** The tick the game began the lift it is at; see YardView.workStart. */
   liftStart?: number;
+  /**
+   * Where over the truck or tractor it took the container off it was, in
+   * the frame: once it has it, that one may drive off, and it carries on
+   * from there rather than follow it.
+   */
+  offAt?: { x: number; z: number; drop: number };
 }
 
 interface CraneParts {
@@ -384,6 +390,11 @@ interface ShipGantryParts {
   stacked: number;
   /** How many like the one it moves were on its stack as the lift began. */
   base: number;
+  /**
+   * Where over the tractor it took a container off it was, in the frame:
+   * once it has it, the tractor may drive off, and it carries on from there.
+   */
+  offAt?: { x: number; z: number; drop: number };
 }
 
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
@@ -687,7 +698,13 @@ export class Structures {
             z: slot.position.z,
             drop: trolley.position.y - (slot.position.y + BOX_HEIGHT + 0.04),
           };
-      const [from, to] = g.work === 'unload' || g.work === 'take' ? [deck, pile] : [pile, deck];
+      let [from, to] = g.work === 'unload' || g.work === 'take' ? [deck, pile] : [pile, deck];
+      // Taken off a tractor, it goes on from where it took it, whether the
+      // tractor stays or drives off.
+      const offTractor = g.work === 'take' || (g.work === 'load' && direct);
+      if (offTractor && g.phase > CRANE_LIFT_TAKEN && g.offAt) from = g.offAt;
+      else if (offTractor) g.offAt = { ...from };
+      else g.offAt = undefined;
       const ease = (t: number) => t * t * (3 - 2 * t);
       const dip = (t: number, depth: number) => c.rest + (depth - c.rest) * Math.sin(t * Math.PI);
       const take = CRANE_LIFT_TAKEN;
@@ -1225,7 +1242,10 @@ export class Structures {
           g.phase = !same || Math.abs(off) > 0.15 ? y.workPhase : g.phase + off * 0.5;
         }
         // A new lift runs along the rails from wherever it stands now.
-        if (!same) this.liftFrom(g);
+        if (!same) {
+          this.liftFrom(g);
+          g.offAt = undefined;
+        }
         if (y.workLook !== undefined) g.look = y.workLook;
         g.yard = y.tiles[0];
         // Seen first part way through a lift, as at speed, the container
@@ -1394,9 +1414,14 @@ export class Structures {
       // Over the very container slot on the truck, front or back of a long one.
       const at = g.truck !== undefined ? this.truckSlot?.(g.truck, g.slot, this.slotAt) : null;
       if (at) g.frame.worldToLocal(at);
-      const lane = at
+      const over = at
         ? { x: at.x, z: at.z, drop: g.trolley.position.y - (at.y + BOX_HEIGHT + 0.04) }
         : { x: g.laneAt, z: 0, drop: g.laneDrop };
+      // Taken off one, it goes on from where it took it, whether that one
+      // stays or drives off.
+      const off = g.work === 'unload' && g.phase > liftMarks(g.legs).taken;
+      if (!off || !g.offAt) g.offAt = over;
+      const lane = off ? g.offAt : over;
       const [from, to] = g.work === 'load' ? [yard, lane] : [lane, yard];
       const ease = (t: number) => t * t * (3 - 2 * t);
       const dip = (t: number, depth: number) => 0.2 + (depth - 0.2) * Math.sin(t * Math.PI);
