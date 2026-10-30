@@ -17,8 +17,17 @@ export interface Note {
   voice: Voice;
 }
 
+/**
+ * Which band plays a tune: the one made in code, or one of recorded
+ * instruments (see music.ts), the keys and the tune each its own.
+ */
+export type Band = 'synth' | 'parlour' | 'fm' | 'island';
+export const BANDS: readonly Band[] = ['synth', 'parlour', 'fm', 'island'];
+
 export interface Bar {
   notes: Note[];
+  /** Who plays it. */
+  band: Band;
   /** Beats in the bar. */
   beats: number;
   /** Beats a minute. */
@@ -48,15 +57,26 @@ const PENTATONIC = [0, 2, 4, 7, 9];
  * never sound out of place.
  */
 const PROGRESSIONS = [
-  [0, 5, 3, 4],
+  [0, 5, 3, 4], // I vi IV V, the doo-wop changes
   [0, 3, 5, 4],
-  [1, 4, 0, 0],
+  [1, 4, 0, 0], // ii V I, as in jazz
   [0, 3, 0, 4],
   [5, 3, 0, 4],
   [0, 2, 3, 4],
   [3, 4, 2, 5],
-  [0, 4, 5, 3],
+  [0, 4, 5, 3], // I V vi IV, half the pop songs ever written
   [3, 0, 1, 4],
+  [0, 5, 1, 4], // I vi ii V, the turnaround
+  [1, 4, 0, 5],
+  [5, 1, 4, 0],
+  [0, 1, 2, 3], // walking up
+  [3, 2, 1, 0], // and down
+  [0, 3, 4, 3],
+  [5, 4, 3, 4],
+  [0, 4, 3, 0],
+  [3, 4, 0, 0], // IV V I, a plain cadence
+  [0, 0, 3, 4],
+  [2, 5, 1, 4], // iii vi ii V, round the circle of fifths
 ];
 
 /** Keys to start in: warm, easy ones, as MIDI tonic notes. */
@@ -186,6 +206,9 @@ export class Composer {
   private shape: number[] = [];
   private lastLead = 72;
   private keysVoicing: number[] = [];
+  private band: Band = 'synth';
+  /** Only this band, to hear it on its own (in the sound lab); otherwise each tune its own. */
+  only: Band | null = null;
 
   constructor(seed = Math.floor(Math.random() * 2 ** 31)) {
     this.random = rng(seed);
@@ -216,6 +239,14 @@ export class Composer {
       this.bridgeProgression = this.pick(PROGRESSIONS);
     } while (this.bridgeProgression === this.progression);
     this.comp = this.pick(COMPING);
+    // A different band from the last tune.
+    const last = this.band;
+    do {
+      this.band = this.pick(BANDS);
+    } while (!first && this.band === last);
+    if (this.only) this.band = this.only;
+    // The island band's marimba rolls through the chords.
+    if (this.band === 'island') this.comp = COMPING[COMPING.length - 1];
     this.newMotif();
   }
 
@@ -226,6 +257,11 @@ export class Composer {
       const r = this.random();
       return r < 0.35 ? 1 : r < 0.7 ? -1 : r < 0.82 ? 0 : r < 0.91 ? 2 : -2;
     });
+  }
+
+  /** Start a fresh tune at the next bar. */
+  skip(): void {
+    this.section = this.form.length;
   }
 
   /** The next bar of music. */
@@ -256,7 +292,7 @@ export class Composer {
       if (this.random() < 0.4) this.newMotif();
     }
     notes.sort((x, y) => x.at - y.at);
-    return { notes, beats: 4, tempo: this.tempo, chord: { root, tones } };
+    return { notes, band: this.band, beats: 4, tempo: this.tempo, chord: { root, tones } };
   }
 
   private keys(notes: Note[], tones: number[], part: Part): void {

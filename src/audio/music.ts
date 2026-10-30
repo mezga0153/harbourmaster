@@ -3,7 +3,8 @@
 // brushed percussion, like an old General MIDI soundtrack heard through a
 // warm speaker. No sound files, in keeping with the rest of the sound.
 
-import { Composer, type Bar, type Note, type Voice } from './score';
+import { SAMPLES, type Instrument } from './samples';
+import { Composer, type Band, type Bar, type Note, type Voice } from './score';
 
 /** How far ahead notes are put on the clock, in seconds: enough to ride out a slow frame. */
 const AHEAD = 0.6;
@@ -22,6 +23,33 @@ const LEVEL: Record<Voice, number> = {
 
 const hz = (midi: number) => 440 * 2 ** ((midi - 69) / 12);
 
+/**
+ * The recorded bands: which instrument plays which part. The bass and the
+ * kick are always the ones made in code; anything not listed too.
+ */
+export const BAND_PARTS: Record<Band, Partial<Record<Voice, Instrument>>> = {
+  synth: {},
+  parlour: { keys: 'piano', lead: 'vibes', shaker: 'shaker', rim: 'claves' },
+  fm: { keys: 'fmpiano', lead: 'marimba', shaker: 'shaker', rim: 'claves' },
+  island: { keys: 'marimba', lead: 'kalimba', shaker: 'shaker', rim: 'claves' },
+};
+
+/**
+ * Each recorded instrument: how loud, to sound as loud over a note's first
+ * moments as the band made in code (the recordings all peak alike, but some
+ * ring on louder than others; measured), and how quickly a note dies away
+ * once let go, in seconds.
+ */
+const RECORDED: Record<Instrument, { level: number; release: number }> = {
+  piano: { level: 3.9, release: 0.25 },
+  fmpiano: { level: 3, release: 0.3 },
+  vibes: { level: 1.7, release: 0.7 },
+  marimba: { level: 2.8, release: 0.4 },
+  kalimba: { level: 4.3, release: 0.6 },
+  shaker: { level: 4.3, release: 0.05 },
+  claves: { level: 4.6, release: 0.05 },
+};
+
 export class Music {
   private composer = new Composer();
   /** When the next bar starts, on the audio clock; null while stopped. */
@@ -30,6 +58,9 @@ export class Music {
   private noise: AudioBuffer;
   /** Into the room, for the keys, the tune and the pad. */
   private room: GainNode;
+  /** The recorded notes, by instrument, as they come in. */
+  private recorded = new Map<Instrument, { key: number | string; buffer: AudioBuffer }[]>();
+  private loading = false;
 
   constructor(
     private ctx: BaseAudioContext,
@@ -45,12 +76,23 @@ export class Music {
     if (send) this.room.connect(send);
   }
 
+  /** Only this band from the next tune on, or each tune its own (null). */
+  setBand(band: Band | null): void {
+    this.composer.only = band;
+  }
+
+  /** On to a fresh tune at the next bar. */
+  nextTune(): void {
+    this.composer.skip();
+  }
+
   get playing(): boolean {
     return this.nextBar !== null;
   }
 
   /** Strike up, from a moment from now. */
   start(): void {
+    this.load();
     if (this.timer) return;
     this.nextBar = this.ctx.currentTime + 0.3;
     this.timer = setInterval(() => this.schedule(), TICK_MS);
@@ -77,14 +119,40 @@ export class Music {
     }
   }
 
+  /**
+   * Fetch the recorded instruments, once, in the background. Until an
+   * instrument is in, the band made in code plays its part.
+   */
+  private load(): void {
+    if (this.loading || typeof fetch !== 'function') return;
+    this.loading = true;
+    const base = import.meta.env?.BASE_URL ?? '/';
+    for (const [inst, keys] of Object.entries(SAMPLES) as [
+      Instrument,
+      readonly (number | string)[],
+    ][]) {
+      void Promise.all(
+        keys.map(async (key) => {
+          const res = await fetch(`${base}music/${inst}/${key}.mp3`);
+          if (!res.ok) throw new Error(`${inst} ${key}: ${res.status}`);
+          return { key, buffer: await this.ctx.decodeAudioData(await res.arrayBuffer()) };
+        }),
+      )
+        .then((notes) => this.recorded.set(inst, notes))
+        .catch((err) => console.warn('Music: playing on without', inst, err));
+    }
+  }
+
   /** Every note of a bar, put on the clock from `t0`. */
   playBar(bar: Bar, t0: number): void {
     const beat = 60 / bar.tempo;
-    for (const n of bar.notes) this.play(n, t0 + n.at * beat, n.dur * beat);
+    for (const n of bar.notes) this.play(n, t0 + n.at * beat, n.dur * beat, bar.band);
   }
 
-  private play(n: Note, t: number, dur: number): void {
+  private play(n: Note, t: number, dur: number, band: Band = 'synth'): void {
     const v = n.vel * LEVEL[n.voice];
+    const inst = BAND_PARTS[band][n.voice];
+    if (inst && this.recorded.has(inst)) return this.sample(inst, n, t, dur, v);
     switch (n.voice) {
       case 'keys':
         return this.epiano(hz(n.midi), t, dur, v);
@@ -101,6 +169,34 @@ export class Music {
       case 'rim':
         return this.hit(t, v, 'bandpass', 1800, 6, 0.03);
     }
+  }
+
+  /**
+   * A recorded note: the nearest one recorded, sped up or slowed down to
+   * the note wanted, let go when it ends. A drum hit, any of its takes.
+   */
+  private sample(inst: Instrument, n: Note, t: number, dur: number, v: number): void {
+    const notes = this.recorded.get(inst)!;
+    const pitched = typeof notes[0].key === 'number';
+    const pick = pitched
+      ? notes.reduce((a, b) =>
+          Math.abs((b.key as number) - n.midi) < Math.abs((a.key as number) - n.midi) ? b : a,
+        )
+      : notes[Math.floor(Math.random() * notes.length)];
+    const c = this.ctx;
+    const src = c.createBufferSource();
+    src.buffer = pick.buffer;
+    if (pitched) src.playbackRate.value = 2 ** ((n.midi - (pick.key as number)) / 12);
+    const { level, release } = RECORDED[inst];
+    const amp = c.createGain();
+    const peak = v * level;
+    amp.gain.setValueAtTime(peak, t);
+    amp.gain.setTargetAtTime(0, t + dur, release);
+    src.connect(amp);
+    this.voiceOut(amp, pitched);
+    src.start(t);
+    src.stop(t + dur + release * 5);
+    src.onended = () => src.disconnect();
   }
 
   // ── The band ─────────────────────────────────────────────

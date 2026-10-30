@@ -3,6 +3,7 @@
 
 import { VESSEL_SIZE, type Hull, type RoadEngine } from './mix';
 import { Music } from './music';
+import type { Band } from './score';
 import { CONTAINER_STYLES, roadPitch, Synth, type ContainerStyle, type Loop } from './synth';
 
 let synth: Synth | null = null;
@@ -173,16 +174,15 @@ const hulls: [Hull, string][] = [
 
 let band: Music | null = null;
 
-/** The music on and off, and a fresh tune. */
+/** The music on and off, a fresh tune, and which band plays. */
 function musicRow(): HTMLElement {
   const toggle = el('button', {}, 'Play');
-  const play = (fresh: boolean) => {
+  let only: Band | null = null;
+  const start = () => {
     const s = live();
     s.setLevels(1, 1, 0.5);
-    if (fresh || !band) {
-      band?.stop();
-      band = new Music(s.ctx, s.music, s.wetMusic);
-    }
+    band ??= new Music(s.ctx, s.music, s.wetMusic);
+    band.setBand(only);
     band.start();
     toggle.textContent = 'Stop';
     toggle.classList.add('on');
@@ -192,13 +192,38 @@ function musicRow(): HTMLElement {
       band.stop();
       toggle.textContent = 'Play';
       toggle.classList.remove('on');
-    } else play(false);
+    } else start();
+  };
+  const bands = el('select', {});
+  for (const [id, name] of [
+    ['', 'Each tune its own band'],
+    ['synth', 'Made in code'],
+    ['parlour', 'Upright piano and vibraphone'],
+    ['fm', 'FM piano and marimba'],
+    ['island', 'Marimba and kalimba'],
+  ]) {
+    bands.append(el('option', { value: id }, name));
+  }
+  bands.onchange = () => {
+    only = (bands.value || null) as Band | null;
+    band?.setBand(only);
+    band?.nextTune();
   };
   return el(
     'div',
     { className: 'row' },
     toggle,
-    el('button', { onclick: () => play(true) }, 'Another tune'),
+    el(
+      'button',
+      {
+        onclick: () => {
+          if (!band?.playing) start();
+          band?.nextTune();
+        },
+      },
+      'Another tune',
+    ),
+    bands,
     slider('Music level', 0.5, (v) => live().setLevels(1, 1, v * v)),
   );
 }

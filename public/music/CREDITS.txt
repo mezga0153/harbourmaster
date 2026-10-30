@@ -1,0 +1,5 @@
+The recorded instruments in this folder come from the Versilian Community
+Sample Library (VCSL) by Versilian Studios and its contributors, released
+under Creative Commons Zero (CC0 1.0): public domain, free to use without
+credit. Taken from https://github.com/sgossner/VCSL and trimmed to a few
+seconds a note by scripts/fetch-music.mjs.
