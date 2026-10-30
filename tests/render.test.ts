@@ -6,6 +6,7 @@ import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { Entities, turnAbout } from '../src/render/entities';
 import { settle, Structures } from '../src/render/structures';
+import { surfaceY } from '../src/render/terrain';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -93,6 +94,28 @@ describe('Dockhands handling crates', () => {
       }
     }
     expect(handed).toBeGreaterThan(4);
+  });
+
+  it('stay on the quay, leaning out to crates on the boats rather than stepping aboard', () => {
+    const world = World.create(7, 96);
+    const entities = new Entities(world.map);
+    let atBoat = 0;
+    for (let t = 0, now = 0; t < 800; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      const boats = new Set(s.entities.filter((e) => e.kind === 'boat').map((e) => e.id));
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        for (const { view, pos } of entities.worldPositions()) {
+          if (view.kind !== 'dockhand') continue;
+          if (view.handAt?.truck !== undefined && boats.has(view.handAt.truck)) atBoat++;
+          expect(surfaceY(world.map, pos.x, pos.z)).toBeGreaterThan(0);
+        }
+      }
+    }
+    expect(atBoat).toBeGreaterThan(10);
   });
 });
 

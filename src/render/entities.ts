@@ -77,6 +77,11 @@ interface Pose {
   z: number;
   dir: number;
   h: number;
+  /**
+   * A dockhand kept on the quay with the crate out over the water, on a
+   * boat: how much further on it is than they reach standing.
+   */
+  over?: number;
 }
 
 /** A reach stacker or tractor taking a container off where it is, or setting one down. */
@@ -241,6 +246,10 @@ export interface Wake {
 const FORK_KEEP = 0.16;
 /** How far in front of a dockhand the crate they pick up or set down is. */
 const HAND_REACH = 0.16;
+/** How far back from the edge of the quay a dockhand stands, toes to the edge. */
+const TOES = 0.05;
+/** Furthest a dockhand leans out over the edge to a crate. */
+const LEAN_MOST = 0.3;
 /** How far ahead of a forklift's middle the pallet on its forks sits. */
 const FORK_REACH = 0.3;
 /** Forklifts turning about: the tighter of the two arcs they go round. */
@@ -549,7 +558,8 @@ export class Entities {
       }
       if (cur.kind === 'dockhand') {
         const down = this.lower(e, prev, t, dt);
-        pose(e.model, cur.moving, cur.load > 0, time * 12 + id, down);
+        const goal = e.hand?.goal;
+        pose(e.model, cur.moving, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
       }
       if (e.alert) {
         e.alert.visible = cur.alert;
@@ -695,7 +705,7 @@ export class Entities {
       // so that is measured from where the game has it, not where it shows.
       const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > REACH_MOST;
       if (w.goal && far && (v.kind === 'forklift' || v.kind === 'dockhand')) {
-        w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h };
+        w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
       const goal = w.goal ?? { ...drive, h: 0 };
       // Under a gantry, a tractor is lined up before the spreader comes down;
@@ -776,9 +786,22 @@ export class Entities {
     };
     w.face ??= straight || cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
     const [dx, dz] = ahead(w.face, hold);
-    const x = p.x - dx;
-    const z = p.z - dz;
-    return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z) };
+    let x = p.x - dx;
+    let z = p.z - dz;
+    if (v.kind !== 'dockhand') return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z) };
+    // A dockhand goes no further than the edge of the quay, and leans out
+    // from there to a crate on a boat rather than step aboard.
+    const way = Math.hypot(x - drive.x, z - drive.z);
+    const [ux, uz] = ahead(w.face, 1);
+    let dry = 0;
+    while (dry < way + TOES && surfaceY(this.map, drive.x + ux * dry, drive.z + uz * dry) > 0) {
+      dry += 0.02;
+    }
+    const stand = Math.max(0, Math.min(way, dry - TOES));
+    x = drive.x + ux * stand;
+    z = drive.z + uz * stand;
+    const over = Math.min(LEAN_MOST, way - stand);
+    return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
   }
 
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */
