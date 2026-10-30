@@ -244,3 +244,28 @@ describe('A shipper’s truck waiting for a spot', () => {
     expect(B.STAGE_NEARER_BY).toBeGreaterThan(0);
   });
 });
+
+describe('A yard every spot of which is too short for a long truck', () => {
+  it('is not taken for one the trucks cannot reach', () => {
+    const { world, m, tiles, yard, truck } = laneWorld();
+    // Short trucks at every other spot: a short one fits between, a long one does not.
+    for (const k of [0, 2, 4, 6]) {
+      world.trucks.push(
+        truck(tiles[k], 'loading', tiles[k], { capacity: 4, boxes: false, exports: false }),
+      );
+    }
+    expect(world.freeDockSet(yard, 1).size).toBeGreaterThan(0);
+    expect(world.freeDockSet(yard, 1.92).size).toBe(0);
+    const park = m.idx(30, 30);
+    m.build[park] = Build.Parking;
+    const long = truck(park, 'parked', park, { capacity: 2, exports: false, park });
+    world.trucks.push(long);
+    world.collectable = () => 5;
+    world.handlerFree = () => true;
+    world.tick = 10 - (long.id % 10);
+    world.updateTruck(long);
+    // It waits for a spot, and the yard is not marked as out of the trucks' reach.
+    expect(yard.noAccess).toBeFalsy();
+    expect(long.state).toBe('parked');
+  });
+});

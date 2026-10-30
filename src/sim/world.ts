@@ -10525,15 +10525,17 @@ export class World {
       // inside the port, or is not sent yet.
       const boxy = haulier.terms.cargo === 'container';
       const served = !boxy || this.handlerFree(bay);
+      const len = B.truckLength(haulier.terms.capacity, boxy);
       const to = this.dockFor(
         bay,
         (d, avoid) =>
           this.drivePath(from.tile, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
-        B.truckLength(haulier.terms.capacity, boxy),
+        len,
       );
       // No way to any free spot at all, rather than only past a truck there:
-      // not sent, even to wait, as none could ever load there.
-      if (!to && !this.dockRouted && this.freeDockSet(bay).size > 0) {
+      // not sent, even to wait, as none could ever load there. Free for a
+      // truck as long as this one: with none, dockFor tried no way at all.
+      if (!to && !this.dockRouted && this.freeDockSet(bay, len).size > 0) {
         this.cutOff(bay, this.dockTurn);
         continue;
       }
@@ -10662,7 +10664,7 @@ export class World {
         if (!to) {
           // No free spot it could get to and drive away from again: it
           // gives up in a while, and the bay shows why.
-          if (!this.dockRouted && this.freeDockSet(bay).size > 0) {
+          if (!this.dockRouted && this.freeDockSet(bay, this.lengthOf(t)).size > 0) {
             this.cutOff(bay, this.dockTurn);
             this.leavePark(t);
           }
