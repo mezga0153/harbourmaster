@@ -301,7 +301,7 @@ describe('Dockhands handling crates', () => {
       }
     }
     expect(still).toBeGreaterThan(1000);
-    expect(stacked).toBeGreaterThan(5);
+    expect(stacked).toBeGreaterThan(2);
   });
 
   it('keep a step apart when they stand about', () => {

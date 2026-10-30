@@ -5863,8 +5863,10 @@ export class World {
       if (t.state !== 'loading') continue;
       const bay = this.dest(t.bayIdx);
       if (!bay || !this.byHand(t, bay)) continue;
+      // Crates on their way to the bay go straight on first: the stack
+      // only fills what room they leave.
       const avail = Math.min(
-        t.capacity - t.cargo - (t.coming ?? 0),
+        t.capacity - t.cargo - (t.coming ?? 0) - bay.incoming,
         bay.crates.length - (bay.reserved ?? 0),
       );
       if (avail <= 0) continue;
@@ -5896,7 +5898,7 @@ export class World {
     if (!bay || this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
     if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
     const room = Math.min(
-      t.capacity - t.cargo - (t.coming ?? 0),
+      t.capacity - t.cargo - (t.coming ?? 0) - bay.incoming,
       bay.crates.length - (bay.reserved ?? 0),
     );
     const n = Math.min(p.capacity, src.avail, room);
@@ -8324,6 +8326,8 @@ export class World {
         }
         // A truck waiting at the bay: straight onto it.
         const onto = this.straightOnto(p, bay);
+        // Brought for a truck that has gone meanwhile, they go on the stack
+        // however full it is.
         if (onto) {
           onto.cargo += p.carrying;
           onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
@@ -8508,7 +8512,7 @@ export class World {
           : this.bayWithRoom(p, src.tile, !!src.pile?.tiles);
       if (!bay) continue;
       if (!this.headTo(p, src.tile)) continue;
-      const planned = Math.min(p.capacity, src.avail, bayRoom(bay, boxy));
+      const planned = Math.min(p.capacity, src.avail, this.dropRoom(bay, boxy));
       if (src.crane) src.crane.reserved += planned;
       if (src.boat) src.boat.reserved += planned;
       if (src.pile) src.pile.reserved = (src.pile.reserved ?? 0) + planned;
@@ -9348,7 +9352,7 @@ export class World {
     const bays = [...among.values()]
       .filter(
         (b) =>
-          bayRoom(b, boxes) > 0 &&
+          this.dropRoom(b, boxes) > 0 &&
           this.takesImports(b) &&
           (!onward || this.truckable(b)) &&
           (!only || only(b)),
@@ -9362,17 +9366,28 @@ export class World {
    * a truck bay where a truck waits for them, to set them straight on it.
    */
   private bayCost(from: number, b: Bay, boxes: boolean): number {
-    const waiting =
-      !boxes &&
-      !b.tiles &&
-      this.trucks.some(
-        (t) =>
-          t.state === 'loading' &&
-          t.bayIdx === b.idx &&
-          this.byHand(t, b) &&
-          t.cargo + (t.coming ?? 0) + b.incoming < t.capacity,
-      );
+    const waiting = !boxes && this.truckRoom(b) > b.incoming;
     return this.distTo(from, b) - (waiting ? B.TRUCK_WAITING_PULL : 0);
+  }
+
+  /**
+   * Room on crate trucks loading at a truck bay, besides what dockhands and
+   * forklifts loading it from its stack are bringing them: crates carried
+   * there go straight on, however many the bay holds already.
+   */
+  private truckRoom(b: Bay): number {
+    if (b.tiles || b.yard || b.pile) return 0;
+    let room = 0;
+    for (const t of this.trucks) {
+      if (t.state !== 'loading' || t.bayIdx !== b.idx || !this.byHand(t, b)) continue;
+      room += Math.max(0, t.capacity - t.cargo - (t.coming ?? 0));
+    }
+    return room;
+  }
+
+  /** Room for crates brought to a bay: on its stack, or straight onto a truck there. */
+  private dropRoom(b: Bay, boxes: boolean): number {
+    return bayRoom(b, boxes) + (boxes ? 0 : this.truckRoom(b));
   }
 
   /**
