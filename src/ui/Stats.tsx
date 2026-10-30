@@ -3,7 +3,6 @@ import { Fragment } from 'preact';
 import type { CargoIn, CargoOut, CargoSample, CargoStats } from '../protocol';
 import { compactCount, dateAndTime, LineSeries } from './charts';
 import { panel, snapshot } from './store';
-import { CONTAINER_TIER } from './Finance';
 import { InfoHeader, MoneyTabs } from './widgets';
 
 /** Containers or crates: which the panel shows; kept while it is closed. */
@@ -164,9 +163,7 @@ export function StatsPanel() {
   const s = snapshot.value;
   if (!s) return null;
   const c = s.cargo;
-  // Containers only once the port can take them, or has.
-  const containers = s.progress.tier >= CONTAINER_TIER || s.stats.containers > 0;
-  const boxes = containers && kind.value === 'containers';
+  const boxes = kind.value === 'containers';
   const into = boxes ? c.containers : c.crates;
   const out = boxes ? c.containerExports : c.crateExports;
   const word = boxes ? 'containers' : 'crates';
@@ -179,30 +176,26 @@ export function StatsPanel() {
       <MoneyTabs on="stats" />
 
       <div class="fin-tiles">
-        {containers && (
-          <Figure
-            label="Containers"
-            value={inPort(c.containers, c.containerExports)}
-            note="in the port now"
-          />
-        )}
+        <Figure
+          label="Containers"
+          value={inPort(c.containers, c.containerExports)}
+          note="in the port now"
+        />
         <Figure label="Crates" value={inPort(c.crates, c.crateExports)} note="in the port now" />
         <Figure label="Shipped out" value={s.stats.exported ?? 0} note="exports so far" />
       </div>
 
-      {containers && (
-        <div class="fin-range">
-          <span class="muted">Where they are now</span>
-          <div class="segmented" role="group" aria-label="Cargo shown">
-            <button class={boxes ? 'on' : ''} onClick={() => (kind.value = 'containers')}>
-              Containers
-            </button>
-            <button class={boxes ? '' : 'on'} onClick={() => (kind.value = 'crates')}>
-              Crates
-            </button>
-          </div>
+      <div class="fin-range">
+        <span class="muted">Where they are now</span>
+        <div class="segmented" role="group" aria-label="Cargo shown">
+          <button class={boxes ? 'on' : ''} onClick={() => (kind.value = 'containers')}>
+            Containers
+          </button>
+          <button class={boxes ? '' : 'on'} onClick={() => (kind.value = 'crates')}>
+            Crates
+          </button>
         </div>
-      )}
+      </div>
 
       <div class="section-title">
         <span>Coming in</span>
@@ -240,12 +233,10 @@ export function StatsPanel() {
           <dt>Crates handled</dt>
           <dd>{s.stats.cratesHandled.toLocaleString('en-US')}</dd>
         </div>
-        {containers && (
-          <div>
-            <dt>Containers handled</dt>
-            <dd>{s.stats.containers.toLocaleString('en-US')}</dd>
-          </div>
-        )}
+        <div>
+          <dt>Containers handled</dt>
+          <dd>{s.stats.containers.toLocaleString('en-US')}</dd>
+        </div>
         <div>
           <dt>Ships</dt>
           <dd>{s.stats.boats.toLocaleString('en-US')}</dd>

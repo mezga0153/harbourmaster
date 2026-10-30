@@ -10,9 +10,6 @@ import { formatDate, money } from './format';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter, MoneyTabs } from './widgets';
 
-/** The port tier where containers come in: the Container Port. */
-export const CONTAINER_TIER = 2;
-
 /** The kinds of income, in a fixed order that keeps their colours. */
 const INCOME: { key: LedgerCategory; label: string }[] = [
   { key: 'cargo', label: 'Crates trucked out' },
@@ -358,9 +355,6 @@ export function FinancePanel({ actions }: { actions: Actions }) {
   const shownIn = days.reduce((n, d) => n + income(d.ledger), 0);
   const shownOut = days.reduce((n, d) => n + costs(d.ledger), 0);
   const average = days.length ? (shownIn + shownOut) / days.length : null;
-  // Containers only once the port can take them, or has.
-  const containers =
-    s.progress.tier >= CONTAINER_TIER || history.some((d) => d.ledger.containers !== 0);
   return (
     <aside class="side panel xwide finance" aria-label="Finance">
       <InfoHeader kicker="Money" title="Finance" onClose={() => (panel.value = null)} />
@@ -485,7 +479,7 @@ export function FinancePanel({ actions }: { actions: Actions }) {
           </tr>
         </thead>
         <tbody>
-          {ROWS.filter((r) => containers || r.key !== 'containers').map((r) => (
+          {ROWS.map((r) => (
             <Fragment key={r.key}>
               <tr
                 class={`fin-row ${opened.value === r.key ? 'on' : ''}`}

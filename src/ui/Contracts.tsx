@@ -130,7 +130,9 @@ function termRows(t: Terms): [string, ComponentChildren][] {
       ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)} on board`],
       [
         'Needs',
-        `Parking outside the port, ${t.cargo ? 'container yards and feeders' : t.goods === 'ice' ? 'truck bays and fishing boats' : 'crate storage and coasters'}`,
+        t.goods === 'ice'
+          ? 'A truck bay and fishing boats'
+          : `Parking outside the port, ${t.cargo ? 'container yards and feeders' : 'crate storage and coasters'}`,
       ],
     ];
   }
@@ -495,6 +497,21 @@ function OfferCard({
         {yards > 0
           ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
           : 'Container trucks load at a container yard: mark one out on port road or quay, with a port road beside it inside a port gate'}
+      </Check>,
+    );
+  } else if (t.kind === 'shipper' && t.goods === 'ice') {
+    // Ice comes straight to a truck bay, for the fishing boats to take.
+    const s = snapshot.value;
+    const boats = (s?.contracts ?? []).some(
+      (c) => c.terms.kind === 'fishery' && c.terms.vessel === 'smack',
+    );
+    const bays = (s?.bays ?? []).some((b) => !b.tiles && !b.large);
+    checks.push(
+      <Check ok={boats}>
+        {boats ? 'Fishing boats call to take it on board' : 'No fishing boats call yet to take it'}
+      </Check>,
+      <Check ok={bays}>
+        {bays ? 'A truck bay for its trucks to unload into' : 'Needs a truck bay to unload into'}
       </Check>,
     );
   } else if (t.kind === 'shipper') {

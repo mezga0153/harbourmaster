@@ -5,7 +5,7 @@ import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './App';
 import { money } from './format';
 import { selection, snapshot } from './store';
-import { InfoHeader, Meter, PortTownTabs } from './widgets';
+import { InfoHeader, Meter } from './widgets';
 
 const BLURBS = [
   'A handful of fishers’ cottages round a chapel, and boats drawn up on the beach.',
@@ -33,9 +33,8 @@ export function TownPanel({ actions }: { actions: Actions }) {
   // The next step up for the port, which waits on the town.
   const tier = TIERS[s.progress.tier + 1];
   return (
-    <aside class="side panel wide" aria-label="Town">
+    <aside class="side panel" aria-label="Town">
       <InfoHeader kicker={TOWN_STAGES[t.stage].name} title={t.name} onClose={close} />
-      <PortTownTabs on="town" />
       <p class="muted">{BLURBS[t.stage]}</p>
       <button class="btn" onClick={close}>
         Back to the port

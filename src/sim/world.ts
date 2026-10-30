@@ -9365,12 +9365,17 @@ export class World {
   /**
    * Shippers' trucks come in on their timetable, each to a parking space
    * outside the port to have its paperwork done. With nowhere to park, they
-   * do not come.
+   * do not come. An ice works' trucks need no paperwork: they drive
+   * straight to a truck bay, like the hauliers'.
    */
   private spawnShipments(): void {
     const m = this.map;
     for (const c of this.shippers()) {
       if (this.tick < c.nextBoatTick) continue;
+      if (isIce(c.terms)) {
+        this.spawnIce(c);
+        continue;
+      }
       const wide = needsWideSpace(c.terms.capacity, c.terms.cargo === 'container');
       const space = this.freeParking(null, true, wide);
       const from = this.arrival(space ? space.tiles[0] : m.entry);
@@ -9414,6 +9419,54 @@ export class World {
         variant: c.terms.color,
       });
     }
+  }
+
+  /**
+   * An ice works' truck, straight to the nearest truck bay with room for
+   * its load and a free spot to unload at; none comes while there is none.
+   */
+  private spawnIce(c: Contract & { terms: ShipperTerms }): void {
+    const m = this.map;
+    const bay = [...this.bays.values()].find((b) => truckBay(b) && !b.large);
+    if (!bay) {
+      c.nextBoatTick = this.tick + 60;
+      this.nag('iceBay', `${c.terms.name}'s trucks bring ice to a truck bay. Build one.`, 'bad');
+      return;
+    }
+    const from = this.arrival(bay.idx);
+    if (!this.entryClear(from.tile)) return;
+    const truck: Truck = {
+      id: this.nextId++,
+      contractId: c.id,
+      company: c.terms.name,
+      capacity: c.terms.capacity,
+      x: m.xOf(from.tile) + 0.5,
+      y: m.yOf(from.tile) + 0.5,
+      dir: from.dir,
+      path: [],
+      goal: from.tile,
+      state: 'toBay',
+      bayIdx: -1,
+      cargo: c.terms.capacity,
+      value: withCargo(c.terms.fee, 'ice'),
+      boxes: false,
+      exports: true,
+      idle: 0,
+      timer: 0,
+      variant: c.terms.color,
+    };
+    const to = this.exportStore(truck);
+    // Every truck bay full, or none it can get to: it comes a little later.
+    if (!to) {
+      c.nextBoatTick = this.tick + 60;
+      return;
+    }
+    c.nextBoatTick = this.tick + Math.round((TICKS_PER_DAY * c.terms.capacity) / c.terms.perDay);
+    to.store.exportIncoming = (to.store.exportIncoming ?? 0) + truck.cargo;
+    truck.bayIdx = to.store.idx;
+    truck.path = to.path;
+    truck.goal = to.dock;
+    this.trucks.push(truck);
   }
 
   /**

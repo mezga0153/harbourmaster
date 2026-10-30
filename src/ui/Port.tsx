@@ -2,7 +2,7 @@ import { TIERS } from '../sim/tiers';
 import type { Actions } from './App';
 import { money } from './format';
 import { panel, snapshot } from './store';
-import { InfoHeader, Meter, More, PortTownTabs } from './widgets';
+import { InfoHeader, Meter, More } from './widgets';
 
 /** The handbook page on what each step up brings. */
 const TIER_TOPIC = ['start', 'machines', 'containers'];
@@ -31,7 +31,6 @@ export function PortPanel({ actions }: { actions: Actions }) {
   return (
     <aside class="side panel wide" aria-label="Port development">
       <InfoHeader kicker="Development" title="Port" onClose={() => (panel.value = null)} />
-      {s.town && <PortTownTabs on="port" />}
       <p class="muted intro">
         The port grows with the town it serves: once {townName} has enough people, the harbour
         authority lets you upgrade, for a fee, to unlock new quays, machines and bigger ships. Jobs
