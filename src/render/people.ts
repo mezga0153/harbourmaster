@@ -142,7 +142,80 @@ export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void 
   l.armL.rotation.z = l.armR.rotation.z = 0.55;
   const sway = Math.sin(phase * 0.1) * 0.04;
   w.body.rotation.z = -sway;
+  w.body.rotation.y = 0;
   w.body.position.set(0, SEAT - HIP, 0);
+}
+
+/** Things a dockhand does standing about with nothing to do. */
+export type Fidget = 'look' | 'stretch' | 'scratch' | 'watch' | 'tap' | 'chat' | 'still';
+const FIDGETS: Fidget[] = ['look', 'stretch', 'scratch', 'watch', 'tap', 'look', 'still', 'tap'];
+/** Seconds each lasts, and how long they take to go into one and out of it. */
+const FIDGET_TIME = 5;
+const FIDGET_EASE = 0.6;
+
+/**
+ * What dockhand `id` is doing standing about at time `t` (seconds): one
+ * thing after another, each their own, chatting when someone stands by;
+ * and how far into it they are, 0 to 1, easing in and out.
+ */
+export function fidgetAt(id: number, t: number, company: boolean): [Fidget, number] {
+  const k = Math.floor(t / FIDGET_TIME + id * 0.37);
+  const into = t - (k - id * 0.37) * FIDGET_TIME;
+  const pick = FIDGETS[Math.abs((k * 2654435761 + id * 40503) | 0) % FIDGETS.length];
+  const what = company && k % 2 === 0 ? 'chat' : pick;
+  const e = Math.min(1, into / FIDGET_EASE, (FIDGET_TIME - into) / FIDGET_EASE);
+  const f = Math.max(0, e);
+  return [what, f * f * (3 - 2 * f)];
+}
+
+/**
+ * Standing about, on top of how pose() has them stand: looking round,
+ * stretching, scratching their head, checking the time, tapping a foot or
+ * waving a hand about as they chat; `f` of the way into it.
+ */
+export function fidget(
+  w: { body?: Object3D; limbs?: Limbs },
+  what: Fidget,
+  t: number,
+  f: number,
+): void {
+  const l = w.limbs;
+  const body = w.body;
+  if (!l || !body || f <= 0) return;
+  const to = (o: Object3D, z: number) => (o.rotation.z += (z - o.rotation.z) * f);
+  switch (what) {
+    case 'look':
+      // Turning from the waist one way and the other.
+      body.rotation.y = Math.sin(t * 0.9) * 0.6 * f;
+      break;
+    case 'stretch':
+      // Arms up overhead, leaning back a little.
+      to(l.armL, Math.PI - 0.15);
+      to(l.armR, Math.PI - 0.15);
+      body.rotation.z += 0.12 * f * (1 + Math.sin(t * 1.5) * 0.3);
+      break;
+    case 'scratch':
+      to(l.armR, 2.6 + Math.sin(t * 9) * 0.12);
+      body.rotation.y = 0.15 * f;
+      break;
+    case 'watch':
+      // The left wrist up in front, looking down at it.
+      to(l.armL, 1.5);
+      body.rotation.z += -0.1 * f;
+      break;
+    case 'tap':
+      to(l.legR, Math.max(0, Math.sin(t * 7)) * 0.25);
+      to(l.armL, -0.15);
+      to(l.armR, -0.15);
+      break;
+    case 'chat':
+      to(l.armR, 1.0 + Math.sin(t * 3.1) * 0.45);
+      to(l.armL, 0.3 + Math.sin(t * 2.3 + 1) * 0.2);
+      body.rotation.y = Math.sin(t * 1.3) * 0.15 * f;
+      break;
+    case 'still':
+      break;
+  }
 }
 
 /**
@@ -195,6 +268,7 @@ export function pose(
   const bx = -HIP * sin;
   const by = HIP - HIP * cos;
   body.rotation.z = -bend;
+  body.rotation.y = 0;
   body.position.set(bx, by + bob, 0);
   // The crate goes down with the hands, level, to the ground in front.
   const load = w.crates?.[0];

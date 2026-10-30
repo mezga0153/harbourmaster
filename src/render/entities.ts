@@ -24,7 +24,7 @@ import {
   truck,
   type Model,
 } from './models';
-import { pose, sit } from './people';
+import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import type { Trailer } from './vehicles';
 
@@ -333,6 +333,10 @@ export interface Wake {
 const FORK_KEEP = 0.16;
 /** Fastest a dockhand closes on where they should be, tiles per game second: a brisk walk. */
 const CATCH_UP = WALK_SPEED * TICKS_PER_SECOND * 1.5;
+/** What a dockhand with nothing to do is doing, as the game has it. */
+const IDLE = 'Waiting for work';
+/** How near another dockhand standing about is for them to chat. */
+const CHAT_NEAR = 0.7;
 /** How far apart dockhands standing about keep. */
 const ROOM = 0.36;
 /** How quickly a dockhand turns to the way they step, per game second. */
@@ -671,6 +675,9 @@ export class Entities {
         const walking = cur.moving || stepping;
         if (cur.sitting && !cur.moving) sit(e.model, time * 12 + id);
         else pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
+        if (!walking && !e.hand && !cur.sitting && cur.load === 0 && cur.activity === IDLE) {
+          this.standAbout(e, time);
+        }
         this.toPlace(e, down);
       }
       if (e.alert) {
@@ -879,6 +886,33 @@ export class Entities {
       }
     }
     this.place(e, pose);
+  }
+
+  /**
+   * A dockhand with nothing to do passes the time: looks round, stretches,
+   * checks the time, taps a foot, or turns to chat with someone standing
+   * about beside them.
+   */
+  private standAbout(e: Entry, time: number): void {
+    const root = e.model.root;
+    let mate: Entry | undefined;
+    for (const o of this.entries.values()) {
+      if (o === e || o.view.kind !== 'dockhand' || o.view.activity !== IDLE || o.view.moving) {
+        continue;
+      }
+      const d = o.model.root.position.distanceTo(root.position);
+      if (d < CHAT_NEAR && (!mate || d < mate.model.root.position.distanceTo(root.position))) {
+        mate = o;
+      }
+    }
+    const [what, f] = fidgetAt(e.view.id, time, !!mate);
+    fidget(e.model, what, time, f);
+    if (what === 'chat' && mate) {
+      // Turned to whoever they talk to.
+      const p = mate.model.root.position;
+      const face = Math.atan2(p.z - root.position.z, p.x - root.position.x);
+      root.rotation.y = -lerpAngle(-root.rotation.y, face, f);
+    }
   }
 
   /**

@@ -8188,7 +8188,7 @@ export class World {
         if (p.state === 'wander') {
           const r = this.walk(p);
           if (r === 'arrived' || r === 'blocked') p.state = 'idle';
-        } else if (p.kind === 'dockhand' && this.rng.next() < 0.008) {
+        } else if (p.kind === 'dockhand' && this.rng.next() < B.WANDER_CHANCE) {
           this.wander(p);
         }
         return;
