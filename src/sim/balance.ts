@@ -41,6 +41,8 @@ export const PART_LOAD_WAIT = 300;
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
 /** Ticks a shipper's truck spends parked outside the port on its paperwork before it may come in: a day. */
 export const PAPERWORK_TICKS = TICKS_PER_DAY;
+/** Tiles nearer the outgoing storage a parking space must be for a shipper's truck waiting for a spot to move to it. */
+export const STAGE_NEARER_BY = 6;
 /** Ticks an unloaded ship waits for exports to be brought to it before it leaves without. */
 export const LOAD_WAIT = 300;
 /** A tile of truck parking, one truck to a tile. */

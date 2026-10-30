@@ -293,7 +293,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           Every container is moved by machine. Reach stackers bring them from the cranes to the
           yard, and, unless a <b>yard gantry</b> stands beside the yard, lift them onto the trucks
           too, and off the shippers' trucks: twice the work for the stackers. A yard gantry spans
-          the yard from a port road or quay tile beside it and does the trucks itself.
+          the yard from a port road or quay tile beside it and does the trucks itself. Trucks and
+          tractors load all along the lane its rails run beside, which is one way for trucks: in at
+          the end nearer the highway, out at the other, queueing along it behind each other. A
+          longer yard along the lane gives more spots.
         </p>
       </>
     ),
@@ -311,7 +314,11 @@ export const TOPICS: Record<TopicId, Topic> = {
             A shipper's truck parks outside the port, on parking joined to a public road, for about{' '}
             {hours(B.PAPERWORK_TICKS)} hours of paperwork. With nowhere to park, it does not come.
           </li>
-          <li>Then it drives in and unloads into crate storage or a container yard.</li>
+          <li>
+            Then it drives in and unloads into crate storage or a container yard. While every spot
+            there is taken, it moves to parking nearer the storage, inside the port where there is
+            some, to be there the moment one comes free.
+          </li>
           <li>
             A coaster or feeder that has unloaded stays to take on the exports waiting for it.
             Loading counts against its time alongside like unloading does: slow loading costs

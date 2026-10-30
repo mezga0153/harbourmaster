@@ -497,6 +497,8 @@ interface Truck extends Agent {
   exports?: boolean;
   /** When its paperwork is done and it may drive into the port. */
   papers?: number;
+  /** A shipper's truck: the outgoing storage it has moved to parking near, to wait for a spot. */
+  staged?: number;
   /** Containers reach stackers are bringing it, or taking off it. */
   coming?: number;
   /** Container trucks: how each container on board looks, in load order. */
@@ -1002,6 +1004,10 @@ export class World {
   private storeOf: Int32Array;
   /** Where trucks stand to load at each storage area; cleared when the port changes. */
   private spotCache = new Map<number, number[]>();
+  /** Each tile of a yard gantry's lane with the way trucks drive along it; see laneWays. */
+  private laneCache: Map<number, [number, number]> | null = null;
+  /** Each yard's gantry lane, by the yard; see gantryLane. */
+  private laneOfCache = new Map<number, Map<number, number> | null>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
@@ -1341,6 +1347,8 @@ export class World {
     this.anchorageTile = -1;
     this.frontCache = null;
     this.spotCache.clear();
+    this.laneCache = null;
+    this.laneOfCache.clear();
     this.reachCache = null;
     this.lotsCache = null;
     this.junctionCache = null;
@@ -1844,6 +1852,8 @@ export class World {
       (a.yard ? this.yards : this.bays).delete(a.idx);
     }
     this.spotCache.clear();
+    this.laneCache = null;
+    this.laneOfCache.clear();
     this.storeOf.fill(-1);
     for (let i = 0; i < m.store.length; i++) {
       const kind = m.store[i];
@@ -8408,9 +8418,13 @@ export class World {
     const lane = this.gantryLane(yard);
     if (!lane) return -1;
     const trucks = new Set<number>(this.storeSpots(yard));
+    // Where a truck stands or is on its way to, and the tile either side of
+    // one longer than a tile, is no place to pull in, not while there is another.
+    const free = this.freeDockSet(yard, B.MACHINE_LENGTH.tractor);
     const order = [...lane.keys()].sort(
       (a, b) =>
         Number(this.spotTaken(a, p)) - Number(this.spotTaken(b, p)) ||
+        Number(trucks.has(a) && !free.has(a)) - Number(trucks.has(b) && !free.has(b)) ||
         Number(trucks.has(a)) - Number(trucks.has(b)) ||
         Math.abs(lane.get(a)!) - Math.abs(lane.get(b)!),
     );
@@ -9612,6 +9626,14 @@ export class World {
    * yard), as far as the yard runs either way. Null without a gantry.
    */
   private gantryLane(a: Bay): Map<number, number> | null {
+    const cached = this.laneOfCache.get(a.idx);
+    if (cached !== undefined) return cached;
+    const lane = this.findGantryLane(a);
+    this.laneOfCache.set(a.idx, lane);
+    return lane;
+  }
+
+  private findGantryLane(a: Bay): Map<number, number> | null {
     const m = this.map;
     const area = new Set(a.tiles ?? [a.idx]);
     const g = m.build.findIndex(
@@ -9684,7 +9706,10 @@ export class World {
    * through it. The furthest along such a lane first. Null when there is none.
    * Only this bay's own trucks count for the order along its lane: one
    * driving on past another's, as a road on through a yard's loading lane,
-   * gets by those at it in traffic.
+   * gets by those at it in traffic. Along a yard gantry's one-way lane
+   * trucks queue instead: one goes to the deepest free spot whatever stands
+   * or is coming in between, waits behind it in the lane, and moves on to
+   * its spot, or a nearer one, as the lane clears; see alongLane.
    */
   private dockFor(
     bay: Bay,
@@ -9692,6 +9717,7 @@ export class World {
     len = 1,
   ): { dock: number; path: number[] } | null {
     const m = this.map;
+    const queue = this.oneWayLane(bay);
     const standing = this.trucks.filter((o) => this.docked(o) && o.bayIdx === bay.idx);
     // Trucks on their way in to a loading spot: where each will stand, and
     // how far the nearest of them still has to go to each tile of its way
@@ -9727,6 +9753,10 @@ export class World {
         continue;
       }
       this.dockRouted = true;
+      if (queue) {
+        if (!best || path.length > best.path.length) best = { dock, path };
+        continue;
+      }
       const through = path.some((i, k) => {
         const prev = k > 0 ? path[k - 1] : -1;
         if (prev < 0) return false;
@@ -9759,6 +9789,7 @@ export class World {
    * in, keeps all the rest from being sent in past it.
    */
   private goDeeper(t: Truck, bay: Bay): void {
+    if (this.oneWayLane(bay)) return this.alongLane(t, bay);
     // Where it could stop were it not already on its way to one.
     t.state = 'parked';
     const to = this.dockFor(
@@ -9773,6 +9804,62 @@ export class World {
     if (to.path.length - t.path.length > this.dist(t.goal, to.dock)) return;
     t.goal = to.dock;
     t.path = to.path;
+  }
+
+  /**
+   * On its way in along a yard gantry's one-way lane, a truck takes the
+   * deepest free spot on its way that no truck stands short of: on to one
+   * further along that has come free since it set off, or short of one
+   * standing between it and the spot it was going to, so that it unloads
+   * now rather than waiting behind, and the lane fills from the far end.
+   * With none, it waits in the lane behind the one in its way.
+   */
+  private alongLane(t: Truck, bay: Bay): void {
+    const standing = new Set(
+      this.trucks
+        .filter((o) => o !== t && this.docked(o) && o.bayIdx === bay.idx)
+        .map((o) => this.tileOf(o)),
+    );
+    for (const p of this.people) {
+      if (p.kind !== 'tractor') continue;
+      if (
+        (p.state === 'picking' && p.stockIdx === bay.idx) ||
+        (p.state === 'dropping' && p.bayIdx === bay.idx)
+      ) {
+        standing.add(this.tileOf(p));
+      }
+    }
+    // The spots free were it not on its way to one itself.
+    t.state = 'parked';
+    const open = this.freeDockSet(bay, this.lengthOf(t));
+    t.state = 'toBay';
+    // Its way, and on along the lane past the end of it.
+    const m = this.map;
+    const lane = this.gantryLane(bay);
+    const way = this.laneWays().get(t.goal);
+    const ahead = [...t.path];
+    if (lane && way && t.path.length > 0) {
+      for (;;) {
+        const last = ahead[ahead.length - 1];
+        const x = m.xOf(last) + way[0];
+        const y = m.yOf(last) + way[1];
+        if (!m.inBounds(x, y) || !lane.has(m.idx(x, y))) break;
+        ahead.push(m.idx(x, y));
+      }
+    }
+    let best = -1;
+    for (let k = 0; k < ahead.length; k++) {
+      if (standing.has(ahead[k])) break;
+      if (open.has(ahead[k])) best = k;
+    }
+    if (best < 0 || ahead[best] === t.goal) return;
+    const dock = ahead[best];
+    // It has to be able to drive away from there too.
+    const came = best > 0 ? ahead[best - 1] : this.tileOf(t);
+    const away = this.departure(dock);
+    if (!this.drivePath(dock, came, away, this.truckCost(away, bay.idx))) return;
+    t.goal = dock;
+    t.path = ahead.slice(0, best + 1);
   }
 
   /** A truck's way by `cost`, keeping off tiles in `avoid` where there is a short way round. */
@@ -9791,7 +9878,12 @@ export class World {
       (t) => t.state === 'toBay' || t.state === 'loading' || t.state === 'delivering',
     );
     const taken = new Set(at.filter((t) => t.bayIdx === bay.idx).map((t) => t.goal));
+    // Along a yard gantry's lane, the tractors it lifts for stand where the
+    // trucks load: each takes its tile, and the next either way from a long truck.
+    const lane = bay.yard ? this.gantryLane(bay) : null;
+    const tractors = lane ? this.tractorsIn(bay) : [];
     const crowds = (d: number) =>
+      tractors.some((g) => Math.abs(lane!.get(d)! - lane!.get(g)!) < (len + 1) / 2 - 0.05) ||
       at.some((o) => {
         if (o.goal === d) return o.bayIdx !== bay.idx;
         // Which way it lies there: as it stands, or as it will come in.
@@ -9808,6 +9900,21 @@ export class World {
         return across < 0.5 && along < (len + this.lengthOf(o)) / 2 - 0.05;
       });
     return new Set(this.loadingDocks(bay).filter((d) => !taken.has(d) && !crowds(d)));
+  }
+
+  /** The lane tiles of a yard its terminal tractors stand at for the gantry, or are on their way to. */
+  private tractorsIn(yard: Bay): number[] {
+    const lane = this.gantryLane(yard);
+    if (!lane) return [];
+    return this.people
+      .filter(
+        (p) =>
+          p.kind === 'tractor' &&
+          (((p.state === 'picking' || p.state === 'toPickup') && p.stockIdx === yard.idx) ||
+            ((p.state === 'dropping' || p.state === 'toDrop') && p.bayIdx === yard.idx)),
+      )
+      .map((p) => (p.state === 'picking' || p.state === 'dropping' ? this.tileOf(p) : p.goal))
+      .filter((i) => lane.has(i));
   }
 
   private freeDock(bay: Bay): number {
@@ -9842,7 +9949,70 @@ export class World {
    */
   /** How trucks drive; through only the parking space `t` is in, or going into or out of. */
   private truckCost(target: number, home = -1, t?: Truck): CostFn {
-    return truckCost(this.map, target, home, t?.lot && new Set(t.lot));
+    return this.laneCost(truckCost(this.map, target, home, t?.lot && new Set(t.lot)));
+  }
+
+  /** How trucks drive by `base`, and only one way along a yard gantry's lane. */
+  private laneCost(base: CostFn): CostFn {
+    const lanes = this.laneWays();
+    if (lanes.size === 0) return base;
+    const m = this.map;
+    return (i, from) => {
+      if (from !== undefined && from >= 0) {
+        const way = lanes.get(i) ?? lanes.get(from);
+        if (way) {
+          const along = (m.xOf(i) - m.xOf(from)) * way[0] + (m.yOf(i) - m.yOf(from)) * way[1];
+          if (along < 0) return Infinity;
+        }
+      }
+      return base(i, from);
+    };
+  }
+
+  /**
+   * The lane along a yard gantry's rails is one way for trucks, where a
+   * truck can drive off either end of it and away to the highway: in at the
+   * end the shorter way from the highway, out at the other, so that those
+   * queueing along it to load never meet one leaving head on, and each goes
+   * on out past the spots beyond it. Each lane tile with the way along it.
+   * A lane with a way out at one end only is driven in and back out again.
+   */
+  private laneWays(): Map<number, [number, number]> {
+    if (this.laneCache) return this.laneCache;
+    const m = this.map;
+    const base = truckCost(m);
+    const out = new Map<number, [number, number]>();
+    for (const y of this.yards.values()) {
+      const lane = this.gantryLane(y);
+      if (!lane || lane.size < 2) continue;
+      const tiles = [...lane.entries()].sort((a, b) => a[1] - b[1]).map(([t]) => t);
+      const first = tiles[0];
+      const last = tiles[tiles.length - 1];
+      const dx = Math.sign(m.xOf(last) - m.xOf(first));
+      const dy = Math.sign(m.yOf(last) - m.yOf(first));
+      // Tiles from the road off this end of the lane to the highway, not
+      // back through the lane; Infinity with no way.
+      const off: CostFn = (i, from) => (lane.has(i) ? Infinity : base(i, from));
+      const away = (end: number, s: number) => {
+        const x = m.xOf(end) + dx * s;
+        const yy = m.yOf(end) + dy * s;
+        if (!m.inBounds(x, yy)) return Infinity;
+        const road = m.idx(x, yy);
+        const path = this.drivePath(road, end, this.departure(road), off);
+        return path ? path.length : Infinity;
+      };
+      const ra = away(first, -1);
+      const rb = away(last, 1);
+      if (!Number.isFinite(ra) || !Number.isFinite(rb)) continue;
+      const way: [number, number] = ra <= rb ? [dx, dy] : [0 - dx, 0 - dy];
+      for (const t of tiles) out.set(t, way);
+    }
+    return (this.laneCache = out);
+  }
+
+  /** Whether trucks load at this storage along a one-way lane, under a yard gantry. */
+  private oneWayLane(bay: Bay): boolean {
+    return !!bay.yard && this.loadingDocks(bay).some((d) => this.laneWays().has(d));
   }
 
   private parkingLots(): ParkingLot[] {
@@ -9921,6 +10091,81 @@ export class World {
     const from = t.parkFrom ?? this.tileOf(t);
     const ahead = Math.atan2(t.y - (m.yOf(from) + 0.5), t.x - (m.xOf(from) + 0.5));
     t.dir = ahead + Math.PI / 4;
+  }
+
+  /** Whether a shipper's truck like `t` is parked near this storage, with its paperwork done, waiting for a spot. */
+  private stagedFor(store: Bay, t: Truck): boolean {
+    return this.trucks.some(
+      (o) =>
+        o.staged === store.idx &&
+        o.state === 'parked' &&
+        o.boxes === t.boxes &&
+        this.tick >= (o.papers ?? Infinity),
+    );
+  }
+
+  /** The parking space whose first tile is `park`, if any. */
+  private spaceAt(park: number | undefined): ParkingSpace | undefined {
+    if (park === undefined) return undefined;
+    return this.parkingLots()
+      .flatMap((l) => l.spaces)
+      .find((s) => s.tiles[0] === park);
+  }
+
+  /**
+   * A shipper's truck with its paperwork done, waiting for a spot at the
+   * outgoing storage, moves on to a parking space much nearer it, inside the
+   * port where there is one: there it is at the spot moments after it comes
+   * free, rather than a long drive away, with the spot standing empty all
+   * the while. Only as many wait there for each storage as it has spots.
+   */
+  private stageNearer(t: Truck): void {
+    const to = this.stagingSpace(t);
+    if (!to) return;
+    const { store, space, into } = to;
+    t.lot = [...space.tiles, ...(t.lot ?? [])];
+    t.park = space.tiles[0];
+    t.parkFrom = into.via;
+    t.path = into.path;
+    t.goal = into.path[into.path.length - 1];
+    t.state = 'toPark';
+    t.staged = store.idx;
+  }
+
+  /** The parking space a shipper's truck would move nearer the outgoing storage to, and the way there; see stageNearer. */
+  private stagingSpace(
+    t: Truck,
+  ): { store: Bay; space: ParkingSpace; into: { path: number[]; via: number } } | null {
+    const here = this.tileOf(t);
+    const stores = [...(t.boxes ? this.yards : this.bays).values()]
+      .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
+      .sort((a, b) => this.distTo(here, a) - this.distTo(here, b));
+    const wide = needsWideSpace(t.capacity, t.boxes);
+    for (const store of stores) {
+      const staged = this.trucks.filter(
+        (o) => o.staged === store.idx && (o.state === 'toPark' || o.state === 'parked'),
+      ).length;
+      if (staged >= this.loadingDocks(store).length) continue;
+      const space = this.freeParking(store, false, wide);
+      if (!space) continue;
+      if (this.distTo(space.tiles[0], store) + B.STAGE_NEARER_BY > this.distTo(here, store)) {
+        continue;
+      }
+      // Out of its space, and in by whichever side of the new one is nearer:
+      // through its own space and the new one only.
+      const cost = this.laneCost(
+        truckCost(this.map, -1, -1, new Set([...(t.lot ?? []), ...space.tiles])),
+      );
+      let into: { path: number[]; via: number } | null = null;
+      for (const [k, end] of space.ends.entries()) {
+        const way = this.routeFrom(t, end, cost);
+        if (!way || (into && way.length >= into.path.length - 1)) continue;
+        const first = k === 0 ? space.tiles[0] : space.tiles[space.tiles.length - 1];
+        into = { path: [...way, first], via: end };
+      }
+      if (into) return { store, space, into };
+    }
+    return null;
   }
 
   /**
@@ -10123,6 +10368,9 @@ export class World {
         if (r === 'arrived') {
           t.state = 'parked';
           t.idle = 0;
+          // Only the space it is in now, not the one it came from too.
+          const space = this.spaceAt(t.park);
+          if (space) t.lot = space.tiles;
           this.parkUp(t);
           // A shipper's truck has its paperwork done while it waits.
           if (t.exports && t.papers === undefined) t.papers = this.tick + B.PAPERWORK_TICKS;
@@ -10135,13 +10383,18 @@ export class World {
           const to = this.exportStore(t);
           if (!to) {
             if (!this.outgoingRoom(t)) this.outgoingFull(t.boxes);
+            else this.stageNearer(t);
             return;
           }
           // Containers wait parked until the yard's gantry or a stacker is free.
           if (t.boxes && !this.handlerFree(to.store, t)) return;
+          // One waiting in parking near the storage takes the spot before one
+          // far off outside the port, which moves nearer itself instead.
+          if (t.staged === undefined && this.stagedFor(to.store, t)) return this.stageNearer(t);
           to.store.exportIncoming = (to.store.exportIncoming ?? 0) + t.cargo;
           t.bayIdx = to.store.idx;
           t.park = undefined;
+          t.staged = undefined;
           t.path = to.path;
           t.goal = to.dock;
           t.state = 'toBay';
@@ -11424,16 +11677,24 @@ export class World {
     if (t.exports && t.state === 'parked' && this.tick >= (t.papers ?? Infinity)) {
       const store = t.boxes ? 'container yard' : 'crate storage';
       if (!this.outgoingRoom(t)) return `No outgoing ${store} has room for its load.`;
-      // Spots free, but those on their way in to the others have to get past them first.
-      const free = [...(t.boxes ? this.yards : this.bays).values()].some(
-        (b) =>
-          this.takesExports(b) &&
-          bayRoom(b, t.boxes) >= t.cargo &&
-          this.freeDockSet(b, this.lengthOf(t)).size > 0,
+      const stores = [...(t.boxes ? this.yards : this.bays).values()].filter(
+        (b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo,
       );
+      // Those parked nearer, inside the port, take the spots first.
+      const nearer =
+        t.staged === undefined
+          ? this.stagingSpace(t)
+            ? ''
+            : ' No free parking nearer the storage, inside the port, for it to wait at instead.'
+          : '';
+      if (t.staged === undefined && stores.some((b) => this.stagedFor(b, t))) {
+        return `Waiting its turn: shippers' trucks parked nearer the outgoing ${store}, inside the port, unload first.${nearer}`;
+      }
+      // Spots free, but those on their way in to the others have to get past them first.
+      const free = stores.some((b) => this.freeDockSet(b, this.lengthOf(t)).size > 0);
       return free
-        ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.`
-        : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken. More tiles along the side trucks use give more spots.`;
+        ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.${nearer}`
+        : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken${t.boxes ? ', or spoken for by trucks on their way in' : ''}. More tiles along the side trucks use give more spots.${nearer}`;
     }
     if (t.state === 'parked' && !t.exports) {
       const bay = this.dest(t.bayIdx);
@@ -11818,11 +12079,13 @@ export class World {
         name: t.company,
         activity:
           t.exports && (t.state === 'toPark' || t.state === 'parked')
-            ? this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
-              ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
-              : this.outgoingRoom(t)
-                ? `Paperwork done, waiting for a free spot to unload at the outgoing storage`
-                : `Paperwork done, waiting for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
+            ? t.staged !== undefined && t.state === 'toPark'
+              ? `Paperwork done, driving to parking nearer the outgoing storage to wait for a spot`
+              : this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
+                ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
+                : this.outgoingRoom(t)
+                  ? `Paperwork done, waiting for a free spot to unload at the outgoing storage`
+                  : `Paperwork done, waiting for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
             : t.exports && t.state === 'toBay'
               ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
               : t.state === 'delivering'
