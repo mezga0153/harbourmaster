@@ -4,5 +4,5 @@
   "name": "harbourmaster",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "./dist" },
-  "routes": [{ "pattern": "harbourmaster.tinetov.net", "custom_domain": true }]
+  "routes": [{ "pattern": "harbourmaster.tinetov.net", "custom_domain": true }],
 }
