@@ -26,7 +26,7 @@ import { roadPitch, Synth, type Loop } from './synth';
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
 // afar, wind and the sea; zoomed in, the particular sounds of what is in
-// view: containers landing, engines, reversing beeps, gulls, ships' horns.
+// view: containers landing, engines, reversing beeps, ships' horns.
 
 export interface SoundSettings {
   on: boolean;
@@ -291,10 +291,6 @@ export class Soundscape {
     }
     if (Math.random() < act * far * 0.3 * dt) {
       s.beep(0.08 * far, (Math.random() * 2 - 1) * 0.6, 1);
-    }
-    // Gulls, more over water and close up.
-    if (Math.random() < 0.1 * (0.25 + water) * (0.4 + 0.6 * near) * dt) {
-      s.gull(0.22 * (0.35 + 0.65 * near), (Math.random() * 2 - 1) * 0.8, far * 0.6);
     }
   }
 }

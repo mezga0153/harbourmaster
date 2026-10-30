@@ -212,7 +212,6 @@ lab.append(
       { className: 'row' },
       button('Reversing beep', (s) => s.beep(0.16, pan, far)),
       button('Air brakes', (s) => s.hiss(0.22, pan, far)),
-      button('Gull', (s) => s.gull(0.22, pan, far)),
     ),
   ),
   section(
@@ -243,7 +242,6 @@ async function measure(): Promise<Record<string, { peak: number; rms: number }>>
         ],
     ),
     ['beep', (s) => s.beep(0.16, 0, 0), 2.5],
-    ['gull', (s) => s.gull(0.22, 0, 0), 3],
     ['trainHorn', (s) => s.trainHorn(0.35, 0, 0), 4],
   ];
   for (const [name, play, seconds] of cases) {

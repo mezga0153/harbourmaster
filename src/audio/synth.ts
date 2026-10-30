@@ -639,34 +639,4 @@ export class Synth {
       }
     });
   }
-
-  /** A herring gull: one long cry, then a few laughing calls. */
-  gull(gain: number, pan: number, far = 0): void {
-    let t = this.now + 0.02;
-    const out = this.voice(gain, pan, far, 3);
-    const calls = 2 + Math.floor(Math.random() * 4);
-    const top = rnd(1250, 1650);
-    for (let k = 0; k < calls; k++) {
-      const long = k === 0;
-      const len = long ? rnd(0.3, 0.42) : rnd(0.11, 0.17);
-      const f = top * (long ? 1 : rnd(0.78, 0.9));
-      const o = this.osc('triangle', f * 0.7);
-      o.frequency.setValueAtTime(f * 0.7, t);
-      o.frequency.exponentialRampToValueAtTime(f * 1.25, t + len * 0.3);
-      o.frequency.exponentialRampToValueAtTime(f * 0.75, t + len);
-      // The rasp in the cry.
-      const rasp = this.osc('sine', rnd(28, 40));
-      const rg = this.gainNode(f * 0.06);
-      rasp.connect(rg).connect(o.frequency);
-      const bp = this.filter('bandpass', f * 1.3, 1.1);
-      const g = this.gainNode(0);
-      this.envelope(g, t, 0.35, 0.015, len * 0.75, len * 0.2);
-      o.connect(bp).connect(g).connect(out);
-      o.start(t);
-      rasp.start(t);
-      o.stop(t + len + 0.1);
-      rasp.stop(t + len + 0.1);
-      t += len + rnd(0.05, 0.11);
-    }
-  }
 }
