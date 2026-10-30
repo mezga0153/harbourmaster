@@ -252,6 +252,10 @@ interface Dockhand extends Agent {
    */
   truckId?: number;
   truckLoad?: boolean;
+  /** Stackers: the yard, and which of its tiles, it is restacking at; see restackJob. */
+  restack?: { yard: number; tile: number };
+  /** Stackers: when customs clear each container carried, where that is known already (restacking). */
+  cargoReady?: number[];
   /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
   blocker?: number;
   /** The tile of crane stack on its way it last looked for a way round; see walk. */
@@ -946,6 +950,11 @@ function activity(p: Dockhand, landing: boolean): string {
     if (p.state === 'dropping') {
       return p.truckLoad ? 'Setting a container on a truck' : 'Stacking a container';
     }
+  }
+  if (p.restack) {
+    return p.state === 'picking'
+      ? 'Lifting a container off one customs have cleared, to restack it'
+      : 'Heading to restack the yard';
   }
   if (landing && (p.state === 'toDrop' || p.state === 'dropping')) {
     return 'Setting a crate down on the quay';
@@ -5020,7 +5029,7 @@ export class World {
     const yard = this.yards.get(p.bayIdx);
     if (!yard) return undefined;
     // Where it will be stacked, by when customs clear it.
-    const ready = p.outbound ? undefined : this.customsFor(p.cargoFrom?.[0]);
+    const ready = p.outbound ? undefined : (p.cargoReady?.[0] ?? this.customsFor(p.cargoFrom?.[0]));
     return { ...lane(yard), place: this.stackedAt(p, yard, ready) };
   }
 
@@ -5033,6 +5042,16 @@ export class World {
     const reach = p.kind === 'stacker' ? this.reachFrom(yard, p.goal) : undefined;
     const at = reach ? this.freeYardSlot(yard, boxes, exports, ready, reach) : -1;
     return at >= 0 ? at : this.freeYardSlot(yard, boxes, exports, ready);
+  }
+
+  /**
+   * Where a stacker standing at `at` sets a container clearing at `ready`
+   * down in a yard without burying one cleared sooner: on a stack it
+   * reaches from there, or -1.
+   */
+  private cleanSlot(yard: Bay, at: number, ready: number): number {
+    const { boxes, exports } = this.yardSlots(yard);
+    return this.freeYardSlot(yard, boxes, exports, ready, this.reachFrom(yard, at), true);
   }
 
   /**
@@ -7198,6 +7217,7 @@ export class World {
     if ((p.state === 'idle' || p.state === 'wander') && this.rescue(p)) return;
     if (this.tire(p)) return this.goOnBreak(p);
     if (p.truckId !== undefined && this.truckJob(p)) return;
+    if (p.restack && this.restackJob(p)) return;
     switch (p.state) {
       case 'broken':
         if (--p.timer <= 0) {
@@ -7362,16 +7382,18 @@ export class World {
           const from = p.cargoFrom ?? [];
           // A stacker sets it on a stack it reaches from where it stands; a
           // gantry where it kept for it.
+          const clears = (k: number) => p.cargoReady?.[k] ?? this.customsFor(from[k]);
           if (p.kind === 'stacker' && bay.yard) {
             const slots = this.yardSlots(bay);
             p.cargoFees.forEach((_, k) => {
-              slots.boxes.push(this.stackedAt(p, bay, this.customsFor(from[k])));
+              slots.boxes.push(this.stackedAt(p, bay, clears(k)));
             });
           } else if (gantryTo !== undefined && p.cargoFees.length === 1) {
             this.yardSlots(bay).boxes.push(gantryTo);
           }
-          this.readyList(bay).push(...p.cargoFees.map((_, k) => this.customsFor(from[k])));
+          this.readyList(bay).push(...p.cargoFees.map((_, k) => clears(k)));
           p.cargoFrom = undefined;
+          p.cargoReady = undefined;
           this.boxLooks(bay).push(...this.carriedLooks(p));
           p.cargoLooks = undefined;
         }
@@ -7471,9 +7493,10 @@ export class World {
     for (const crane of this.cranes.values()) {
       if ((crane.kind !== 'jib') !== boxy) continue;
       if (crane.pallets && crane.stack.length > 0 && !forks) continue;
-      // A tractor goes to a gantry crane working a ship too, for it to set
-      // one straight on it.
-      const ship = p.kind === 'tractor' && this.unloadingAt(crane) ? 1 : 0;
+      // A tractor goes to a container crane working a ship too, or about to,
+      // for the containers still to come off it for that crane: called
+      // ahead, to be there as each is lifted (see dueAt).
+      const ship = p.kind === 'tractor' ? (this.shipFor(crane)?.left ?? 0) : 0;
       const avail = crane.stack.length + ship - crane.reserved;
       if (avail > 0) sources.push({ tile: this.craneSpot(p, crane), avail, crane, rank: 0 });
     }
@@ -7522,8 +7545,12 @@ export class World {
         continue;
       }
       if (!Number.isFinite(cost(src.tile))) continue;
-      // The foreman sends no more than two to the same spot; the rest wait.
-      if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
+      // Tractors are called to a container crane a ship is coming off in
+      // time for each container; the foreman sends no more than two others
+      // to the same spot, and the rest wait.
+      if (p.kind === 'tractor' && src.crane && src.crane.kind !== 'jib') {
+        if (!this.dueAt(p, src.crane, src.tile)) continue;
+      } else if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
       // A machine leaves the job to a free one nearer the pick-up.
       if (isMachine(p) && this.nearerMachine(p, src.tile)) continue;
       // Containers go to a container yard, crates to a truck bay or storage,
@@ -7551,6 +7578,127 @@ export class World {
       p.bayIdx = bay.idx;
       p.state = 'toPickup';
       return true;
+    }
+    // With nothing else to do, a stacker tidies the yards.
+    return p.kind === 'stacker' && this.takeRestackJob(p, here);
+  }
+
+  /**
+   * Send a stacker with time on its hands to restack a yard where a
+   * container still in customs lies on one customs have cleared, which no
+   * truck can get at until it is moved: it takes the one on top off and
+   * sets it down where it buries nothing, in that yard or another with
+   * room. Nearest first, and the stacks soonest cleared first.
+   */
+  private takeRestackJob(p: Dockhand, here: number): boolean {
+    const yards = [...this.yards.values()].sort(
+      (a, b) => this.distTo(here, a) - this.distTo(here, b),
+    );
+    for (const yard of yards) {
+      if (!yard.tiles || this.buriedCount(yard) === 0) continue;
+      const ready = this.readyList(yard);
+      const slots = this.yardSlots(yard);
+      for (const { at, tile } of this.buried(yard)) {
+        const spot = this.stackSides(yard, yard.tiles[tile])
+          .filter((s) => this.workersAt(s) === 0 && !this.spotTaken(s, p))
+          .sort((x, y) => this.dist(here, x) - this.dist(here, y))
+          .find((s) => this.pathFor(p, here, s));
+        if (spot === undefined) continue;
+        // Somewhere to set it down that buries nothing: here, or a yard with room.
+        const rest = slots.boxes.filter((_, i) => i !== at);
+        const clears = ready[at];
+        const dest =
+          this.freeYardSlot(yard, rest, slots.exports, clears, undefined, true) >= 0
+            ? yard
+            : yards.find(
+                (b) =>
+                  b !== yard &&
+                  !!b.tiles &&
+                  bayRoom(b, true) > 0 &&
+                  this.takesImports(b) &&
+                  this.servesYard(p, b) &&
+                  this.freeYardSlot(b, ...this.slotLists(b), clears, undefined, true) >= 0 &&
+                  this.dropAt(p, b, spot) >= 0,
+              );
+        if (!dest || !this.headTo(p, spot)) continue;
+        bayIncoming(dest, true, 1);
+        p.restack = { yard: yard.idx, tile };
+        p.bayIdx = dest.idx;
+        p.planned = 1;
+        p.boatId = -1;
+        p.craneIdx = -1;
+        p.stockIdx = -1;
+        p.outbound = false;
+        p.state = 'toPickup';
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private slotLists(b: Bay): [number[], number[]] {
+    const { boxes, exports } = this.yardSlots(b);
+    return [boxes, exports];
+  }
+
+  /**
+   * A stacker restacking a yard: up to the stack, and the container off the
+   * top of it, keeping when customs clear it; then it sets it down as any
+   * other, where it buries nothing. True while it is at it.
+   */
+  private restackJob(p: Dockhand): boolean {
+    const job = p.restack!;
+    const yard = this.yards.get(job.yard);
+    switch (p.state) {
+      case 'toPickup': {
+        if (!yard?.tiles) {
+          this.cancelJob(p);
+          return true;
+        }
+        const r = this.walk(p);
+        if (r === 'blocked') this.cancelJob(p);
+        else if (r === 'arrived') {
+          p.state = 'picking';
+          p.timer = this.handlingTicks(p, B.PICK_TICKS);
+        }
+        return true;
+      }
+      case 'picking': {
+        if (--p.timer > 0) return true;
+        const reach = yard ? this.reachFrom(yard, p.goal) : new Set<number>();
+        const take = yard ? this.buried(yard).find((c) => reach.has(c.tile)) : undefined;
+        if (!yard || !take) {
+          this.cancelJob(p);
+          return true;
+        }
+        const ready = this.readyList(yard);
+        this.yardSlots(yard).boxes.splice(take.at, 1);
+        p.cargoReady = ready.splice(take.at, 1);
+        p.cargoLooks = this.boxLooks(yard).splice(take.at, 1);
+        p.cargoFees = yard.boxes.splice(take.at, 1);
+        p.cargoFrom = undefined;
+        p.carrying = 1;
+        p.restack = undefined;
+        const dest = this.dest(p.bayIdx);
+        // Straight down where it stands if that buries nothing; else over to
+        // where it does, or where it can.
+        if (dest === yard && this.cleanSlot(yard, p.goal, p.cargoReady[0]) >= 0) {
+          p.state = 'dropping';
+          p.timer = this.handlingTicks(p, B.DROP_TICKS);
+          return true;
+        }
+        const goal = dest ? this.dropAt(p, dest, p.goal) : -1;
+        if (dest && goal >= 0 && this.headTo(p, goal)) {
+          p.state = 'toDrop';
+          return true;
+        }
+        if (dest) bayIncoming(dest, true, -1);
+        bayIncoming(yard, true, 1);
+        p.bayIdx = yard.idx;
+        p.state = 'dropping';
+        p.timer = this.handlingTicks(p, B.DROP_TICKS);
+        return true;
+      }
     }
     return false;
   }
@@ -8502,6 +8650,7 @@ export class World {
    * off the same ship, or later), so it never buries one that will be
    * ready first; failing that, the lowest free place with one under it.
    * -1 if the yard is full. `ready` is when it clears, as in boxReady.
+   * With `strict`, -1 rather than a place that buries one ready sooner.
    */
   private freeYardSlot(
     b: Bay,
@@ -8509,6 +8658,7 @@ export class World {
     exports: number[],
     ready?: number,
     reach: Set<number> | undefined = this.workable(b),
+    strict = false,
   ): number {
     const cap = bayCap(b);
     const under = new Map<number, number | undefined>();
@@ -8550,7 +8700,49 @@ export class World {
         if (fallback < 0) fallback = k;
       }
     }
-    return fallback;
+    return strict ? -1 : fallback;
+  }
+
+  /**
+   * Containers customs have cleared that a truck cannot get at, with one
+   * still in customs on them: for each such stack, the container on top of
+   * it, by its place in the yard's list, and the yard tile, those with the
+   * fewest on top of a cleared one first.
+   */
+  private buried(b: Bay): { at: number; tile: number }[] {
+    const slots = this.yardSlots(b);
+    const ready = this.readyList(b);
+    const index = new Map<number, number>();
+    slots.boxes.forEach((k, i) => index.set(k, i));
+    const exported = new Set(slots.exports);
+    const out: { at: number; tile: number; above: number }[] = [];
+    const cap = bayCap(b);
+    for (let base = 0; base < cap; base += B.BOXES_PER_STORE_TILE) {
+      for (let stack = 0; stack < YARD_STACKS; stack++) {
+        let top = -1;
+        let above = 0;
+        let clearBelow = false;
+        for (let tier = YARD_TIERS - 1; tier >= 0; tier--) {
+          const k = base + tier * YARD_STACKS + stack;
+          if (exported.has(k)) break;
+          const i = index.get(k);
+          if (i === undefined) continue;
+          if (top < 0) top = i;
+          if (this.isClear(ready[i])) {
+            clearBelow = above > 0;
+            break;
+          }
+          above++;
+        }
+        if (clearBelow) out.push({ at: top, tile: yardPlace(slots.boxes[top]).tile, above });
+      }
+    }
+    return out.sort((x, y) => x.above - y.above).map(({ at, tile }) => ({ at, tile }));
+  }
+
+  /** How many cleared containers in a yard lie under ones still in customs. */
+  private buriedCount(b: Bay): number {
+    return Math.max(0, this.cleared(b) - this.reachable(b));
   }
 
   /** Where the next container set down in this yard goes. */
@@ -8850,6 +9042,8 @@ export class World {
     p.hutIdx = -1;
     p.carrying = 0;
     p.cargoFees = [];
+    p.cargoReady = undefined;
+    p.restack = undefined;
     p.planned = 0;
     p.path = [];
     p.state = 'idle';
@@ -8954,6 +9148,57 @@ export class World {
     const p = c.handTo === undefined ? undefined : this.people.find((q) => q.id === c.handTo);
     const waiting = p && p.state === 'picking' && this.underGantry(p) === c && p.timer > 1;
     return waiting && !p.handed ? p : undefined;
+  }
+
+  /**
+   * Containers still to come off a ship at container crane `c`, its share
+   * where other cranes work the ship too, and in how many ticks it starts
+   * on them: at once for a ship moored under it, about when it will be
+   * alongside for one coming in to its berth. Null with neither.
+   */
+  private shipFor(c: Crane): { left: number; start: number } | null {
+    if (c.kind === 'jib') return null;
+    let best: { left: number; start: number } | null = null;
+    for (const b of this.boats) {
+      if (b.vessel !== 'feeder' || b.crates <= 0) continue;
+      if (b.state !== 'moored' && b.state !== 'arriving') continue;
+      if (!this.craneReaches(c, b)) continue;
+      let cranes = 0;
+      for (const k of this.cranes.values())
+        if (k.kind !== 'jib' && this.craneReaches(k, b)) cranes++;
+      const left = Math.ceil(b.crates / Math.max(1, cranes));
+      const start = b.state === 'moored' ? 0 : this.alongsideIn(b);
+      if (!best || start < best.start) best = { left, start };
+    }
+    return best;
+  }
+
+  /** About how many ticks a ship coming in to its berth has before it is alongside, moored. */
+  private alongsideIn(b: Boat): number {
+    const m = this.map;
+    const d = Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y);
+    return d / (B.VESSELS[b.vessel].speed * 0.6) + B.ALONGSIDE_TICKS;
+  }
+
+  /**
+   * Whether a terminal tractor should set off now for container crane `c`,
+   * at `tile`: a container waits on its stack for it, or one will come off
+   * a ship for it about as it gets there, a little before rather than
+   * after, so the crane sets it straight on. Sent no sooner, so tractors
+   * come one after another as the crane lifts, rather than all at once to
+   * wait about in each other's way.
+   */
+  private dueAt(p: Dockhand, c: Crane, tile: number): boolean {
+    // Lifts off the ship before one is this tractor's, after those coming already.
+    const k = c.reserved + 1 - c.stack.length;
+    if (k <= 0) return true;
+    if (k > B.TRACTORS_CALLED) return false;
+    const ship = this.shipFor(c);
+    if (!ship || k > ship.left) return false;
+    const ready = ship.start + (k - 1) * craneTicks(c);
+    // Its drive there: round the corners a little longer than straight.
+    const drive = (this.dist(this.tileOf(p), tile) * 1.25) / B.TRACTOR_SPEED;
+    return drive + B.TRACTOR_EARLY >= ready;
   }
 
   /** A gantry crane with a ship alongside still to unload. */
@@ -10676,9 +10921,10 @@ export class World {
   }
 
   /**
-   * Whether `o`, though in front of `t`, is only crossing the junction just
-   * ahead of it on a way that never meets its own, as one turns off a
-   * roundabout where the other comes on: then it is not in its way.
+   * Whether `o`, though in front of `t`, is only crossing the junction or
+   * bend just ahead of it on a way that never meets its own, as one turns
+   * off a roundabout where the other comes on, or two going opposite ways
+   * round a corner keep to their own sides of it: then it is not in its way.
    */
   private clearAcross(t: Vehicle, o: Vehicle): boolean {
     const junctions = this.junctions();
@@ -12174,6 +12420,7 @@ export class World {
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),
         cleared: this.cleared(y),
+        buried: this.buriedCount(y),
         nextClear: this.nextClear(y),
         pending: this.pending(y),
         capacity: bayCap(y),

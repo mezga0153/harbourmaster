@@ -293,7 +293,9 @@ export const TOPICS: Record<TopicId, Topic> = {
           Every container is moved by machine. Reach stackers bring them from the cranes to the
           yard, and, unless a <b>yard gantry</b> stands beside the yard, lift them onto the trucks
           too, and off the shippers' trucks: twice the work for the stackers. A yard gantry spans
-          the yard from a port road or quay tile beside it and does the trucks itself. Trucks and
+          the yard from a port road or quay tile beside it and does the trucks itself. A reach
+          stacker with nothing else to do restacks a yard where containers still in customs lie on
+          cleared ones, moving them onto other stacks so the trucks can get at those. Trucks and
           tractors load all along the lane its rails run beside, which is one way for trucks: in at
           the end nearer the highway, out at the other, queueing along it behind each other. A
           longer yard along the lane gives more spots.

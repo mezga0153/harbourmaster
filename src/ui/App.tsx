@@ -544,7 +544,15 @@ function InfoPanel({ actions }: { actions: Actions }) {
             </>
           )}
           <dt>Cleared by customs</dt>
-          <dd>{yard.cleared}</dd>
+          <dd>
+            {yard.cleared}
+            {yard.buried > 0 && (
+              <span class="muted">
+                {' '}
+                · {yard.buried} under others still in customs: a free reach stacker restacks them
+              </span>
+            )}
+          </dd>
           {yard.pending > 0 && (
             <>
               <dt>Ship still unloading</dt>
