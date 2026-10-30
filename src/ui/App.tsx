@@ -7,6 +7,7 @@ import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
 import { dayProgress, duration, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
+import { StatsPanel } from './Stats';
 import { Advisor } from './Advisor';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
@@ -75,6 +76,8 @@ export function App({ actions }: { actions: Actions }) {
         <StaffPanel actions={actions} />
       ) : panel.value === 'finance' ? (
         <FinancePanel actions={actions} />
+      ) : panel.value === 'stats' ? (
+        <StatsPanel />
       ) : panel.value === 'port' ? (
         <PortPanel actions={actions} />
       ) : panel.value === 'handbook' ? (
@@ -184,6 +187,14 @@ function TopBar({ actions }: { actions: Actions }) {
           <Icon name="coins" />
           <span>Finance</span>
           {s.daysInRed > 0 && <span class="count">!</span>}
+        </button>
+        <button
+          class={`btn ${panel.value === 'stats' ? 'on' : ''}`}
+          onClick={() => togglePanel('stats')}
+          title="Statistics: where the crates and containers are"
+        >
+          <Icon name="box" />
+          <span>Statistics</span>
         </button>
         <button
           class={`btn ${panel.value === 'port' ? 'on' : ''}`}

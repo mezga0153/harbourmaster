@@ -1881,7 +1881,8 @@ input:focus {
 /* Finance: headline figures and charts. Series colours checked for colour
    blindness and contrast against the panel (dataviz validator, dark mode). */
 
-.side.xwide.finance {
+.side.xwide.finance,
+.side.xwide.stats {
   width: min(440px, calc(100vw - 24px));
   max-height: calc(100vh - 180px);
   overflow-y: auto;
@@ -2245,4 +2246,17 @@ input:focus {
   justify-content: space-between;
   padding: 0 6px 4px;
   font-size: 12px;
+}
+
+/* Statistics: cargo by where it is. */
+.stat-bar {
+  grid-template-columns: 170px 1fr 48px;
+}
+
+.stat-bar.none {
+  opacity: 0.45;
+}
+
+.stat-totals {
+  grid-template-columns: 1fr 1fr;
 }

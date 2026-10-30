@@ -1,6 +1,7 @@
 import type {
   BayView,
   Capacity,
+  CargoStats,
   Command,
   ContractView,
   CraneView,
@@ -11137,6 +11138,71 @@ export class World {
     };
   }
 
+  /** Every crate and container in the port, by where it is; see CargoStats. */
+  private cargoStats(): CargoStats {
+    const into = () => ({
+      atSea: 0,
+      onShips: 0,
+      landed: 0,
+      carried: 0,
+      customs: 0,
+      ready: 0,
+      onTrucks: 0,
+    });
+    const out = () => ({ waiting: 0, comingIn: 0, stored: 0, carried: 0, atCrane: 0, aboard: 0 });
+    const c: CargoStats = {
+      crates: into(),
+      containers: into(),
+      crateExports: out(),
+      containerExports: out(),
+    };
+    for (const b of this.boats) {
+      if (b.state === 'leaving') continue;
+      const boxes = b.vessel === 'feeder';
+      const f = boxes ? c.containers : c.crates;
+      if (b.state === 'moored') {
+        f.onShips += b.crates;
+        (boxes ? c.containerExports : c.crateExports).aboard += b.out ?? 0;
+      } else f.atSea += b.crates;
+    }
+    for (const k of this.cranes.values()) {
+      const boxes = k.kind !== 'jib';
+      (boxes ? c.containers : c.crates).landed += k.stack.length;
+      (boxes ? c.containerExports : c.crateExports).atCrane += k.outStack?.length ?? 0;
+    }
+    for (const p of this.piles.values()) c.crates.landed += p.crates.length;
+    for (const b of this.bays.values()) {
+      // Storage no truck can reach is a buffer by the cranes.
+      if (b.noAccess && b.tiles) c.crates.landed += b.crates.length;
+      else c.crates.ready += b.crates.length;
+      c.containers.ready += b.boxes.length;
+      c.crateExports.stored += b.exports?.length ?? 0;
+    }
+    for (const y of this.yards.values()) {
+      const clear = this.cleared(y);
+      c.containers.ready += clear;
+      c.containers.customs += y.boxes.length - clear;
+      c.containerExports.stored += y.exports?.length ?? 0;
+    }
+    for (const p of this.people) {
+      if (!p.carrying) continue;
+      const boxes = isBoxy(p);
+      if (p.outbound) (boxes ? c.containerExports : c.crateExports).carried += p.carrying;
+      else (boxes ? c.containers : c.crates).carried += p.carrying;
+    }
+    for (const t of this.trucks) {
+      if (t.cargo <= 0) continue;
+      if (!t.exports) {
+        (t.boxes ? c.containers : c.crates).onTrucks += t.cargo;
+        continue;
+      }
+      const e = t.boxes ? c.containerExports : c.crateExports;
+      if (t.state === 'parked' || t.state === 'toPark') e.waiting += t.cargo;
+      else if (t.state === 'toBay' || t.state === 'delivering') e.comingIn += t.cargo;
+    }
+    return c;
+  }
+
   snapshot(): Snapshot {
     const entities: EntityView[] = [];
     const staff: StaffView[] = [];
@@ -11373,6 +11439,7 @@ export class World {
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       stats: { ...this.stats },
+      cargo: this.cargoStats(),
       entities,
       bays,
       yards: [...this.yards.values()].map((y) => ({

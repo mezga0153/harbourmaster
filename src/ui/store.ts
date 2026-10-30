@@ -76,7 +76,7 @@ export const newGameOpen = signal(false);
 /** The build category whose tools are showing above the bar. */
 export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */
-export type PanelName = 'contracts' | 'staff' | 'finance' | 'port' | 'handbook';
+export type PanelName = 'contracts' | 'staff' | 'finance' | 'stats' | 'port' | 'handbook';
 export const panel = signal<PanelName | null>(null);
 /** The Contracts panel tab last open, kept for next time, in this browser too. */
 export type ContractsTab = 'overview' | 'active' | 'offers' | 'rules';

@@ -370,6 +370,47 @@ export interface Stats {
   penalties: number;
 }
 
+/** Where crates or containers coming in are in the port right now. */
+export interface CargoIn {
+  /** On ships at anchor or coming in. */
+  atSea: number;
+  /** On ships alongside, still to be lifted off. */
+  onShips: number;
+  /** Set down on the quay or a crane's stack, or in storage no truck can reach. */
+  landed: number;
+  /** Being carried by dockhands, forklifts, reach stackers or tractors. */
+  carried: number;
+  /** In a container yard, waiting for customs to clear them. */
+  customs: number;
+  /** In storage, ready for a truck to take out. */
+  ready: number;
+  /** On trucks loading or on their way out. */
+  onTrucks: number;
+}
+
+/** Where crates or containers going out are in the port right now. */
+export interface CargoOut {
+  /** On shippers' trucks in the parking outside the port. */
+  waiting: number;
+  /** On shippers' trucks driving in or unloading. */
+  comingIn: number;
+  /** In outgoing storage. */
+  stored: number;
+  /** Being carried towards the ships. */
+  carried: number;
+  /** Set down at a crane for the ship it loads. */
+  atCrane: number;
+  /** On board ships still alongside. */
+  aboard: number;
+}
+
+export interface CargoStats {
+  crates: CargoIn;
+  containers: CargoIn;
+  crateExports: CargoOut;
+  containerExports: CargoOut;
+}
+
 export interface TownView {
   name: string;
   /** Index into TOWN_STAGES. */
@@ -428,6 +469,8 @@ export interface Snapshot {
   daysInRed: number;
   bankrupt: boolean;
   stats: Stats;
+  /** Every crate and container in the port, by where it is. */
+  cargo: CargoStats;
   entities: EntityView[];
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */
