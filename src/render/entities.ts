@@ -1106,21 +1106,22 @@ export class Entities {
       return this.containerAt?.({ bay: tile, slot }, out) === null ? null : out;
     });
     if (!a || !b || !c) return null;
-    const ux = (c.x - a.x) / 0.18;
-    const uz = (c.z - a.z) / 0.18;
+    // The first place is 0.71 across and 0.89 back from the bay's corner,
+    // the next across from it and the third behind it.
+    const ux = (a.x - c.x) / 0.18;
+    const uz = (a.z - c.z) / 0.18;
     const sx = (b.x - a.x) / 0.18;
     const sz = (b.z - a.z) / 0.18;
-    // The first place is 0.71 across and 0.71 back from the bay's corner.
     return {
       ux,
       uz,
       at: (across, back) => [
-        a.x + sx * (across - 0.71) + ux * (back - 0.71),
-        a.z + sz * (across - 0.71) + uz * (back - 0.71),
+        a.x + sx * (across - 0.71) + ux * (back - 0.89),
+        a.z + sz * (across - 0.71) + uz * (back - 0.89),
       ],
       of: (x, z) => [
         0.71 + (x - a.x) * sx + (z - a.z) * sz,
-        0.71 + (x - a.x) * ux + (z - a.z) * uz,
+        0.89 + (x - a.x) * ux + (z - a.z) * uz,
       ],
     };
   }
@@ -1577,7 +1578,12 @@ export class Entities {
     };
     const dist = at.map(ashore);
     if (dist.every((d) => d === Infinity)) return;
-    e.order = slots.map((_, k) => k).sort((a, b) => dist[b] - dist[a]);
+    // Those on board stay where they are, the near side of them first off;
+    // any put on board go on the far side of the places left first.
+    const byFar = (a: number, b: number) => dist[b] - dist[a];
+    const keys = slots.map((_, k) => k);
+    const on = keys.filter((k) => slots[k].visible).sort(byFar);
+    e.order = [...on, ...keys.filter((k) => !slots[k].visible).sort(byFar)];
     e.orderAt = 'quay';
   }
 

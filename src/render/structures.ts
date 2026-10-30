@@ -2456,11 +2456,12 @@ export class Structures {
         for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         const crates: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
+          // The front row first, away from those who stack them from behind.
           for (const [x, z] of [
-            [0.71, 0.71],
-            [0.89, 0.71],
             [0.71, 0.89],
             [0.89, 0.89],
+            [0.71, 0.71],
+            [0.89, 0.71],
           ]) {
             const c = crate(0.17, x, y + layer * 0.17, z);
             c.visible = false;

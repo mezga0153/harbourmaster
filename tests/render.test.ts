@@ -246,6 +246,64 @@ describe('Dockhands handling crates', () => {
     expect(near.truck[0] / near.truck[1]).toBeGreaterThan(0.9);
   });
 
+  it('leave the crates on a boat where they lie as it comes alongside, and stack a truck bay from the front', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entries = (entities as any).entries as Map<number, any>;
+    const shown = new Map<number, { load: number; on: string }>();
+    let still = 0;
+    let stacked = 0;
+    const p = new Vector3();
+    const q = new Vector3();
+    let now = 0;
+    for (let t = 0; t < 2000; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (const v of s.entities) {
+        if (v.kind !== 'boat') continue;
+        const on = entries
+          .get(v.id)!
+          .model.crates.map((c: Object3D) => (c.visible ? 1 : 0))
+          .join('');
+        const was = shown.get(v.id);
+        // With as many on board, the same ones show.
+        if (was && was.load === v.load) {
+          still++;
+          expect(on).toBe(was.on);
+        }
+        shown.set(v.id, { load: v.load, on });
+      }
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+      }
+      for (const { view, pos } of entities.worldPositions()) {
+        const at = view.handAt;
+        if (view.kind !== 'dockhand' || view.handStage !== 'drop' || at?.bay === undefined)
+          continue;
+        if ((view.handPhase ?? 0) < 0.75 || (at.slot ?? 0) % 4 >= 2) continue;
+        // Onto the front row while the back row behind it, nearer them, is free.
+        structures.containerAt({ bay: at.bay, slot: at.slot }, p);
+        structures.containerAt({ bay: at.bay, slot: (at.slot ?? 0) + 2 }, q);
+        expect(p.distanceTo(pos)).toBeGreaterThan(q.distanceTo(pos));
+        stacked++;
+      }
+    }
+    expect(still).toBeGreaterThan(1000);
+    expect(stacked).toBeGreaterThan(5);
+  });
+
   it('keep a step apart when they stand about', () => {
     const world = World.create(7, 96);
     const entities = new Entities(world.map);
