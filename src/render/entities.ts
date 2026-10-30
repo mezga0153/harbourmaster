@@ -1,5 +1,5 @@
 import { Group, Vector3, type Object3D } from 'three';
-import { VESSELS } from '../sim/balance';
+import { VESSELS, WALK_SPEED } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { isMachineKind } from '../sim/machines';
@@ -54,6 +54,8 @@ interface Entry {
   /** Stackers and tractors: how they stood last frame, and the container they are handing over. */
   pose?: Pose;
   hand?: Hand;
+  /** Dockhands: walking up to a load they handle, or back onto their way. */
+  stepping?: boolean;
 }
 
 interface About {
@@ -101,6 +103,8 @@ interface Hand {
    * jump when another load comes or goes there meanwhile.
    */
   goal?: Pose;
+  /** Dockhands: how much of it they spend walking up to it. */
+  walk?: number;
 }
 
 /** Furthest a forklift drives up to a pallet, from where it stops for it. */
@@ -121,6 +125,27 @@ function slide(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
     x: from.x + (to.x - from.x) * a,
     z: from.z + (to.z - from.z) * a,
     dir: lerpAngle(from.dir, to.dir, a),
+  };
+}
+
+/**
+ * Walked from one pose to another, `a` (0 to 1) of the way: turning to the
+ * way there as they set off, and to stand as they are as they get there.
+ */
+function walkTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
+  const c = Math.min(1, Math.max(0, a));
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  if (Math.hypot(dx, dz) < 0.05) return slide(from, to, ease(c));
+  const way = Math.atan2(dz, dx);
+  const t = ease(c);
+  return {
+    x: from.x + dx * t,
+    z: from.z + dz * t,
+    dir:
+      c < 0.7
+        ? lerpAngle(from.dir, way, ease(c / 0.3))
+        : lerpAngle(way, to.dir, ease((c - 0.7) / 0.3)),
   };
 }
 
@@ -244,6 +269,10 @@ export interface Wake {
 
 /** Forklifts: how far to the right of the middle of the way they keep. */
 const FORK_KEEP = 0.16;
+/** Fastest a dockhand closes on where they should be, tiles per game second: a brisk walk. */
+const CATCH_UP = WALK_SPEED * TICKS_PER_SECOND * 1.5;
+/** How quickly a dockhand turns to the way they step, per game second. */
+const TURN_RATE = 12;
 /** How far in front of a dockhand the crate they pick up or set down is. */
 const HAND_REACH = 0.16;
 /** How far back from the edge of the quay a dockhand stands, toes to the edge. */
@@ -517,7 +546,7 @@ export class Entities {
       ) {
         // A forklift drives up to the crates it takes or sets down like
         // this too, and a dockhand walks up to the crate.
-        this.handle(e, x, y, dir, t);
+        this.handle(e, x, y, dir, t, dt);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass.
         const keep = cur.kind === 'forklift' ? FORK_KEEP : 0.2;
@@ -544,6 +573,11 @@ export class Entities {
           e.slip.left -= dt / SLIP_TIME;
           if (e.slip.left <= 0) e.slip = undefined;
         }
+        if (cur.kind === 'dockhand') {
+          // Onto the other side of the way as they turn about, at a walk.
+          const to = this.catchUp(e, rx, ry, yaw, dt);
+          [rx, ry, yaw] = [to.x, to.z, Math.hypot(to.x - rx, to.z - ry) > 0.03 ? to.dir : yaw];
+        }
         root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
         // Where it is, for it to drive up to a pallet from when it gets to one.
@@ -557,9 +591,11 @@ export class Entities {
         e.model.forks!.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
       }
       if (cur.kind === 'dockhand') {
-        const down = this.lower(e, prev, t, dt);
+        const stepping = !!e.hand && !!e.stepping;
+        const down = this.lower(e, prev, t, dt, stepping);
         const goal = e.hand?.goal;
-        pose(e.model, cur.moving, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
+        const walking = cur.moving || stepping;
+        pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
       }
       if (e.alert) {
         e.alert.visible = cur.alert;
@@ -649,10 +685,11 @@ export class Entities {
    * shows where it is set down; then they come back up. Returns how far
    * down they are, 0 to 1.
    */
-  private lower(e: Entry, prev: EntityView, t: number, dt: number): number {
+  private lower(e: Entry, prev: EntityView, t: number, dt: number, stepping = false): number {
     const cur = e.view;
     let goal = 0;
-    if (cur.handling !== undefined) {
+    // A dockhand bends to it once there, not on the way.
+    if (cur.handling !== undefined && !stepping) {
       const from = prev.handling;
       const p =
         from !== undefined && from <= cur.handling
@@ -675,7 +712,7 @@ export class Entities {
    * stand along the lane. It is there as the container changes hands,
    * then goes back to driving.
    */
-  private handle(e: Entry, x: number, y: number, dir: number, t: number): void {
+  private handle(e: Entry, x: number, y: number, dir: number, t: number, dt: number): void {
     const v = e.view;
     const keep = v.kind === 'forklift' ? FORK_KEEP : 0.2;
     const drive: Pose = {
@@ -708,6 +745,17 @@ export class Entities {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
       const goal = w.goal ?? { ...drive, h: 0 };
+      if (v.kind === 'dockhand') {
+        // Walked up to at their own pace, in what is left of it, before they
+        // bend to it.
+        const left = Math.max(1, (v.handTicks ?? 1) * (1 - w.start));
+        const d = Math.hypot(goal.x - w.from.x, goal.z - w.from.z);
+        w.walk ??= Math.min(0.6, Math.max(0.1, d / (WALK_SPEED * left)));
+        e.stepping = phase < w.walk;
+        pose = { ...walkTo(w.from, goal, phase / w.walk), h: 0 };
+        this.place(e, pose);
+        return;
+      }
       // Under a gantry, a tractor is lined up before the spreader comes down;
       // otherwise it drives up to where it works it.
       const a = phase / (w.pivot ? 0.08 : 0.4);
@@ -727,7 +775,13 @@ export class Entities {
         w.from = e.pose ?? drive;
       }
       const s = (this.sim - w.done) / HAND_SETTLE;
-      if (s >= 1) e.hand = undefined;
+      if (v.kind === 'dockhand') {
+        // Walks back onto their way, catching up with it.
+        pose = { ...this.catchUp(e, drive.x, drive.z, drive.dir, dt), h: 0 };
+        e.stepping = true;
+        const there = Math.hypot(pose.x - drive.x, pose.z - drive.z) < 0.02;
+        if (there || s >= 4) e.hand = undefined;
+      } else if (s >= 1) e.hand = undefined;
       else {
         const a = ease(s);
         pose = {
@@ -736,6 +790,26 @@ export class Entities {
         };
       }
     }
+    this.place(e, pose);
+  }
+
+  /**
+   * A dockhand's way onto x, z: no faster than a brisk walk, so they never
+   * jump there, facing the way they step and otherwise `dir`.
+   */
+  private catchUp(e: Entry, x: number, z: number, dir: number, dt: number): Omit<Pose, 'h'> {
+    const at = e.pose;
+    const d = at ? Math.hypot(x - at.x, z - at.z) : 0;
+    // Just come into view, or a long way on (the tab was in the background).
+    if (!at || d > 2) return { x, z, dir };
+    const step = Math.min(d, CATCH_UP * dt);
+    const nx = d > 0 ? at.x + ((x - at.x) / d) * step : x;
+    const nz = d > 0 ? at.z + ((z - at.z) / d) * step : z;
+    const way = d - step > 0.03 ? Math.atan2(z - at.z, x - at.x) : dir;
+    return { x: nx, z: nz, dir: lerpAngle(at.dir, way, Math.min(1, dt * TURN_RATE)) };
+  }
+
+  private place(e: Entry, pose: Pose): void {
     e.pose = pose;
     const root = e.model.root;
     root.position.set(pose.x, surfaceY(this.map, pose.x, pose.z), pose.z);

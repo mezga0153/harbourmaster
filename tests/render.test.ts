@@ -117,6 +117,31 @@ describe('Dockhands handling crates', () => {
     }
     expect(atBoat).toBeGreaterThan(10);
   });
+
+  it('walk up to a crate and back onto their way, never jumping there', () => {
+    const world = World.create(7, 96);
+    const entities = new Entities(world.map);
+    const last = new Map<number, [number, number]>();
+    let handled = 0;
+    for (let t = 0, now = 0; t < 800; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        for (const { view, pos } of entities.worldPositions()) {
+          if (view.kind !== 'dockhand') continue;
+          if (view.handStage) handled++;
+          const was = last.get(view.id);
+          // A brisk walk at most: half as fast again as they walk.
+          if (was) expect(Math.hypot(pos.x - was[0], pos.z - was[1])).toBeLessThan(0.0601);
+          last.set(view.id, [pos.x, pos.z]);
+        }
+      }
+    }
+    expect(handled).toBeGreaterThan(50);
+  });
 });
 
 describe('Jib cranes', () => {
