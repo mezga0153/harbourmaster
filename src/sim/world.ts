@@ -5878,6 +5878,14 @@ export class World {
     // up for good. It squeezes past.
     const wedged = (b.squeeze ?? 0) > 0;
     const m = this.map;
+    // A long ship whose way goes on behind it is coming round: one lying
+    // still off its bow is not in its way, as it swings away from it, its
+    // whole hull minding that one as it goes (see sail).
+    const next = b.path[0];
+    const comingRound =
+      v.length >= B.CAREFUL_LENGTH &&
+      next !== undefined &&
+      Math.cos(Math.atan2(m.yOf(next) + 0.5 - b.y, m.xOf(next) + 0.5 - b.x) - b.dir) < 0;
     this.roomWait.delete(b);
     for (const o of this.boats) {
       if (o === b) continue;
@@ -5885,6 +5893,7 @@ export class World {
       const still = o.state === 'moored' || o.state === 'anchored';
       // Squeezing past boats under way, never over one lying still.
       if (wedged && !still) continue;
+      if (comingRound && still) continue;
       // Keep out of the water a ship pulling out of its berth has claimed,
       // stopping short of it; already inside and heading further in, back
       // out. A boat coming in to a berth inside it has to pass through.
