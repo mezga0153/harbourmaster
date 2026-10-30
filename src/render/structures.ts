@@ -2079,6 +2079,11 @@ export class Structures {
         // Its stack along the quay at the shipside, the length of its rails,
         // two deep and two high, clear of the front legs: landward of it the
         // rest of the quay under it is left for the stackers and tractors.
+        // Painted out on the quay as a container yard is: the machines keep
+        // off it and work it from behind.
+        const [x0, x1, z0, z1] = [-left + 0.05, 2 + right - 0.05, 0.06, 0.74];
+        for (const z of [z0, z1]) g.add(box(x1 - x0, 0.006, 0.04, C.stripe, (x0 + x1) / 2, y, z));
+        for (const x of [x0, x1]) g.add(box(0.04, 0.006, z1 - z0, C.stripe, x, y, (z0 + z1) / 2));
         const stack: Object3D[] = [];
         const cols = GANTRY_RAILS;
         for (let layer = 0; layer < GANTRY_STACK / (cols * 2); layer++) {

@@ -283,6 +283,11 @@ export const GANTRY_TICKS = 16;
 export const GANTRY_STACK = 24;
 /** Quay a gantry crane's rails run along, centred on it: the length of a container ship. */
 export const GANTRY_RAILS = 6;
+/**
+ * Tiles further a port machine will go round sooner than drive across the
+ * containers a gantry crane has set down along the quay.
+ */
+export const CRANE_STACK_DETOUR = 40;
 export const GANTRY_RUNNING_COST = 300;
 /** A yard gantry, which loads the trucks at a container yard. */
 export const YARD_GANTRY_COST = 12000;

@@ -2693,6 +2693,59 @@ describe('Container Port tier', () => {
     expect(world.stats.containers).toBeGreaterThan(0);
   });
 
+  it('keeps machines off a gantry crane’s stack row, and has tractors pull in under it lined up', () => {
+    const world = World.create(7);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const m = world.map;
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
+    const yard = world.yards.get(t.yard)!;
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 6,
+        cratesMax: 6,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    // The shipside row the length of its rails, where it sets them down.
+    const row = gantryRails(m, at, f).filter((_, k) => k % 2 === 0);
+    let stacked = 0;
+    let across = 0;
+    const crane = world.cranes.get(at)!;
+    const quay = world['quayHeading'](crane);
+    let under = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      for (const p of world.people) {
+        if (p.kind !== 'tractor' && p.kind !== 'stacker') continue;
+        if (world['craneStackTiles']().has(world['tileOf'](p))) across++;
+        // Under the crane to be lifted onto or off, along the quay.
+        if (p.kind === 'tractor' && p.state === 'picking' && world['underGantry'](p) === crane) {
+          under++;
+          expect(Math.abs(Math.cos(p.dir - quay))).toBeGreaterThan(0.9);
+        }
+      }
+      stacked += row.filter((i) => world['craneStackTiles']().has(i)).length;
+    }
+    expect(stacked).toBeGreaterThan(0);
+    // Not across the containers it has set down, with room to go round: at
+    // most one caught as a container comes down beside it.
+    expect(across).toBeLessThanOrEqual(2);
+    expect(under).toBeGreaterThan(0);
+    expect(world.stats.containers).toBeGreaterThan(0);
+  });
+
   it('takes containers off a gantry crane’s stack only from the top', () => {
     const world = World.create(7);
     world.tier = 2;

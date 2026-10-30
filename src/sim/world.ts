@@ -215,6 +215,8 @@ interface Dockhand extends Agent {
   truckLoad?: boolean;
   /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
   blocker?: number;
+  /** The tile of crane stack on its way it last looked for a way round; see walk. */
+  replanned?: number;
   /** The ring it is driving on through, and where it set off from; see passRing. */
   passing?: { ids: number[]; x: number; y: number };
 }
@@ -928,6 +930,10 @@ export class World {
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
   private junctionCache: Uint8Array | null = null;
+  /** Where quay gantry cranes have containers set down, this tick; see craneStackTiles. */
+  private craneStackCache: { tick: number; at: Set<number> } | null = null;
+  /** Which way tractors stand where cranes lift onto them; see lineUpAt. */
+  private lineUpCache: Map<number, [number, number]> | null = null;
   /** Trucks and port machines by id, this tick; see ring. */
   private vehicleCache: { tick: number; by: Map<number, Vehicle> } | null = null;
   /** Where trucks and machines are about to drive, this tick; see crossings. */
@@ -1238,6 +1244,8 @@ export class World {
     this.junctionCache = null;
     this.turnCache = null;
     this.machineCache = null;
+    this.craneStackCache = null;
+    this.lineUpCache = null;
     switch (cmd.type) {
       case 'build':
         return this.build(cmd.kind, cmd.tiles, cmd.facing);
@@ -6133,9 +6141,42 @@ export class World {
   private walkCost: CostFn = (i) => (walkableAt(this.map, i) ? 1 : Infinity);
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
-  /** Port machines drive on port roads and quays, never across the stacks in a container yard. */
-  private driveCost: CostFn = (i) =>
+  /** Where port machines may be at all: port roads and quays, off the stacks in a container yard. */
+  private groundCost: CostFn = (i) =>
     drivable(this.map.build[i]) && !storesBoxes(this.map.store[i]) ? 1 : Infinity;
+
+  /**
+   * Port machines drive on port roads and quays, never across the stacks in
+   * a container yard; and across containers a gantry crane has set down
+   * along the quay only where there is no other way at all, as on a pier
+   * too narrow for anything else.
+   */
+  private driveCost: CostFn = (i) =>
+    this.groundCost(i) + (this.craneStackTiles().has(i) ? B.CRANE_STACK_DETOUR : 0);
+
+  /**
+   * The quay with containers on it that a gantry crane has set down: on the
+   * shipside row the length of its rails, which the machines work from the
+   * row behind. Where none stand yet they drive freely.
+   * Once a tick.
+   */
+  private craneStackTiles(): Set<number> {
+    if (this.craneStackCache?.tick !== this.tick) {
+      const m = this.map;
+      const at = new Set<number>();
+      for (const c of this.cranes.values()) {
+        if (c.kind !== 'gantry') continue;
+        const rails = gantryRails(m, c.idx, m.orient[c.idx] & 3);
+        const { stack, out } = this.cranePlaces(c);
+        for (const k of [...stack, ...out]) {
+          const t = k < 0 ? -1 : rails[((k % craneStacks(c)) % B.GANTRY_RAILS) * 2];
+          if (t >= 0) at.add(t);
+        }
+      }
+      this.craneStackCache = { tick: this.tick, at };
+    }
+    return this.craneStackCache.at;
+  }
 
   private costFor(p: Dockhand): CostFn {
     return isMachine(p) ? this.driveCost : this.walkCost;
@@ -6157,7 +6198,9 @@ export class World {
    * truck bay, or a forklift to its depot.
    */
   private rescue(p: Dockhand): boolean {
-    if (Number.isFinite(this.costFor(p)(this.tileOf(p)))) return false;
+    // A machine a crane has just set a container down beside is not lost.
+    const cost = isMachine(p) ? this.groundCost : this.costFor(p);
+    if (Number.isFinite(cost(this.tileOf(p)))) return false;
     const at = isMachine(p) && p.home >= 0 ? p.home : this.muster();
     p.x = this.map.xOf(at) + 0.5;
     p.y = this.map.yOf(at) + 0.5;
@@ -6169,6 +6212,16 @@ export class World {
     const before = this.tileOf(p);
     const laneBefore = laneOf(p.dir);
     const boxy = isBoxy(p);
+    // A crane has set containers down on its way since it set off: it looks
+    // again for a way round them, once for each such tile.
+    const next = p.path[0];
+    if (boxy && next !== undefined && next !== p.goal && next !== p.replanned) {
+      if (this.craneStackTiles().has(next)) {
+        p.replanned = next;
+        const path = this.pathFor(p, before, p.goal);
+        if (path) p.path = path;
+      }
+    }
     // Where another machine works, it waits its turn short of it; a reach
     // stacker or tractor otherwise keeps its distance in traffic (see
     // roomAhead), anyone else to their side of the tile.
@@ -6496,7 +6549,65 @@ export class World {
     // A tractor and its trailer drive like a truck: square round corners,
     // and turning about only where there is room to come round.
     const back = from === this.tileOf(p) ? this.tileBehind(p) : -1;
-    return findDrivePath(m.w, m.h, from, back, goal, this.costFor(p), (i) => this.roomToTurn(i));
+    const turn = (i: number) => this.roomToTurn(i);
+    const cost = this.costFor(p);
+    // Where a crane lifts onto it, it pulls in along the way the crane
+    // works for its last tile, so it stands lined up rather than across.
+    const along = from === goal ? null : this.lineUpAt(goal);
+    if (along) {
+      let best: number[] | null = null;
+      for (const sign of [1, -1]) {
+        const x = m.xOf(goal) - along[0] * sign;
+        const y = m.yOf(goal) - along[1] * sign;
+        if (!m.inBounds(x, y)) continue;
+        const before = m.idx(x, y);
+        if (!Number.isFinite(cost(before))) continue;
+        const keepOff: CostFn = (i, f) => (i === goal ? Infinity : cost(i, f));
+        const way =
+          before === from ? [] : findDrivePath(m.w, m.h, from, back, before, keepOff, turn);
+        if (way && (!best || way.length + 1 < best.length)) best = [...way, goal];
+      }
+      if (best) return best;
+    }
+    return findDrivePath(m.w, m.h, from, back, goal, cost, turn);
+  }
+
+  /**
+   * Which way a tractor stands to be lifted onto or off at `goal`, as a
+   * step on the grid: along the quay under a gantry crane or beside a
+   * harbour crane, along the lane under a yard gantry; null elsewhere.
+   */
+  private lineUpAt(goal: number): [number, number] | null {
+    if (!this.lineUpCache) {
+      const m = this.map;
+      const out = new Map<number, [number, number]>();
+      const put = (tiles: Iterable<number>, a: number | undefined) => {
+        if (a === undefined) return;
+        const step: [number, number] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+        if (Math.abs(step[0]) + Math.abs(step[1]) !== 1) return;
+        for (const t of tiles) if (!out.has(t)) out.set(t, step);
+      };
+      for (const c of this.cranes.values()) {
+        if (c.kind === 'gantry') put([this.pickTile(c)], this.quayHeading(c));
+        else if (c.kind === 'harbour') {
+          const x = m.xOf(c.idx);
+          const y = m.yOf(c.idx);
+          const round: number[] = [];
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (m.inBounds(x + dx, y + dy)) round.push(m.idx(x + dx, y + dy));
+            }
+          }
+          put(round, this.quayHeading(c));
+        }
+      }
+      for (const y of this.yards.values()) {
+        const lane = this.gantryLane(y);
+        if (lane) put(lane.keys(), this.laneHeading(y));
+      }
+      this.lineUpCache = out;
+    }
+    return this.lineUpCache.get(goal) ?? null;
   }
 
   /** The tile behind a machine, the way it faces, or -1 when it is not facing square. */
@@ -6630,6 +6741,8 @@ export class World {
         return;
       }
       case 'picking': {
+        // Waiting at a crane that has been taken down, it gives up.
+        if (p.craneIdx >= 0 && !this.cranes.has(p.craneIdx)) return this.cancelJob(p);
         // At a yard, its gantry lifts for one at a time.
         if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
@@ -6677,6 +6790,9 @@ export class World {
         return;
       }
       case 'dropping': {
+        if (p.toCrane !== undefined && p.toCrane >= 0 && !this.cranes.has(p.toCrane)) {
+          return this.retargetCrate(p);
+        }
         if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
         this.gantryDone(this.yards.get(p.bayIdx), p.id);
