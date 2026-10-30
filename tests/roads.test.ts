@@ -411,3 +411,86 @@ describe('Giving way at junctions', () => {
     expect(may(turningOut)).toBe(false);
   });
 });
+
+describe('Round a bend', () => {
+  /** An L of public road on clear land: along a row from the west, then down. */
+  function bend(world: World): number[] {
+    const m = world.map;
+    for (let y = 5; y < m.limit - 12; y++) {
+      for (let x = HIGHWAY_COLUMNS + 2; x < 40; x++) {
+        let ok = true;
+        for (let dy = -1; dy <= 9 && ok; dy++) {
+          for (let dx = -1; dx <= 9 && ok; dx++) {
+            const i = m.idx(x + dx, y + dy);
+            ok = m.build[i] === Build.None && m.isLand(i) && m.terrain[i] !== Terrain.Rock;
+          }
+        }
+        if (!ok) continue;
+        const way: number[] = [];
+        for (let k = 0; k <= 8; k++) way.push(m.idx(x + k, y));
+        for (let k = 1; k <= 8; k++) way.push(m.idx(x + 8, y + k));
+        for (const i of way) m.build[i] = Build.Road;
+        world['junctionCache'] = null;
+        world['turnCache'] = null;
+        world['reachCache'] = null;
+        return way;
+      }
+    }
+    throw new Error('no room for a bend');
+  }
+
+  /** A big truck leaving along `way` from its first tile, facing `dir`. */
+  function driving(world: World, way: number[], dir: number) {
+    const m = world.map;
+    const t = {
+      id: world.nextId++,
+      contractId: -1,
+      company: 'Test',
+      capacity: B.BIG_TRUCK_CAPACITY,
+      x: m.xOf(way[0]) + 0.5,
+      y: m.yOf(way[0]) + 0.5,
+      dir,
+      path: way.slice(1),
+      goal: way[way.length - 1],
+      state: 'leaving',
+      bayIdx: -1,
+      cargo: 0,
+      value: 0,
+      boxes: false,
+      idle: 0,
+      timer: 0,
+      variant: 0,
+      held: 0,
+    };
+    world.trucks.push(t as never);
+    return t;
+  }
+
+  it('has trucks going opposite ways round it keep to their sides, never stopping for each other', () => {
+    const world = World.create(7, 96);
+    world.trucks.length = 0;
+    const way = bend(world);
+    const a = driving(world, way, 0);
+    const b = driving(world, [...way].reverse(), -Math.PI / 2);
+    let held = 0;
+    for (let k = 0; k < 60; k++) {
+      world.step();
+      for (const t of [a, b]) if ((t.held ?? 0) > 0 && t.path.length > 0) held++;
+    }
+    expect(held).toBe(0);
+  });
+
+  it('has a truck following another round it keep its distance', () => {
+    const world = World.create(7, 96);
+    world.trucks.length = 0;
+    const way = bend(world);
+    const lead = driving(world, way.slice(1), 0);
+    const next = driving(world, way, 0);
+    let closest = Infinity;
+    for (let k = 0; k < 60 && world.trucks.length === 2; k++) {
+      world.step();
+      closest = Math.min(closest, Math.hypot(lead.x - next.x, lead.y - next.y));
+    }
+    expect(closest).toBeGreaterThan(world['lengthOf'](lead as never) * 0.75);
+  });
+});

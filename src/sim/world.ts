@@ -10682,8 +10682,9 @@ export class World {
    */
   private clearAcross(t: Vehicle, o: Vehicle): boolean {
     const junctions = this.junctions();
-    const here = this.tileOf(t);
-    const j = junctions[here] ? here : t.path.slice(0, 2).find((i) => junctions[i] === 1);
+    const j = [this.tileOf(t), t.path[0], t.path[1]].find(
+      (i) => i !== undefined && (junctions[i] === 1 || (this.wayAcross(t, i)?.length ?? 0) >= 3),
+    );
     if (j === undefined) return false;
     if (this.tileOf(o) !== j && o.path[0] !== j) return false;
     const a = this.wayAcross(t, j);
