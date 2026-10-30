@@ -1878,6 +1878,227 @@ input:focus {
   }
 }
 
+/* Finance: headline figures and charts. Series colours checked for colour
+   blindness and contrast against the panel (dataviz validator, dark mode). */
+
+.side.xwide.finance {
+  width: min(440px, calc(100vw - 24px));
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  --viz-1: #3987e5;
+  --viz-gain: #3987e5;
+  --viz-loss: #e66767;
+}
+
+.fin-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.fin-tile {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.fin-tile-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fin-tile-value {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 600;
+  font-feature-settings: 'tnum' 0;
+}
+
+.fin-tile-value.pos {
+  color: var(--good);
+}
+
+.fin-tile-value.neg {
+  color: var(--bad);
+}
+
+.fin-tile-delta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.fin-range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.viz {
+  position: relative;
+}
+
+.viz svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.viz-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.viz-zero {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.viz-axis {
+  fill: var(--text-3);
+  font-size: 10px;
+}
+
+.viz-line {
+  fill: none;
+  stroke: var(--viz-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.viz-area {
+  fill: var(--viz-1);
+  fill-opacity: 0.1;
+}
+
+.viz-dot {
+  fill: var(--viz-1);
+  stroke: var(--panel-solid);
+  stroke-width: 2;
+}
+
+.viz-cross {
+  stroke: var(--text-3);
+  stroke-width: 1;
+}
+
+.viz-gain {
+  fill: var(--viz-gain);
+}
+
+.viz-loss {
+  fill: var(--viz-loss);
+}
+
+.viz-hover-band {
+  fill: var(--raised-2);
+}
+
+.viz-tip {
+  position: absolute;
+  top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.viz-tip-head {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.viz-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-2);
+}
+
+.viz-tip-row.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.viz-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.viz-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.viz-key.gain {
+  background: var(--viz-gain);
+}
+
+.viz-key.loss {
+  background: var(--viz-loss);
+  margin-left: 6px;
+}
+
+.fin-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fin-bar {
+  display: grid;
+  grid-template-columns: 100px 1fr 52px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.fin-bar-label {
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fin-bar-track {
+  height: 10px;
+}
+
+.fin-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--viz-1);
+}
+
+.fin-bar-value {
+  text-align: right;
+  color: var(--text-2);
+}
+
 /* Sound on or off and the volume, at the top right. */
 .sound-control {
   display: flex;

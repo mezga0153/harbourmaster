@@ -191,6 +191,14 @@ export type LedgerCategory =
 /** Money in (positive) and out (negative) for one day, by category. */
 export type Ledger = Record<LedgerCategory, number>;
 
+/** One day gone by, for the finance charts: what came in and went out, and the cash left. */
+export interface FinanceDay {
+  /** The tick the day ended on. */
+  tick: number;
+  cash: number;
+  ledger: Ledger;
+}
+
 export interface StaffView {
   id: number;
   kind: 'dockhand' | MachineKind;
@@ -410,6 +418,8 @@ export interface Snapshot {
   interest: number;
   today: Ledger;
   yesterday: Ledger | null;
+  /** The last days gone by, oldest first; see FinanceDay. */
+  history: FinanceDay[];
   /** Consecutive days ended in the red; bankrupt at BANKRUPT_DAYS. */
   daysInRed: number;
   bankrupt: boolean;

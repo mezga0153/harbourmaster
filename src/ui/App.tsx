@@ -177,6 +177,15 @@ function TopBar({ actions }: { actions: Actions }) {
 
       <div class="topbar-right">
         <button
+          class={`btn ${panel.value === 'finance' ? 'on' : ''}`}
+          onClick={() => togglePanel('finance')}
+          title="Finance: charts, loans and daily statement (M)"
+        >
+          <Icon name="coins" />
+          <span>Finance</span>
+          {s.daysInRed > 0 && <span class="count">!</span>}
+        </button>
+        <button
           class={`btn ${panel.value === 'port' ? 'on' : ''}`}
           onClick={() => togglePanel('port')}
           title="Port development and upgrades (P)"

@@ -6,6 +6,7 @@ import type {
   CraneView,
   ProblemView,
   EntityView,
+  FinanceDay,
   HandAt,
   Ledger,
   LedgerCategory,
@@ -563,6 +564,8 @@ export interface SaveData {
   loan: number;
   today: Ledger;
   yesterday: Ledger | null;
+  /** Older saves have none. */
+  history?: FinanceDay[];
   daysInRed: number;
   bankrupt: boolean;
   map: MapData;
@@ -584,6 +587,9 @@ export interface SaveData {
   /** When container ships lately finished unloading; see unloadedAt. */
   unloaded?: [number, number][];
 }
+
+/** Days gone by kept for the finance charts. */
+const FINANCE_DAYS = 60;
 
 function emptyLedger(): Ledger {
   return {
@@ -921,6 +927,8 @@ export class World {
   loan = 0;
   today: Ledger = emptyLedger();
   yesterday: Ledger | null = null;
+  /** The last days gone by, for the finance charts, oldest first. */
+  history: FinanceDay[] = [];
   /** Consecutive days that ended with negative cash. */
   daysInRed = 0;
   bankrupt = false;
@@ -1126,6 +1134,7 @@ export class World {
     }
     world.today = { ...s.today };
     world.yesterday = s.yesterday ? { ...s.yesterday } : null;
+    world.history = (s.history ?? []).map((d) => ({ ...d, ledger: { ...d.ledger } }));
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
     world.people = s.people.map((p) => ({
@@ -1235,6 +1244,7 @@ export class World {
       loan: this.loan,
       today: this.today,
       yesterday: this.yesterday,
+      history: this.history,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       map: this.map.toData(),
@@ -2419,6 +2429,9 @@ export class World {
       if (isMachine(p) && this.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
     }
     this.book('interest', -this.interestDue());
+    // The day done, kept for the finance charts: two months of them.
+    this.history.push({ tick: this.tick, cash: this.cash, ledger: this.today });
+    if (this.history.length > FINANCE_DAYS) this.history.shift();
     this.yesterday = this.today;
     this.today = emptyLedger();
     this.refreshOffers();
@@ -11337,6 +11350,7 @@ export class World {
       interest: this.interestDue(),
       today: { ...this.today },
       yesterday: this.yesterday ? { ...this.yesterday } : null,
+      history: this.history,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       stats: { ...this.stats },
