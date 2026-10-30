@@ -403,6 +403,15 @@ export const CORNER_CLOSE_COST = 1;
 /** And they keep this much further again off a boat lying at its berth, at this much more. */
 export const MOORED_CLEAR = 1.3;
 export const MOORED_CLEAR_COST = 3;
+/**
+ * Boats keep off the bare shore: water whose middle lies nearer the land's
+ * edge than SHORE_NEAR tiles (the tile beside it) costs routes this much
+ * more than open water, and nearer than SHORE_CLOSE (two tiles out) this much.
+ */
+export const SHORE_NEAR = 0.8;
+export const SHORE_NEAR_COST = 3;
+export const SHORE_CLOSE = 1.6;
+export const SHORE_CLOSE_COST = 1;
 
 // The town that grows up around the port. See town.ts.
 export const TOWN_START = 40; // people in the fishing village when the port opens

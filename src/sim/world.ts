@@ -6986,8 +6986,9 @@ export class World {
   /**
    * For each tile of water, what a route pays over open water for passing
    * this close to the corner of a jetty or quay: its end, say, with water
-   * on two sides of it that meet. Not the water along a dock, nor in a
-   * corner between two, nor off the bare shore. Derived from the map, so
+   * on two sides of it that meet; or this close to the bare shore, which
+   * boats keep a tile or two off rather than brush along. Not the water
+   * along a dock, nor in a corner between two. Derived from the map, so
    * not saved.
    */
   private cornerRing(): Float32Array {
@@ -7018,6 +7019,32 @@ export class World {
             out[j] = Math.max(out[j], c);
           }
         }
+      }
+    }
+    // Off the bare shore: land with no dock on it, by how near its edge is.
+    const shore = (x: number, y: number) => {
+      if (!m.inBounds(x, y)) return false;
+      const i = m.idx(x, y);
+      return m.isLand(i) && !isDock(m.build[i]);
+    };
+    const reach = Math.ceil(B.SHORE_CLOSE);
+    for (let y = 0; y < m.h; y++) {
+      for (let x = 0; x < m.w; x++) {
+        if (!water(x, y)) continue;
+        let d = Infinity;
+        for (let dy = -reach; dy <= reach; dy++) {
+          for (let dx = -reach; dx <= reach; dx++) {
+            if (!shore(x + dx, y + dy)) continue;
+            // From the middle of this tile to the nearest edge of that one.
+            d = Math.min(
+              d,
+              Math.hypot(Math.max(0, Math.abs(dx) - 0.5), Math.max(0, Math.abs(dy) - 0.5)),
+            );
+          }
+        }
+        const c = d < B.SHORE_NEAR ? B.SHORE_NEAR_COST : d < B.SHORE_CLOSE ? B.SHORE_CLOSE_COST : 0;
+        const j = m.idx(x, y);
+        out[j] = Math.max(out[j], c);
       }
     }
     return (this.ringCache = out);
