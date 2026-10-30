@@ -460,7 +460,12 @@ export class Input {
     let error: string | null = null;
     let note: string | undefined;
     let arrow: { at: number; facing: number } | null = null;
-    if (t === 'oneWay') {
+    if (t === 'oneWay' && map.build[i] === Build.Parking) {
+      // Truck parking: its lot turned round, free.
+      shown = [i];
+      ok = [true];
+      note = 'Click to turn this parking round, for trucks to drive through it the other way';
+    } else if (t === 'oneWay') {
       shown = tiles;
       ok = tiles.map((k) => !oneWayError(map, k));
       const count = ok.filter(Boolean).length;

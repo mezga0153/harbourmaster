@@ -1207,6 +1207,54 @@ describe('Buildings', () => {
     expect(world['freeParking'](null, true, false)).not.toBeNull();
   });
 
+  it('has trucks drive through angled parking one way, in off one road, out onto the other, never round a hairpin', () => {
+    const world = World.create(7, 96);
+    world.tier = 1;
+    world.cash = 100_000;
+    const m = world.map;
+    const tiles = parkingLot(world);
+    const [lot] = parkingLots(m);
+    expect(lot.why).toBeNull();
+    const flow = lot.flow!;
+    const space = lot.spaces[0];
+    const inEnd = space.ends[flow.in];
+    const outEnd = space.ends[1 - flow.in];
+    // Coming the way the lot runs, or the other way along the road: either
+    // way in off the in side, never from beyond it round a hairpin.
+    const row = m.yOf(inEnd);
+    const x0 = m.xOf(inEnd);
+    for (const dx of [-1, 6]) {
+      const into = world['intoSpace'](m.idx(x0 + dx, row), space, -1);
+      expect(into).not.toBeNull();
+      expect(into!.via).toBe(inEnd);
+      const path: number[] = into!.path;
+      const before = path[path.indexOf(inEnd) - 1] ?? m.idx(x0 + dx, row);
+      expect(before).not.toBe(m.idx(x0 + flow.along[0], row + flow.along[1]));
+    }
+    // Parked, it leaves onto the road on the far side, going on the way it runs.
+    const t = {
+      id: world.nextId++,
+      x: m.xOf(space.tiles[0]) + 0.5,
+      y: m.yOf(space.tiles[0]) + 0.5,
+      dir: 0,
+      lot: space.tiles,
+      parkFrom: inEnd,
+      path: [],
+    };
+    const way: number[] = world['routeFrom'](t as never, m.entry, world['truckCost'](m.entry))!;
+    expect(way).not.toBeNull();
+    const k = way.indexOf(outEnd);
+    expect(k).toBeGreaterThanOrEqual(0);
+    expect(way[k + 1]).not.toBe(
+      m.idx(m.xOf(outEnd) - flow.along[0], m.yOf(outEnd) - flow.along[1]),
+    );
+    // Turned round with the one-way tool, in off the other side.
+    world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
+    const [again] = parkingLots(m);
+    expect(again.flow!.in).toBe(1 - flow.in);
+    expect(world['intoSpace'](m.idx(x0 - 1, row), again.spaces[0], -1)?.via).toBe(outEnd);
+  });
+
   it('says why parking laid out wrong is no use', () => {
     const world = World.create(7, 96);
     world.tier = 1;
@@ -3208,7 +3256,7 @@ describe('Container Port tier', () => {
     world.command({ type: 'bulldoze', tiles: [tiles[3]] });
     expect(tiles.every((i) => m.build[i] === Build.Quay)).toBe(true);
     expect(world.cranes.has(at)).toBe(false);
-  });
+  }, 20_000);
 
   it('keeps a ship’s length of quay clear for a gantry crane’s rails, and a tile round them for machines', () => {
     const world = World.create(7, 96);

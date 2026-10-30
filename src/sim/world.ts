@@ -134,6 +134,7 @@ import {
   liftMarks,
   ON_PORT_ROAD,
   roadUnderParking,
+  PARK_FLIP,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -1303,6 +1304,8 @@ export class World {
     else if (s.town) world.relay({ ...s.town });
     // The town's trucks drive to it off the highway now, not round past the map.
     if (world.town) world.town.gate = -1;
+    // Parked trucks stand the way their lot's spaces lean, as it now runs one way.
+    for (const t of world.trucks) if (t.state === 'parked' && t.lot) world.parkUp(t);
     world.rebuildStores();
     return world;
   }
@@ -1656,6 +1659,20 @@ export class World {
    */
   private markOneWay(tiles: number[], on: boolean): void {
     const m = this.map;
+    // Truck parking picked: its lot turned round, to run the other way.
+    const lots = new Set(
+      tiles.filter((i) => m.build[i] === Build.Parking).map((i) => this.lotOf(i)),
+    );
+    for (const lot of lots) {
+      if (!lot) continue;
+      for (const t of lot.tiles) {
+        m.orient[t] ^= PARK_FLIP;
+        this.dirty.add(t);
+      }
+    }
+    if (lots.size > 0) this.lotsCache = null;
+    tiles = tiles.filter((i) => m.build[i] !== Build.Parking);
+    if (tiles.length === 0) return;
     if (this.tier < B.ONE_WAY_TIER) {
       return this.message(`One-way roads unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
     }
@@ -10620,6 +10637,11 @@ export class World {
     return this.lotsCache;
   }
 
+  /** The lot of parking tile `i` is in, if any. */
+  private lotOf(i: number): ParkingLot | undefined {
+    return this.parkingLots().find((l) => l.tiles.includes(i));
+  }
+
   /**
    * Why a lot is no use to the trucks: badly laid out, or out of their
    * reach; null when it works.
@@ -10649,7 +10671,7 @@ export class World {
       for (const space of lot.spaces) {
         const [a, b] = space.ends;
         // In from one road and out onto the other: both must lead somewhere.
-        if (taken.has(space.tiles[0]) || reach[a] < 0 || reach[b] < 0) continue;
+        if (!space.ok || taken.has(space.tiles[0]) || reach[a] < 0 || reach[b] < 0) continue;
         const d = bay ? this.distTo(space.tiles[0], bay) : Math.min(reach[a], reach[b]);
         if (d < bestD) {
           bestD = d;
@@ -10671,15 +10693,21 @@ export class World {
     target: number,
   ): { path: number[]; via: number } | null {
     const m = this.map;
-    const cost = truckCost(m, target, -1, new Set(space.tiles));
-    let best: { path: number[]; via: number } | null = null;
-    for (const [k, end] of space.ends.entries()) {
-      const way = this.drivePath(from, -1, end, cost);
-      if (!way || (best && way.length >= best.path.length - 1)) continue;
-      const first = k === 0 ? space.tiles[0] : space.tiles[space.tiles.length - 1];
-      best = { path: [...way, first], via: end };
-    }
-    return best;
+    const base = truckCost(m, target, -1, new Set(space.tiles));
+    const flow = this.lotOf(space.tiles[0])?.flow;
+    if (!flow) return null;
+    // In off the road on the lot's in side only, coming the way it runs or
+    // straight at it: never round a hairpin into a space leaning the other way.
+    const end = space.ends[flow.in];
+    const wrong = m.idx(m.xOf(end) + flow.along[0], m.yOf(end) + flow.along[1]);
+    // Up to it by the road, never through the space itself the wrong way.
+    const own = new Set(space.tiles);
+    const cost: CostFn = (i, f) =>
+      own.has(i) || (i === end && f === wrong) ? Infinity : base(i, f);
+    const way = this.drivePath(from, -1, end, cost);
+    if (!way) return null;
+    const first = flow.in === 0 ? space.tiles[0] : space.tiles[space.tiles.length - 1];
+    return { path: [...way, first], via: end };
   }
 
   /** Parked: stand across the middle of the space, at an angle, nose to the far side. */
@@ -10688,6 +10716,12 @@ export class World {
     const tiles = t.lot ?? [this.tileOf(t)];
     t.x = tiles.reduce((n, i) => n + m.xOf(i) + 0.5, 0) / tiles.length;
     t.y = tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length;
+    // Leaning the way its lot runs, as its spaces are painted.
+    const flow = this.lotOf(tiles[0])?.flow;
+    if (flow) {
+      t.dir = Math.atan2(flow.along[1] + flow.across[1], flow.along[0] + flow.across[0]);
+      return;
+    }
     const from = t.parkFrom ?? this.tileOf(t);
     const ahead = Math.atan2(t.y - (m.yOf(from) + 0.5), t.x - (m.xOf(from) + 0.5));
     t.dir = ahead + Math.PI / 4;
@@ -10787,6 +10821,14 @@ export class World {
         const exit = fromA ? space.ends[1] : space.ends[0];
         prefix = [...order.slice(order.indexOf(here) + 1), exit];
         from = exit;
+        // Out onto the road going on the way the lot runs, never back round.
+        const flow = this.lotOf(lot[0])?.flow;
+        if (flow) {
+          const m = this.map;
+          const back = m.idx(m.xOf(exit) - flow.along[0], m.yOf(exit) - flow.along[1]);
+          const base = cost;
+          cost = (i, f) => (f === exit && i === back ? Infinity : base(i, f));
+        }
       }
     }
     if (from === goal) return prefix;

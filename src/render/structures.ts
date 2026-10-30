@@ -10,7 +10,15 @@ import {
 } from 'three';
 import type { BayView, CraneView, HandAt, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, liftMarks, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
+import {
+  EXTENSION,
+  FACING,
+  liftMarks,
+  machinesOnly,
+  ON_QUAY,
+  parkingLots,
+  type ParkingFlow,
+} from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import {
@@ -460,9 +468,17 @@ export class Structures {
   }
 
   /** Each parking tile's lot: inside the port or out, and whether its spaces run across x. */
-  private lots: Map<number, { inside: boolean; acrossX: boolean; wide: boolean }> | null = null;
+  private lots: Map<
+    number,
+    { inside: boolean; acrossX: boolean; wide: boolean; flow?: ParkingFlow | null }
+  > | null = null;
 
-  private lotAt(i: number): { inside: boolean; acrossX: boolean; wide: boolean } {
+  private lotAt(i: number): {
+    inside: boolean;
+    acrossX: boolean;
+    wide: boolean;
+    flow?: ParkingFlow | null;
+  } {
     if (!this.lots) {
       const m = this.map;
       this.lots = new Map();
@@ -480,7 +496,8 @@ export class Structures {
           : !near.some((b) => isPublicRoad(b)) &&
             near.some((b) => b === Build.PortRoad || b === Build.Quay);
         const wide = space ? space.tiles.length === 2 : Math.min(w, h) === 2;
-        for (const t of lot.tiles) this.lots.set(t, { inside, acrossX, wide });
+        const flow = lot.flow;
+        for (const t of lot.tiles) this.lots.set(t, { inside, acrossX, wide, flow });
       }
     }
     return this.lots.get(i) ?? { inside: false, acrossX: false, wide: false };
@@ -1775,26 +1792,42 @@ export class Structures {
         // truck stands across the middle of its tile, so the lines run through
         // the tile's edges: each tile draws the half of each line inside it,
         // and the lines stop at the ends of the lot, off the roads.
-        const { inside, acrossX, wide } = this.lotAt(i);
+        const { inside, acrossX, wide, flow } = this.lotAt(i);
         const y = inside ? QUAY_Y : top + 0.05;
         g.add(box(1, y - top, 1, inside ? C.quayTop : C.asphalt, 0.5, top, 0.5));
+        // The spaces lean the way trucks drive through the lot: between the
+        // way along it and the way across it, in off one road, out onto the other.
+        const lean = flow
+          ? [flow.along[0] + flow.across[0], flow.along[1] + flow.across[1]]
+          : acrossX
+            ? [1, 1]
+            : [1, -1];
+        const vx = lean[0] * Math.SQRT1_2;
+        const vz = lean[1] * Math.SQRT1_2;
+        const turn = Math.atan2(-vz, vx);
+        // Which way through it, painted on it.
+        if (flow) {
+          const facing = FACING.findIndex(
+            ([fx, fy]) => fx === flow.across[0] && fy === flow.across[1],
+          );
+          if (facing >= 0) roadArrow(g, y, facing, 0.55);
+        }
         // Two tiles wide, a truck stands across the middle of both, where
         // the corners of the tiles meet: the lines between the spaces run
         // corner to corner across each tile, joining up across the strip.
         if (wide) {
           const line = box(1.3, 0.008, 0.035, C.marking, 0.5, y, 0.5);
-          line.rotation.y = acrossX ? -Math.PI / 4 : Math.PI / 4;
+          line.rotation.y = turn;
           g.add(line);
           return g;
         }
         // Along the lines, which run with the parked trucks.
-        const [vx, vz] = acrossX ? [Math.SQRT1_2, Math.SQRT1_2] : [Math.SQRT1_2, -Math.SQRT1_2];
         for (const o of [0, 1]) {
           const [px, pz] = acrossX ? [0.5, o] : [o, 0.5];
           // Into this tile from its edge.
-          const k = (o === 0 ? 1 : -1) * 0.31;
+          const k = (o === 0 ? 1 : -1) * 0.31 * Math.sign(acrossX ? vz : vx);
           const half = box(0.62, 0.008, 0.035, C.marking, px + vx * k, y, pz + vz * k);
-          half.rotation.y = acrossX ? -Math.PI / 4 : Math.PI / 4;
+          half.rotation.y = turn;
           g.add(half);
         }
         return g;
@@ -2958,9 +2991,10 @@ function turn(obj: Object3D, orient: number): Object3D {
  * An arrow painted on a road, the way traffic goes on it (a facing, see
  * FACING): a shaft and a head, flat on the tarmac at height `y`.
  */
-function roadArrow(g: Group, y: number, facing: number): void {
+function roadArrow(g: Group, y: number, facing: number, scale = 1): void {
   const [dx, dy] = FACING[facing & 3];
   const arrow = new Group();
+  arrow.scale.setScalar(scale);
   arrow.add(box(0.07, 0.008, 0.36, C.marking, 0, 0, -0.06));
   // The head: two strokes back from the tip, either side of the shaft.
   for (const side of [-1, 1]) {

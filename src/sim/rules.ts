@@ -1209,7 +1209,28 @@ export function loadingSpots(map: GameMap, tiles: number[], reach: Int32Array): 
 export interface ParkingSpace {
   tiles: number[];
   ends: [number, number];
+  /**
+   * Whether a truck can turn into it off the road on the lot's in side,
+   * coming the way it runs, and out onto the road on its out side, going on
+   * that way: see ParkingLot.flow.
+   */
+  ok: boolean;
 }
+
+/**
+ * Which way trucks go through a lot of angled parking, for the angle the
+ * spaces lean at: in off the road on `ends[in]` of each space, driving
+ * along it `along`, and out onto the road on the other side, going on the
+ * same way. The spaces lean the way between `along` and across the lot.
+ */
+export interface ParkingFlow {
+  in: 0 | 1;
+  along: [number, number];
+  across: [number, number];
+}
+
+/** On a parking tile, in `GameMap.orient`: its lot runs the other way round from the usual. */
+export const PARK_FLIP = 32;
 
 /** A run of truck parking, and why it is no use, if it is not. */
 export interface ParkingLot {
@@ -1220,6 +1241,8 @@ export interface ParkingLot {
   /** Two tiles wide, with room for the big trucks. */
   wide: boolean;
   why: string | null;
+  /** Which way trucks drive through it, once laid out right. */
+  flow: ParkingFlow | null;
 }
 
 /**
@@ -1259,7 +1282,14 @@ export function parkingLots(map: GameMap): ParkingLot[] {
     const y0 = Math.min(...ys);
     const w = Math.max(...xs) - x0 + 1;
     const h = Math.max(...ys) - y0 + 1;
-    const lot: ParkingLot = { tiles, spaces: [], outside: false, wide: false, why: null };
+    const lot: ParkingLot = {
+      tiles,
+      spaces: [],
+      outside: false,
+      wide: false,
+      why: null,
+      flow: null,
+    };
     lots.push(lot);
     if (tiles.length !== w * h || Math.min(w, h) > 2) {
       lot.why = 'Parking is a straight strip, one or two tiles wide';
@@ -1288,7 +1318,7 @@ export function parkingLots(map: GameMap): ParkingLot[] {
         const ends: [number, number] = [off(a, -1), off(a, across)];
         kinds.add(roadKind(ends[0]));
         kinds.add(roadKind(ends[1]));
-        spaces.push({ tiles: span, ends });
+        spaces.push({ tiles: span, ends, ok: false });
       }
       if (kinds.has(null)) {
         why ??=
@@ -1303,12 +1333,49 @@ export function parkingLots(map: GameMap): ParkingLot[] {
       lot.spaces = spaces;
       lot.outside = kinds.has('road');
       lot.wide = across === 2;
-      why = null;
+      lot.flow = parkingFlow(map, tiles, acrossY);
+      // Each space is turned into off the road coming the way the lot runs,
+      // from along the road or straight at it, and out onto the far road
+      // going on that way: never round a hairpin.
+      const { in: k, along: f, across: c } = lot.flow;
+      const kind = roadKind(spaces[0].ends[0]);
+      const step = (i: number, dx: number, dy: number) => {
+        const x = map.xOf(i) + dx;
+        const y = map.yOf(i) + dy;
+        return map.inBounds(x, y) ? map.idx(x, y) : -1;
+      };
+      for (const s of spaces) {
+        const e = s.ends[k];
+        const o = s.ends[1 - k];
+        const into = [step(e, -f[0], -f[1]), step(e, -c[0], -c[1])];
+        const onto = [step(o, f[0], f[1]), step(o, c[0], c[1])];
+        s.ok = into.some((t) => roadKind(t) === kind) && onto.some((t) => roadKind(t) === kind);
+      }
+      why = spaces.some((s) => s.ok)
+        ? null
+        : 'Trucks drive through it the way its arrows show, turning in off the road and on again: carry the roads on past its ends';
       break;
     }
     lot.why = why;
   }
   return lots;
+}
+
+/**
+ * Which way trucks go through a lot of parking across `acrossY` (or across
+ * x): in off whichever side road has the lot on its right, keeping right,
+ * so trucks turn in without crossing the traffic coming the other way, and
+ * out the other side. Flipped (PARK_FLIP on its tiles), in off the other.
+ */
+export function parkingFlow(map: GameMap, tiles: number[], acrossY: boolean): ParkingFlow {
+  const flipped = tiles.some((t) => map.orient[t] & PARK_FLIP);
+  const k: 0 | 1 = flipped ? 1 : 0;
+  // From the side road on `ends[0]` (the low side) into the lot, or back.
+  const base: [number, number] = acrossY ? [0, 1] : [1, 0];
+  const across: [number, number] = k === 0 ? base : [-base[0], -base[1]];
+  // Driving `along` the road, the lot is on the right: the way whose right is `across`.
+  const along: [number, number] = [across[1], -across[0]];
+  return { in: k, along, across };
 }
 
 /** Whether a truck needs a space two tiles wide: the big trucks, and those with two containers. */
