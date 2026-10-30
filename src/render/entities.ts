@@ -1531,8 +1531,6 @@ export class Entities {
     if (slots.length < 2) return;
     root.updateMatrixWorld(true);
     const at = slots.map((c) => c.getWorldPosition(new Vector3()));
-    const far = (from: (p: Vector3) => number) =>
-      slots.map((_, k) => k).sort((a, b) => from(at[b]) - from(at[a]));
     if (v.kind === 'truck') {
       const m = this.map;
       const [tx, tz] = [Math.floor(v.x), Math.floor(v.y)];
@@ -1540,10 +1538,22 @@ export class Entities {
         !v.moving && m.inBounds(tx, tz) && m.build[m.idx(tx, tz)] === Build.TruckBay
           ? this.bayFrame(m.idx(tx, tz))
           : null;
-      if (bay && v.load === 0 && e.orderAt !== 'bay') {
-        // In a truck bay: from where those who load it stand.
+      if (bay && e.orderAt !== 'bay') {
+        // In a truck bay: from where those who load it stand. Where its
+        // places are as the game has it stand there, which it may not quite
+        // show yet, a snapshot behind; any crates on it already first.
         const [sx, sz] = bay.at(0.8, 0.42);
-        e.order = far((p) => Math.hypot(p.x - sx, p.z - sz));
+        const [c, s] = [Math.cos(v.dir), Math.sin(v.dir)];
+        const dist = at.map((p) => {
+          const l = root.worldToLocal(p.clone());
+          const x = v.x + l.x * c - l.z * s;
+          const z = v.y + l.x * s + l.z * c;
+          return Math.hypot(x - sx, z - sz);
+        });
+        const byFar = (a: number, b: number) => dist[b] - dist[a];
+        const keys = slots.map((_, k) => k);
+        const on = keys.filter((k) => slots[k].visible);
+        e.order = [...on.sort(byFar), ...keys.filter((k) => !slots[k].visible).sort(byFar)];
         e.orderAt = 'bay';
       } else if (!e.order) {
         // Cab first, the cab ahead (+x) of its middle.
