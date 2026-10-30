@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Harbourmaster sound lab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1a24;
+        --panel: #172533;
+        --line: #2a3d4f;
+        --text: #e6eef5;
+        --text-2: #93a7b8;
+        --accent: #f2b84b;
+      }
+      body {
+        margin: 0;
+        padding: 24px 16px 48px;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.45 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 22px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-2);
+        margin: 0 0 10px;
+      }
+      p.lead {
+        color: var(--text-2);
+        margin: 0 0 20px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px 16px 16px;
+        margin-bottom: 14px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      button {
+        background: #22364a;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 8px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      button.on {
+        background: var(--accent);
+        color: #1b1405;
+        border-color: var(--accent);
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-2);
+      }
+      input[type='range'] {
+        width: 140px;
+      }
+      .engine {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 6px 12px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .engine .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+      small {
+        color: var(--text-2);
+      }
+    </style>
+  </head>
+  <body>
+    <main id="lab"></main>
+    <script type="module" src="/src/audio/lab.ts"></script>
+  </body>
+</html>

@@ -9,15 +9,20 @@ import {
   CueTracker,
   farness,
   hearing,
+  HULLS,
   nearness,
   panOf,
   PER_SECOND,
+  ROAD_ENGINES,
+  VESSEL_SIZE,
   waterNear,
   type Cue,
   type CueKind,
+  type Hull,
   type Listener,
+  type RoadEngine,
 } from './mix';
-import { Synth, type Loop } from './synth';
+import { roadPitch, Synth, type Loop } from './synth';
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
 // afar, wind and the sea; zoomed in, the particular sounds of what is in
@@ -66,6 +71,10 @@ const LEVEL: Record<CueKind, number> = {
 /** Sounds of the work itself, which fade as the view pulls back; horns carry regardless. */
 const NEAR_ONLY: ReadonlySet<CueKind> = new Set(['clank', 'thunk', 'beep', 'hiss']);
 
+/** How loud each bed of engines is at most. */
+const ROAD_LEVEL: Record<RoadEngine, number> = { truck: 0.34, tractor: 0.3, stacker: 0.34 };
+const SHIP_LEVEL: Record<Hull, number> = { smack: 0.16, tug: 0.22, coaster: 0.3, feeder: 0.42 };
+
 const UPDATE_MS = 100;
 
 interface Beds {
@@ -73,7 +82,8 @@ interface Beds {
   wind: Loop;
   wash: Loop;
   lap: Loop;
-  diesel: Loop;
+  road: Record<RoadEngine, Loop>;
+  ships: Record<Hull, Loop>;
   electric: Loop;
   winch: Loop;
   rumble: Loop;
@@ -141,7 +151,17 @@ export class Soundscape {
         wind: this.synth.wind(),
         wash: sea.wash,
         lap: sea.lap,
-        diesel: this.synth.diesel(),
+        road: {
+          truck: this.synth.roadEngine('truck'),
+          tractor: this.synth.roadEngine('tractor'),
+          stacker: this.synth.roadEngine('stacker'),
+        },
+        ships: {
+          smack: this.synth.shipEngine('smack'),
+          tug: this.synth.shipEngine('tug'),
+          coaster: this.synth.shipEngine('coaster'),
+          feeder: this.synth.shipEngine('feeder'),
+        },
         electric: this.synth.electric(),
         winch: this.synth.winch(),
         rumble: this.synth.rumble(),
@@ -173,9 +193,13 @@ export class Soundscape {
     const zoom = Math.sqrt(Math.min(1, 14 / l.viewSize));
     const heard = cues
       .map((c) => {
-        const range = hearing(l) * CARRY[c.kind];
+        // The bigger the ship, the louder and further its horn carries.
+        const size = c.vessel !== undefined ? (VESSEL_SIZE[c.vessel] ?? 0.5) : 0.5;
+        const big = c.kind === 'horn' || c.kind === 'toot' ? 0.6 + 0.8 * size : 1;
+        const range = hearing(l) * CARRY[c.kind] * big;
         const a = attenuate(l, c.x, c.y, range);
-        const gain = LEVEL[c.kind] * a * (NEAR_ONLY.has(c.kind) ? near * zoom : 0.6 + 0.4 * near);
+        const gain =
+          LEVEL[c.kind] * a * (NEAR_ONLY.has(c.kind) ? near * zoom : (0.6 + 0.4 * near) * big);
         const off = Math.hypot(c.x - l.x, c.y - l.y) / range;
         return { c, gain, pan: panOf(l, c.x, c.y, range), far: Math.min(1, far * 0.7 + off * 0.6) };
       })
@@ -186,7 +210,7 @@ export class Soundscape {
       this.tokens[h.c.kind]--;
       switch (h.c.kind) {
         case 'clank':
-          s.clank(h.gain, h.pan, h.far);
+          s.clank(h.gain, h.pan, h.far, h.c.onTruck);
           break;
         case 'thunk':
           s.thunk(h.gain, h.pan, h.far);
@@ -198,10 +222,8 @@ export class Soundscape {
           s.hiss(h.gain, h.pan, h.far);
           break;
         case 'horn':
-          s.horn(h.gain, h.pan, h.far, h.c.vessel);
-          break;
         case 'toot':
-          s.toot(h.gain, h.pan, h.far);
+          s.horn(h.gain, h.pan, h.far, VESSEL_SIZE[h.c.vessel ?? ''] ?? 0.2);
           break;
         case 'trainHorn':
           s.trainHorn(h.gain, h.pan, h.far);
@@ -239,13 +261,24 @@ export class Soundscape {
     // Waves slap the quay walls in fits and starts.
     set(b.lap, water * near * 0.3 * (0.2 + Math.random() * 0.8), 0, 0.15);
     const work = running ? near * zoom : 0;
-    set(b.diesel, mix.diesel.gain * work * 0.38, mix.diesel.pan);
-    for (const p of b.diesel.pitch ?? []) {
-      p.setTargetAtTime(
-        (p === b.diesel.pitch![0] ? 31 : 62.4) * (1 + 0.25 * mix.diesel.gain),
-        t,
-        0.6,
-      );
+    // Each kind of land diesel on its own note, deeper the bigger the
+    // vehicles heard, revving up a little as more of them get going.
+    for (const kind of ROAD_ENGINES) {
+      const e = mix.diesels[kind];
+      const loop = b.road[kind];
+      set(loop, e.gain * work * ROAD_LEVEL[kind], e.pan);
+      const f = roadPitch(kind, e.size) * (1 + 0.15 * e.gain);
+      const [a, h, chug, knock] = loop.pitch!;
+      a.setTargetAtTime(f, t, 0.6);
+      h.setTargetAtTime(f * 2.007, t, 0.6);
+      chug.setTargetAtTime(f / 2.3, t, 0.6);
+      knock.setTargetAtTime(f * 0.45, t, 0.6);
+    }
+    // Ships' engines under way: the big ones still heard from further out.
+    for (const hull of HULLS) {
+      const e = mix.ships[hull];
+      const reach = work + (hull === 'feeder' ? 0.35 : hull === 'coaster' ? 0.15 : 0) * far;
+      set(b.ships[hull], running ? e.gain * Math.min(1, reach) * SHIP_LEVEL[hull] : 0, e.pan, 0.6);
     }
     set(b.electric, mix.electric.gain * work * 0.06, mix.electric.pan);
     set(b.winch, mix.winch.gain * work * 0.26, mix.winch.pan);

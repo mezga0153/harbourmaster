@@ -55,9 +55,47 @@ export interface Source {
   pan: number;
 }
 
+/** A bed of engines of one kind: how loud, where, and how big those heard are, 0 to 1, for their pitch. */
+export interface Engines extends Source {
+  size: number;
+}
+
+/** The diesels on land, each with a sound of its own. */
+export type RoadEngine = 'truck' | 'tractor' | 'stacker';
+export const ROAD_ENGINES: RoadEngine[] = ['truck', 'tractor', 'stacker'];
+
+/** The ships, by hull: each kind's engines beat differently. */
+export type Hull = 'smack' | 'tug' | 'coaster' | 'feeder';
+export const HULLS: Hull[] = ['smack', 'tug', 'coaster', 'feeder'];
+
+/**
+ * How big each vessel is to the ear, 0 to 1: the bigger, the deeper its
+ * engines and its horn, and the further they carry.
+ */
+export const VESSEL_SIZE: Record<string, number> = {
+  smack: 0.1,
+  tug: 0.35,
+  coaster: 0.55,
+  feeder: 1,
+};
+
+/** How far a ship's engines carry, as a share of the hearing range. */
+const HULL_CARRY: Record<Hull, number> = { smack: 0.8, tug: 1, coaster: 1.25, feeder: 1.7 };
+
+/**
+ * How big a truck is to the ear, 0 to 1: a crate truck, a bigger one, a
+ * container truck with one box, with two.
+ */
+export function truckSize(e: Pick<EntityView, 'boxes' | 'capacity'>): number {
+  if (e.boxes) return e.capacity >= 2 ? 1 : 0.75;
+  return e.capacity >= 8 ? 0.5 : 0.3;
+}
+
 export interface Bed {
-  /** Diesel trucks, tractors and reach stackers driving about. */
-  diesel: Source;
+  /** Trucks, terminal tractors and reach stackers driving about, each kind its own. */
+  diesels: Record<RoadEngine, Engines>;
+  /** Ships' engines under way, by hull. */
+  ships: Record<Hull, Source>;
   /** Forklifts' electric whine. */
   electric: Source;
   /** Cranes' winches lifting. */
@@ -69,6 +107,13 @@ export interface Bed {
 }
 
 const DIESEL: Partial<Record<EntityView['kind'], number>> = { truck: 1, tractor: 0.8, stacker: 1 };
+
+/** Like gather, with how big the sources are on average, by how loud each is. */
+function gatherEngines(parts: { w: number; pan: number; size: number }[], each: number): Engines {
+  const total = parts.reduce((n, p) => n + p.w, 0);
+  const size = total > 0 ? parts.reduce((n, p) => n + p.w * p.size, 0) / total : 0.5;
+  return { ...gather(parts, each), size };
+}
 
 /** Tile centre of a tile index. */
 const at = (idx: number, w: number) => ({ x: (idx % w) + 0.5, y: Math.floor(idx / w) + 0.5 });
@@ -82,7 +127,17 @@ function gather(parts: { w: number; pan: number }[], each: number): Source {
 }
 
 export function bed(s: Snapshot, l: Listener, w: number, trainX: number): Bed {
-  const diesel: { w: number; pan: number }[] = [];
+  const diesels: Record<RoadEngine, { w: number; pan: number; size: number }[]> = {
+    truck: [],
+    tractor: [],
+    stacker: [],
+  };
+  const ships: Record<Hull, { w: number; pan: number }[]> = {
+    smack: [],
+    tug: [],
+    coaster: [],
+    feeder: [],
+  };
   const electric: { w: number; pan: number }[] = [];
   const winch: { w: number; pan: number }[] = [];
   let busy = 0;
@@ -91,12 +146,20 @@ export function bed(s: Snapshot, l: Listener, w: number, trainX: number): Bed {
     if (!working) continue;
     if (e.kind !== 'boat' && e.kind !== 'dockhand') busy += e.kind === 'truck' ? 0.5 : 1;
     if (e.kind === 'boat') busy += 0.5;
+    const hull = e.kind === 'boat' ? (e.vessel as Hull) : undefined;
+    if (hull && e.moving && HULL_CARRY[hull]) {
+      const range = hearing(l) * HULL_CARRY[hull];
+      const a = attenuate(l, e.x, e.y, range);
+      if (a > 0) ships[hull].push({ w: a, pan: panOf(l, e.x, e.y, range) });
+    }
     const near = attenuate(l, e.x, e.y);
     if (near <= 0) continue;
     const pan = panOf(l, e.x, e.y);
     const d = DIESEL[e.kind];
-    if (d) diesel.push({ w: near * d * (e.moving ? 1 : 0.5), pan });
-    else if (e.kind === 'forklift') electric.push({ w: near, pan });
+    if (d) {
+      const size = e.kind === 'truck' ? truckSize(e) : e.kind === 'stacker' ? 0.8 : 0.5;
+      diesels[e.kind as RoadEngine].push({ w: near * d * (e.moving ? 1 : 0.5), pan, size });
+    } else if (e.kind === 'forklift') electric.push({ w: near, pan });
   }
   for (const c of s.cranes) {
     const lifting = c.working !== undefined || c.busy;
@@ -115,7 +178,17 @@ export function bed(s: Snapshot, l: Listener, w: number, trainX: number): Bed {
     };
   }
   return {
-    diesel: gather(diesel, 0.7),
+    diesels: {
+      truck: gatherEngines(diesels.truck, 0.7),
+      tractor: gatherEngines(diesels.tractor, 0.7),
+      stacker: gatherEngines(diesels.stacker, 0.7),
+    },
+    ships: {
+      smack: gather(ships.smack, 0.9),
+      tug: gather(ships.tug, 0.9),
+      coaster: gather(ships.coaster, 0.9),
+      feeder: gather(ships.feeder, 0.9),
+    },
     electric: gather(electric, 0.8),
     winch: gather(winch, 0.9),
     train,
@@ -150,11 +223,14 @@ export interface Cue {
   y: number;
   /** Horns: the ship sounding it, for its pitch. */
   vessel?: string;
+  /** A container set down on a truck or tractor's trailer, rather than on the ground or a stack. */
+  onTruck?: boolean;
 }
 
 interface Seen {
   moving: boolean;
   hand?: string;
+  handTruck?: boolean;
   phase: number;
   handling?: number;
   activity: string;
@@ -187,6 +263,7 @@ export class CueTracker {
       const now: Seen = {
         moving: e.moving,
         hand: e.handStage,
+        handTruck: e.handAt?.truck !== undefined,
         phase: e.handPhase ?? 0,
         handling: e.handling,
         activity: e.activity,
@@ -197,7 +274,7 @@ export class CueTracker {
       const here = { x: e.x, y: e.y };
       // A container changes hands as a machine's lift ends.
       if (was.hand && (now.hand !== was.hand || now.phase < was.phase)) {
-        out.push({ kind: 'clank', ...here });
+        out.push({ kind: 'clank', ...here, onTruck: was.hand === 'drop' && was.handTruck });
       }
       // A crate or pallet put down or picked up.
       if (

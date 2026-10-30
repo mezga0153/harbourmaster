@@ -62,8 +62,29 @@ describe('The beds', () => {
   it('runs the diesels for trucks driving in view, not out of it', () => {
     const near = bed(snap([ent({ id: 1, kind: 'truck', moving: true })]), L, 100, -1);
     const far = bed(snap([ent({ id: 1, kind: 'truck', moving: true, x: 200 })]), L, 100, -1);
-    expect(near.diesel.gain).toBeGreaterThan(0.3);
-    expect(far.diesel.gain).toBe(0);
+    expect(near.diesels.truck.gain).toBeGreaterThan(0.3);
+    expect(far.diesels.truck.gain).toBe(0);
+    expect(near.diesels.tractor.gain).toBe(0);
+  });
+
+  it('hears bigger trucks as bigger, for a deeper note', () => {
+    const at = (capacity: number, boxes: boolean) =>
+      bed(snap([ent({ id: 1, kind: 'truck', moving: true, capacity, boxes })]), L, 100, -1).diesels
+        .truck.size;
+    expect(at(8, false)).toBeGreaterThan(at(6, false));
+    expect(at(1, true)).toBeGreaterThan(at(8, false));
+    expect(at(2, true)).toBeGreaterThan(at(1, true));
+  });
+
+  it("runs ships' engines under way, a feeder heard further off than a fishing boat", () => {
+    const under = (vessel: string, x: number) =>
+      bed(snap([ent({ id: 1, kind: 'boat', vessel, moving: true, x })]), L, 100, -1).ships;
+    expect(under('feeder', 50).feeder.gain).toBeGreaterThan(0.3);
+    expect(under('feeder', 50).smack.gain).toBe(0);
+    expect(under('feeder', 70).feeder.gain).toBeGreaterThan(0);
+    expect(under('smack', 70).smack.gain).toBe(0);
+    const moored = bed(snap([ent({ id: 1, kind: 'boat', vessel: 'coaster' })]), L, 100, -1);
+    expect(moored.ships.coaster.gain).toBe(0);
   });
 
   it('hums quietly for an empty port and loudly for a busy one', () => {
@@ -86,6 +107,20 @@ describe('Cues', () => {
     t.update(snap([ent({ id: 1, kind: 'stacker', handStage: 'drop', handPhase: 0.9 })]), 100, -1);
     const cues = t.update(snap([ent({ id: 1, kind: 'stacker' })]), 100, -1);
     expect(cues.map((c) => c.kind)).toEqual(['clank']);
+    expect(cues[0].onTruck).toBe(false);
+  });
+
+  it('knows a container set down on a truck from one set on a stack', () => {
+    const t = new CueTracker(() => 1);
+    t.update(
+      snap([
+        ent({ id: 1, kind: 'stacker', handStage: 'drop', handPhase: 0.9, handAt: { truck: 7 } }),
+      ]),
+      100,
+      -1,
+    );
+    const cues = t.update(snap([ent({ id: 1, kind: 'stacker' })]), 100, -1);
+    expect(cues.map((c) => [c.kind, c.onTruck])).toEqual([['clank', true]]);
   });
 
   it('thunks as a forklift puts its pallet down', () => {
