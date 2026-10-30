@@ -3783,9 +3783,13 @@ export class World {
     // Held up for good by something lying still ahead, with where it is
     // going behind it, as at the head of a basin: nothing will move out of
     // its way and it cannot come round where it lies. It backs out, swinging
-    // its bow round towards its course, until it is clear to come round.
+    // its bow round towards its course, until it is clear to come round. So
+    // too, getting nowhere pointing away from its course, as in a basin too
+    // narrow for it to turn in.
     if (plan?.out && Math.abs(err) < Math.PI / 6) plan = undefined;
-    if (!plan && way.still && Math.abs(err) > Math.PI / 6 && (b.held ?? 0) > 30) {
+    const boxedIn = way.still && (b.held ?? 0) > 30;
+    const cannotTurn = Math.abs(err) > Math.PI / 2 && (b.stall ?? 0) > B.BOAT_REROUTE_AFTER;
+    if (!plan && Math.abs(err) > Math.PI / 6 && (boxedIn || cannotTurn)) {
       const helm = [Math.sign(err) || 1, 0].find((h) => {
         const n = step({ helm: h, astern: true });
         return fits(n.x, n.y, n.d);
