@@ -202,15 +202,15 @@ export const FORKLIFT_CAPACITY = 4;
 export const FORKLIFT_SPEED = 0.42; // tiles per tick
 export const FORKLIFT_BREAKDOWN = 0.06; // chance per day
 export const REPAIR_TICKS = 240;
-export const REPAIR_COST = 150; // at a depot; a call-out to a broken-down forklift costs double
+export const REPAIR_COST = 112; // at a depot; a call-out to a broken-down forklift costs double
 export const DEPOT_SLOTS = 3; // forklifts housed per depot
 export const FUEL_PER_TICK = 0.05; // used while driving; a full tank lasts about 3 days of work
 export const LOW_FUEL = 25; // heads home to refuel below this
 export const REFUEL_PER_TICK = 2;
-export const FUEL_COST = 60; // for a full tank
+export const FUEL_COST = 45; // for a full tank
 export const PARK_AFTER = 60; // idle ticks before a forklift drives home to park
 export const SELL_SHARE = 0.5;
-export const CRANE_RUNNING_COST = 40; // per day
+export const CRANE_RUNNING_COST = 30; // per day
 export const CRANE_TICKS = 10; // per crate lifted
 export const CRANE_STACK = 10;
 /** Tiles a jib crane reaches round from where it stands, to swing crates straight into storage. */
@@ -249,7 +249,7 @@ export const FAIRWAY_FAR = 5;
 /** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */
 export const TUG_BERTH_COST = 1500;
 export const TUG_PRICE = 6000;
-export const TUG_RUNNING_COST = 60;
+export const TUG_RUNNING_COST = 45;
 export const TUG_DRAFT = 2;
 /** Tugs come with the coasters, which need them first. */
 export const TUG_TIER = 1;
@@ -269,7 +269,7 @@ export const TUG_WAIT = 60;
 export const FEEDER_HALF_BERTH = 3;
 export const HARBOUR_CRANE_TICKS = 50; // per container lifted
 export const HARBOUR_CRANE_STACK = 4;
-export const HARBOUR_CRANE_RUNNING_COST = 150; // per day
+export const HARBOUR_CRANE_RUNNING_COST = 112; // per day
 /**
  * Ship-to-shore gantry crane: quick, and sets containers down in the bay
  * between its legs, where only reach stackers collect them.
@@ -288,10 +288,10 @@ export const GANTRY_RAILS = 6;
  * containers a gantry crane has set down along the quay.
  */
 export const CRANE_STACK_DETOUR = 40;
-export const GANTRY_RUNNING_COST = 300;
+export const GANTRY_RUNNING_COST = 225;
 /** A yard gantry, which loads the trucks at a container yard. */
 export const YARD_GANTRY_COST = 12000;
-export const YARD_GANTRY_RUNNING_COST = 120;
+export const YARD_GANTRY_RUNNING_COST = 90;
 /** Ticks a yard gantry takes to lift a container onto a truck or off one. */
 export const YARD_GANTRY_TICKS = 15;
 export const STACKER_PRICE = 6000;
