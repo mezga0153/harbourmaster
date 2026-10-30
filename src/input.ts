@@ -307,6 +307,11 @@ export class Input {
   }
 
   private selectAt(cx: number, cy: number, at: number | null): void {
+    // A click on the map beside an open panel puts the panel away.
+    if (panel.value) {
+      panel.value = null;
+      return;
+    }
     const map = this.getMap();
     const i = at !== null && map ? anchorOf(map, at) : at;
     // A red mark over something wrong picks that, to say what is wrong.

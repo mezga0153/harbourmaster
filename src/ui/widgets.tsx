@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { Icon } from './icons';
-import { openHandbook, panel } from './store';
+import { openHandbook, panel, selection } from './store';
 
 /** Finance and statistics, one panel apiece behind the cash: a switch between them. */
 export function MoneyTabs({ on }: { on: 'finance' | 'stats' }) {
@@ -21,6 +21,39 @@ export function MoneyTabs({ on }: { on: 'finance' | 'stats' }) {
         onClick={() => (panel.value = 'stats')}
       >
         Statistics
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The port and the town it grows with, one panel apiece: a switch between
+ * them. Switching to the town flies the view over to it, and back.
+ */
+export function PortTownTabs({ on }: { on: 'port' | 'town' }) {
+  return (
+    <div class="segmented money-tabs" role="tablist" aria-label="Port and town">
+      <button
+        role="tab"
+        aria-selected={on === 'port'}
+        class={on === 'port' ? 'on' : ''}
+        onClick={() => {
+          selection.value = null;
+          panel.value = 'port';
+        }}
+      >
+        Port
+      </button>
+      <button
+        role="tab"
+        aria-selected={on === 'town'}
+        class={on === 'town' ? 'on' : ''}
+        onClick={() => {
+          panel.value = null;
+          selection.value = { type: 'town' };
+        }}
+      >
+        Town
       </button>
     </div>
   );
