@@ -9174,7 +9174,10 @@ export class World {
       this.lengthOf(t),
     );
     t.state = 'toBay';
-    if (!to || to.dock === t.goal || to.path.length <= t.path.length) return;
+    // Further along the lane: the same way it is going, straight on past the
+    // spot it was going to; never round another way, nor back round to one.
+    if (!to || to.dock === t.goal || !t.path.every((i, k) => to.path[k] === i)) return;
+    if (to.path.length - t.path.length > this.dist(t.goal, to.dock)) return;
     t.goal = to.dock;
     t.path = to.path;
   }
