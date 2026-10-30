@@ -82,26 +82,60 @@ const PROGRESSIONS = [
 /** Keys to start in: warm, easy ones, as MIDI tonic notes. */
 const KEYS = [60, 62, 65, 67, 58];
 
-/** How the keys play the chord through a bar: onsets and lengths in beats. */
-const COMPING: { at: number; dur: number; arp?: boolean }[][] = [
+/**
+ * How the keys play the chord through a bar: struck together (`notes`
+ * unset), or a note at a time, `notes` saying which of the chord, low to
+ * high. Onsets and lengths in beats.
+ */
+interface Comp {
+  hits: { at: number; dur: number; note?: number }[];
+}
+
+/** Ways to play the chords, under verses. */
+const COMPING: Comp[] = [
+  // Held through the bar.
+  { hits: [{ at: 0, dur: 3.8 }] },
   // Held, with a push on the and of two.
-  [
-    { at: 0, dur: 1.5 },
-    { at: 1.5, dur: 2.5 },
-  ],
+  {
+    hits: [
+      { at: 0, dur: 1.4 },
+      { at: 1.5, dur: 2.4 },
+    ],
+  },
   // On one and three.
-  [
-    { at: 0, dur: 2 },
-    { at: 2, dur: 2 },
-  ],
-  // A lazy offbeat.
-  [
-    { at: 0.5, dur: 1 },
-    { at: 2.5, dur: 1.5 },
-  ],
-  // Rolled up through the chord, an eighth at a time.
-  [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5].map((at) => ({ at, dur: 0.5, arp: true })),
+  {
+    hits: [
+      { at: 0, dur: 1.9 },
+      { at: 2, dur: 1.9 },
+    ],
+  },
+  // Broken up, a note a beat, and left to ring.
+  {
+    hits: [
+      { at: 0, dur: 3.8, note: 0 },
+      { at: 1, dur: 2.8, note: 1 },
+      { at: 2, dur: 1.8, note: 2 },
+      { at: 3, dur: 0.9, note: 1 },
+    ],
+  },
+  // Low, then the top two, gently.
+  {
+    hits: [
+      { at: 0, dur: 1.4, note: 0 },
+      { at: 1, dur: 0.9, note: 2 },
+      { at: 1.5, dur: 1.4, note: 1 },
+      { at: 3, dur: 0.9, note: 2 },
+    ],
+  },
 ];
+
+/** Under the tune: sparser, out of its way. */
+const UNDER_TUNE: Comp[] = [COMPING[0], COMPING[3]];
+
+/** Rolled up and down through the chord an eighth at a time, as on a marimba. */
+const ROLLING: Comp = {
+  hits: [0, 1, 2, 1, 0, 1, 2, 1].map((note, k) => ({ at: k / 2, dur: 0.45, note })),
+};
 
 /** Rhythms for a two-bar melody idea, as onsets and lengths in beats. */
 const MOTIFS: [number, number][][] = [
@@ -201,6 +235,7 @@ export class Composer {
   private progression: number[] = [];
   private bridgeProgression: number[] = [];
   private comp = COMPING[0];
+  private underTune = UNDER_TUNE[0];
   private motif = MOTIFS[0];
   /** The tune's contour: how far up the scale each motif note sits from the last. */
   private shape: number[] = [];
@@ -239,6 +274,7 @@ export class Composer {
       this.bridgeProgression = this.pick(PROGRESSIONS);
     } while (this.bridgeProgression === this.progression);
     this.comp = this.pick(COMPING);
+    this.underTune = this.pick(UNDER_TUNE);
     // A different band from the last tune.
     const last = this.band;
     do {
@@ -246,7 +282,7 @@ export class Composer {
     } while (!first && this.band === last);
     if (this.only) this.band = this.only;
     // The island band's marimba rolls through the chords.
-    if (this.band === 'island') this.comp = COMPING[COMPING.length - 1];
+    if (this.band === 'island') this.comp = this.underTune = ROLLING;
     this.newMotif();
   }
 
@@ -296,42 +332,49 @@ export class Composer {
   }
 
   private keys(notes: Note[], tones: number[], part: Part): void {
-    // Voiced close together round middle C, each chord moving as little as
-    // it can from the last.
-    const pcs = classes(tones);
-    const prev = this.keysVoicing.length > 0 ? this.keysVoicing : [55, 59, 62, 65];
-    const voicing = [...new Set(prev.map((n) => nearest(pcs, n, 52, 74)))];
-    for (const pc of pcs) {
-      if (!voicing.some((n) => n % 12 === pc)) voicing.push(nearest([pc], 64, 52, 74));
+    // The third, fifth and seventh: no root, as the bass has it, and no
+    // ninth. Three notes a third or so apart in any order they come in,
+    // never a cluster of neighbours. Close together below the tune, each
+    // chord moving as little as it can from the last.
+    const shell = classes(tones.slice(1, 4));
+    const from = this.keysVoicing[0] ?? 57;
+    let best: number[] = [];
+    for (let k = 0; k < 3; k++) {
+      const order = [...shell.slice(k), ...shell.slice(0, k)];
+      let low = nearest([order[0]], from, 50, 61);
+      const v = [low];
+      for (const pc of order.slice(1)) {
+        low = nearest([pc], low + 3, low + 1, low + 11);
+        v.push(low);
+      }
+      if (best.length === 0 || Math.abs(v[0] - from) < Math.abs(best[0] - from)) best = v;
     }
-    voicing.sort((a, b) => a - b);
-    this.keysVoicing = voicing.slice(0, 4);
+    this.keysVoicing = best;
     const soft = part === 'intro' || part === 'rest' ? 0.75 : 1;
-    let k = 0;
-    for (const hit of this.comp) {
+    const comp = part === 'tune' || part === 'bridge' ? this.underTune : this.comp;
+    for (const hit of comp.hits) {
       const at = swing(hit.at);
-      if (hit.arp) {
-        const n = this.keysVoicing[k++ % this.keysVoicing.length];
+      if (hit.note !== undefined) {
         notes.push({
           at,
-          dur: 0.9,
-          midi: n,
-          vel: (0.5 + 0.15 * this.random()) * soft,
+          dur: hit.dur,
+          midi: best[hit.note],
+          vel: (0.42 + 0.1 * this.random()) * soft,
           voice: 'keys',
         });
         continue;
       }
-      for (const n of this.keysVoicing) {
-        // Played by hand: never quite all at once.
-        const roll = this.random() * 0.03;
+      best.forEach((n, k) => {
+        // Played by hand: rolled gently up from the bottom, the top note
+        // a touch louder.
         notes.push({
-          at: at + roll,
+          at: at + k * (0.02 + 0.02 * this.random()),
           dur: hit.dur,
           midi: n,
-          vel: (0.42 + 0.12 * this.random()) * soft,
+          vel: (0.3 + 0.06 * this.random() + (k === best.length - 1 ? 0.06 : 0)) * soft,
           voice: 'keys',
         });
-      }
+      });
     }
   }
 
@@ -400,8 +443,11 @@ export class Composer {
   }
 
   private pad(notes: Note[], tones: number[]): void {
-    for (const n of tones.slice(0, 3)) {
-      notes.push({ at: 0, dur: 4, midi: n - 12 < 48 ? n : n - 12, vel: 0.5, voice: 'pad' });
+    // Just the root and fifth, open and low, under the keys: a warm floor,
+    // never rubbing against them.
+    const root = nearest([tones[0] % 12], 48, 43, 54);
+    for (const n of [root, root + 7]) {
+      notes.push({ at: 0, dur: 4, midi: n, vel: 0.5, voice: 'pad' });
     }
   }
 

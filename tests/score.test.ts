@@ -19,7 +19,7 @@ describe('The music', () => {
 
   it('keeps to bars of four beats at an easy pace, every note in its bar and range', () => {
     const range = {
-      keys: [52, 76],
+      keys: [50, 73],
       bass: [33, 60],
       lead: [64, 84],
       pad: [40, 80],
@@ -69,6 +69,23 @@ describe('The music', () => {
       }
     }
     expect(checked).toBeGreaterThan(1000);
+  });
+
+  it('plays the chords gently: three notes at most, never two neighbours together', () => {
+    for (const seed of [1, 2, 3, 4]) {
+      for (const bar of bars(seed, 300)) {
+        const keys = bar.notes.filter((n) => n.voice === 'keys');
+        for (const n of keys) {
+          // Struck with it: within a moment, as when a chord is rolled.
+          const together = keys.filter((o) => Math.abs(o.at - n.at) < 0.15).map((o) => o.midi);
+          expect(together.length).toBeLessThanOrEqual(3);
+          const sorted = [...together].sort((a, b) => a - b);
+          for (let k = 1; k < sorted.length; k++) {
+            expect(sorted[k] - sorted[k - 1], `${sorted}`).toBeGreaterThanOrEqual(3);
+          }
+        }
+      }
+    }
   });
 
   it('moves on: tune after tune, in more than one key and with quiet stretches', () => {

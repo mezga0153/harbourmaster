@@ -4,7 +4,7 @@ import { SAMPLES, type Instrument } from '../src/audio/samples';
 import { BANDS } from '../src/audio/score';
 
 /** The notes each part plays, as the composer writes them. */
-const RANGE: Record<string, [number, number]> = { keys: [52, 76], lead: [64, 84] };
+const RANGE: Record<string, [number, number]> = { keys: [50, 73], lead: [64, 84] };
 
 /** The recordings shipped with the game, by path: how many bytes each. */
 const SIZES = new Map(
