@@ -8,7 +8,7 @@ import * as B from '../sim/balance';
 import type { Actions } from './App';
 import { formatDate, money } from './format';
 import { panel, snapshot } from './store';
-import { InfoHeader, Meter } from './widgets';
+import { InfoHeader, Meter, MoneyTabs } from './widgets';
 
 /** The kinds of income, in a fixed order that keeps their colours. */
 const INCOME: { key: LedgerCategory; label: string }[] = [
@@ -358,6 +358,7 @@ export function FinancePanel({ actions }: { actions: Actions }) {
   return (
     <aside class="side panel xwide finance" aria-label="Finance">
       <InfoHeader kicker="Money" title="Finance" onClose={() => (panel.value = null)} />
+      <MoneyTabs on="finance" />
 
       <div class="fin-tiles">
         <Tile label="Cash" value={compact(s.cash)} tone={s.cash < 0 ? 'neg' : undefined} />

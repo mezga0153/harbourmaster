@@ -4,7 +4,7 @@ import type { Graphics } from '../render/graphics';
 import type { Actions } from './App';
 import { Icon } from './icons';
 import { graphics } from './prefs';
-import { panel, pushMessage } from './store';
+import { newGameOpen, panel, pushMessage } from './store';
 import { InfoHeader } from './widgets';
 
 /** One graphics setting: what it is, and its choices side by side. */
@@ -199,6 +199,12 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
         <button class="btn primary" onClick={() => actions.send({ type: 'exportSave' })}>
           <Icon name="save" />
           <span>Save to a file</span>
+        </button>
+      </div>
+      <div class="actions">
+        <button class="btn" onClick={() => (newGameOpen.value = true)}>
+          <Icon name="map" />
+          <span>Start a new port</span>
         </button>
       </div>
       <input

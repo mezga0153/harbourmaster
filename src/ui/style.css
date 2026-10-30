@@ -266,18 +266,23 @@ button:focus-visible {
   padding: 8px 10px 8px 12px;
 }
 
-/* Side groups share the leftover width equally so the clock stays centred. */
+/* The figures on the left take what the buttons on the right leave, and
+   give up their least important ones first as the screen narrows. */
 .topbar-left,
 .topbar-right {
-  flex: 1 1 0;
   display: flex;
   align-items: center;
   gap: 16px;
   min-width: 0;
+}
+
+.topbar-left {
+  flex: 1 1 auto;
   overflow: hidden;
 }
 
 .topbar-right {
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 6px;
 }
@@ -1867,6 +1872,17 @@ input:focus {
   }
 }
 
+@media (max-width: 900px) {
+  .topbar,
+  .topbar-left {
+    gap: 10px;
+  }
+
+  .topbar .stat-button.town .stat-label {
+    display: none;
+  }
+}
+
 /* Phones: the menus go behind the hamburger, panels rise from the bottom. */
 
 .menu-button {
@@ -2054,7 +2070,9 @@ button.drawer-stat:active {
   }
 }
 
-@media (max-width: 760px) {
+/* Too narrow for every button: the top bar keeps the clock and the cash,
+   and the rest goes behind the hamburger. */
+@media (max-width: 900px) {
   .topbar {
     top: max(8px, env(safe-area-inset-top));
     left: 8px;
@@ -2126,7 +2144,9 @@ button.drawer-stat:active {
   .topbar .stat-button.cash .stat-value {
     font-size: 13px;
   }
+}
 
+@media (max-width: 760px) {
   .messages,
   .banner {
     top: calc(max(8px, env(safe-area-inset-top)) + 62px);

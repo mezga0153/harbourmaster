@@ -3,7 +3,7 @@ import { Fragment } from 'preact';
 import type { CargoIn, CargoOut, CargoSample, CargoStats } from '../protocol';
 import { compactCount, dateAndTime, LineSeries } from './charts';
 import { panel, snapshot } from './store';
-import { InfoHeader } from './widgets';
+import { InfoHeader, MoneyTabs } from './widgets';
 
 /** Containers or crates: which the panel shows; kept while it is closed. */
 const kind = signal<'containers' | 'crates'>('containers');
@@ -172,7 +172,8 @@ export function StatsPanel() {
   const goingOut = OUT.reduce((n, r) => n + out[r.key], 0);
   return (
     <aside class="side panel xwide stats" aria-label="Statistics">
-      <InfoHeader kicker="Port" title="Statistics" onClose={() => (panel.value = null)} />
+      <InfoHeader kicker="Money" title="Statistics" onClose={() => (panel.value = null)} />
+      <MoneyTabs on="stats" />
 
       <div class="fin-tiles">
         <Figure

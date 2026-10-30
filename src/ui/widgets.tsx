@@ -1,6 +1,30 @@
 import type { ComponentChildren } from 'preact';
 import { Icon } from './icons';
-import { openHandbook } from './store';
+import { openHandbook, panel } from './store';
+
+/** Finance and statistics, one panel apiece behind the cash: a switch between them. */
+export function MoneyTabs({ on }: { on: 'finance' | 'stats' }) {
+  return (
+    <div class="segmented money-tabs" role="tablist" aria-label="Money and statistics">
+      <button
+        role="tab"
+        aria-selected={on === 'finance'}
+        class={on === 'finance' ? 'on' : ''}
+        onClick={() => (panel.value = 'finance')}
+      >
+        Finance
+      </button>
+      <button
+        role="tab"
+        aria-selected={on === 'stats'}
+        class={on === 'stats' ? 'on' : ''}
+        onClick={() => (panel.value = 'stats')}
+      >
+        Statistics
+      </button>
+    </div>
+  );
+}
 
 export function InfoHeader({
   title,

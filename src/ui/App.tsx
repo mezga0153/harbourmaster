@@ -138,6 +138,9 @@ function Stat({
   );
 }
 
+/** Panels the top bar opens from the cash rather than a button of their own. */
+const MONEY: ReadonlySet<PanelName> = new Set(['finance', 'stats']);
+
 /** The management panels, as the top bar and the phone menu list them. */
 const MENU: {
   id: PanelName;
@@ -215,14 +218,17 @@ function TopBar({ actions }: { actions: Actions }) {
         <TimeControl actions={actions} />
         <span class="vr" />
         <button
-          class={`stat-button cash ${panel.value === 'finance' ? 'on' : ''}`}
-          onClick={() => togglePanel('finance')}
-          title="Finance: loans and daily statement (M)"
+          class={`stat-button cash ${panel.value === 'finance' || panel.value === 'stats' ? 'on' : ''}`}
+          onClick={() =>
+            (panel.value = panel.value === 'finance' || panel.value === 'stats' ? null : 'finance')
+          }
+          title="Finance and statistics: charts, loans, the daily statement, and where the cargo is (M)"
         >
           <Stat label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
             {money(s.cash)}
             {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
           </Stat>
+          {s.daysInRed > 0 && <span class="count">!</span>}
         </button>
         <Stat
           icon="coins"
@@ -240,11 +246,11 @@ function TopBar({ actions }: { actions: Actions }) {
         </Stat>
         {s.town && (
           <button
-            class={`stat-button ${selection.value?.type === 'town' ? 'on' : ''}`}
-            onClick={() => openTown(actions)}
-            title={`${s.town.name}: ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast`}
+            class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
+            onClick={() => openTown()}
+            title={`${s.town.name}, ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow`}
           >
-            <Stat icon="town" label="Town" title="" priority={2}>
+            <Stat icon="town" label={s.town.name} title="">
               {s.town.population.toLocaleString('en-US')}
             </Stat>
           </button>
@@ -252,17 +258,7 @@ function TopBar({ actions }: { actions: Actions }) {
       </div>
 
       <div class="topbar-right">
-        {s.town && (
-          <button
-            class={`btn ${selection.value?.type === 'town' ? 'on' : ''}`}
-            onClick={() => openTown(actions)}
-            title={`${s.town.name}: what the town wants, and how big it must grow for the port to grow`}
-          >
-            <Icon name="town" />
-            <span>Town</span>
-          </button>
-        )}
-        {MENU.map((m) => {
+        {MENU.filter((m) => !MONEY.has(m.id)).map((m) => {
           const badge = m.badge(s);
           return (
             <button
@@ -288,21 +284,15 @@ function TopBar({ actions }: { actions: Actions }) {
         <button class="btn icon" onClick={() => actions.send({ type: 'save' })} title="Save game">
           <Icon name="save" />
         </button>
-        <button class="btn icon" onClick={() => (newGameOpen.value = true)} title="New port">
-          <Icon name="map" />
-        </button>
       </div>
     </header>
   );
 }
 
-/** Show the town, or put it away again, pointing the view at it. */
-function openTown(actions: Actions): void {
-  const s = snapshot.value;
-  if (!s?.town) return;
-  const open = selection.value?.type === 'town';
-  selection.value = open ? null : { type: 'town' };
-  if (!open) actions.focus(s.town.x + 0.5, s.town.y + 0.5);
+/** Show the town, or put it away again: the view flies over to it and back (see main.ts). */
+function openTown(): void {
+  if (!snapshot.value?.town) return;
+  selection.value = selection.value?.type === 'town' ? null : { type: 'town' };
 }
 
 /**
@@ -368,7 +358,7 @@ function MobileMenu({ actions }: { actions: Actions }) {
               class="drawer-stat wide"
               onClick={() => {
                 close();
-                openTown(actions);
+                openTown();
               }}
             >
               <span class="stat-label">{s.town.name}</span>
@@ -385,7 +375,7 @@ function MobileMenu({ actions }: { actions: Actions }) {
               class={`drawer-item ${selection.value?.type === 'town' ? 'on' : ''}`}
               onClick={() => {
                 close();
-                openTown(actions);
+                openTown();
               }}
             >
               <Icon name="town" />
@@ -415,16 +405,6 @@ function MobileMenu({ actions }: { actions: Actions }) {
           >
             <Icon name="save" />
             <span>Save</span>
-          </button>
-          <button
-            class="btn"
-            onClick={() => {
-              close();
-              newGameOpen.value = true;
-            }}
-          >
-            <Icon name="map" />
-            <span>New port</span>
           </button>
         </div>
       </nav>
