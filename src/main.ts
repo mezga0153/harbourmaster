@@ -55,6 +55,9 @@ const actions: Actions = {
   setSpeed: (s) => input.setSpeed(s),
   togglePause: () => input.togglePause(),
   focus: (x, y) => renderer.cam.target.set(x, 0, y),
+  rotateView: (dir) => renderer.cam.rotate(dir),
+  zoom: (factor) => renderer.cam.zoom(factor),
+  rotateBuilding: () => input.rotate(),
 };
 render(h(App, { actions }), hud);
 // Found the finance or statistics screen: the advisor need not point it out.

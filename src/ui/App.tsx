@@ -1,8 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import type { BoatVisit, Command } from '../protocol';
+import type { BoatVisit, Command, Snapshot } from '../protocol';
 import * as B from '../sim/balance';
-import { BUILDABLES } from '../sim/rules';
+import { BUILDABLES, ROTATABLE } from '../sim/rules';
 import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
 import { dayProgress, duration, formatDate, money } from './format';
 import { ContractsPanel } from './Contracts';
@@ -13,6 +13,7 @@ import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
 import { SettingsPanel } from './Settings';
 import { SoundControl } from './Sound';
+import { soundSettings } from '../audio/sound';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
@@ -29,8 +30,11 @@ import {
   type ToolDef,
 } from './tools';
 import {
+  menuOpen,
+  narrow,
   openCategory,
   panel,
+  type PanelName,
   togglePanel,
   hover,
   messages,
@@ -49,6 +53,12 @@ export interface Actions {
   togglePause(): void;
   /** Point the camera at a tile. */
   focus(x: number, y: number): void;
+  /** Turn the view a quarter round, as Q and E do. */
+  rotateView(dir: 1 | -1): void;
+  /** Zoom the view: below 1 in, above 1 out. */
+  zoom(factor: number): void;
+  /** Turn the building being placed, as a right-click does. */
+  rotateBuilding(): void;
 }
 
 const SPEEDS = [
@@ -90,8 +100,10 @@ export function App({ actions }: { actions: Actions }) {
       )}
       <PreviewTip />
       <HoverTip />
-      <Advisor />
+      {!(narrow.value && (panel.value || selection.value || menuOpen.value)) && <Advisor />}
+      <MapControls actions={actions} />
       <BuildBar />
+      <MobileMenu actions={actions} />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
     </>
@@ -106,7 +118,7 @@ function Stat({
   tone,
   priority = 1,
 }: {
-  icon: IconName;
+  icon?: IconName;
   label: string;
   title: string;
   children: ComponentChildren;
@@ -116,7 +128,7 @@ function Stat({
 }) {
   return (
     <div class={`stat ${tone ?? ''}`} title={title} data-priority={priority}>
-      <Icon name={icon} />
+      {icon && <Icon name={icon} />}
       <div>
         <div class="stat-label">{label}</div>
         <div class="stat-value">{children}</div>
@@ -125,13 +137,69 @@ function Stat({
   );
 }
 
+/** The management panels, as the top bar and the phone menu list them. */
+const MENU: {
+  id: PanelName;
+  icon: IconName;
+  label: string;
+  title: string;
+  /** What wants looking at there, if anything: a count, or "!". */
+  badge: (s: Snapshot) => string | number | null;
+}[] = [
+  {
+    id: 'finance',
+    icon: 'dollar',
+    label: 'Finance',
+    title: 'Finance: charts, loans and daily statement (M)',
+    badge: (s) => (s.daysInRed > 0 ? '!' : null),
+  },
+  {
+    id: 'stats',
+    icon: 'box',
+    label: 'Statistics',
+    title: 'Statistics: where the crates and containers are',
+    badge: () => null,
+  },
+  {
+    id: 'port',
+    icon: 'stairs',
+    label: 'Port',
+    title: 'Port development and upgrades (P)',
+    badge: (s) => (s.progress.canUpgrade ? '!' : null),
+  },
+  {
+    id: 'staff',
+    icon: 'users',
+    label: 'Staff',
+    title: 'Staff and hiring (H)',
+    badge: (s) => s.people.filter((p) => p.raiseAsk > 0).length || null,
+  },
+  {
+    id: 'contracts',
+    icon: 'contract',
+    label: 'Contracts',
+    title: 'Contracts (C)',
+    badge: (s) => s.offers.length || null,
+  },
+];
+
 function TopBar({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
   const costs = s.wages + s.contractFees + s.interest;
+  const waiting = MENU.some((m) => m.badge(s) !== null);
   return (
     <header class="topbar panel">
       <div class="topbar-left">
+        <button
+          class={`btn icon menu-button ${menuOpen.value ? 'on' : ''}`}
+          onClick={() => (menuOpen.value = !menuOpen.value)}
+          aria-label="Menu"
+          aria-expanded={menuOpen.value}
+        >
+          <Icon name="menu" />
+          {waiting && <span class="dot-badge" />}
+        </button>
         <button
           class={`brand ${panel.value === 'settings' ? 'on' : ''}`}
           onClick={() => togglePanel('settings')}
@@ -146,11 +214,11 @@ function TopBar({ actions }: { actions: Actions }) {
         <TimeControl actions={actions} />
         <span class="vr" />
         <button
-          class={`stat-button ${panel.value === 'finance' ? 'on' : ''}`}
+          class={`stat-button cash ${panel.value === 'finance' ? 'on' : ''}`}
           onClick={() => togglePanel('finance')}
           title="Finance: loans and daily statement (M)"
         >
-          <Stat icon="coins" label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
+          <Stat label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
             {money(s.cash)}
             {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
           </Stat>
@@ -172,11 +240,7 @@ function TopBar({ actions }: { actions: Actions }) {
         {s.town && (
           <button
             class={`stat-button ${selection.value?.type === 'town' ? 'on' : ''}`}
-            onClick={() => {
-              const open = selection.value?.type === 'town';
-              selection.value = open ? null : { type: 'town' };
-              if (!open) actions.focus(s.town!.x + 0.5, s.town!.y + 0.5);
-            }}
+            onClick={() => openTown(actions)}
             title={`${s.town.name}: ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast`}
           >
             <Stat icon="town" label="Town" title="" priority={2}>
@@ -187,52 +251,21 @@ function TopBar({ actions }: { actions: Actions }) {
       </div>
 
       <div class="topbar-right">
-        <button
-          class={`btn ${panel.value === 'finance' ? 'on' : ''}`}
-          onClick={() => togglePanel('finance')}
-          title="Finance: charts, loans and daily statement (M)"
-        >
-          <Icon name="dollar" />
-          <span>Finance</span>
-          {s.daysInRed > 0 && <span class="count">!</span>}
-        </button>
-        <button
-          class={`btn ${panel.value === 'stats' ? 'on' : ''}`}
-          onClick={() => togglePanel('stats')}
-          title="Statistics: where the crates and containers are"
-        >
-          <Icon name="box" />
-          <span>Statistics</span>
-        </button>
-        <button
-          class={`btn ${panel.value === 'port' ? 'on' : ''}`}
-          onClick={() => togglePanel('port')}
-          title="Port development and upgrades (P)"
-        >
-          <Icon name="stairs" />
-          <span>Port</span>
-          {s.progress.canUpgrade && <span class="count">!</span>}
-        </button>
-        <button
-          class={`btn ${panel.value === 'staff' ? 'on' : ''}`}
-          onClick={() => togglePanel('staff')}
-          title="Staff and hiring (H)"
-        >
-          <Icon name="users" />
-          <span>Staff</span>
-          {s.people.some((p) => p.raiseAsk > 0) && (
-            <span class="count">{s.people.filter((p) => p.raiseAsk > 0).length}</span>
-          )}
-        </button>
-        <button
-          class={`btn ${panel.value === 'contracts' ? 'on' : ''}`}
-          onClick={() => togglePanel('contracts')}
-          title="Contracts (C)"
-        >
-          <Icon name="contract" />
-          <span>Contracts</span>
-          {s.offers.length > 0 && <span class="count">{s.offers.length}</span>}
-        </button>
+        {MENU.map((m) => {
+          const badge = m.badge(s);
+          return (
+            <button
+              key={m.id}
+              class={`btn ${panel.value === m.id ? 'on' : ''}`}
+              onClick={() => togglePanel(m.id)}
+              title={m.title}
+            >
+              <Icon name={m.icon} />
+              <span>{m.label}</span>
+              {badge !== null && <span class="count">{badge}</span>}
+            </button>
+          );
+        })}
         <button
           class={`btn icon ${panel.value === 'handbook' ? 'on' : ''}`}
           onClick={() => togglePanel('handbook')}
@@ -249,6 +282,172 @@ function TopBar({ actions }: { actions: Actions }) {
         </button>
       </div>
     </header>
+  );
+}
+
+/** Show the town, or put it away again, pointing the view at it. */
+function openTown(actions: Actions): void {
+  const s = snapshot.value;
+  if (!s?.town) return;
+  const open = selection.value?.type === 'town';
+  selection.value = open ? null : { type: 'town' };
+  if (!open) actions.focus(s.town.x + 0.5, s.town.y + 0.5);
+}
+
+/**
+ * On a phone, everything the top bar holds on a big screen, in a menu that
+ * slides in from the left behind the hamburger: the port's figures, the
+ * panels, the handbook and settings, sound, saving and a new port.
+ */
+function MobileMenu({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s || !menuOpen.value) return null;
+  const close = () => (menuOpen.value = false);
+  const open = (id: PanelName) => {
+    close();
+    panel.value = id;
+  };
+  const costs = s.wages + s.contractFees + s.interest;
+  const sound = soundSettings.value;
+  const item = (id: PanelName, icon: IconName, label: string, badge: string | number | null) => (
+    <button
+      key={id}
+      class={`drawer-item ${panel.value === id ? 'on' : ''}`}
+      onClick={() => open(id)}
+    >
+      <Icon name={icon} />
+      <span>{label}</span>
+      {badge !== null && <span class="count">{badge}</span>}
+      <Icon name="chevron" />
+    </button>
+  );
+  return (
+    <>
+      <div class="drawer-backdrop" onClick={close} />
+      <nav class="drawer panel" aria-label="Menu">
+        <div class="drawer-head">
+          <span class="brand-mark">
+            <Icon name="anchor" />
+          </span>
+          <span class="brand-name">Harbourmaster</span>
+          <button class="btn icon" onClick={close} aria-label="Close the menu">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div class="drawer-stats">
+          <button class="drawer-stat" onClick={() => open('finance')}>
+            <span class="stat-label">Cash</span>
+            <span class={`stat-value ${s.cash < 0 ? 'neg' : 'pos'}`}>{money(s.cash)}</span>
+            {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
+          </button>
+          <div class="drawer-stat">
+            <span class="stat-label">Costs / day</span>
+            <span class="stat-value">{money(-costs)}</span>
+          </div>
+          <div class="drawer-stat">
+            <span class="stat-label">Staff</span>
+            <span class="stat-value">{s.staff}</span>
+          </div>
+          <div class="drawer-stat">
+            <span class="stat-label">Crates</span>
+            <span class="stat-value">{s.stats.cratesHandled.toLocaleString('en-US')}</span>
+          </div>
+          {s.town && (
+            <button
+              class="drawer-stat wide"
+              onClick={() => {
+                close();
+                openTown(actions);
+              }}
+            >
+              <span class="stat-label">{s.town.name}</span>
+              <span class="stat-value">
+                {s.town.population.toLocaleString('en-US')}{' '}
+                <span class="muted">{TOWN_STAGES[s.town.stage].name.toLowerCase()}</span>
+              </span>
+            </button>
+          )}
+        </div>
+        <div class="drawer-list">
+          {MENU.map((m) => item(m.id, m.icon, m.label, m.badge(s)))}
+          {item('handbook', 'book', 'Handbook', null)}
+          {item('settings', 'settings', 'Settings', null)}
+        </div>
+        <div class="drawer-actions">
+          <button
+            class={`btn ${sound.on ? '' : 'off'}`}
+            onClick={() => (soundSettings.value = { ...sound, on: !sound.on })}
+            aria-pressed={sound.on}
+          >
+            <Icon name={sound.on ? 'sound' : 'mute'} />
+            <span>{sound.on ? 'Sound on' : 'Sound off'}</span>
+          </button>
+          <button
+            class="btn"
+            onClick={() => {
+              actions.send({ type: 'save' });
+              close();
+            }}
+          >
+            <Icon name="save" />
+            <span>Save</span>
+          </button>
+          <button
+            class="btn"
+            onClick={() => {
+              close();
+              newGameOpen.value = true;
+            }}
+          >
+            <Icon name="map" />
+            <span>New port</span>
+          </button>
+        </div>
+      </nav>
+    </>
+  );
+}
+
+/**
+ * On a touch screen, what the keys and the right mouse button do on a
+ * computer: zoom, turn the view, and turn a building being placed. Two
+ * fingers pinch to zoom and drag to pan.
+ */
+function MapControls({ actions }: { actions: Actions }) {
+  // Out of the way of a panel, which rises from the bottom on a phone.
+  if (!narrow.value || panel.value || selection.value) return null;
+  const turnable = ROTATABLE.has(tool.value as BuildKind);
+  return (
+    <div class={`map-controls ${openCategory.value ? 'raised' : ''}`}>
+      {turnable && (
+        <button class="btn" onClick={() => actions.rotateBuilding()} aria-label="Turn the building">
+          <Icon name="turn" />
+          <span>Turn</span>
+        </button>
+      )}
+      <div class="map-controls-group panel">
+        <button class="btn icon" onClick={() => actions.zoom(1 / 1.25)} aria-label="Zoom in">
+          <Icon name="plus" />
+        </button>
+        <button class="btn icon" onClick={() => actions.zoom(1.25)} aria-label="Zoom out">
+          <Icon name="minus" />
+        </button>
+        <button
+          class="btn icon"
+          onClick={() => actions.rotateView(-1)}
+          aria-label="Turn the view left"
+        >
+          <Icon name="rotateLeft" />
+        </button>
+        <button
+          class="btn icon"
+          onClick={() => actions.rotateView(1)}
+          aria-label="Turn the view right"
+        >
+          <Icon name="rotateRight" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1004,7 +1203,11 @@ function CategoryTray({ cat }: { cat: Category }) {
             </p>
           </>
         ) : (
-          <p class="muted">Point at something to see what it does and what it costs.</p>
+          <p class="muted">
+            {narrow.value
+              ? 'Tap something to pick it up and see what it does and what it costs.'
+              : 'Point at something to see what it does and what it costs.'}
+          </p>
         )}
       </div>
     </div>

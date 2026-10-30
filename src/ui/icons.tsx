@@ -316,6 +316,35 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M16 9.5l5 5M21 9.5l-5 5" />
     </>
   ),
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  minus: <path d="M5 12h14" />,
+  chevron: <path d="M9 6l6 6-6 6" />,
+  rotateLeft: (
+    <>
+      <path d="M4 12a8 8 0 108-8 8.5 8.5 0 00-5.7 2.3L4 8.5" />
+      <path d="M4 4v4.5h4.5" />
+    </>
+  ),
+  rotateRight: (
+    <>
+      <path d="M20 12a8 8 0 11-8-8 8.5 8.5 0 015.7 2.3L20 8.5" />
+      <path d="M20 4v4.5h-4.5" />
+    </>
+  ),
+  turn: (
+    <>
+      <rect x="5" y="9" width="10" height="10" rx="1.5" />
+      <path d="M11 5h3a5 5 0 015 5v1" />
+      <path d="M17 9l2 2 2-2" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;

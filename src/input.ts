@@ -62,7 +62,7 @@ import {
 } from './ui/store';
 import { categoryOf, TOOL_KEYS } from './ui/tools';
 
-type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
+type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place' | 'pinch';
 
 /** What the tints shown while placing these mean. */
 const TOOL_NOTES: Partial<Record<string, string>> = {
@@ -81,6 +81,10 @@ const AREA_TOOLS: ReadonlySet<string> = new Set(['parking', 'unmark', 'bulldoze'
 /** Mouse and keyboard → camera moves, previews and sim commands. */
 export class Input {
   private mode: Mode = 'none';
+  /** Fingers or the mouse on the map, where each is now. */
+  private touches = new Map<number, { x: number; y: number }>();
+  /** Two fingers on the map: how far apart and where between them, last time. */
+  private pinch: { dist: number; x: number; y: number } | null = null;
   private button = 0;
   private downX = 0;
   private downY = 0;
@@ -102,6 +106,7 @@ export class Input {
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('pointermove', (e) => this.move(e));
     el.addEventListener('pointerup', (e) => this.up(e));
+    el.addEventListener('pointercancel', (e) => this.cancel(e));
     el.addEventListener('pointerleave', () => {
       if (this.mode === 'none') this.setHover(null);
     });
@@ -133,6 +138,16 @@ export class Input {
 
   private down(e: PointerEvent): void {
     this.renderer.canvas.setPointerCapture(e.pointerId);
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // A second finger: pinch to zoom and drag to pan, whatever the tool,
+    // and whatever the first finger had begun is let go.
+    if (this.touches.size >= 2 || this.mode === 'pinch') {
+      this.mode = 'pinch';
+      this.dragStart = null;
+      this.pinch = this.pinchNow();
+      this.refreshPreview(null);
+      return;
+    }
     this.button = e.button;
     this.downX = this.lastX = e.clientX;
     this.downY = this.lastY = e.clientY;
@@ -159,6 +174,18 @@ export class Input {
   }
 
   private move(e: PointerEvent): void {
+    if (this.touches.has(e.pointerId))
+      this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.mode === 'pinch') {
+      const now = this.pinchNow();
+      if (now && this.pinch) {
+        this.renderer.cam.zoom(this.pinch.dist / Math.max(1, now.dist));
+        const h = this.renderer.canvas.clientHeight;
+        this.renderer.cam.panPixels(now.x - this.pinch.x, now.y - this.pinch.y, h);
+      }
+      this.pinch = now;
+      return;
+    }
     if (Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > 4) this.moved = true;
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
@@ -174,7 +201,31 @@ export class Input {
     this.refreshPreview(i);
   }
 
+  /** How far apart the first two fingers are, and the point between them. */
+  private pinchNow(): { dist: number; x: number; y: number } | null {
+    const [a, b] = [...this.touches.values()];
+    if (!a || !b) return null;
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  /** A finger taken away by the browser (a system gesture, say): nothing is built. */
+  private cancel(e: PointerEvent): void {
+    this.touches.delete(e.pointerId);
+    if (this.touches.size > 0) return;
+    this.mode = 'none';
+    this.pinch = null;
+    this.dragStart = null;
+    this.refreshPreview(null);
+  }
+
   private up(e: PointerEvent): void {
+    this.touches.delete(e.pointerId);
+    // Out of a pinch, nothing happens until every finger is off the map.
+    if (this.mode === 'pinch') {
+      this.pinch = this.pinchNow();
+      if (this.touches.size === 0) this.mode = 'none';
+      return;
+    }
     const mode = this.mode;
     this.mode = 'none';
     const i = this.renderer.pickTile(e.clientX, e.clientY);

@@ -127,6 +127,16 @@ export function togglePanel(name: PanelName): void {
   panel.value = panel.value === name ? null : name;
 }
 
+/** The menu behind the hamburger, on a phone: open or not. */
+export const menuOpen = signal(false);
+
+const NARROW = '(max-width: 760px)';
+/** A phone-sized screen: the menus go behind the hamburger and panels rise from the bottom. */
+export const narrow = signal(typeof matchMedia === 'function' && matchMedia(NARROW).matches);
+if (typeof matchMedia === 'function') {
+  matchMedia(NARROW).addEventListener('change', (e) => (narrow.value = e.matches));
+}
+
 /** Advisor tips waiting to be read, the first showing; see Advisor.tsx. */
 export const advice = signal<string[]>([]);
 
