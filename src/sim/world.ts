@@ -513,6 +513,12 @@ interface Bay {
   exportIncoming?: number;
   /** Container yards: the truck or tractor its gantry is part way through a lift for; see gantryFor. */
   gantryOn?: number;
+  /**
+   * The place in a container yard its gantry is setting a container down
+   * in, kept for it from when it takes it up so nothing else is stacked
+   * there meanwhile.
+   */
+  gantryTo?: number;
   /** Exports promised to workers on their way to take them on board. */
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
@@ -692,6 +698,8 @@ type GantryWork = {
   workTruck?: number;
   workSlot?: number;
   workPhase?: number;
+  /** Where in the yard the container it sets down goes. */
+  workYard?: number;
 };
 /**
  * How far through a yard gantry's lift the spreader has taken the container
@@ -4371,7 +4379,15 @@ export class World {
       const lift = { workAt, workTruck: p.id, workSlot: 0 };
       const workPhase = clamp(1 - p.timer / (B.YARD_GANTRY_TICKS * Math.max(1, p.planned)), 0, 1);
       if (p.state === 'dropping') {
-        return { working: 'unload', workLook: this.carriedLooks(p)[0], workPhase, ...lift };
+        // Where the sim stacks it, by when customs clear it.
+        const workYard = y.gantryTo ?? this.stackedAt(p, y, this.customsFor(p.cargoFrom?.[0]));
+        return {
+          working: 'unload',
+          workLook: this.carriedLooks(p)[0],
+          workPhase,
+          workYard,
+          ...lift,
+        };
       }
       const top = Math.max(0, this.yardTop(y, true));
       return { working: 'load', workLook: this.exportLooks(y)[top], workPhase, ...lift };
@@ -4389,6 +4405,7 @@ export class World {
         workTruck: t.id,
         workSlot: t.cargo - 1,
         workPhase,
+        workYard: y.gantryTo,
       };
     }
     const look = t.lifting ?? this.boxLooks(y)[this.clearTop(y)];
@@ -4692,7 +4709,7 @@ export class World {
       w.working === 'load'
         ? slots[looks.indexOf(w.workLook ?? -1)]
         : w.working === 'unload'
-          ? this.nextYardSlot(y)
+          ? (w.workYard ?? this.nextYardSlot(y))
           : undefined;
     if (w.working === 'load' && p >= LIFT_TAKEN) {
       const k = looks.indexOf(w.workLook ?? -1);
@@ -4732,8 +4749,10 @@ export class World {
     if (on) return on !== t;
     if (this.gantryTractor(bay) !== undefined || this.gantryTruck(bay) !== t) return true;
     bay.gantryOn = t.id;
-    // Loading, the container it takes up, whatever customs clear meanwhile.
+    // Loading, the container it takes up, whatever customs clear meanwhile;
+    // unloading, where it goes.
     t.lifting = t.state === 'loading' ? this.boxLooks(bay)[this.clearTop(bay)] : undefined;
+    if (t.state === 'delivering') this.keepGantryTo(bay, this.nextYardSlot(bay));
     return false;
   }
 
@@ -4753,7 +4772,7 @@ export class World {
         p.kind === 'tractor' &&
         ((p.state === 'picking' && p.stockIdx === y.idx) ||
           (p.state === 'dropping' && p.bayIdx === y.idx));
-    if (!there) y.gantryOn = undefined;
+    if (!there) y.gantryOn = y.gantryTo = undefined;
     return there ? (t ?? p) : undefined;
   }
 
@@ -4768,12 +4787,27 @@ export class World {
     const on = this.gantryHolder(y);
     if (on) return on === p;
     y.gantryOn = p.id;
+    // Setting one down, where it goes, by when customs clear it.
+    if (p.state === 'dropping') {
+      this.keepGantryTo(y, this.stackedAt(p, y, this.customsFor(p.cargoFrom?.[0])));
+    }
     return true;
   }
 
-  /** A lift done: the gantry is free for the next. */
-  private gantryDone(bay: Bay | undefined, id: number): void {
-    if (bay?.gantryOn === id) bay.gantryOn = undefined;
+  /** Keep a place in a yard for the container its gantry sets down. */
+  private keepGantryTo(y: Bay, at: number): void {
+    y.gantryTo = at >= 0 ? at : undefined;
+  }
+
+  /**
+   * A lift done: the gantry is free for the next. Returns the place it kept
+   * in the yard for the container it set down, if it did.
+   */
+  private gantryDone(bay: Bay | undefined, id: number): number | undefined {
+    if (bay?.gantryOn !== id) return undefined;
+    const to = bay.gantryTo;
+    bay.gantryOn = bay.gantryTo = undefined;
+    return to;
   }
 
   /** Ticks a truck takes to load or unload one at a bay or yard: a yard gantry lifts at its own pace. */
@@ -6850,7 +6884,7 @@ export class World {
         }
         if (!this.gantryFor(p)) return;
         if (--p.timer > 0) return;
-        this.gantryDone(this.yards.get(p.bayIdx), p.id);
+        const gantryTo = this.gantryDone(this.yards.get(p.bayIdx), p.id);
         if (this.dropOutbound(p)) return;
         const bay = this.dest(p.bayIdx);
         if (!bay) return this.retargetCrate(p);
@@ -6859,12 +6893,15 @@ export class World {
         // Their times go on first, while the list still matches the yard.
         if (boxy) {
           const from = p.cargoFrom ?? [];
-          // A stacker sets it on a stack it reaches from where it stands.
+          // A stacker sets it on a stack it reaches from where it stands; a
+          // gantry where it kept for it.
           if (p.kind === 'stacker' && bay.yard) {
             const slots = this.yardSlots(bay);
             p.cargoFees.forEach((_, k) => {
               slots.boxes.push(this.stackedAt(p, bay, this.customsFor(from[k])));
             });
+          } else if (gantryTo !== undefined && p.cargoFees.length === 1) {
+            this.yardSlots(bay).boxes.push(gantryTo);
           }
           this.readyList(bay).push(...p.cargoFees.map((_, k) => this.customsFor(from[k])));
           p.cargoFrom = undefined;
@@ -7984,6 +8021,8 @@ export class World {
     const list = this.readyList(b);
     boxes.forEach((k, i) => k >= 0 && under.set(k, list[i]));
     exports.forEach((k) => k >= 0 && under.set(k, undefined));
+    // The place its gantry is setting one down in is kept for that.
+    const kept = b.gantryTo;
     // When a container leaves, as best known: waiting on its ship to finish
     // last of all, and those from one ship alike.
     const when = (r: number | undefined) => (r === undefined ? Infinity : r < 0 ? 1e12 - r : r);
@@ -7996,7 +8035,7 @@ export class World {
       let up = -1;
       for (let k = YARD_STACKS; k < cap; k++) {
         const p = yardPlace(k);
-        if (p.tier === 0 || under.has(k) || !under.has(k - YARD_STACKS)) continue;
+        if (p.tier === 0 || k === kept || under.has(k) || !under.has(k - YARD_STACKS)) continue;
         if (reach && !reach.has(p.tile)) continue;
         const below = under.get(k - YARD_STACKS);
         if (below === ready && (up < 0 || p.tier > yardPlace(up).tier)) up = k;
@@ -8007,7 +8046,9 @@ export class World {
     for (let tier = 0; tier < YARD_TIERS; tier++) {
       for (let k = tier * YARD_STACKS; k < cap; k++) {
         const p = yardPlace(k);
-        if (p.tier !== tier || under.has(k) || (reach && !reach.has(p.tile))) continue;
+        if (p.tier !== tier || k === kept || under.has(k) || (reach && !reach.has(p.tile))) {
+          continue;
+        }
         if (tier === 0) return k;
         if (!under.has(k - YARD_STACKS)) continue;
         const below = under.get(k - YARD_STACKS);
@@ -8037,6 +8078,7 @@ export class World {
   ): number {
     const slots = this.yardSlots(b);
     const used = new Set([...slots.boxes, ...slots.exports]);
+    if (b.gantryTo !== undefined) used.add(b.gantryTo);
     const list = exports ? slots.exports : slots.boxes;
     let best = -1;
     let high = -1;
@@ -9665,7 +9707,8 @@ export class World {
         }
         if (this.gantryElsewhere(t, bay)) return;
         if (++t.timer % this.truckTicks(t, bay) !== 0) return;
-        this.gantryDone(bay, t.id);
+        const gantryTo = this.gantryDone(bay, t.id);
+        if (gantryTo !== undefined) this.yardSlots(bay).exports.push(gantryTo);
         this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
