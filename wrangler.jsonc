@@ -1,0 +1,8 @@
+{
+  // Static-assets Worker "harbourmaster", served at harbourmaster.tinetov.net.
+  // deploy.sh builds the committed game into dist/, so only that is published.
+  "name": "harbourmaster",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "harbourmaster.tinetov.net", "custom_domain": true }]
+}

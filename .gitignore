@@ -5,3 +5,6 @@ coverage/
 *.log
 .vite/
 .debug/
+
+# local wrangler state
+.wrangler/
