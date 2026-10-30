@@ -1115,13 +1115,13 @@ export class Entities {
     at: (across: number, back: number) => [number, number];
     of: (x: number, z: number) => [number, number];
   } | null {
-    const [a, b, c] = [0, 1, 2].map((slot) => {
+    // The first place, the one across from it, and the first of the row behind.
+    const [a, b, c] = [0, 1, 8].map((slot) => {
       const out = new Vector3();
       return (this.containerAt?.({ bay: tile, slot }, out) ?? null) === null ? null : out;
     });
     if (!a || !b || !c) return null;
-    // The first place is 0.71 across and 0.89 back from the bay's corner,
-    // the next across from it and the third behind it.
+    // The first place is 0.71 across and 0.89 back from the bay's corner.
     const ux = (a.x - c.x) / 0.18;
     const uz = (a.z - c.z) / 0.18;
     const sx = (b.x - a.x) / 0.18;

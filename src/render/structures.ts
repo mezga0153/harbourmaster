@@ -2455,18 +2455,17 @@ export class Structures {
         const y = top + 0.06;
         for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         const crates: Object3D[] = [];
-        for (let layer = 0; layer < 4; layer++) {
-          // The front row first, away from those who stack them from behind.
-          for (const [x, z] of [
-            [0.71, 0.89],
-            [0.89, 0.89],
-            [0.71, 0.71],
-            [0.89, 0.71],
-          ]) {
-            const c = crate(0.17, x, y + layer * 0.17, z);
-            c.visible = false;
-            g.add(c);
-            crates.push(c);
+        // The front row stacked to the top first, away from those who stack
+        // them from behind, then the row in front of them; taken off the
+        // other way round.
+        for (const z of [0.89, 0.71]) {
+          for (let layer = 0; layer < 4; layer++) {
+            for (const x of [0.71, 0.89]) {
+              const c = crate(0.17, x, y + layer * 0.17, z);
+              c.visible = false;
+              g.add(c);
+              crates.push(c);
+            }
           }
         }
         g.add(cyl(0.02, 0.5, C.chassis, 0.92, y, 0.08));

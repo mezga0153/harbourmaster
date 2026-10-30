@@ -296,10 +296,11 @@ describe('Dockhands handling crates', () => {
         const at = view.handAt;
         if (view.kind !== 'dockhand' || view.handStage !== 'drop' || at?.bay === undefined)
           continue;
-        if ((view.handPhase ?? 0) < 0.75 || (at.slot ?? 0) % 4 >= 2) continue;
+        // The front row, stacked to the top before the row behind it.
+        if ((view.handPhase ?? 0) < 0.75 || (at.slot ?? 0) >= 8) continue;
         // Onto the front row while the back row behind it, nearer them, is free.
         structures.containerAt({ bay: at.bay, slot: at.slot }, p);
-        structures.containerAt({ bay: at.bay, slot: (at.slot ?? 0) + 2 }, q);
+        structures.containerAt({ bay: at.bay, slot: (at.slot ?? 0) + 8 }, q);
         expect(p.distanceTo(pos)).toBeGreaterThan(q.distanceTo(pos));
         stacked++;
       }
