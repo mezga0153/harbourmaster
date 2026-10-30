@@ -585,7 +585,7 @@ function Rules() {
       `${money(B.DEMURRAGE_PER_DAY)} per boat per day`,
     ],
     [
-      'A boat gives up after ~1.5 days',
+      `A boat gives up after ${span(B.BOAT_GIVE_UP_TICKS / TICKS_PER_DAY)}`,
       `${Math.round(B.LOST_CARGO_SHARE * 100)}% of the cargo still on board`,
     ],
     [

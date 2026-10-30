@@ -492,6 +492,8 @@ interface Boat extends Agent {
   room?: { spots: [number, number, number][]; until: number; turning?: boolean };
   /** Has turned for sea after pulling out, and given its room back. */
   turned?: boolean;
+  /** Leaving: the tiles of its way out left once it is out of sight, when it goes. */
+  goneAt?: number;
   /** The ticks it came in from sea, moored, was unloaded, and done loading. */
   came?: number;
   mooredAt?: number;
@@ -3086,7 +3088,14 @@ export class World {
     const from = this.tileOf(boat);
     const path = this.route(boat, from, spot, this.boatCostFor(boat.draft));
     if (path) {
-      boat.path = path;
+      // Its way from the edge of the map is long on the open sea: it comes
+      // into sight only the last of it out.
+      const at = this.inSight(boat, path);
+      if (at > 0) {
+        boat.x = this.map.xOf(path[at - 1]) + 0.5;
+        boat.y = this.map.yOf(path[at - 1]) + 0.5;
+      }
+      boat.path = path.slice(at);
       boat.goal = spot;
       boat.state = 'approaching';
       // Already under way, heading for the first waypoint.
@@ -4091,7 +4100,8 @@ export class World {
             this.freeFairway(b);
           }
         }
-        if (this.sail(b, null) !== 'moving') {
+        // Out of sight, out on the open sea: it is gone.
+        if (this.sail(b, null) !== 'moving' || b.path.length <= (b.goneAt ?? 0)) {
           this.freeFairway(b);
           this.boats = this.boats.filter((q) => q !== b);
         }
@@ -7192,7 +7202,33 @@ export class World {
     );
     b.goal = exit;
     b.path = this.via(from, stops, exit, this.byDocks(this.seaWay(b), from, exit)) ?? [];
+    b.goneAt = this.inSight(b, [...b.path].reverse());
     b.best = Infinity;
+  }
+
+  /**
+   * How many tiles from the start of a way in from sea a boat comes into
+   * sight, B.SAIL_IN_TILES of it from the end; reversed, how many of a way
+   * out it is still in sight for. Not where another boat is, so none comes
+   * into sight on top of one.
+   */
+  private inSight(b: Boat, path: number[]): number {
+    const m = this.map;
+    let left = 0;
+    for (let k = path.length - 1; k > 0; k--) {
+      left += Math.hypot(m.xOf(path[k]) - m.xOf(path[k - 1]), m.yOf(path[k]) - m.yOf(path[k - 1]));
+      if (left < B.SAIL_IN_TILES) continue;
+      const x = m.xOf(path[k - 1]) + 0.5;
+      const y = m.yOf(path[k - 1]) + 0.5;
+      if (
+        this.boats.every(
+          (o) => o === b || Math.hypot(o.x - x, o.y - y) > B.VESSELS[o.vessel].length + 2,
+        )
+      ) {
+        return k;
+      }
+    }
+    return 0;
   }
 
   // ── Dockhands and forklifts ───────────────────────────────
@@ -8219,8 +8255,14 @@ export class World {
     this.exportSources(p, here, sources);
     // Only stackers can lift a container onto a truck or off one.
     if (p.kind === 'stacker') this.truckSources(sources);
+    // The boat moored longest is unloaded first, however near another lies:
+    // others only once its crates are all spoken for, or its spots taken.
+    const moored = (s: Source) => s.boat?.mooredTicks ?? -1;
     const ordered = sources.sort(
-      (a, b) => a.rank - b.rank || this.dist(here, a.tile) - this.dist(here, b.tile),
+      (a, b) =>
+        a.rank - b.rank ||
+        moored(b) - moored(a) ||
+        this.dist(here, a.tile) - this.dist(here, b.tile),
     );
 
     for (const src of ordered) {

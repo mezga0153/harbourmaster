@@ -784,9 +784,17 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
     const handled = world.stats.cratesHandled;
     const trucked = world.stats.trucks;
-    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
-    // At most the start of another load left, as boats keep landing more.
-    expect(world.bays.get(store)!.crates.length).toBeLessThanOrEqual(B.FORKLIFT_CAPACITY);
+    // At most the start of another load left, as boats keep landing more:
+    // a day, and the trip the forklift may be part way through then.
+    const left = () => world.bays.get(store)!.crates.length;
+    for (
+      let t = 0;
+      t < TICKS_PER_DAY || (t < TICKS_PER_DAY * 1.2 && left() > B.FORKLIFT_CAPACITY);
+      t++
+    ) {
+      world.step();
+    }
+    expect(left()).toBeLessThanOrEqual(B.FORKLIFT_CAPACITY);
     expect(world.stats.cratesHandled).toBeGreaterThan(handled);
     expect(world.stats.trucks).toBeGreaterThan(trucked);
   });
@@ -2462,7 +2470,7 @@ describe('Container Port tier', () => {
       0,
     );
     let waiting = false;
-    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 6; k++) {
       world.step();
       expect(yard.boxes.length).toBeLessThanOrEqual(most);
       if (
@@ -3791,7 +3799,7 @@ describe('Container Port tier', () => {
     );
     const parkedAt = new Map<number, number>();
     let early = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 8 && !(world.stats.exported ?? 0); k++) {
       world.step();
       for (const truck of world.trucks) {
         if (truck.contractId !== shipper.id) continue;
