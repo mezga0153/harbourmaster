@@ -26,16 +26,16 @@ import { Music } from './music';
 import { roadPitch, Synth, type Loop } from './synth';
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
-// afar, wind and the sea; zoomed in, the particular sounds of what is in
+// afar and the sea; zoomed in, the particular sounds of what is in
 // view: containers landing, engines, reversing beeps, ships' horns.
 
 export interface SoundSettings {
   on: boolean;
   /** 0 to 1. */
   volume: number;
-  /** The sea, the wind and the port's hum from afar, 0 to 1 of the volume. */
+  /** The sea, 0 to 1 of the volume. */
   ambience: number;
-  /** The work: engines, cranes, containers and crates, horns, 0 to 1 of the volume. */
+  /** The work: engines, cranes, containers and crates, horns, the port's hum, 0 to 1 of the volume. */
   effects: number;
   /** The music, 0 to 1 of the volume; none at 0. */
   music: number;
@@ -96,7 +96,6 @@ const UPDATE_MS = 100;
 
 interface Beds {
   hum: Loop;
-  wind: Loop;
   wash: Loop;
   lap: Loop;
   road: Record<RoadEngine, Loop>;
@@ -166,7 +165,6 @@ export class Soundscape {
       const sea = this.synth.sea();
       this.beds = {
         hum: this.synth.hum(),
-        wind: this.synth.wind(),
         wash: sea.wash,
         lap: sea.lap,
         road: {
@@ -279,8 +277,8 @@ export class Soundscape {
     };
     const act = mix.activity;
     set(b.hum, (0.1 + 0.6 * far) * (0.25 + 0.75 * act) * (running ? 1 : 0.6), 0, 0.8);
-    set(b.wind, 0.04 + 0.16 * far, 0, 1);
-    set(b.wash, water * (0.1 + 0.1 * far), 0, 1);
+    // The sea, more of it the further out the view.
+    set(b.wash, water * (0.12 + 0.16 * far), 0, 1);
     // Waves slap the quay walls in fits and starts.
     set(b.lap, water * near * 0.3 * (0.2 + Math.random() * 0.8), 0, 0.15);
     const work = running ? near * zoom : 0;
@@ -308,7 +306,7 @@ export class Soundscape {
     set(b.rumble, running ? mix.train.gain * (0.35 + 0.25 * near) : 0, mix.train.pan, 0.6);
 
     if (!running) return;
-    // Far off, the work blurs into the odd clang and beep carried on the wind.
+    // Far off, the work blurs into the odd clang and beep carried across the water.
     if (Math.random() < act * far * 1.2 * dt) {
       s.clank(0.3 * far * (0.4 + 0.6 * act), (Math.random() * 2 - 1) * 0.6, 1);
     }

@@ -108,7 +108,7 @@ export class Synth {
   readonly ctx: AudioContext;
   /** Overall volume. */
   readonly master: GainNode;
-  /** The beds, under the effects. */
+  /** The sea, under the effects. */
   readonly ambience: GainNode;
   readonly effects: GainNode;
   /** The music, under it all. */
@@ -211,8 +211,8 @@ export class Synth {
   }
 
   /**
-   * How loud the beds (sea, wind, the hum), the effects (the work, the
-   * ships) and the music are, 0 to 1 each, echo and all.
+   * How loud the sea, the effects (the work, the ships, the port's hum
+   * from afar) and the music are, 0 to 1 each, echo and all.
    */
   setLevels(ambience: number, effects: number, music = 0): void {
     const t = this.now;
@@ -226,9 +226,9 @@ export class Synth {
 
   // ── Beds ────────────────────────────────────────────────
 
-  /** The port from afar: a low rumble of engines, generators and ships' machinery. */
+  /** The port from afar: a low rumble of engines, generators and ships' machinery. Part of the work. */
   hum(): Loop {
-    const out = this.loopOut(this.ambience, 0.35);
+    const out = this.loopOut(this.effects, 0.35);
     const rumble = this.noise('brown');
     const lp = this.filter('lowpass', 150, 0.5);
     const swell = this.gainNode(0.9);
@@ -271,19 +271,6 @@ export class Synth {
     lsrc.connect(lbp).connect(lap.gain);
     lsrc.start(this.now, Math.random() * 3);
     return { wash, lap };
-  }
-
-  /** Wind over open ground, heard more as the view pulls back. */
-  wind(): Loop {
-    const out = this.loopOut(this.ambience, 0);
-    const src = this.noise('pink');
-    const bp = this.filter('bandpass', 800, 0.6);
-    this.lfo(bp.frequency, 0.05, 250);
-    const g = this.gainNode(0.6);
-    this.lfo(g.gain, 0.07, 0.3);
-    src.connect(bp).connect(g).connect(out.gain);
-    src.start(this.now, Math.random() * 3);
-    return out;
   }
 
   /**

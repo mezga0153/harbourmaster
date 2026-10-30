@@ -291,7 +291,6 @@ lab.append(
   section(
     'The port from afar',
     loopRow('Port hum', (s) => s.hum(), 0.4),
-    loopRow('Wind', (s) => s.wind(), 0.15),
     loopRow('Sea', (s) => s.sea().wash, 0.15),
     loopRow('Train going by', (s) => s.rumble(), 0.4),
   ),

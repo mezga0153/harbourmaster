@@ -170,12 +170,12 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
       <Level
         name="effects"
         label="The work"
-        hint="Engines, cranes, containers and crates landing, ships' horns"
+        hint="Engines, cranes, containers and crates landing, ships' horns, the port's hum from afar"
       />
       <Level
         name="ambience"
-        label="Sea and wind"
-        hint="Waves, the wind, the port's hum from afar"
+        label="Sea"
+        hint="Waves washing in, and slapping at the quay walls up close"
       />
       <Level
         name="music"
