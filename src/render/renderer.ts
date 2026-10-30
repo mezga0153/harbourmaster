@@ -119,6 +119,7 @@ export class Renderer {
     structures.slotObject = (id, k) => entities.slotObject(id, k);
     // Stackers and tractors pull up to the container they take or set down.
     entities.containerAt = (at, out) => structures.containerAt(at, out);
+    entities.crateObject = (at) => structures.crateObject(at);
     structures.slotTurn = (id, k) => entities.slotTurn(id, k);
     const trains = new Trains(map);
     const scenery = new Group();
@@ -365,6 +366,9 @@ export class Renderer {
         this.viewDir.copy(this.cam.camera.position).sub(this.cam.target).normalize(),
         this.sun.shadow.camera.right * 2,
       );
+      const eye = this.cam.camera.position;
+      const to = this.cam.target;
+      this.layers.entities.viewer = Math.atan2(eye.z - to.z, eye.x - to.x);
       this.layers.entities.update(now, time);
       this.layers.water.setWakes(this.layers.entities.wakes());
       this.layers.water.setStirs(this.layers.entities.stirs());

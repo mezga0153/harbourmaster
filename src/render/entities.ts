@@ -15,6 +15,8 @@ import {
   person,
   paintLoad,
   reachTo,
+  crateIcon,
+  setCrateIcon,
   showDeck,
   showLoad,
   stacker,
@@ -456,6 +458,10 @@ export class Entities {
    * runs as a heading. Set by the renderer.
    */
   containerAt?: (at: HandAt, out: Vector3) => number | null;
+  /** Which way the camera is from what it looks at, as a heading on the ground: who dockhands wave to. */
+  viewer?: number;
+  /** The crate at a place a dockhand works on the quay, in a bay or storage, as Structures.crateObject. */
+  crateObject?: (at: HandAt) => Object3D | undefined;
   private slotAt = new Vector3();
 
   constructor(private map: GameMap) {}
@@ -919,6 +925,9 @@ export class Entities {
       const p = mate.model.root.position;
       const face = Math.atan2(p.z - root.position.z, p.x - root.position.x);
       root.rotation.y = -lerpAngle(-root.rotation.y, face, f);
+    } else if (what === 'wave' && this.viewer !== undefined) {
+      // Turned to wave up at whoever is watching.
+      root.rotation.y = -lerpAngle(-root.rotation.y, this.viewer, f);
     }
   }
 
@@ -1410,6 +1419,14 @@ export class Entities {
       if (this.handSlot(at, this.slotAt) !== null) w.place = this.slotAt.clone();
     }
     const load = e.model.crates[0];
+    // The crate in their hands is the one they took up, and goes down as it
+    // is: painted with what it holds.
+    if (w && at && e.view.handStage === w.stage) {
+      const there =
+        at.truck !== undefined ? this.slotOf(at.truck, at.slot ?? 0) : this.crateObject?.(at);
+      if (w.stage === 'pick') setCrateIcon(load, crateIcon(there));
+      else setCrateIcon(there, crateIcon(load));
+    }
     if (!w?.place || !load?.parent) return;
     load.parent.updateWorldMatrix(true, false);
     const off = at?.truck !== undefined && this.slotOf(at.truck, at.slot ?? 0);

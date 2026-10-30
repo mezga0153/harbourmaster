@@ -1,4 +1,17 @@
-import { Group, Quaternion, Vector3, type BufferGeometry, type Mesh, type Object3D } from 'three';
+import {
+  BoxGeometry,
+  CanvasTexture,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshLambertMaterial,
+  type Material,
+  Quaternion,
+  SRGBColorSpace,
+  Vector3,
+  type BufferGeometry,
+  type Object3D,
+} from 'three';
 import { hash01 } from '../sim/noise';
 import { BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
 import { coasterShip, feederShip, fishingBoat, tugBoat } from './craft';
@@ -178,11 +191,166 @@ export function paintLoad(model: Model, looks: number[]): void {
   });
 }
 
+/** What a crate holds, as painted on its sides: the catch off the boats. */
+export const CRATE_ICONS = ['fish', 'crab', 'shrimp', 'shell', 'octopus'] as const;
+/** Per picture, the materials of a box's six faces: on the four sides, none top and bottom. */
+let iconMats: Material[][] | null | undefined;
+const iconBand = new BoxGeometry(1, 1, 1);
+const none = new MeshBasicMaterial({ visible: false });
+let nextIcon = 0;
+
+/** A little picture of each, drawn once; none where there is nothing to draw on, as in tests. */
+function iconMaterials(): Material[][] | null {
+  if (iconMats !== undefined) return iconMats;
+  if (typeof document === 'undefined') return (iconMats = null);
+  iconMats = CRATE_ICONS.map((name) => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 64;
+    const g = cv.getContext('2d')!;
+    drawIcon(g, name);
+    const tex = new CanvasTexture(cv);
+    tex.colorSpace = SRGBColorSpace;
+    const side = new MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.4 });
+    return [side, side, none, none, side, side];
+  });
+  return iconMats;
+}
+
+function drawIcon(g: CanvasRenderingContext2D, name: (typeof CRATE_ICONS)[number]): void {
+  const eye = (x: number, y: number, r = 4) => {
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = '#222';
+    g.beginPath();
+    g.arc(x + r * 0.25, y, r * 0.5, 0, Math.PI * 2);
+    g.fill();
+  };
+  g.lineJoin = 'round';
+  switch (name) {
+    case 'fish':
+      g.fillStyle = '#3f8fd8';
+      g.beginPath();
+      g.moveTo(14, 32);
+      g.lineTo(4, 20);
+      g.lineTo(4, 44);
+      g.closePath();
+      g.fill();
+      g.beginPath();
+      g.ellipse(34, 32, 22, 14, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#7fc0f2';
+      g.beginPath();
+      g.ellipse(36, 36, 14, 6, 0, 0, Math.PI * 2);
+      g.fill();
+      eye(46, 28);
+      break;
+    case 'crab':
+      g.strokeStyle = '#d8452f';
+      g.lineWidth = 4;
+      for (const s of [-1, 1]) {
+        for (const k of [0, 1, 2]) {
+          g.beginPath();
+          g.moveTo(32 + s * 12, 38 + k * 5);
+          g.lineTo(32 + s * 26, 44 + k * 6);
+          g.stroke();
+        }
+      }
+      g.fillStyle = '#e8573f';
+      for (const s of [-1, 1]) {
+        g.beginPath();
+        g.arc(32 + s * 22, 18, 7, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.beginPath();
+      g.ellipse(32, 38, 18, 12, 0, 0, Math.PI * 2);
+      g.fill();
+      eye(26, 30, 4);
+      eye(38, 30, 4);
+      break;
+    case 'shrimp':
+      g.strokeStyle = '#f08a8a';
+      g.lineWidth = 12;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.arc(32, 30, 16, Math.PI * 0.15, Math.PI * 1.25);
+      g.stroke();
+      g.strokeStyle = '#f6b3a8';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(44, 22);
+      g.lineTo(58, 10);
+      g.stroke();
+      eye(42, 26, 3.5);
+      break;
+    case 'shell':
+      g.fillStyle = '#f2c14e';
+      g.beginPath();
+      g.moveTo(32, 54);
+      g.arc(32, 34, 22, Math.PI * 1.05, Math.PI * 1.95);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = '#c9932a';
+      g.lineWidth = 3;
+      for (const a of [-0.6, -0.3, 0, 0.3, 0.6]) {
+        g.beginPath();
+        g.moveTo(32, 52);
+        g.lineTo(32 + Math.sin(a) * 22, 34 - Math.cos(a) * 20);
+        g.stroke();
+      }
+      break;
+    case 'octopus':
+      g.strokeStyle = '#9b59c9';
+      g.lineWidth = 5;
+      g.lineCap = 'round';
+      for (let k = 0; k < 5; k++) {
+        const x = 14 + k * 9;
+        g.beginPath();
+        g.moveTo(x, 34);
+        g.quadraticCurveTo(x + 5, 46, x - 2, 56);
+        g.stroke();
+      }
+      g.fillStyle = '#b06fdc';
+      g.beginPath();
+      g.ellipse(32, 26, 18, 16, 0, 0, Math.PI * 2);
+      g.fill();
+      eye(26, 26, 4);
+      eye(38, 26, 4);
+      break;
+  }
+}
+
+/** What crate `c` shows it holds, by its place in CRATE_ICONS; undefined for no crate. */
+export function crateIcon(c: Object3D | undefined): number | undefined {
+  return c?.userData.icon as number | undefined;
+}
+
+/** Paint crate `c` as holding CRATE_ICONS[k]. */
+export function setCrateIcon(c: Object3D | undefined, k: number | undefined): void {
+  if (!c || k === undefined || c.userData.icon === k) return;
+  c.userData.icon = k;
+  const mats = iconMaterials();
+  if (!mats) return;
+  for (const d of c.children) if (d.userData.decal) (d as Mesh).material = mats[k];
+}
+
 export function crate(size: number, x = 0, y = 0, z = 0): Group {
   const g = new Group();
   // Body and lid are stacked, not overlapping, so no faces share a plane.
   g.add(box(size, size * 0.82, size, C.crate));
   g.add(box(size * 1.04, size * 0.18, size * 1.04, C.crateLid, 0, size * 0.82));
+  // What it holds, painted on its four sides.
+  const k = nextIcon++ % CRATE_ICONS.length;
+  g.userData.icon = k;
+  const mats = iconMaterials();
+  if (mats) {
+    const d = new Mesh(iconBand, mats[k]);
+    d.userData.decal = true;
+    d.scale.set(size + 0.004, size * 0.62, size + 0.004);
+    d.position.y = size * 0.41;
+    g.add(d);
+  }
   g.position.set(x, y, z);
   return g;
 }

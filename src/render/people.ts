@@ -150,7 +150,6 @@ export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void 
 /** Things a dockhand does standing about with nothing to do. */
 export type Fidget =
   | 'look'
-  | 'stretch'
   | 'scratch'
   | 'watch'
   | 'tap'
@@ -168,7 +167,7 @@ export type Fidget =
 /** Mostly the quiet ones, now and then a daft one. */
 const FIDGETS: Fidget[] = [
   'look',
-  'stretch',
+  'wave',
   'scratch',
   'watch',
   'tap',
@@ -181,7 +180,7 @@ const FIDGETS: Fidget[] = [
   'sit',
   'peer',
   'wave',
-  'stretch',
+  'look',
   'dance',
   'flex',
   'hop',
@@ -209,7 +208,7 @@ export function fidgetAt(id: number, t: number, company: boolean): [Fidget, numb
 
 /**
  * Standing about, on top of how pose() has them stand: looking round,
- * stretching, scratching their head, checking the time, tapping a foot or
+ * waving, scratching their head, checking the time, tapping a foot or
  * waving a hand about as they chat; `f` of the way into it.
  */
 export function fidget(
@@ -226,12 +225,6 @@ export function fidget(
     case 'look':
       // Turning from the waist one way and the other.
       body.rotation.y = Math.sin(t * 0.9) * 0.6 * f;
-      break;
-    case 'stretch':
-      // Arms up overhead, leaning back a little.
-      to(l.armL, Math.PI - 0.15);
-      to(l.armR, Math.PI - 0.15);
-      body.rotation.z += 0.12 * f * (1 + Math.sin(t * 1.5) * 0.3);
       break;
     case 'scratch':
       to(l.armR, 2.6 + Math.sin(t * 9) * 0.12);
@@ -304,7 +297,9 @@ export function fidget(
       body.rotation.z += 0.12 * f;
       break;
     case 'wave':
+      // Waving up at whoever is watching, see Entities.standAbout.
       l.armR.rotation.x = -(2.6 + Math.sin(t * 10) * 0.35) * f;
+      body.rotation.z += 0.08 * f;
       break;
     case 'hop':
       // Hopping on the spot, feet tucked up under them.

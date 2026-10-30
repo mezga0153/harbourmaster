@@ -1365,6 +1365,11 @@ export class Structures {
     return headingOf(slot);
   }
 
+  /** The crate in a crate's place a dockhand works, as crateAt, if there is one. */
+  crateObject(at: HandAt): Object3D | undefined {
+    return this.crateAt(at) ?? undefined;
+  }
+
   /**
    * A crate's place a forklift or dockhand works, by its slot: on the quay,
    * at a truck bay, in crate storage or on a jib crane's landing stack; null
