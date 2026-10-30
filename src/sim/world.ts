@@ -1041,6 +1041,11 @@ const FORKLIFT_ACTIVITY: Partial<Record<DockhandState, string>> = {
 /** What a worker is up to; `landing` when setting a load down on the quay. */
 function activity(p: Dockhand, landing: boolean): string {
   if (p.state === 'idle' && p.stuck) return p.stuck;
+  if (p.truckId !== undefined && !isBoxy(p)) {
+    if (p.state === 'toPickup') return 'Heading to load a truck';
+    if (p.state === 'picking') return 'Picking up crates for a truck';
+    if (p.state === 'dropping') return 'Loading crates onto a truck';
+  }
   if (p.truckId !== undefined) {
     if (p.state === 'toPickup') return 'Heading to a truck at the container yard';
     if (p.state === 'picking') {
@@ -5424,6 +5429,9 @@ export class World {
       const bay = this.bays.get(p.stockIdx);
       return bay?.tiles ? store(bay) : undefined;
     }
+    // Onto a truck it is loading.
+    const truck = p.truckId !== undefined && this.trucks.find((q) => q.id === p.truckId);
+    if (truck) return { truck: truck.id, slot: truck.cargo };
     const boat =
       p.toBoat !== undefined && p.toBoat >= 0 && this.boats.find((b) => b.id === p.toBoat);
     if (boat) return onBoat(boat);
@@ -5806,6 +5814,145 @@ export class World {
     return t.boxes && !!bay.yard && !this.yardGantry(bay);
   }
 
+  /**
+   * A crate truck at a truck bay or crate storage, which dockhands and
+   * forklifts with nothing else to do help load, besides its own crew.
+   */
+  private byHand(t: Truck, bay: Bay): boolean {
+    return !t.boxes && !bay.yard && !bay.pile;
+  }
+
+  /** Crate trucks waiting to be loaded, for dockhands and forklifts. */
+  private crateTruckSources(sources: Source[]): void {
+    for (const t of this.trucks) {
+      if (t.state !== 'loading') continue;
+      const bay = this.dest(t.bayIdx);
+      if (!bay || !this.byHand(t, bay)) continue;
+      const avail = Math.min(
+        t.capacity - t.cargo - (t.coming ?? 0),
+        bay.crates.length - (bay.reserved ?? 0),
+      );
+      if (avail <= 0) continue;
+      // Last of all: boats and the quay come first, and the truck loads itself anyway.
+      sources.push({ tile: this.crateTruckSpot(bay, t), avail, truck: t, load: true, rank: 3 });
+    }
+  }
+
+  /**
+   * Where a dockhand or forklift loading a crate truck takes the crates
+   * from: the truck bay it stands in, or the tile of the crate storage
+   * beside where it stands, nearest it.
+   */
+  private crateTruckSpot(bay: Bay, t: Truck): number {
+    if (!bay.tiles) return bay.idx;
+    const at = this.tileOf(t);
+    const m = this.map;
+    return [...bay.tiles].sort(
+      (a, b) =>
+        Math.hypot(m.xOf(a) - m.xOf(at), m.yOf(a) - m.yOf(at)) -
+        Math.hypot(m.xOf(b) - m.xOf(at), m.yOf(b) - m.yOf(at)),
+    )[0];
+  }
+
+  /** Send a dockhand or forklift to load a crate truck: as many as it carries a trip. */
+  private takeCrateTruckJob(p: Dockhand, src: Source): boolean {
+    const t = src.truck!;
+    const bay = this.dest(t.bayIdx);
+    if (!bay || this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
+    if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
+    // Only as many as save the truck a wait: it sets them on while its own
+    // crew is still loading the rest, never keeping the truck waiting for it.
+    const room = Math.min(
+      t.capacity - t.cargo - (t.coming ?? 0),
+      bay.crates.length - (bay.reserved ?? 0),
+    );
+    const speed = p.kind === 'forklift' ? B.FORKLIFT_SPEED : B.WALK_SPEED;
+    const there =
+      (this.dist(this.tileOf(p), src.tile) * 1.25) / speed +
+      this.handlingTicks(p, B.PICK_TICKS) +
+      this.handlingTicks(p, B.DROP_TICKS);
+    const n = Math.min(p.capacity, src.avail, Math.floor(room - there / this.truckTicks(t, bay)));
+    if (n <= 0) return false;
+    if (!this.headTo(p, src.tile)) return false;
+    bay.reserved = (bay.reserved ?? 0) + n;
+    t.coming = (t.coming ?? 0) + n;
+    p.truckId = t.id;
+    p.truckLoad = true;
+    p.bayIdx = bay.idx;
+    p.stockIdx = bay.idx;
+    p.planned = n;
+    p.boatId = -1;
+    p.craneIdx = -1;
+    p.state = 'toPickup';
+    return true;
+  }
+
+  /**
+   * A dockhand or forklift loading a crate truck: to the crates, picks them
+   * up, and sets them on the truck beside it. True while it is at it.
+   */
+  private crateTruckJob(p: Dockhand): boolean {
+    const t = this.trucks.find((q) => q.id === p.truckId);
+    const bay = this.dest(p.bayIdx);
+    const live = !!t && !!bay && t.bayIdx === bay.idx && t.state === 'loading';
+    switch (p.state) {
+      case 'toPickup': {
+        if (!live) {
+          this.cancelJob(p);
+          return true;
+        }
+        const r = this.walk(p);
+        if (r === 'blocked') this.cancelJob(p);
+        else if (r === 'arrived') {
+          p.state = 'picking';
+          p.timer = this.handlingTicks(p, B.PICK_TICKS);
+        }
+        return true;
+      }
+      case 'picking': {
+        if (--p.timer > 0) return true;
+        if (!live) {
+          this.cancelJob(p);
+          return true;
+        }
+        bay.reserved = Math.max(0, (bay.reserved ?? 0) - p.planned);
+        const n = Math.min(p.planned, bay.crates.length, this.onPallet(p, bay));
+        const fees = bay.crates.splice(bay.tiles ? this.takenFrom(p, bay, n) : 0, n);
+        // Fewer than it went for: the truck waits for none of the rest.
+        t.coming = Math.max(0, (t.coming ?? 0) - (p.planned - fees.length));
+        if (fees.length === 0) {
+          this.endTruckJob(p);
+          return true;
+        }
+        p.planned = fees.length;
+        p.carrying = fees.length;
+        p.cargoFees = fees;
+        // The truck is right beside it.
+        p.state = 'dropping';
+        p.timer = this.handlingTicks(p, B.DROP_TICKS);
+        return true;
+      }
+      case 'dropping': {
+        if (--p.timer > 0) return true;
+        this.landCrates(p, t, bay, live);
+        this.endTruckJob(p);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Crates a dockhand or forklift has for a truck: on it if it is still loading, else back where they came from. */
+  private landCrates(p: Dockhand, t: Truck | undefined, bay: Bay | undefined, live: boolean): void {
+    if (p.carrying <= 0) return;
+    if (t) t.coming = Math.max(0, (t.coming ?? 0) - p.carrying);
+    if (live && t) {
+      t.cargo += p.carrying;
+      t.value += p.cargoFees.reduce((n, f) => n + f, 0);
+      t.idle = 0;
+    } else if (bay) bay.crates.push(...p.cargoFees);
+  }
+
   /** Trucks waiting at yards with no gantry, for reach stackers to load or unload. */
   private truckSources(sources: Source[]): void {
     for (const t of this.trucks) {
@@ -5982,6 +6129,16 @@ export class World {
   private releaseTruckJob(p: Dockhand): void {
     if (p.truckId === undefined) return;
     const t = this.trucks.find((q) => q.id === p.truckId);
+    if (!isBoxy(p)) {
+      // Crates for a truck: back where they came from, or the promise given back.
+      const bay = this.dest(p.bayIdx);
+      if (p.carrying > 0) this.landCrates(p, t, bay, false);
+      else {
+        if (bay) bay.reserved = Math.max(0, (bay.reserved ?? 0) - p.planned);
+        if (t) t.coming = Math.max(0, (t.coming ?? 0) - p.planned);
+      }
+      return this.endTruckJob(p);
+    }
     const yard = this.yards.get(p.bayIdx);
     if (p.carrying > 0) this.landTruckLoad(p, t, yard, false);
     else if (p.truckLoad) {
@@ -5998,6 +6155,7 @@ export class World {
     p.cargoFees = [];
     p.planned = 0;
     p.bayIdx = -1;
+    p.stockIdx = -1;
     p.state = 'idle';
   }
 
@@ -7590,7 +7748,14 @@ export class World {
   /** The port machines that drive in traffic, wherever they are other than parked at their depot. */
   private machinesOnRoad(): Dockhand[] {
     return this.people.filter(
-      (q) => isBoxy(q) && !(q.state === 'idle' && this.map.build[this.tileOf(q)] === Build.Depot),
+      (q) =>
+        isBoxy(q) &&
+        // Standing in a depot, idle, broken down or in for repair: the
+        // others drive in over it.
+        !(
+          (q.state === 'idle' || q.path.length === 0) &&
+          this.map.build[this.tileOf(q)] === Build.Depot
+        ),
     );
   }
 
@@ -7921,7 +8086,7 @@ export class World {
   private updateDockhand(p: Dockhand): void {
     if ((p.state === 'idle' || p.state === 'wander') && this.rescue(p)) return;
     if (this.tire(p)) return this.goOnBreak(p);
-    if (p.truckId !== undefined && this.truckJob(p)) return;
+    if (p.truckId !== undefined && (isBoxy(p) ? this.truckJob(p) : this.crateTruckJob(p))) return;
     if (p.restack && this.restackJob(p)) return;
     switch (p.state) {
       case 'broken':
@@ -8264,6 +8429,7 @@ export class World {
     this.exportSources(p, here, sources);
     // Only stackers can lift a container onto a truck or off one.
     if (p.kind === 'stacker') this.truckSources(sources);
+    if (p.kind === 'dockhand' || p.kind === 'forklift') this.crateTruckSources(sources);
     // The boat moored longest is unloaded first, however near another lies:
     // others only once its crates are all spoken for, or its spots taken.
     const moored = (s: Source) => s.boat?.mooredTicks ?? -1;
@@ -8280,7 +8446,7 @@ export class World {
         continue;
       }
       if (src.truck) {
-        if (this.takeTruckJob(p, src)) return true;
+        if (isBoxy(p) ? this.takeTruckJob(p, src) : this.takeCrateTruckJob(p, src)) return true;
         continue;
       }
       if (!Number.isFinite(cost(src.tile))) continue;
@@ -11826,7 +11992,13 @@ export class World {
         const lifted = t.lifting === undefined ? -1 : this.boxLooks(bay).indexOf(t.lifting);
         t.lifting = undefined;
         const at = t.boxes && bay.yard ? (lifted >= 0 ? lifted : this.clearTop(bay)) : 0;
-        if (stock.length > 0 && at >= 0 && t.cargo < t.capacity) {
+        // Crates its crew loads besides those dockhands and forklifts bring
+        // it: none they are on their way for, nor more than it has room for
+        // with theirs.
+        const spare = t.boxes ? stock.length : stock.length - (bay.reserved ?? 0);
+        const coming = t.boxes ? 0 : (t.coming ?? 0);
+        if (coming > 0) t.idle = 0;
+        if (spare > 0 && at >= 0 && t.cargo + coming < t.capacity) {
           if (t.boxes && bay.yard) this.yardSlots(bay).boxes.splice(at, 1);
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
           if (t.boxes && bay.yard) (t.looks ??= []).push(this.boxLooks(bay).splice(at, 1)[0]);
@@ -11907,7 +12079,9 @@ export class World {
 
   /** Trucks stop at a level crossing while the barriers are down. */
   private level = (i: number): boolean =>
-    this.map.build[i] !== Build.Crossing || !crossingClosed(this.rail.train, this.map.yOf(i));
+    this.map.build[i] !== Build.Crossing ||
+    // As the barriers will be by the end of this tick: the train moves after the trucks.
+    !crossingClosed(this.rail.train, this.map.yOf(i), 1);
 
   // ── Rules of the road ─────────────────────────────────────
   //
@@ -12013,6 +12187,8 @@ export class World {
    * has come on there.
    */
   private clearAcross(t: Vehicle, o: Vehicle): boolean {
+    // One broken down there is not crossing: it stands in the way of all.
+    if (this.brokenDown(o)) return false;
     const junctions = this.junctions();
     const j = [this.tileOf(t), t.path[0], t.path[1]].find(
       (i) =>
@@ -12336,9 +12512,15 @@ export class World {
       const across = Math.abs(dy * hx - dx * hy);
       // Clear of each other side by side; round a corner, what is just
       // short of it only if it has turned that way already.
-      const facing = Math.cos(this.goingTo(o) - dir);
+      // Facing its way counts as much as going it: one stopped to turn
+      // about still fills the lane it stands in.
+      const facing = Math.max(Math.cos(this.goingTo(o) - dir), Math.cos(o.dir - dir));
       const from = k > 0 && facing > 0.7 ? -0.3 : 0;
-      if (along >= from && along <= len && across <= 0.3 && facing >= -0.2) {
+      // One broken down fills the road as far as it reaches across it,
+      // whichever way it faces.
+      const broken = this.brokenDown(o);
+      const wide = broken ? (Math.abs(Math.sin(o.dir - dir)) * this.vehicleLength(o)) / 2 : 0;
+      if (along >= from && along <= len && across <= 0.3 + wide && (broken || facing >= -0.2)) {
         return run + Math.max(0, along);
       }
       run += len;
@@ -12346,6 +12528,11 @@ export class World {
       y = ny;
     }
     return -1;
+  }
+
+  /** A machine broken down where it stands, waiting for its repair: nothing gets past it. */
+  private brokenDown(o: Vehicle): boolean {
+    return !isTruck(o) && o.state === 'broken';
   }
 
   /** Where a truck or machine is on the road: on the right-hand side of it, as each is shown. */

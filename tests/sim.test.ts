@@ -2545,7 +2545,9 @@ describe('Container Port tier', () => {
       // Who is at a truck going into the tick: a stacker setting a
       // container down finishes the job in it.
       const working = new Set(
-        world.people.filter((p) => p.truckId !== undefined).map((p) => p.truckId!),
+        world.people
+          .filter((p) => p.kind === 'stacker' && p.truckId !== undefined)
+          .map((p) => p.truckId!),
       );
       stackerJobs += working.size;
       world.step();
@@ -2787,7 +2789,7 @@ describe('Container Port tier', () => {
       world.step();
       loaded += Math.max(0, world.trucks.reduce((n, t) => n + (t.boxes ? t.cargo : 0), 0) - before);
       // The gantry does it: no stacker works a truck here.
-      expect(world.people.some((p) => p.truckId !== undefined)).toBe(false);
+      expect(world.people.some((p) => p.kind === 'stacker' && p.truckId !== undefined)).toBe(false);
       if (k % 10 === 0 && world.snapshot().yards.some((y) => y.working)) working++;
     }
     expect(loaded).toBeGreaterThan(0);
@@ -4207,7 +4209,8 @@ describe('Container Port tier', () => {
     // Boats already in the water when it was claimed, which may sail out of it.
     const inside = new Map<number, Set<number>>();
     let intrusions = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 8; k++) {
+    // Long enough for a few to pull out, however the queue at anchor goes.
+    for (let k = 0; k < TICKS_PER_DAY * 10; k++) {
       world.step();
       for (const b of world.boats) {
         if (!b.room) {

@@ -129,10 +129,10 @@ function continueLine(map: GameMap, x: number): number[] {
 }
 
 /** Whether a crossing at row `y` has its barriers down for the train. */
-export function crossingClosed(train: Train | null, y: number): boolean {
+export function crossingClosed(train: Train | null, y: number, ahead = 0): boolean {
   if (!train) return false;
-  // Positions measured along the way the train is going.
-  const head = train.dir * train.head;
+  // Positions measured along the way the train is going: `ahead` ticks on.
+  const head = train.dir * train.head + train.speed * ahead;
   const at = train.dir * (y + 0.5);
   return head >= at - CROSSING_WARN && head - trainLength(train) <= at + CROSSING_CLEAR;
 }
