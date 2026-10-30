@@ -270,6 +270,11 @@ export interface BayView {
   warehouse: boolean;
   /** Crates waiting here to go out on a ship. */
   exports: number;
+  /**
+   * Crate storage: the place each pallet is in, four to a tile, tile by
+   * tile, holding the next four of its crates then its exports.
+   */
+  places?: number[];
   /** Storage for cargo going out; by a crane, either way, one at a time. */
   outgoing: boolean;
   byCrane: boolean;

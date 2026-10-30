@@ -783,7 +783,7 @@ describe('Coastal Wharf tier', () => {
     expect(world.stats.trucks).toBeGreaterThan(trucked);
   });
 
-  it('has a forklift take off crate storage just the crates on the last pallet there', () => {
+  it('has a forklift take full pallets off crate storage, leaving the one a jib crane is filling', () => {
     const world = World.create(7);
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
@@ -798,33 +798,33 @@ describe('Coastal Wharf tier', () => {
     fireDockhands(world);
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) world.step();
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
-    const held = () => {
-      const b = world.bays.get(store)!;
-      return b.crates.length + (b.exports?.length ?? 0);
-    };
-    // The crates on the last pallet of so many, four to a pallet.
-    const top = (n: number) => n - Math.floor((n - 1) / B.FORKLIFT_CAPACITY) * B.FORKLIFT_CAPACITY;
+    const per = B.FORKLIFT_CAPACITY;
+    const bay = () => world.bays.get(store)!;
+    const held = () => bay().crates.length + (bay().exports?.length ?? 0);
     const forklifts = world.people.filter((p) => p.kind === 'forklift');
     let lifts = 0;
-    let partial = 0;
-    for (let t = 0; t < TICKS_PER_DAY; t++) {
+    let kept = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       const before = held();
+      const places = [...(bay().places ?? [])];
       const was = forklifts.map((p) => p.carrying);
       const from = forklifts.map((p) => p.state === 'picking' && p.stockIdx === store);
       const planned = forklifts.map((p) => p.planned);
       world.step();
       forklifts.forEach((p, k) => {
         if (!from[k] || p.carrying <= was[k]) return;
-        // Whatever the crane swung in meanwhile, before it or after.
-        const landed = held() + p.carrying - before;
-        const most = [top(before), top(before + landed)].map((n) => Math.min(n, planned[k]));
-        expect(most).toContain(p.carrying);
         lifts++;
-        if (p.carrying < B.FORKLIFT_CAPACITY) partial++;
+        if (before < per || planned[k] < per) return;
+        // A full pallet, not the few on the one being filled.
+        expect(p.carrying).toBe(per);
+        if (before % per === 0 || places.length !== Math.ceil(before / per)) return;
+        // Which stays where it is.
+        expect(bay().places).toContain(places[places.length - 1]);
+        kept++;
       });
     }
     expect(lifts).toBeGreaterThan(3);
-    expect(partial).toBeGreaterThan(0);
+    expect(kept).toBeGreaterThan(0);
   });
 
   it('has boats wait for a berth under a jib crane when nobody can unload them by hand', () => {

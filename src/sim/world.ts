@@ -198,7 +198,10 @@ interface Dockhand extends Agent {
   cargoFrom?: number[];
   /** Stackers: how each container carried looks; see boxLookOf. */
   cargoLooks?: number[];
-  /** The place on a crane's stack of the container it is taking, chosen as it pulls up. */
+  /**
+   * The place on a crane's stack of the container it is taking, or in crate
+   * storage of the pallet a forklift is taking, chosen as it pulls up.
+   */
   takeAt?: number;
   /** A tractor under a gantry crane: what the crane set straight on it off the ship. */
   handed?: { fees: number[]; looks: number[]; from: number[] };
@@ -530,6 +533,11 @@ interface Bay {
   boxSlots?: number[];
   exportSlots?: number[];
   /**
+   * Crate storage: the place each pallet is in, holding the next four of
+   * its crates then its exports; see palletPlaces.
+   */
+  places?: number[];
+  /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.
    */
@@ -733,6 +741,11 @@ function outCap(b: { vessel: string }): number {
 function bayIncoming(b: Bay, boxes: boolean, delta: number): void {
   if (boxes) b.boxIncoming = Math.max(0, b.boxIncoming + delta);
   else b.incoming = Math.max(0, b.incoming + delta);
+}
+
+/** Crates and exports in a bay or crate storage. */
+function heldIn(b: Bay): number {
+  return b.crates.length + (b.exports?.length ?? 0);
 }
 
 function bayCap(b: Bay): number {
@@ -1137,6 +1150,7 @@ export class World {
       world.bays.set(bay.idx, {
         ...bay,
         crates: [...bay.crates],
+        places: bay.places && [...bay.places],
         boxes: [...(bay.boxes ?? [])],
         boxIncoming: bay.boxIncoming ?? 0,
         large: bay.large ?? false,
@@ -4456,26 +4470,112 @@ export class World {
   }
 
   /**
-   * The tile of crate storage the last pallet in it is on (`pick`), or the
-   * place the next goes: four pallets to a tile, a tile at a time.
+   * The places crate storage's pallets are in, four to a tile, kept beside
+   * its crates: each stays where it was set down as forklifts take full
+   * ones from under the one being filled, and a new one goes in the lowest
+   * free place. With `n` more than it holds, as many more as `n` would fill,
+   * where they would go.
    */
-  private palletTile(b: Bay, pick: boolean, coming = !pick): number {
+  private palletPlaces(b: Bay, n = 0): number[] {
+    const per = B.FORKLIFT_CAPACITY;
+    const room = (b.tiles?.length ?? 1) * (B.CRATES_PER_STORE_TILE / per);
+    const places = (b.places ??= []);
+    const pallets = Math.ceil(heldIn(b) / per);
+    if (places.length > pallets) places.length = pallets;
+    const used = new Set<number>();
+    places.forEach((k, j) => {
+      if (k < 0 || k >= room || used.has(k)) places[j] = -1;
+      else used.add(k);
+    });
+    const free = () => {
+      let k = 0;
+      while (used.has(k)) k++;
+      used.add(k);
+      return k;
+    };
+    places.forEach((k, j) => k < 0 && (places[j] = free()));
+    while (places.length < pallets) places.push(free());
+    if (n <= pallets * per) return places;
+    const more = [...places];
+    while (more.length < Math.ceil(n / per)) more.push(free());
+    return more;
+  }
+
+  /** Where crate `k` of crate storage is, counting `n` there: its pallet's place, four to each. */
+  private crateSlot(b: Bay, k: number, n = k + 1): number {
+    const per = B.FORKLIFT_CAPACITY;
+    return (this.palletPlaces(b, n)[Math.floor(k / per)] ?? 0) * per + (k % per);
+  }
+
+  /**
+   * Which of crate storage's pallets a forklift takes, of its exports when
+   * `out`: the one it pulled up to, else the last full one no other is
+   * lifting, so it leaves alone the one being filled, by a jib crane say;
+   * with none full, or when it is taking less than a pallet's worth, the
+   * last. -1 if there are none.
+   */
+  private pickPallet(b: Bay, out: boolean, p?: Dockhand): number {
+    const per = B.FORKLIFT_CAPACITY;
+    const places = this.palletPlaces(b);
+    const last = places.length - 1;
+    const at = p?.state === 'picking' && p.takeAt !== undefined ? places.indexOf(p.takeAt) : -1;
+    if (at >= 0) return at;
+    if (p && (p.state === 'toPickup' || p.state === 'picking') && p.planned < per) return last;
+    const [from, to] = out ? [b.crates.length, heldIn(b)] : [0, b.crates.length];
+    const taken = new Set(
+      this.people
+        .filter((q) => q !== p && q.kind === 'forklift' && q.state === 'picking')
+        .filter((q) => q.stockIdx === b.idx)
+        .map((q) => q.takeAt),
+    );
+    for (let j = last; j >= 0; j--) {
+      if (j * per >= from && (j + 1) * per <= to && !taken.has(places[j])) return j;
+    }
+    return last;
+  }
+
+  /**
+   * The tile of crate storage the pallet a forklift takes is on (`pick`),
+   * or the place the next goes: four pallets to a tile.
+   */
+  private palletTile(b: Bay, pick: boolean, coming = !pick, out = false, p?: Dockhand): number {
     const tiles = b.tiles ?? [b.idx];
-    const held = b.crates.length + (b.exports?.length ?? 0) + (coming ? b.incoming : 0);
-    const place = Math.max(0, Math.floor((pick ? held - 1 : held) / B.FORKLIFT_CAPACITY));
     const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
+    const next = heldIn(b) + (coming ? b.incoming : 0);
+    const place = pick
+      ? (this.palletPlaces(b)[this.pickPallet(b, out, p)] ?? 0)
+      : Math.floor(this.crateSlot(b, next) / B.FORKLIFT_CAPACITY);
     return tiles[Math.min(tiles.length - 1, Math.floor(place / per))];
   }
 
   /**
    * How many crates a forklift may take off crate storage: those on the
-   * last pallet there, the one it drives up to, so it lifts just what is
-   * seen on it; no limit anywhere else.
+   * pallet it drives up to, so it lifts just what is seen on it; no limit
+   * anywhere else.
    */
-  private onTopPallet(p: Dockhand, b: Bay): number {
+  private onPallet(p: Dockhand, b: Bay): number {
     if (p.kind !== 'forklift' || !b.tiles || b.yard) return Infinity;
-    const held = b.crates.length + (b.exports?.length ?? 0);
-    return held - Math.floor((held - 1) / B.FORKLIFT_CAPACITY) * B.FORKLIFT_CAPACITY;
+    const j = this.pickPallet(b, !!p.outbound, p);
+    return Math.min(B.FORKLIFT_CAPACITY, heldIn(b) - j * B.FORKLIFT_CAPACITY);
+  }
+
+  /**
+   * Where in crate storage's crates, or its exports, `n` taken off it come
+   * from: a forklift's whole pallet from wherever it is, its place left
+   * free; else the last.
+   */
+  private takenFrom(p: Dockhand, b: Bay, n: number): number {
+    const per = B.FORKLIFT_CAPACITY;
+    const list = p.outbound ? (b.exports ?? []) : b.crates;
+    const skip = p.outbound ? b.crates.length : 0;
+    const j =
+      p.kind === 'forklift' && b.tiles && !b.yard ? this.pickPallet(b, !!p.outbound, p) : -1;
+    p.takeAt = undefined;
+    const places = this.palletPlaces(b);
+    const at = j * per - skip;
+    if (j < 0 || j === places.length - 1 || n !== per || at < 0 || at + n > list.length) return 0;
+    places.splice(j, 1);
+    return at;
   }
 
   /**
@@ -4484,7 +4584,7 @@ export class World {
    */
   private toPallet(p: Dockhand, b: Bay | undefined, pick: boolean): boolean {
     if (p.kind !== 'forklift' || !b?.tiles || b.yard) return false;
-    const tile = this.palletTile(b, pick, false);
+    const tile = this.palletTile(b, pick, false, !!p.outbound, p);
     return tile !== this.tileOf(p) && this.headTo(p, tile);
   }
 
@@ -4496,11 +4596,13 @@ export class World {
   private crateAt(p: Dockhand, pick: boolean): HandAt | undefined {
     const last = (n: number) => (pick ? n - 1 : n);
     const store = (b: Bay): HandAt | undefined => {
-      const held = b.crates.length + (b.exports?.length ?? 0);
-      if (p.kind !== 'forklift')
-        return last(held) < 0 ? undefined : { store: b.idx, slot: last(held) };
-      const place = Math.floor(last(held) / B.FORKLIFT_CAPACITY);
-      return place < 0 ? undefined : { store: b.idx, place };
+      const held = heldIn(b);
+      if (last(held) < 0) return undefined;
+      if (p.kind !== 'forklift') return { store: b.idx, slot: this.crateSlot(b, last(held)) };
+      const place = pick
+        ? this.palletPlaces(b)[this.pickPallet(b, !!p.outbound, p)]
+        : Math.floor(this.crateSlot(b, held) / B.FORKLIFT_CAPACITY);
+      return { store: b.idx, place };
     };
     const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
     if (pick) {
@@ -6826,6 +6928,11 @@ export class World {
           const crane = this.cranes.get(p.craneIdx);
           const top = crane && crane.kind !== 'jib' ? this.craneTop(crane, false, p) : -1;
           p.takeAt = top >= 0 ? this.cranePlaces(crane!).stack[top] : undefined;
+          // A forklift's pallet in crate storage, whatever is set down meanwhile.
+          const store = this.bays.get(p.stockIdx);
+          if (p.kind === 'forklift' && store?.tiles) {
+            p.takeAt = this.palletPlaces(store)[this.pickPallet(store, !!p.outbound, p)];
+          }
         }
         return;
       }
@@ -7034,7 +7141,7 @@ export class World {
         const avail = store.crates.length - (store.reserved ?? 0);
         // A full load at a time: there is no boat waiting on it.
         if (!store.tiles || avail < p.capacity || this.truckable(store)) continue;
-        // At the last pallet in it.
+        // At the pallet it would take.
         sources.push({ tile: this.palletTile(store, true), avail, pile: store, rank: 1 });
       }
     }
@@ -7164,7 +7271,7 @@ export class World {
         p.kind === 'stacker' && store.yard
           ? this.stackSide(p, store, here, 'pick', true)
           : p.kind === 'forklift' && !store.yard
-            ? this.palletTile(store, true)
+            ? this.palletTile(store, true, false, true)
             : this.dropAt(p, store, here);
       if (tile >= 0) sources.push({ tile, avail, pile: store, out: true, rank: 1 });
     }
@@ -7699,10 +7806,11 @@ export class World {
       if (p.outbound && !pile.pile) {
         pile.outReserved = Math.max(0, (pile.outReserved ?? 0) - p.planned);
         const out = (pile.exports ??= []);
-        const n = Math.min(p.planned, out.length, this.onTopPallet(p, pile));
+        const n = Math.min(p.planned, out.length, this.onPallet(p, pile));
         if (!pile.yard) {
-          p.cargoLooks = this.exportLooks(pile).splice(0, n);
-          return out.splice(0, n);
+          const at = this.takenFrom(p, pile, n);
+          p.cargoLooks = this.exportLooks(pile).splice(at, n);
+          return out.splice(at, n);
         }
         // Off the top of the stacks in a yard.
         const fees: number[] = [];
@@ -7718,8 +7826,8 @@ export class World {
         return fees;
       }
       pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
-      const n = Math.min(p.planned, pile.crates.length, this.onTopPallet(p, pile));
-      const fees = pile.crates.splice(0, n);
+      const n = Math.min(p.planned, pile.crates.length, this.onPallet(p, pile));
+      const fees = pile.crates.splice(pile.tiles ? this.takenFrom(p, pile, n) : 0, n);
       this.tidyPile(at);
       return fees;
     }
@@ -8695,8 +8803,10 @@ export class World {
           ? pile.crates.length
           : c.stack.length;
       const key = store ?? pile ?? c;
-      const place = load ? there - 1 - nth(key) : there + nth(key);
-      if (slot < 0 || place < 0) continue;
+      const k = load ? there - 1 - nth(key) : there + nth(key);
+      if (slot < 0 || k < 0) continue;
+      // In crate storage, on its pallet, wherever that is.
+      const place = store ? this.crateSlot(store, k, Math.max(k + 1, there)) : k;
       const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
       lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
     }
@@ -11121,6 +11231,7 @@ export class World {
       large: b.large,
       warehouse: !!b.warehouse,
       exports: (b.exports?.length ?? 0) - moved(b).taken,
+      places: b.tiles && this.palletPlaces(b, heldIn(b) + moved(b).set),
       outgoing: !!b.outgoing,
       byCrane: this.byCrane(b),
       tiles: b.tiles && [...b.tiles],

@@ -1369,7 +1369,8 @@ export class Structures {
     for (const b of bays) {
       if (b.tiles) {
         this.areas.set(b.idx, b.tiles);
-        this.fill(b.tiles, b.stock + b.exports, false);
+        if (b.places) this.palletise(b.tiles, b.stock + b.exports, b.places);
+        else this.fill(b.tiles, b.stock + b.exports, false);
         continue;
       }
       const stack = this.stacks.get(b.idx);
@@ -1449,6 +1450,18 @@ export class Structures {
       at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
     }
+  }
+
+  /** Crate storage's crates, `count` of them, four to each pallet, the pallets in `places`. */
+  private palletise(tiles: number[], count: number, places: number[]): void {
+    const per = CRATES_PER_STORE_TILE / PALLET;
+    const on = new Map<number, number>();
+    places.forEach((k, j) => on.set(k, Math.min(PALLET, Math.max(0, count - j * PALLET))));
+    tiles.forEach((t, n) => {
+      this.stacks.get(t)?.crates.forEach((o, k) => {
+        o.visible = k % PALLET < (on.get(n * per + Math.floor(k / PALLET)) ?? 0);
+      });
+    });
   }
 
   /**
