@@ -178,7 +178,11 @@ export interface TierProgress {
 }
 
 export type LedgerCategory =
+  /** Crates trucked out (and, in older saves, all cargo income). */
   | 'cargo'
+  | 'containers'
+  | 'exports'
+  | 'town'
   | 'construction'
   | 'hiring'
   | 'wages'

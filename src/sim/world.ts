@@ -594,6 +594,9 @@ const FINANCE_DAYS = 60;
 function emptyLedger(): Ledger {
   return {
     cargo: 0,
+    containers: 0,
+    exports: 0,
+    town: 0,
     construction: 0,
     hiring: 0,
     wages: 0,
@@ -1132,9 +1135,13 @@ export class World {
     for (const c of s.cranes) {
       world.cranes.set(c.idx, { ...c, kind: c.kind ?? 'jib', stack: [...c.stack] });
     }
-    world.today = { ...s.today };
-    world.yesterday = s.yesterday ? { ...s.yesterday } : null;
-    world.history = (s.history ?? []).map((d) => ({ ...d, ledger: { ...d.ledger } }));
+    // Older saves booked all cargo income as one: the rest start at nothing.
+    world.today = { ...emptyLedger(), ...s.today };
+    world.yesterday = s.yesterday ? { ...emptyLedger(), ...s.yesterday } : null;
+    world.history = (s.history ?? []).map((d) => ({
+      ...d,
+      ledger: { ...emptyLedger(), ...d.ledger },
+    }));
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
     world.people = s.people.map((p) => ({
@@ -7593,7 +7600,7 @@ export class World {
     const total = fees.reduce((n, f) => n + f, 0);
     b.out = (b.out ?? 0) + fees.length;
     b.loadIdle = 0;
-    this.book('cargo', total);
+    this.book('exports', total);
     this.stats.earned += total;
     this.stats.exported = (this.stats.exported ?? 0) + fees.length;
     this.moneyAt(total, b.berth);
@@ -9973,7 +9980,7 @@ export class World {
         // The town pays a little extra for goods brought to its door.
         const bonus = Math.round(((t.value * n) / Math.max(1, t.cargo)) * B.TOWN_DELIVERY_BONUS);
         if (bonus > 0) {
-          this.book('cargo', bonus);
+          this.book('town', bonus);
           this.stats.earned += bonus;
           this.moneyAt(bonus, t.drop ?? this.tileOf(t));
         }
@@ -10580,7 +10587,7 @@ export class World {
     if (t.cargo > 0) {
       if (this.town) this.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
       const income = t.value;
-      this.book('cargo', income);
+      this.book(t.boxes ? 'containers' : 'cargo', income);
       this.stats.earned += income;
       this.stats.trucks++;
       this.moneyAt(income, this.tileOf(t));

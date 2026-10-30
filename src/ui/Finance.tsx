@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
+import { Fragment } from 'preact';
 import { useState } from 'preact/hooks';
 import type { FinanceDay, Ledger, LedgerCategory } from '../protocol';
 import * as B from '../sim/balance';
@@ -8,8 +9,16 @@ import { formatDate, money } from './format';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter } from './widgets';
 
+/** The kinds of income, in a fixed order that keeps their colours. */
+const INCOME: { key: LedgerCategory; label: string }[] = [
+  { key: 'cargo', label: 'Crates trucked out' },
+  { key: 'containers', label: 'Containers trucked out' },
+  { key: 'exports', label: 'Exports shipped' },
+  { key: 'town', label: 'Town deliveries' },
+];
+
 const ROWS: { key: LedgerCategory; label: string }[] = [
-  { key: 'cargo', label: 'Cargo handled' },
+  ...INCOME,
   { key: 'wages', label: 'Wages' },
   { key: 'hauliers', label: 'Haulier fees' },
   { key: 'construction', label: 'Construction' },
@@ -23,6 +32,8 @@ const ROWS: { key: LedgerCategory; label: string }[] = [
 /** How many days back the charts look; kept while the panel is closed. */
 const RANGES = [7, 30, 60] as const;
 const range = signal<(typeof RANGES)[number]>(30);
+/** The statement line opened to its chart, if any. */
+const opened = signal<LedgerCategory | null>(null);
 
 function total(l: Ledger): number {
   return ROWS.reduce((n, r) => n + l[r.key], 0);
@@ -188,11 +199,26 @@ function CashChart({ days }: { days: FinanceDay[] }) {
   );
 }
 
-/** Each day's profit or loss: columns up from the line or down below it. */
-function ProfitChart({ days }: { days: FinanceDay[] }) {
+/**
+ * A figure for each day as columns, up from the zero line in blue for
+ * money in or a profit, down from it in red for money out or a loss.
+ */
+function DayColumns({
+  days,
+  value,
+  label,
+  tip,
+  height = 120,
+}: {
+  days: FinanceDay[];
+  value: (d: FinanceDay) => number;
+  label: string;
+  tip: (d: FinanceDay) => ComponentChildren;
+  height?: number;
+}) {
   const { at, setAt } = useHover();
-  const H = 120;
-  const net = days.map((d) => total(d.ledger));
+  const H = height;
+  const net = days.map(value);
   const lo = Math.min(0, ...net);
   const hi = Math.max(0, ...net, lo + 1);
   const axis = ticks(lo, hi, 3);
@@ -225,7 +251,7 @@ function ProfitChart({ days }: { days: FinanceDay[] }) {
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label="Profit or loss each day"
+        aria-label={label}
         onMouseMove={(e) => {
           const svg = e.currentTarget as SVGSVGElement;
           const box = svg.getBoundingClientRect();
@@ -270,27 +296,126 @@ function ProfitChart({ days }: { days: FinanceDay[] }) {
       {hover && at !== null && (
         <Tip x={cx(at)}>
           <div class="viz-tip-head">{formatDate(hover.tick - 1)}</div>
-          <div class="viz-tip-row">
-            <span>In</span>
-            <span>{money(income(hover.ledger))}</span>
-          </div>
-          <div class="viz-tip-row">
-            <span>Out</span>
-            <span>{money(costs(hover.ledger))}</span>
-          </div>
-          <div class="viz-tip-row strong">
-            <span>{total(hover.ledger) >= 0 ? 'Profit' : 'Loss'}</span>
-            <span>{money(total(hover.ledger))}</span>
-          </div>
+          {tip(hover)}
         </Tip>
       )}
     </div>
   );
 }
 
+/** Each day's profit or loss. */
+function ProfitChart({ days }: { days: FinanceDay[] }) {
+  return (
+    <DayColumns
+      days={days}
+      value={(d) => total(d.ledger)}
+      label="Profit or loss each day"
+      tip={(d) => (
+        <>
+          <div class="viz-tip-row">
+            <span>In</span>
+            <span>{money(income(d.ledger))}</span>
+          </div>
+          <div class="viz-tip-row">
+            <span>Out</span>
+            <span>{money(costs(d.ledger))}</span>
+          </div>
+          <div class="viz-tip-row strong">
+            <span>{total(d.ledger) >= 0 ? 'Profit' : 'Loss'}</span>
+            <span>{money(total(d.ledger))}</span>
+          </div>
+        </>
+      )}
+    />
+  );
+}
+
+/** One line of the statement, day by day. */
+function LineChart({ days, row }: { days: FinanceDay[]; row: (typeof ROWS)[number] }) {
+  const sum = days.reduce((n, d) => n + d.ledger[row.key], 0);
+  return (
+    <div class="fin-line-chart">
+      <div class="fin-line-head">
+        <span class="muted">
+          {row.label}, last {days.length} days
+        </span>
+        <Amount value={sum} />
+      </div>
+      <DayColumns
+        days={days}
+        height={96}
+        value={(d) => d.ledger[row.key]}
+        label={`${row.label} each day`}
+        tip={(d) => <div class="viz-tip-row strong">{money(d.ledger[row.key])}</div>}
+      />
+    </div>
+  );
+}
+
+/** Slices of a pie: from the top, clockwise, a gap of the panel between them. */
+function slice(cx: number, cy: number, r: number, a0: number, a1: number): string {
+  if (a1 - a0 >= Math.PI * 2 - 1e-6) {
+    return `M${cx},${cy - r}A${r},${r} 0 1 1 ${cx - 0.01},${cy - r}Z`;
+  }
+  const p = (a: number) => [cx + Math.sin(a) * r, cy - Math.cos(a) * r];
+  const [x0, y0] = p(a0);
+  const [x1, y1] = p(a1);
+  return `M${cx},${cy}L${x0},${y0}A${r},${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1},${y1}Z`;
+}
+
+/** Where the money comes from over the days shown: a pie, with each kind's amount and share. */
+function IncomePie({ days }: { days: FinanceDay[] }) {
+  const [at, setAt] = useState<LedgerCategory | null>(null);
+  const kinds = INCOME.map((r, k) => ({
+    ...r,
+    slot: k + 1,
+    sum: days.reduce((n, d) => n + Math.max(0, d.ledger[r.key]), 0),
+  }));
+  const all = kinds.reduce((n, r) => n + r.sum, 0);
+  if (all <= 0) return <p class="muted">No income over these days.</p>;
+  const shown = kinds.filter((r) => r.sum > 0);
+  let a = 0;
+  const arcs = shown.map((r) => {
+    const a0 = a;
+    a += (r.sum / all) * Math.PI * 2;
+    return { ...r, a0, a1: a };
+  });
+  const S = 112;
+  return (
+    <div class="fin-pie">
+      <svg viewBox={`0 0 ${S} ${S}`} role="img" aria-label="Income by kind">
+        {arcs.map((r) => (
+          <path
+            key={r.key}
+            class={`viz-slot-${r.slot} viz-slice ${at && at !== r.key ? 'dim' : ''}`}
+            d={slice(S / 2, S / 2, S / 2 - 2, r.a0, r.a1)}
+            onMouseEnter={() => setAt(r.key)}
+            onMouseLeave={() => setAt(null)}
+          />
+        ))}
+      </svg>
+      <div class="fin-pie-legend">
+        {kinds.map((r) => (
+          <div
+            key={r.key}
+            class={`fin-pie-row ${at === r.key ? 'on' : ''} ${r.sum > 0 ? '' : 'none'}`}
+            onMouseEnter={() => setAt(r.key)}
+            onMouseLeave={() => setAt(null)}
+          >
+            <span class={`viz-key viz-slot-${r.slot}`} />
+            <span class="fin-pie-label">{r.label}</span>
+            <span class="fin-pie-value">{compact(r.sum)}</span>
+            <span class="fin-pie-share">{Math.round((r.sum / all) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** What the money went on over the days shown, biggest first. */
 function Spending({ days }: { days: FinanceDay[] }) {
-  const sums = ROWS.filter((r) => r.key !== 'cargo')
+  const sums = ROWS.filter((r) => !INCOME.includes(r))
     .map((r) => ({ ...r, spent: -days.reduce((n, d) => n + Math.min(0, d.ledger[r.key]), 0) }))
     .filter((r) => r.spent > 0)
     .sort((a, b) => b.spent - a.spent);
@@ -385,6 +510,12 @@ export function FinancePanel({ actions }: { actions: Actions }) {
           <ProfitChart days={days} />
 
           <div class="section-title">
+            <span>Where the money comes from</span>
+            <span class="muted">over these days</span>
+          </div>
+          <IncomePie days={days} />
+
+          <div class="section-title">
             <span>Where the money goes</span>
             <span class="muted">over these days</span>
           </div>
@@ -431,7 +562,7 @@ export function FinancePanel({ actions }: { actions: Actions }) {
 
       <div class="section-title">
         <span>Statement</span>
-        <span class="muted">wages and fees are paid at midnight</span>
+        <span class="muted">pick a line for its chart</span>
       </div>
       <table class="ledger">
         <thead>
@@ -443,13 +574,39 @@ export function FinancePanel({ actions }: { actions: Actions }) {
         </thead>
         <tbody>
           {ROWS.map((r) => (
-            <tr key={r.key}>
-              <td>{r.label}</td>
-              <td>
-                <Amount value={s.today[r.key]} />
-              </td>
-              <td>{y ? <Amount value={y[r.key]} /> : <span class="muted">—</span>}</td>
-            </tr>
+            <Fragment key={r.key}>
+              <tr
+                class={`fin-row ${opened.value === r.key ? 'on' : ''}`}
+                tabIndex={0}
+                aria-expanded={opened.value === r.key}
+                onClick={() => (opened.value = opened.value === r.key ? null : r.key)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  opened.value = opened.value === r.key ? null : r.key;
+                }}
+              >
+                <td>
+                  <span class="fin-caret">{opened.value === r.key ? '▾' : '▸'}</span>
+                  {r.label}
+                </td>
+                <td>
+                  <Amount value={s.today[r.key]} />
+                </td>
+                <td>{y ? <Amount value={y[r.key]} /> : <span class="muted">—</span>}</td>
+              </tr>
+              {opened.value === r.key && (
+                <tr class="fin-row-chart">
+                  <td colSpan={3}>
+                    {days.length < 2 ? (
+                      <p class="muted">Its chart fills in as the days go by.</p>
+                    ) : (
+                      <LineChart days={days} row={r} />
+                    )}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
           ))}
         </tbody>
         <tfoot>
