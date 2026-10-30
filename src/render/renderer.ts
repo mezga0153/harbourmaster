@@ -339,6 +339,9 @@ export class Renderer {
       }
     }
     this.gl.setPixelRatio(Math.min(window.devicePixelRatio, PIXEL_RATIO[g.resolution]));
+    // Fast draws fewer pixels than the screen has: scaled up sharp and
+    // blocky, like pixel art, rather than blurred.
+    this.gl.domElement.style.imageRendering = g.resolution === 'fast' ? 'pixelated' : '';
     this.resize();
   }
 

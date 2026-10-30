@@ -2661,3 +2661,41 @@ button.drawer-stat:active {
 .settings .segmented {
   flex-shrink: 0;
 }
+
+/* Sliders drawn here, so the filled part runs right to the end at 100%:
+   the bar fills to --fill, under a round handle. */
+input[type='range'] {
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--fill, 50%),
+    var(--line-strong) var(--fill, 50%)
+  );
+  cursor: pointer;
+}
+
+input[type='range']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel-solid);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel-solid);
+  box-shadow: 0 0 0 1px var(--accent);
+}

@@ -65,6 +65,7 @@ function Level({
           min={0}
           max={100}
           value={Math.round(s[name] * 100)}
+          style={{ '--fill': `${Math.round(s[name] * 100)}%` }}
           disabled={!s.on}
           aria-label={label}
           onInput={(e) =>

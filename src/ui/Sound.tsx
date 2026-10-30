@@ -20,6 +20,7 @@ export function SoundControl() {
         min={0}
         max={100}
         value={Math.round(s.volume * 100)}
+        style={{ '--fill': `${Math.round(s.volume * 100)}%` }}
         disabled={!s.on}
         aria-label="Volume"
         title="Volume"

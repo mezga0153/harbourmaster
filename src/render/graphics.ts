@@ -22,7 +22,8 @@ export const SHADOW_SIZE: Record<Exclude<Graphics['shadows'], 'off'>, number> = 
 
 /** The most of the screen's pixels it draws to, by setting. */
 export const PIXEL_RATIO: Record<Graphics['resolution'], number> = {
-  fast: 0.75,
+  // A pixel to every 2 by 2 of the screen's, shown blocky rather than blurred.
+  fast: 0.5,
   balanced: 1.25,
   sharp: 2,
 };
