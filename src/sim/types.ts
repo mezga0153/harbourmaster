@@ -74,6 +74,8 @@ export const Build = {
    * see roads.ts. Not the player's to move, but they can open exits off it.
    */
   Highway: 37,
+  /** A harbourmaster's hut by the jetties: looks after a few jetties, not quays. */
+  HarbourHut: 38,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -113,6 +115,7 @@ export type BuildKind =
   | 'jibCrane'
   | 'depot'
   | 'office'
+  | 'harbourHut'
   | 'largeBay'
   | 'harbourCrane'
   | 'gantryCrane'

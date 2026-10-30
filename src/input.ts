@@ -329,8 +329,11 @@ export class Input {
       selection.value = { type: 'crane', idx: i };
     } else if (i !== null && snapshot.value?.depots.some((d) => d.idx === i)) {
       selection.value = { type: 'depot', idx: i };
-    } else if (i !== null && map?.build[i] === Build.Office) {
-      selection.value = { type: 'office', idx: i };
+    } else if (
+      i !== null &&
+      (map?.build[i] === Build.Office || map?.build[i] === Build.HarbourHut)
+    ) {
+      selection.value = { type: 'office', idx: i, hut: map.build[i] === Build.HarbourHut };
     } else if (i !== null && map?.build[i] === Build.Parking) {
       selection.value = { type: 'parking', idx: i };
     } else if (i !== null && map?.build[i] === Build.YardGantry) {
@@ -757,7 +760,7 @@ export class Input {
     const f = rotation.value ?? bestFacing(map, kind, i);
     this.facing = f;
     if (kind === 'gantryCrane') this.showCraneGround(map, kind, i, f);
-    if (kind === 'office') this.showDocks(map);
+    if (kind === 'office' || kind === 'harbourHut') this.showDocks(map);
     const tiles = footprint(map, kind, i, f).filter((t) => t >= 0);
     const error = placementError(map, kind, i, undefined, f);
     this.renderer.overlay.setGhosts(

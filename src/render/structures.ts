@@ -6,6 +6,7 @@ import {
   Matrix4,
   Mesh,
   type Object3D,
+  TorusGeometry,
   Vector3,
 } from 'three';
 import type { BayView, CraneView, HandAt, PileView, TileChange } from '../protocol';
@@ -153,6 +154,7 @@ import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 /** The pointed top of a green buoy. */
 const coneGeo = new ConeGeometry(0.08, 0.14, 8);
 coneGeo.translate(0, 0.07, 0);
+const lifebuoyGeo = new TorusGeometry(0.05, 0.017, 6, 12);
 const roofGeo = new ConeGeometry(0.56, 0.26, 4);
 roofGeo.rotateY(Math.PI / 4);
 roofGeo.scale(1.05, 1, 0.8);
@@ -2452,6 +2454,61 @@ export class Structures {
         for (const x of [0.2, 0.8]) g.add(box(0.04, 0.06, 0.1, C.woodDark, x, top + 0.04, 0.8));
         return g;
       }
+      case Build.HarbourHut: {
+        // The harbourmaster's hut: a little blue-painted timber shed with a
+        // white door and a big window on the water, a red roof, a lifebuoy
+        // and a noticeboard by the door, and a flag flying on a pole.
+        g.add(box(1, 0.04, 1, C.path, 0.5, top, 0.5));
+        const y = top + 0.04;
+        g.add(box(0.56, 0.3, 0.46, C.shed, 0.5, y, 0.42));
+        // Corner posts and a band under the eaves in white.
+        for (const [x, z] of [
+          [0.23, 0.2],
+          [0.77, 0.2],
+          [0.23, 0.64],
+          [0.77, 0.64],
+        ]) {
+          g.add(box(0.04, 0.3, 0.04, C.shedTrim, x, y, z));
+        }
+        g.add(box(0.6, 0.03, 0.5, C.shedTrim, 0.5, y + 0.28, 0.42));
+        const roof = new Mesh(roofGeo, mat(C.funnel));
+        roof.scale.set(0.82, 0.9, 0.94);
+        roof.position.set(0.5, y + 0.31 + 0.12, 0.42);
+        roof.castShadow = roof.receiveShadow = true;
+        g.add(roof);
+        // Door and window at the front (+z).
+        g.add(box(0.13, 0.21, 0.02, C.shedTrim, 0.4, y, 0.66));
+        g.add(box(0.15, 0.1, 0.02, C.window, 0.62, y + 0.12, 0.66));
+        g.add(box(0.17, 0.02, 0.025, C.shedTrim, 0.62, y + 0.11, 0.665));
+        // Lifebuoy on the wall by the door, red and white.
+        const buoy = new Mesh(lifebuoyGeo, mat(C.funnel));
+        buoy.position.set(0.24, y + 0.17, 0.675);
+        buoy.castShadow = true;
+        g.add(buoy);
+        for (const a of [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2]) {
+          g.add(
+            box(
+              0.02,
+              0.02,
+              0.012,
+              C.cabin,
+              0.24 + Math.cos(a) * 0.05,
+              y + 0.16 + Math.sin(a) * 0.05,
+              0.69,
+            ),
+          );
+        }
+        // Noticeboard on two legs out front.
+        for (const x of [0.73, 0.89]) g.add(box(0.015, 0.14, 0.015, C.woodDark, x, y, 0.86));
+        g.add(box(0.2, 0.1, 0.02, C.wood, 0.81, y + 0.1, 0.86));
+        g.add(box(0.06, 0.05, 0.022, C.cabin, 0.77, y + 0.125, 0.86));
+        g.add(box(0.05, 0.04, 0.022, C.stripe, 0.85, y + 0.13, 0.86));
+        // Flagpole with a flag at the corner.
+        g.add(cyl(0.01, 0.62, C.cabin, 0.12, y, 0.86));
+        g.add(box(0.012, 0.09, 0.15, C.sign, 0.12, y + 0.5, 0.94));
+        g.add(box(0.013, 0.03, 0.15, C.cabin, 0.12, y + 0.53, 0.94));
+        return g;
+      }
       case Build.TruckBay: {
         // Entrance at the front (+z): the truck backs in, and the crates
         // stand two by two in the front corner, out of the way of those
@@ -3011,6 +3068,7 @@ const FACES = new Set<number>([
   Build.LargeBay,
   Build.Depot,
   Build.Office,
+  Build.HarbourHut,
   Build.BreakHut,
 ]);
 

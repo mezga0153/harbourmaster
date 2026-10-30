@@ -23,7 +23,13 @@ export const TIERS: Tier[] = [
     cost: 0,
     crates: 0,
     contracts: 0,
-    unlocks: ['Wooden jetties', 'Truck bays', 'Break huts', 'Harbour office', 'Fishery contracts'],
+    unlocks: [
+      'Wooden jetties',
+      'Truck bays',
+      'Break huts',
+      "Harbourmaster's huts and the harbour office",
+      'Fishery contracts',
+    ],
   },
   {
     name: 'Coastal Wharf',
@@ -85,6 +91,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   buoyIn: 1,
   buoyOut: 1,
   office: 0,
+  harbourHut: 0,
   largeBay: 1,
   harbourCrane: 2,
   gantryCrane: 2,

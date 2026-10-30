@@ -160,6 +160,7 @@ function scene(tool: string): Patch | null {
       return { map: m, focus: place(m, 'gantryCrane', at(m, COAST - 1, 2)) };
     }
     case 'office':
+    case 'harbourHut':
     case 'depot':
     case 'breakHut':
     case 'truckBay':

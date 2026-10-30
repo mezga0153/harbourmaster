@@ -100,6 +100,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Coordinates berths. Needed for more than ${B.FREE_DOCKS} jetties or any quay; each office handles ${B.DOCKS_PER_OFFICE} docks. The door faces a port path or road`,
     drag: false,
   },
+  harbourHut: {
+    code: Build.HarbourHut,
+    label: "Harbourmaster's hut",
+    cost: 400,
+    hint: `A shed by the jetties where the harbourmaster keeps an eye on the boats: looks after ${B.JETTIES_PER_HUT} more jetties, but no quays, which need a harbour office. The door faces a port path or road`,
+    drag: false,
+  },
   harbourCrane: {
     code: Build.HarbourCrane,
     label: 'Harbour crane',
@@ -186,6 +193,7 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'portGate',
   'depot',
   'office',
+  'harbourHut',
   'breakHut',
   'gantryCrane',
 ]);
@@ -767,7 +775,7 @@ export function placementError(
   if (kind === 'depot') {
     return drivable(f) ? null : 'The garage door must face a port road or quay';
   }
-  if (kind === 'office') {
+  if (kind === 'office' || kind === 'harbourHut') {
     const ok = walkableAt(map, front) || f === Build.Road;
     return ok ? null : 'The door must face a port path or road';
   }

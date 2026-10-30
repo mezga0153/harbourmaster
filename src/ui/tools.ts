@@ -126,6 +126,7 @@ export const CATEGORIES: Category[] = [
     tools: [
       { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J', group: 'Docks' },
       { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G', group: 'Docks' },
+      { tool: 'harbourHut', icon: 'office', label: "Harbourmaster's hut", group: 'Docks' },
       { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O', group: 'Docks' },
       { tool: 'buoyIn', icon: 'buoyIn', label: 'Buoy: way in', group: 'Channel' },
       { tool: 'buoyOut', icon: 'buoyOut', label: 'Buoy: way out', group: 'Channel' },

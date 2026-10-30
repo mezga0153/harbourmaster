@@ -582,6 +582,8 @@ export interface Snapshot {
     total: number;
     coordinated: number;
     offices: number;
+    /** Harbourmaster's huts, each looking after a few jetties. */
+    huts: number;
     /** Tiles of the docks boats use, and of those they do not, for want of an office. */
     inUse: number[];
     idle: number[];

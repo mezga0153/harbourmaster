@@ -1636,13 +1636,19 @@ export class World {
         this.message(
           kind === 'quay'
             ? 'Quays need a harbour office to coordinate them. Boats will not use this one until you build one.'
-            : `Only ${B.FREE_DOCKS} jetties can run without a harbour office. Build one so boats use this jetty.`,
+            : `Only ${B.FREE_DOCKS} jetties can run without a harbour office or harbourmaster's hut. Build one so boats use this jetty.`,
           'bad',
         );
       }
     } else if (spent > 0 && kind === 'office') {
       this.warnedOffice = false;
       this.message('The harbour office is open and coordinating berths.', 'good');
+    } else if (spent > 0 && kind === 'harbourHut') {
+      this.warnedOffice = false;
+      this.message(
+        `The harbourmaster's hut is open, looking after ${B.JETTIES_PER_HUT} more jetties.`,
+        'good',
+      );
     } else if (spent > 0 && kind === 'parking') {
       // Laid out where trucks cannot use it: say why.
       this.lotsCache = null;
@@ -3619,15 +3625,18 @@ export class World {
     }
     groups.sort((a, b) => a.d - b.d || a.tiles[0] - b.tiles[0]);
     let offices = 0;
-    for (const b of m.build) if (b === Build.Office) offices++;
-    if (offices > 0) {
-      groups.slice(0, offices * B.DOCKS_PER_OFFICE).forEach((g) => (g.coordinated = true));
-    } else {
-      groups
-        .filter((g) => !g.quay)
-        .slice(0, B.FREE_DOCKS)
-        .forEach((g) => (g.coordinated = true));
+    let huts = 0;
+    for (const b of m.build) {
+      if (b === Build.Office) offices++;
+      else if (b === Build.HarbourHut) huts++;
     }
+    groups.slice(0, offices * B.DOCKS_PER_OFFICE).forEach((g) => (g.coordinated = true));
+    // Jetties the offices leave: a few run on their own while there is no
+    // office, and each harbourmaster's hut looks after a few more.
+    groups
+      .filter((g) => !g.quay && !g.coordinated)
+      .slice(0, huts * B.JETTIES_PER_HUT + (offices > 0 ? 0 : B.FREE_DOCKS))
+      .forEach((g) => (g.coordinated = true));
     this.dockCache = groups;
     this.coordinated = new Set(groups.filter((g) => g.coordinated).flatMap((g) => g.tiles));
     this.dockKey = new Map(
@@ -14222,6 +14231,7 @@ export class World {
         total: this.docks().length,
         coordinated: this.docks().filter((g) => g.coordinated).length,
         offices: this.map.build.filter((b) => b === Build.Office).length,
+        huts: this.map.build.filter((b) => b === Build.HarbourHut).length,
         inUse: this.docks().flatMap((g) => (g.coordinated ? g.tiles : [])),
         idle: this.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
       },
