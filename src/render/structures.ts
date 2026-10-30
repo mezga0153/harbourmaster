@@ -218,6 +218,8 @@ interface YardGantryParts {
   ticks: number;
   startX: number;
   startZ: number;
+  /** The tick the game began the lift it is at; see YardView.workStart. */
+  liftStart?: number;
 }
 
 interface CraneParts {
@@ -1171,6 +1173,7 @@ export class Structures {
       workYard?: number;
       workLegs?: number[];
       workTicks?: number;
+      workStart?: number;
     }[],
   ): void {
     for (const y of yards) {
@@ -1184,6 +1187,12 @@ export class Structures {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
         const was = g.work;
         const truck = g.truck;
+        // A lift it has not been at yet: by when the game began it.
+        const same =
+          y.working === was &&
+          y.workLook === g.look &&
+          (y.workStart === undefined || y.workStart === g.liftStart);
+        g.liftStart = y.workStart;
         g.legs = y.workLegs ?? NO_RUN;
         g.ticks = y.workTicks ?? YARD_GANTRY_TICKS;
         g.work = y.working ?? null;
@@ -1192,11 +1201,12 @@ export class Structures {
         g.slot = y.workSlot ?? 0;
         // Keep the lift in step with the game's: the container leaves the
         // truck, or lands on it, as the spreader takes it or sets it down.
-        if (y.workPhase !== undefined) {
-          const off = ((y.workPhase - g.phase + 1.5) % 1) - 0.5;
-          g.phase = Math.abs(off) > 0.15 ? y.workPhase : (g.phase + off * 0.5 + 1) % 1;
+        // A new one starts where the game has it; the one it is at is
+        // brought into step gently, never wrapped round into another.
+        if (y.workPhase !== undefined && y.working) {
+          const off = y.workPhase - g.phase;
+          g.phase = !same || Math.abs(off) > 0.15 ? y.workPhase : g.phase + off * 0.5;
         }
-        const same = y.workLook === g.look && y.working === was;
         // A new lift runs along the rails from wherever it stands now.
         if (!same) this.liftFrom(g);
         if (y.workLook !== undefined) g.look = y.workLook;
@@ -1347,8 +1357,10 @@ export class Structures {
     // it runs along its rails, the longer.
     const cycle = g.ticks / TICKS_PER_SECOND;
     const was = g.phase;
-    g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
-    if (g.phase < was || !g.work) {
+    // To the end of this lift and no further: the next one starts when the
+    // game says it does, from where this one left it.
+    g.phase = g.work ? Math.min(1, g.phase + (dt * this.speed) / cycle) : 0;
+    if (!g.work) {
       g.base = this.kept(g.yard ?? -1, g.look);
       g.held = this.shownOn(g.truck);
       this.liftFrom(g);

@@ -351,6 +351,8 @@ export interface YardView {
    */
   workLegs?: number[];
   workTicks?: number;
+  /** The tick its lift began: a new lift has a new one. */
+  workStart?: number;
   /** One container the gantry has taken up (-1) or set down (+1) that the counts do not have yet. */
   lifted: number;
   /** Cleared containers lying under ones still in customs, which the trucks cannot get at. */

@@ -2714,11 +2714,19 @@ describe('Container Port tier', () => {
     world.people.push(tractor);
     expect(world['gantryFor'](tractor)).toBe(false);
     expect(world['gantryWork'](yard).workTruck).toBe(truckId);
-    // Then it is the tractor's turn, and the truck waits for that.
+    const first = world['gantryWork'](yard).workStart;
+    expect(first).toBe(world.tick);
+    // Done, and with the next not yet begun, it is at no lift: the view
+    // shows it standing where it set the last one down, not starting one.
     world['gantryDone'](yard, truckId);
+    expect(world['gantryWork'](yard)).toEqual({});
+    // Then it is the tractor's turn, and the truck waits for that.
+    world.tick += 3;
     expect(world['gantryFor'](tractor)).toBe(true);
     expect(world['gantryElsewhere'](t as never, yard)).toBe(true);
     expect(world['gantryWork'](yard).workTruck).toBe(tractorId);
+    // A lift of its own, begun when it was.
+    expect(world['gantryWork'](yard).workStart).toBe(first! + 3);
   });
 
   it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {

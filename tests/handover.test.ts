@@ -149,6 +149,8 @@ interface Seen {
   dropped: number;
   /** Snapshots with a crane lifting a container onto a tractor. */
   craneLifts: number;
+  /** How far the yard gantry's carriage ran along its rails each frame. */
+  runs: number[];
 }
 
 /**
@@ -176,6 +178,7 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
     doubled: 0,
     dropped: 0,
     craneLifts: 0,
+    runs: [],
   };
   const slotOf = (at: NonNullable<EntityView['handAt']>, out: Vector3): number | null =>
     entities['handSlot'](at, out);
@@ -196,7 +199,9 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
       if (cv.workTruck !== undefined && cv.working !== 'take') seen.craneLifts++;
     for (let frame = 0; frame < 4; frame++) {
       entities.update(now, now / 1000);
+      const x = gantry?.carriage.position.x ?? 0;
       structures.update(0.025, now / 1000);
+      if (gantry) seen.runs.push(Math.abs(gantry.carriage.position.x - x));
       for (const v of s.entities) {
         if (v.kind !== kind) continue;
         const crate = entities['entries'].get(v.id)!.model.crates[0];
@@ -287,8 +292,90 @@ describe('Handing containers over', () => {
         expect(most(seen.lifts)).toBeLessThan(0.05);
         expect(most(seen.liftSkew)).toBeLessThan(0.01);
       }
+      // It runs along its rails at its own pace, never dashing: a frame is
+      // a quarter of a tick, and smoothstep runs half as fast again at its
+      // quickest, and a lift's run is rounded to whole ticks.
+      const quickest = 0.25 * speed * B.YARD_GANTRY_SPEED * 1.5 * 1.5;
+      expect(seen.runs.some((d) => d > 0)).toBe(true);
+      expect(most(seen.runs)).toBeLessThan(quickest);
       // At the crane it waits beside it, for the crane to lift one onto it.
       expect(seen.craneLifts).toBeGreaterThan(3);
     }
   }, 30_000);
+});
+
+describe('A yard gantry as drawn', () => {
+  /** The drawn gantry of a port with one, its yard's view, and a way to run frames. */
+  function drawn() {
+    const world = tractorPort();
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.setSpeed(1);
+    const s = world.snapshot();
+    structures.setYards(s.yards);
+    const gantry = [...structures['yardGantries'].values()][0];
+    const view = s.yards[0];
+    const frames = (n: number) => {
+      const steps: number[] = [];
+      for (let k = 0; k < n; k++) {
+        const x = gantry.carriage.position.x;
+        structures.update(0.025, k / 40);
+        steps.push(Math.abs(gantry.carriage.position.x - x));
+      }
+      return steps;
+    };
+    return { structures, gantry, view, frames };
+  }
+
+  it('holds at the end of a lift until the game starts the next, never wrapping round into it', () => {
+    const { structures, gantry, view, frames } = drawn();
+    const lift = {
+      ...view,
+      working: 'unload' as const,
+      workLook: 3,
+      workAt: 0,
+      workPhase: 0.9,
+      workLegs: [0, 0.5, 0, 0.5],
+      workTicks: 15,
+      workStart: 100,
+    };
+    structures.setYards([lift]);
+    let low = 1;
+    for (let k = 0; k < 40; k++) {
+      frames(1);
+      low = Math.min(low, gantry.phase);
+      expect(gantry.phase).toBeLessThanOrEqual(1);
+    }
+    expect(gantry.phase).toBe(1);
+    expect(low).toBeGreaterThan(0.85);
+  });
+
+  it('runs along its rails for a new lift from where it stands, even for a container that looks the same', () => {
+    const { structures, gantry, view, frames } = drawn();
+    gantry.carriage.position.x = 2;
+    // A lift with a long run along the rails to its container, then the lane.
+    const lift = (start: number, phase: number) => ({
+      ...view,
+      working: 'load' as const,
+      workLook: 7,
+      workAt: -2,
+      workPhase: phase,
+      workLegs: [0.6, 0.2, 0, 0.2],
+      workTicks: 60,
+      workStart: start,
+    });
+    structures.setYards([lift(100, 0)]);
+    const first = frames(4);
+    // Done, and the next begun just as it was, the same look: it starts again from where it is.
+    structures.setYards([lift(100, 1)]);
+    frames(4);
+    const was = gantry.carriage.position.x;
+    structures.setYards([lift(200, 0.02)]);
+    expect(gantry.startX).toBeCloseTo(was, 5);
+    const next = frames(4);
+    expect(Math.max(...first, ...next)).toBeLessThan(0.3);
+  });
 });

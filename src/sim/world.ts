@@ -784,6 +784,8 @@ type GantryWork = {
   /** The lift's legs, as shares of it (see liftMarks), and how many ticks it takes in all. */
   workLegs?: number[];
   workTicks?: number;
+  /** The tick the lift began: a new one begins with a new tick. */
+  workStart?: number;
 };
 
 /**
@@ -4807,10 +4809,12 @@ export class World {
    */
   private gantryWork(y: Bay): GantryWork {
     if (!this.yardGantry(y)) return {};
-    // The one it is part way through a lift for; or, with none, a terminal
-    // tractor first: it lifts one off for the yard, or exports on.
+    // The one it is part way through a lift for. Between lifts it is at
+    // none: it stands where it set the last one down, rather than show a
+    // lift for the next one waiting that has not begun.
     const on = this.gantryHolder(y);
-    const p = on ? (isTruck(on) ? undefined : on) : this.gantryTractor(y);
+    if (!on || !y.gantryLift) return {};
+    const p = isTruck(on) ? undefined : on;
     if (p) {
       const workAt = this.gantryLane(y)?.get(p.goal) ?? 0;
       const lift = { workAt, workTruck: p.id, workSlot: 0, ...this.liftView(y, p.id) };
@@ -4827,8 +4831,7 @@ export class World {
       const top = Math.max(0, this.yardTop(y, true));
       return { working: 'load', workLook: this.exportLooks(y)[top], ...lift };
     }
-    const t = on && isTruck(on) ? on : this.gantryTruck(y);
-    if (!t) return {};
+    const t = on as Truck;
     const workAt = this.gantryLane(y)?.get(t.goal) ?? 0;
     const view = this.liftView(y, t.id);
     if (t.state === 'delivering') {
@@ -4858,7 +4861,7 @@ export class World {
   private liftView(
     y: Bay,
     id: number,
-  ): { workPhase: number; workLegs?: number[]; workTicks?: number } {
+  ): { workPhase: number; workLegs?: number[]; workTicks?: number; workStart?: number } {
     const l = y.gantryOn === id ? y.gantryLift : undefined;
     if (!l) return { workPhase: 0 };
     const total = liftTicks(l);
@@ -4866,6 +4869,7 @@ export class World {
       workPhase: clamp((this.tick - l.start) / total, 0, 1),
       workLegs: l.legs.map((k) => k / total),
       workTicks: total,
+      workStart: l.start,
     };
   }
 
