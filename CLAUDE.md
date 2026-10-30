@@ -23,3 +23,10 @@ loads `save.json` into the sim, runs it on and prints the report.
 
 Automated browsers don't mirror (so tests can't overwrite the player's files)
 unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
+
+## Running simulations
+
+Run the game's simulation in a Node process (vitest, as above, or a script
+that loads a save into `World`), never by starting Chrome or another browser.
+Only drive a browser when asked to fix animations or what the game looks
+like, where screenshots of the drawn game are needed.
