@@ -3854,6 +3854,17 @@ describe('Container Port tier', () => {
     world.command({ type: 'store', tiles: store, kind: 'boxes', on: false });
     world.command({ type: 'store', tiles: store, kind: 'cratesOut', on: true });
     expect(world.bays.has(store[0])).toBe(true);
+    // Hands enough for the boats, the trucks and the exports alike.
+    const home = world.people.find((p) => p.kind === 'dockhand')!;
+    for (let k = 0; k < 2; k++) {
+      world['spawnDockhand'](world.map.idx(Math.floor(home.x), Math.floor(home.y)), {
+        id: 0,
+        name: `Extra ${k}`,
+        skill: 3,
+        trait: null,
+        wage: 0,
+      });
+    }
     const lot = parkingLot(world);
     expect(m.build[lot[0]]).toBe(Build.Parking);
     const add = world['addContract'].bind(world);

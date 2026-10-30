@@ -24,7 +24,7 @@ import {
   truck,
   type Model,
 } from './models';
-import { fidget, fidgetAt, HELD, pose, sit } from './people';
+import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import type { Trailer } from './vehicles';
 
@@ -1400,24 +1400,15 @@ export class Entities {
     load.parent.updateWorldMatrix(true, false);
     const off = at?.truck !== undefined && this.slotOf(at.truck, at.slot ?? 0);
     if (w.stage === 'pick' && e.view.handStage === 'pick' && off && e.view.load === 0) {
-      // Shown in their hands instead of where it lay, on its way to them.
+      // Off a boat or truck: in their hands the moment they reach it and
+      // bend to it, and lifted with them as they straighten up.
+      if ((w.at ?? 0) < (w.walk ?? 0)) return;
       off.visible = false;
       load.visible = true;
       w.early = true;
-      // From the moment they reach it and bend to it, flying up over the
-      // side to where they will hold it, there by the time it is theirs.
-      const walk = w.walk ?? 0;
-      const g = ease(Math.max(0, ((w.at ?? 0) - walk) / Math.max(0.05, 1 - walk)));
-      const to = w.place.clone().lerp(this.holdAt(e), g);
-      to.y += Math.sin(Math.PI * g) * 0.12;
-      load.position.copy(load.parent.worldToLocal(to));
       return;
     }
-    // Already where they hold it, as they straighten up with it.
-    if (w.stage === 'pick' && w.early) {
-      load.position.copy(load.parent.worldToLocal(this.holdAt(e)));
-      return;
-    }
+    if (w.stage === 'pick' && w.early) return;
     if (!load.visible || down <= 0) return;
     // Setting one down straight after taking it up, as off a stack onto a
     // truck beside it, it goes over from one to the other as they go on.
@@ -1425,13 +1416,6 @@ export class Entities {
     const to = w.taken ? w.taken.clone().lerp(w.place, on) : w.place;
     const from = load.getWorldPosition(new Vector3()).lerp(to, w.taken ? down : down * on);
     load.position.copy(load.parent.worldToLocal(from));
-  }
-
-  /** Where a dockhand holds a crate carrying it, standing straight. */
-  private holdAt(e: Entry): Vector3 {
-    const root = e.model.root;
-    root.updateMatrixWorld();
-    return root.localToWorld(new Vector3(HELD.x, HELD.y, 0));
   }
 
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */

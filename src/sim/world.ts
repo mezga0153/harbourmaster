@@ -5896,6 +5896,13 @@ export class World {
     const t = src.truck!;
     const bay = this.dest(t.bayIdx);
     if (!bay || this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
+    // One at a time loads a truck bay's trucks.
+    if (
+      !bay.tiles &&
+      this.people.some((q) => q !== p && q.truckId !== undefined && q.stockIdx === bay.idx)
+    ) {
+      return false;
+    }
     if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
     const room = Math.min(
       t.capacity - t.cargo - (t.coming ?? 0) - bay.incoming,
@@ -8190,8 +8197,11 @@ export class World {
         if (p.state === 'wander') {
           const r = this.walk(p);
           if (r === 'arrived' || r === 'blocked') p.state = 'idle';
-        } else if (p.kind === 'dockhand' && this.rng.next() < B.WANDER_CHANCE) {
-          this.wander(p);
+        } else if (p.kind === 'dockhand') {
+          const roll = this.rng.next();
+          // Standing about, not on top of the others.
+          if ((this.tick + p.id) % 10 === 0 && this.crowded(p)) this.spreadOut(p);
+          else if (roll < B.WANDER_CHANCE) this.wander(p);
         }
         return;
       }
@@ -8398,6 +8408,58 @@ export class World {
     if (stuck && !this.warnedStuck) {
       this.warnedStuck = true;
       this.message(`${p.name}: ${stuck}.`, 'bad');
+    }
+  }
+
+  /** Whether another dockhand stands within a step of this one, or both at one truck bay. */
+  private crowded(p: Dockhand): boolean {
+    const here = this.tileOf(p);
+    const bay = this.map.build[here] === Build.TruckBay;
+    return this.people.some(
+      (q) =>
+        q !== p &&
+        q.kind === 'dockhand' &&
+        (Math.hypot(q.x - p.x, q.y - p.y) < B.IDLE_ROOM || (bay && this.tileOf(q) === here)),
+    );
+  }
+
+  /**
+   * A dockhand with nothing to do walks a few steps off from the others,
+   * and out of truck bays, to stand about on their own.
+   */
+  private spreadOut(p: Dockhand): void {
+    const m = this.map;
+    const [px, py] = [Math.floor(p.x), Math.floor(p.y)];
+    const others = this.people.filter((q) => q !== p && q.kind === 'dockhand');
+    // Where the others are, or are going.
+    const spots = others.map((q) => {
+      const g = q.path.length > 0 ? q.goal : this.tileOf(q);
+      return [m.xOf(g) + 0.5, m.yOf(g) + 0.5];
+    });
+    const room = (x: number, y: number) =>
+      Math.min(B.IDLE_ROOM * 2, ...spots.map(([ox, oy]) => Math.hypot(ox - x, oy - y)));
+    let best = -1;
+    let most = room(p.x, p.y);
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const [x, y] = [px + dx, py + dy];
+        if (!m.inBounds(x, y)) continue;
+        const i = m.idx(x, y);
+        // On a footpath, out of the way of the trucks and machines, and of
+        // the spots on the quays and jetties where the work is.
+        if (m.build[i] !== Build.Footpath) continue;
+        if (!Number.isFinite(this.walkCost(i))) continue;
+        // Nearer is better, as much room being equal.
+        const r = room(x + 0.5, y + 0.5) - Math.hypot(dx, dy) * 0.05;
+        if (r > most) [best, most] = [i, r];
+      }
+    }
+    if (best < 0) return;
+    const path = this.pathFor(p, this.tileOf(p), best);
+    if (path && path.length <= 8) {
+      p.path = path;
+      p.goal = best;
+      p.state = 'wander';
     }
   }
 

@@ -36,6 +36,8 @@ describe('Crate trucks', () => {
         (p: Any) => p.truckId !== undefined && p.kind === 'dockhand',
       );
       if (jobs.some((p: Any) => p.state === 'dropping')) helped++;
+      // And one at a time loads its trucks.
+      expect(jobs.filter((p: Any) => p.stockIdx === bay.idx).length).toBeLessThanOrEqual(1);
       // What they are on their way for is promised to them, and the truck
       // waits for no more than they bring it.
       const going = jobs.filter((p: Any) => p.state === 'toPickup' || p.state === 'picking');
@@ -50,5 +52,25 @@ describe('Crate trucks', () => {
     // Every crate is still in the bay, on a truck or in someone's hands.
     expect(bay.crates.length).toBe(0);
     expect(total()).toBe(start);
+  });
+
+  it('have dockhands with nothing to do stand about apart, not on top of each other', () => {
+    const world: Any = World.create(7, 96);
+    world.boats.length = 0;
+    for (const c of world.contracts) c.nextBoatTick = Infinity;
+    const crew = world.people.filter((p: Any) => p.kind === 'dockhand');
+    expect(crew.length).toBeGreaterThan(1);
+    let apart = 0;
+    for (let k = 0; k < 600; k++) {
+      world.step();
+      const idle = crew.filter((p: Any) => p.state === 'idle');
+      if (idle.length < 2) continue;
+      const near = idle.some((p: Any) =>
+        idle.some((q: Any) => q !== p && Math.hypot(q.x - p.x, q.y - p.y) < 1),
+      );
+      if (!near) apart++;
+    }
+    // Most of the time, once they have walked off.
+    expect(apart).toBeGreaterThan(400);
   });
 });

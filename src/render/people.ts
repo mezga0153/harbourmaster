@@ -34,7 +34,7 @@ const BOOTS = 0x3a2a1e;
 const REFLECT = 0xdfe6ea;
 const C_WHITE = 0xf4f4f0;
 /** Where a crate is held out in front, and where it is set down. */
-export const HELD = { x: 0.11, y: 0.17 };
+const HELD = { x: 0.11, y: 0.17 };
 const SET_DOWN = { x: 0.16, y: 0 };
 /** Height of the hips, and how far forward someone bends to the ground. */
 const HIP = 0.15;
