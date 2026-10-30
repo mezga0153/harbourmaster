@@ -150,6 +150,9 @@ export interface BoatVisit {
   moodChange: number;
   /** It is taking exports on board, and can be sent off with those it has. */
   canSail: boolean;
+  /** Coming in, held up by a ship moored in its way: which, and for how long so far. */
+  heldBy?: string;
+  heldFor?: number;
 }
 
 export interface HandAt {

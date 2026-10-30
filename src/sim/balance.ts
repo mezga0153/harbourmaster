@@ -259,6 +259,8 @@ export const BERTH_END_GAP = 0.3;
 export const KEEP_CLEAR_PATIENCE = 40;
 /** Ticks a ship coming in waits for one moored in its way before that one sails with what it has (and it is shown waiting). */
 export const BERTH_BLOCKED_TICKS = 60;
+/** How far a ship held up by one moored in its way may creep and still count as waiting on it, in tiles. */
+export const WAIT_CREEP = 2;
 /** Tiles out from its berth a boat holding a fairway lets a boat pulling out go first. */
 export const FAIRWAY_FAR = 5;
 /** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */

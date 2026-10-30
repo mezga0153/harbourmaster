@@ -693,6 +693,14 @@ function VisitDetails({ visit: v, onSail }: { visit: BoatVisit; onSail: () => vo
             <dd>{duration(v.anchored)}</dd>
           </>
         )}
+        {v.heldBy && v.heldFor !== undefined && (
+          <>
+            <dt>Held up</dt>
+            <dd class="neg">
+              {duration(v.heldFor)} so far, behind {v.heldBy} moored in its way
+            </dd>
+          </>
+        )}
         <dt>Unloading</dt>
         <dd>{took(v.unloading, v.unloaded)}</dd>
         {v.loads && (
@@ -719,12 +727,10 @@ function VisitDetails({ visit: v, onSail }: { visit: BoatVisit; onSail: () => vo
         {v.mood !== undefined && (
           <>
             <dt>Owner’s goodwill</dt>
-            <dd>
-              {v.mood} / 100
-              <span class={v.moodChange < 0 ? 'neg' : 'muted'}>
-                {' '}
-                · {sign(Math.round(v.moodChange))} for this visit, if it sailed now
-              </span>
+            <dd>{v.mood} / 100</dd>
+            <dt>This visit</dt>
+            <dd class={v.moodChange < 0 ? 'neg' : undefined}>
+              {sign(Math.round(v.moodChange))} goodwill, if it sailed now
             </dd>
           </>
         )}

@@ -418,11 +418,13 @@ interface Boat extends Agent {
   holdUp?: 'fairway' | 'tug' | 'others' | 'room';
   /**
    * Coming in to its berth: a ship moored across its way it has stopped
-   * short of, by id, how many ticks it has waited, and the tick last counted.
+   * short of, by id, how many ticks it has waited, and the tick last counted;
+   * and where it was as it began to wait, as it may creep a little meanwhile.
    */
   waitingOn?: number;
   waitedFor?: number;
   waitedAt?: number;
+  waitedFrom?: [number, number];
   berth: number;
   jetty: number;
   timer: number;
@@ -2550,7 +2552,17 @@ export class World {
       mood: c && Math.round(c.satisfaction),
       moodChange: Math.round(this.visitMood(b) * 10) / 10,
       canSail: this.canSail(b),
+      ...this.heldView(b),
     };
+  }
+
+  /** A ship coming in held up a while by one moored in its way: which, and how long so far. */
+  private heldView(b: Boat): { heldBy?: string; heldFor?: number } {
+    const o = b.waitingOn !== undefined && this.boats.find((q) => q.id === b.waitingOn);
+    if (!o || b.state !== 'arriving' || (b.waitedFor ?? 0) <= B.BERTH_BLOCKED_TICKS) return {};
+    const what =
+      o.vessel === 'feeder' ? 'feeder ship' : o.vessel === 'coaster' ? 'coaster' : 'boat';
+    return { heldBy: `the ${o.company} ${what}`, heldFor: b.waitedFor };
   }
 
   private judgeVisit(b: Boat, gaveUp: boolean): void {
@@ -6767,7 +6779,11 @@ export class World {
             stopped = true;
             if (o.state === 'moored') stoppedBy = o;
           }
-          if (kept !== null && kept > 0 && speed <= 0.1) heldByEnds = true;
+          if (kept !== null && kept > 0 && speed <= 0.1) {
+            heldByEnds = true;
+            // Held off the clear water at its end: waiting on it all the same.
+            if (o.state === 'moored') stoppedBy ??= o;
+          }
         } else {
           speed = Math.min(speed, clamp((gap - room) / 0.5, 0, 1));
         }
@@ -6794,11 +6810,35 @@ export class World {
     const held = stopped && speed <= 0.05;
     if (b.waitedAt !== this.tick) {
       b.waitedAt = this.tick;
-      const on = held && b.state === 'arriving' ? stoppedBy?.id : undefined;
-      b.waitedFor = on !== undefined && on === b.waitingOn ? (b.waitedFor ?? 0) + 1 : 0;
-      b.waitingOn = on;
+      this.countWait(b, b.state === 'arriving' && speed <= 0.1 ? stoppedBy : undefined);
     }
     return { speed, makeWay, still: held };
+  }
+
+  /**
+   * Count how long a ship coming in has been held up by moored ship `by`:
+   * all the while it gets no further on, however it creeps or is let past
+   * the clear water off that one's end a moment and stopped again; and from
+   * nothing again once it is well on its way, the other has sailed, or it
+   * is held up by another.
+   */
+  private countWait(b: Boat, by: Boat | undefined): void {
+    const waiting = b.waitingOn !== undefined && this.boats.find((q) => q.id === b.waitingOn);
+    const from = b.waitedFrom;
+    const moved = from ? Math.hypot(b.x - from[0], b.y - from[1]) : Infinity;
+    const still =
+      !!waiting && waiting.state === 'moored' && b.state === 'arriving' && moved < B.WAIT_CREEP;
+    if (by && by.id !== b.waitingOn) {
+      b.waitingOn = by.id;
+      b.waitedFor = 0;
+      b.waitedFrom = [b.x, b.y];
+    } else if (by || still) {
+      b.waitedFor = (b.waitedFor ?? 0) + 1;
+    } else {
+      b.waitingOn = undefined;
+      b.waitedFor = 0;
+      b.waitedFrom = undefined;
+    }
   }
 
   /**
