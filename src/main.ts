@@ -13,7 +13,7 @@ import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from '
 import { Build, isBay, TICKS_PER_DAY } from './sim/types';
 import { App, type Actions } from './ui/App';
 import { graphics } from './ui/prefs';
-import { advise, pushMessage, seed, selection, snapshot, tool } from './ui/store';
+import { advise, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
 
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
@@ -57,6 +57,10 @@ const actions: Actions = {
   focus: (x, y) => renderer.cam.target.set(x, 0, y),
 };
 render(h(App, { actions }), hud);
+// Found the finance or statistics screen: the advisor need not point it out.
+panel.subscribe((p) => {
+  if (p === 'finance' || p === 'stats') send({ type: 'learnt', tip: 'screens' });
+});
 selection.subscribe((s) => {
   renderer.select(s?.type === 'entity' ? s.id : null);
   showReach();

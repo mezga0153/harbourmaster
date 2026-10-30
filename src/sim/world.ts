@@ -164,6 +164,8 @@ import {
 
 export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
+/** The advisor's first steps, one each time a boat leaves; see departTips. */
+const FIRST_STEPS = ['speed', 'jetty', 'contract', 'screens'];
 
 interface Agent {
   id: number;
@@ -679,6 +681,8 @@ export interface SaveData {
   scenery?: number;
   /** Advisor tips already given; see tip(). */
   tips?: string[];
+  /** Boats that have left the port so far, for the advisor; see departTips. */
+  departed?: number;
   /** When container ships lately finished unloading; see unloadedAt. */
   unloaded?: [number, number][];
 }
@@ -1174,6 +1178,8 @@ export class World {
   private dockKey = new Map<number, number>();
   /** Advisor tips already given, so each comes once a game. */
   tipsSeen = new Set<string>();
+  /** Boats that have left the port so far, for the advisor; see departTips. */
+  private departed = 0;
   /** When each container ship lately finished unloading, by id, for customs. */
   unloadedAt = new Map<number, number>();
   private warnedOffice = false;
@@ -1353,6 +1359,9 @@ export class World {
     }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     world.tipsSeen = new Set(s.tips ?? []);
+    world.departed = s.departed ?? 0;
+    // A game from before the advisor taught these is well past them.
+    if (s.departed === undefined) for (const id of FIRST_STEPS) world.tipsSeen.add(id);
     world.unloadedAt = new Map(s.unloaded ?? []);
     if (s.rail) world.rail = structuredClone(s.rail);
     // The line runs on through any country added to the map since.
@@ -1439,6 +1448,7 @@ export class World {
       rail: this.rail,
       scenery: this.scenery.state,
       tips: [...this.tipsSeen],
+      departed: this.departed,
       unloaded: [...this.unloadedAt],
     });
   }
@@ -1515,6 +1525,10 @@ export class World {
         return this.cancelContract(cmd.id);
       case 'setSpeed':
         if (SPEEDS.includes(cmd.speed)) this.speed = cmd.speed;
+        if (this.speed > 1) this.tipsSeen.add('speed');
+        return;
+      case 'learnt':
+        this.tipsSeen.add(cmd.tip);
         return;
       case 'newGame':
       case 'save':
@@ -2451,6 +2465,7 @@ export class World {
     this.addContract(offer.terms, this.tick + this.rng.int(60, 240), offer.signingFee);
     this.message(`Signed with ${offer.terms.name}.`, 'good');
     this.firstBoat.add(offer.terms.name);
+    this.tipsSeen.add('contract');
   }
 
   private cancelContract(id: number): void {
@@ -7149,6 +7164,7 @@ export class World {
 
   private depart(b: Boat, gaveUp: boolean): void {
     this.judgeVisit(b, gaveUp);
+    this.departTips();
     // Leaving with containers still on board: customs start on those it landed.
     if (b.vessel === 'feeder') this.shipUnloaded(b);
     if (b.state === 'moored') {
@@ -7696,6 +7712,7 @@ export class World {
 
   private goOnBreak(p: Dockhand): void {
     p.path = [];
+    if (!this.tipsSeen.has('hut')) this.tipUnless('hut', this.map.build.includes(Build.BreakHut));
     const here = this.tileOf(p);
     const huts: number[] = [];
     for (let i = 0; i < this.map.build.length; i++) {
@@ -12884,6 +12901,27 @@ export class World {
     if (this.tipsSeen.has(id)) return;
     this.tipsSeen.add(id);
     this.events.push({ kind: 'tip', id });
+  }
+
+  /** As tip, but not if the player has already `done` what it would teach them. */
+  private tipUnless(id: string, done: boolean): void {
+    if (done) this.tipsSeen.add(id);
+    else this.tip(id);
+  }
+
+  /**
+   * The first steps, a boat leaving at a time: speeding the game up, then
+   * another jetty, another contract and the finance and statistics screens.
+   * Each comes after the one before, the next boat but one, and none the
+   * player has already got round to.
+   */
+  private departTips(): void {
+    const n = ++this.departed;
+    const at = FIRST_STEPS.findIndex((id) => !this.tipsSeen.has(id));
+    // One a boat, the first after the first boat has left.
+    if (at < 0 || n <= at) return;
+    const id = FIRST_STEPS[at];
+    this.tipUnless(id, id === 'jetty' && this.docks().length > 1);
   }
 
   private moneyAt(amount: number, i: number): void {

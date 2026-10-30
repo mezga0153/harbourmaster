@@ -43,6 +43,8 @@ export type Command =
   | { type: 'signContract'; id: number }
   | { type: 'cancelContract'; id: number }
   | { type: 'setSpeed'; speed: number }
+  /** The player has found out for themselves what this advisor tip would teach them. */
+  | { type: 'learnt'; tip: string }
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
   /** The game as a save, for the player to keep in a file; answered with `exported`. */

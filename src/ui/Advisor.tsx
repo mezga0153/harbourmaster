@@ -22,6 +22,31 @@ const TIPS: Record<string, Tip> = {
     text: 'Boats bring crates to your jetty. Dockhands lift them off and carry them to the truck bay, and hauliers’ trucks take them away: you are paid as each truck leaves. Select anything to see what it is doing.',
     topic: 'start',
   },
+  hut: {
+    title: 'Somewhere to rest',
+    text: 'A dockhand is tired. With nowhere to rest they sit down where they are, which is slow and bad for morale. Build a break hut near the jetty: Facilities, then Break hut (K).',
+    topic: 'dockhands',
+  },
+  speed: {
+    title: 'Speeding things up',
+    text: 'The first boat has gone. Waiting for the next? Speed the game up with 2×, 4× and 8× at the top (keys 1 to 4), and pause it with Space.',
+    topic: 'start',
+  },
+  jetty: {
+    title: 'Another jetty',
+    text: 'One jetty takes one boat at a time, and the rest wait at anchor, which the companies charge for. Build another out into water deep enough: Docks, then Jetty (J), with a port path to it from the truck bay.',
+    topic: 'boats',
+  },
+  contract: {
+    title: 'More business',
+    text: 'More fisheries and shipping lines would send boats here. Open Contracts (C) to see the offers: each costs a signing fee, so mind there are dockhands and berths enough for the boats it sends.',
+    topic: 'money',
+  },
+  screens: {
+    title: 'Keeping the books',
+    text: 'Click your cash at the top, or Finance (M), for what the port earns and spends each day and the bank’s loans. Statistics, beside it, shows where the crates are held up between the boats and the trucks.',
+    topic: 'money',
+  },
   pallets: {
     title: 'Crates on pallets',
     text: 'Coasters bring their crates on pallets. Dockhands or a jib crane lift them off, but only forklifts take them on from the quay, unless a jib crane swings them straight into crate storage.',
