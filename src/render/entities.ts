@@ -120,7 +120,7 @@ interface Hand {
   at?: number;
   /** Setting down a crate just taken up: where it lay. */
   taken?: Vector3;
-  /** Taking a crate off a boat or truck: shown in their hands before it changes hands. */
+  /** Taking a crate off a boat or truck: in their hands as it changes hands, never on its way. */
   early?: boolean;
   /** Dockhands: corners of a truck they walk round on the way. */
   via?: { x: number; z: number }[];
@@ -929,19 +929,20 @@ export class Entities {
   private spread(e: Entry, x: number, z: number): [number, number] {
     let px = 0;
     let pz = 0;
-    // Measured from where they stand, so two standing as one go apart.
-    const me = e.pose ?? { x, z };
+    // By where the game has them, which holds still while they stand: each
+    // steps half the room aside, and they stay put once apart.
+    const me = e.view;
     for (const o of this.entries.values()) {
-      if (o === e || o.view.kind !== 'dockhand' || !o.pose) continue;
-      const dx = me.x - o.pose.x;
-      const dz = me.z - o.pose.z;
+      if (o === e || o.view.kind !== 'dockhand' || o.view.moving) continue;
+      const dx = me.x - o.view.x;
+      const dz = me.y - o.view.y;
       const d = Math.hypot(dx, dz);
       if (d >= ROOM) continue;
       // Right on top of each other: apart, opposite ways, whichever way their ids say.
       const pair = Math.min(e.view.id, o.view.id) * 2.39996 + (e.view.id < o.view.id ? 0 : Math.PI);
       const a = d < 1e-3 ? pair : Math.atan2(dz, dx);
-      px += Math.cos(a) * (ROOM - d);
-      pz += Math.sin(a) * (ROOM - d);
+      px += (Math.cos(a) * (ROOM - d)) / 2;
+      pz += (Math.sin(a) * (ROOM - d)) / 2;
     }
     // Off the edge that way: as far round from it as it takes to stay on the quay.
     for (const turn of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI]) {
@@ -1103,7 +1104,7 @@ export class Entities {
   } | null {
     const [a, b, c] = [0, 1, 2].map((slot) => {
       const out = new Vector3();
-      return this.containerAt?.({ bay: tile, slot }, out) === null ? null : out;
+      return (this.containerAt?.({ bay: tile, slot }, out) ?? null) === null ? null : out;
     });
     if (!a || !b || !c) return null;
     // The first place is 0.71 across and 0.89 back from the bay's corner,
@@ -1399,15 +1400,9 @@ export class Entities {
     if (!w?.place || !load?.parent) return;
     load.parent.updateWorldMatrix(true, false);
     const off = at?.truck !== undefined && this.slotOf(at.truck, at.slot ?? 0);
-    if (w.stage === 'pick' && e.view.handStage === 'pick' && off && e.view.load === 0) {
-      // Off a boat or truck: in their hands the moment they reach it and
-      // bend to it, and lifted with them as they straighten up.
-      if ((w.at ?? 0) < (w.walk ?? 0)) return;
-      off.visible = false;
-      load.visible = true;
-      w.early = true;
-      return;
-    }
+    // Off a boat or truck, it stays where it lies while they bend to it, and
+    // is in their hands as it changes hands, as they straighten up with it.
+    if (w.stage === 'pick' && off) w.early = true;
     if (w.stage === 'pick' && w.early) return;
     if (!load.visible || down <= 0) return;
     // Setting one down straight after taking it up, as off a stack onto a

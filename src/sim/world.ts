@@ -8411,10 +8411,11 @@ export class World {
     }
   }
 
-  /** Whether another dockhand stands within a step of this one, or both at one truck bay. */
+  /** Whether another dockhand stands within a step of this one, or it stands in a truck bay. */
   private crowded(p: Dockhand): boolean {
     const here = this.tileOf(p);
     const bay = this.map.build[here] === Build.TruckBay;
+    if (bay) return true;
     return this.people.some(
       (q) =>
         q !== p &&
@@ -8439,7 +8440,8 @@ export class World {
     const room = (x: number, y: number) =>
       Math.min(B.IDLE_ROOM * 2, ...spots.map(([ox, oy]) => Math.hypot(ox - x, oy - y)));
     let best = -1;
-    let most = room(p.x, p.y);
+    // Off a truck bay anyway, out of the way of the trucks.
+    let most = m.build[this.tileOf(p)] === Build.TruckBay ? -Infinity : room(p.x, p.y);
     for (let dy = -3; dy <= 3; dy++) {
       for (let dx = -3; dx <= 3; dx++) {
         const [x, y] = [px + dx, py + dy];

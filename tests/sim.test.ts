@@ -3890,7 +3890,7 @@ describe('Container Port tier', () => {
     // Loading counts against the coaster's time alongside, with time allowed for it.
     let loadingTicks = 0;
     let allowed = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported ?? 0); k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 6 && !(world.stats.exported && loadingTicks > 0); k++) {
       const coaster = world.boats.find((b) => b.vessel === 'coaster' && b.state === 'moored');
       const before = coaster?.mooredTicks ?? 0;
       const grace = coaster?.grace ?? 0;

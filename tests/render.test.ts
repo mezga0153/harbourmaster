@@ -135,7 +135,10 @@ describe('Dockhands handling crates', () => {
     scene.add(structures.group, entities.group);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const entries = (entities as any).entries as Map<number, any>;
-    const held = new Map<number, { shown: boolean; at: Vector3; place?: Vector3 }>();
+    const held = new Map<
+      number,
+      { shown: boolean; at: Vector3; place?: Vector3; ship?: boolean }
+    >();
     let drops = 0;
     let picks = 0;
     let early = 0;
@@ -165,19 +168,20 @@ describe('Dockhands handling crates', () => {
             expect(was.at.distanceTo(was.place)).toBeLessThan(0.03);
           }
           // Taken up off a stack: it is where it lay. Off a boat it is in
-          // their hands at once.
-          if (was && !was.shown && shown && was.place && view.handAt?.truck === undefined) {
+          // their hands as it changes hands.
+          if (was && !was.shown && shown && was.place && !was.ship) {
             picks++;
             expect(at.distanceTo(was.place)).toBeLessThan(0.05);
           }
-          // Off a boat, on its way to their hands as they bend to it: not
-          // on the deck as well.
-          const off = view.handStage === 'pick' && view.handAt?.truck;
-          if (off !== undefined && off !== false && e.hand?.early && shown) {
+          // Off a boat, while they bend to it: on the deck, not in their
+          // hands as well.
+          const off = view.handStage === 'pick' ? view.handAt?.truck : undefined;
+          if (off !== undefined) {
             early++;
-            expect(entities.slotShown(off, view.handAt!.slot ?? 0)).toBe(false);
+            expect(shown && entities.slotShown(off, view.handAt!.slot ?? 0)).toBe(false);
           }
-          held.set(view.id, { shown, at, place: e.hand?.place?.clone() });
+          const ship = off !== undefined || (!!was?.ship && !view.handStage);
+          held.set(view.id, { shown, at, place: e.hand?.place?.clone(), ship });
         }
       }
     }
@@ -302,6 +306,44 @@ describe('Dockhands handling crates', () => {
     }
     expect(still).toBeGreaterThan(1000);
     expect(stacked).toBeGreaterThan(2);
+  });
+
+  it('stand still when they stand about together, rather than jostle', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const entities = new Entities(world.map);
+    const still = new Map<number, number>();
+    const last = new Map<number, [number, number, number]>();
+    let checked = 0;
+    for (let t = 0, now = 0; t < 1500; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      for (const v of s.entities) {
+        if (v.kind !== 'dockhand') continue;
+        const idle = !v.moving && !v.handStage;
+        still.set(v.id, idle ? (still.get(v.id) ?? 0) + 1 : 0);
+      }
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        for (const { view, pos } of entities.worldPositions()) {
+          if (view.kind !== 'dockhand') continue;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const yaw = (entities as any).entries.get(view.id).model.root.rotation.y;
+          const was = last.get(view.id);
+          last.set(view.id, [pos.x, pos.z, yaw]);
+          // Two seconds standing there: settled. Unless in a truck bay, where
+          // they step out of the way of a truck coming in.
+          if (!was || (still.get(view.id) ?? 0) < 20) continue;
+          const tile = m.idx(Math.floor(view.x), Math.floor(view.y));
+          if (m.build[tile] === Build.TruckBay) continue;
+          checked++;
+          expect(Math.hypot(pos.x - was[0], pos.z - was[1])).toBeLessThan(0.002);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
   });
 
   it('keep a step apart when they stand about', () => {
