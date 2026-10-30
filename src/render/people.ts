@@ -41,6 +41,13 @@ const HIP = 0.15;
 const BEND = 1;
 /** Leaning out further, per tile: how much more they bend, and reach forward with their arms. */
 const LEAN_BEND = 1.1;
+/**
+ * Arms from straight down, setting a crate down: by the sides of it on the
+ * ground, out level at waist height, and how much higher per tile above.
+ */
+const HANDS_DOWN = 0.36;
+const HANDS_OUT = 1.35;
+const HANDS_UP = 3;
 const LEAN_ARMS = 3;
 
 export function worker(seed: number, crate: (size: number) => Object3D): Worker {
@@ -122,11 +129,13 @@ export function worker(seed: number, crate: (size: number) => Object3D): Worker 
 
 /**
  * Walk cycle: legs and arms swing in opposite pairs. Someone carrying a
- * crate holds both arms out in front instead. Stooping (0 to 1), they bend
- * forward from the hips with their arms down, to take hold of a crate on
- * the ground or set one down there; leaning `over` tiles further out, to a
- * crate on a boat from the edge of the quay, they bend further and reach
- * out for it, `drop` above or below their feet.
+ * crate holds both arms out in front instead. Stooping (0 to 1), they go to
+ * take hold of a crate, or set one down, `drop` above their feet: on the
+ * ground they bend forward from the hips with their arms down; the higher
+ * it is the less they bend, to a truck's bed at about waist height with
+ * their arms out level, and onto a stack above that reaching up with it.
+ * Leaning `over` tiles further out, to a crate on a boat from the edge of
+ * the quay, they bend further and reach out for it.
  */
 export function pose(
   w: { body?: Object3D; limbs?: Limbs; crates?: Object3D[] },
@@ -140,13 +149,18 @@ export function pose(
   const l = w.limbs;
   if (!l) return;
   const lean = Math.max(0, over) * stoop;
-  const bend = BEND * stoop + LEAN_BEND * lean;
+  const lift = Math.max(-0.3, Math.min(0.45, drop));
+  // How far down it is: 1 on the ground (or below, off the edge), 0 at the height they carry it.
+  const low = Math.min(1, Math.max(0, (HELD.y - lift) / HELD.y));
+  const bend = BEND * low * stoop + LEAN_BEND * lean;
   const swing = moving ? Math.sin(phase) * 0.65 : 0;
   // The legs stay upright as the body bends over them.
   l.legL.rotation.z = swing * (1 - stoop) + bend;
   l.legR.rotation.z = -swing * (1 - stoop) + bend;
-  // Hands down by the sides of a crate on the ground.
-  const reach = bend + 0.36 + LEAN_ARMS * lean;
+  // Hands down by the sides of a crate on the ground, out level to one at
+  // waist height, up to one above.
+  const level = HANDS_DOWN + (HANDS_OUT - HANDS_DOWN) * (1 - low);
+  const reach = bend + level + Math.max(0, lift - HELD.y) * HANDS_UP + LEAN_ARMS * lean;
   if (carrying) {
     l.armL.rotation.z = l.armR.rotation.z = 1.25 + (reach - 1.25) * stoop;
   } else {
@@ -168,10 +182,7 @@ export function pose(
   const load = w.crates?.[0];
   if (load) {
     const x = HELD.x + (SET_DOWN.x - HELD.x) * stoop + lean - bx;
-    const y =
-      HELD.y +
-      (SET_DOWN.y + (over > 0 ? Math.max(-0.3, Math.min(0.1, drop)) : 0) - HELD.y) * stoop -
-      by;
+    const y = HELD.y + (SET_DOWN.y + lift - HELD.y) * stoop - by;
     load.position.set(x * cos - y * sin, x * sin + y * cos, 0);
     load.rotation.z = bend;
   }

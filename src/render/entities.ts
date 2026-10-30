@@ -111,6 +111,10 @@ interface Hand {
   walk?: number;
   /** A dockhand: where the crate they set down goes, or the one they take up lay. */
   place?: Vector3;
+  /** Dockhands: how far through it they are. */
+  at?: number;
+  /** Setting down a crate just taken up: where it lay. */
+  taken?: Vector3;
   /** Dockhands: corners of a truck they walk round on the way. */
   via?: { x: number; z: number }[];
 }
@@ -783,7 +787,10 @@ export class Entities {
     let pose = drive;
     if (v.handStage) {
       if (e.hand?.stage !== v.handStage || e.hand.done !== undefined) {
-        e.hand = { stage: v.handStage, from: e.pose ?? drive };
+        // Straight from taking a crate up to setting it down: from where it lay.
+        const was =
+          e.hand?.done === undefined && e.hand?.stage === 'pick' ? e.hand.place : undefined;
+        e.hand = { stage: v.handStage, from: e.pose ?? drive, taken: was };
       }
       const w = e.hand;
       // Ahead of the last snapshot as the game is, so it gets there just as
@@ -795,7 +802,7 @@ export class Entities {
       // Seen part way through, at speed, it does the rest in what is left.
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
-      w.goal ??= this.clearOfTruck(v, this.workPose(v, w, drive)) ?? undefined;
+      w.goal ??= this.clearOfTruck(v, this.workPose(v, w, drive), w.from) ?? undefined;
       // A forklift the game has too far from its pallet to drive up to it
       // works it from where it is. It is shown a snapshot behind the game,
       // so that is measured from where the game has it, not where it shows.
@@ -814,8 +821,9 @@ export class Entities {
         // Round a truck in the way, not through it.
         w.via ??= this.aroundTrucks(w.from, goal);
         const d = length([w.from, ...w.via, goal]);
-        w.walk ??= Math.min(0.6, Math.max(0.1, d / (WALK_SPEED * left)));
+        w.walk ??= Math.min(0.7, Math.max(0.1, d / (WALK_SPEED * left)));
         e.stepping = phase < w.walk;
+        w.at = phase;
         pose = { ...walkVia(w.from, w.via, goal, phase / w.walk), h: 0 };
         this.place(e, pose);
         return;
@@ -973,20 +981,55 @@ export class Entities {
     while (dry < way + TOES && surfaceY(this.map, drive.x + ux * dry, drive.z + uz * dry) > 0) {
       dry += 0.02;
     }
-    const stand = Math.max(0, Math.min(way, dry - TOES));
+    let stand = Math.max(0, Math.min(way, dry - TOES));
+    // Nor where a truck stands, other than the one they load: on to the
+    // crate's side of it, or else back from it.
+    const clear = (d: number) => !this.inTruck(drive.x + ux * d, drive.z + uz * d, v.handAt?.truck);
+    if (!clear(stand)) {
+      let k = 0.02;
+      while (k < 0.8 && !clear(stand + k) && !clear(stand - k)) k += 0.02;
+      if (clear(stand + k)) stand += k;
+      else if (clear(stand - k)) stand -= k;
+    }
     x = drive.x + ux * stand;
     z = drive.z + uz * stand;
-    const over = Math.min(LEAN_MOST, way - stand);
+    const over = Math.min(LEAN_MOST, Math.max(0, way - stand));
     return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
   }
 
+  /** Whether x, z is where a truck stands still, other than `but`, with a step's room round it. */
+  private inTruck(x: number, z: number, but?: number): boolean {
+    for (const truck of this.entries.values()) {
+      if (truck.view.kind !== 'truck' || truck.view.moving || truck.view.id === but) continue;
+      const root = truck.model.root;
+      const dx = x - root.position.x;
+      const dz = z - root.position.z;
+      if (dx * dx + dz * dz > 2.5) continue;
+      const box = (truck.size ??= sizeOf(root));
+      const c = Math.cos(-root.rotation.y);
+      const s = Math.sin(-root.rotation.y);
+      const along = dx * c + dz * s;
+      const across = -dx * s + dz * c;
+      const pad = 0.07;
+      if (
+        along > box.min.x - pad &&
+        along < box.max.x + pad &&
+        across > box.min.z - pad &&
+        across < box.max.z + pad
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
-   * A dockhand or forklift loading a truck stands clear of it, as far back
-   * from the crate's place on its bed as it takes: a dockhand reaches the
-   * rest of the way, leaning over to it, and a forklift's forks reach in
-   * over the side.
+   * A dockhand or forklift loading a truck stands clear of it. A dockhand
+   * stands at its side or tail, whichever of them beside the crate's place
+   * on its bed is nearest, and leans over to it; a forklift backs off as
+   * far as it takes, its forks reaching in over the side.
    */
-  private clearOfTruck(v: EntityView, at: Pose | null): Pose | null {
+  private clearOfTruck(v: EntityView, at: Pose | null, from: Pose): Pose | null {
     const id = v.handAt?.truck;
     const truck = id === undefined ? undefined : this.entries.get(id);
     if (!at || !truck || truck.view.kind !== 'truck') return at;
@@ -995,17 +1038,48 @@ export class Entities {
     const root = truck.model.root;
     const c = Math.cos(-root.rotation.y);
     const s = Math.sin(-root.rotation.y);
+    if (v.kind === 'dockhand') {
+      const p = new Vector3();
+      if (this.handSlot(v.handAt!, p) === null) return at;
+      const ox = root.position.x;
+      const oz = root.position.z;
+      const along = (p.x - ox) * c + (p.z - oz) * s;
+      const across = -(p.x - ox) * s + (p.z - oz) * c;
+      const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
+      const gap = 0.1;
+      // Either side, abreast of the crate's place, or at the tail; never the cab.
+      const spots: [number, number][] = [
+        [lie(along, box.min.x, box.max.x), box.min.z - gap],
+        [lie(along, box.min.x, box.max.x), box.max.z + gap],
+        [box.min.x - gap, lie(across, box.min.z, box.max.z)],
+      ];
+      let best: [number, number] | undefined;
+      let least = Infinity;
+      for (const [a, b] of spots) {
+        const x = ox + a * c - b * s;
+        const z = oz + a * s + b * c;
+        if (surfaceY(this.map, x, z) <= 0 || this.inTruck(x, z, id)) continue;
+        const cost = Math.hypot(x - from.x, z - from.z);
+        if (cost < least) [best, least] = [[x, z], cost];
+      }
+      if (!best) return at;
+      const [x, z] = best;
+      return {
+        x,
+        z,
+        dir: Math.atan2(p.z - z, p.x - x),
+        h: p.y - surfaceY(this.map, x, z),
+        over: Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - HAND_REACH)),
+      };
+    }
     // Points of the body that must keep off it, ahead of and to the right of its middle.
-    const body: [number, number][] =
-      v.kind === 'forklift'
-        ? [
-            [0.18, -0.16],
-            [0.18, 0.16],
-            [-0.26, -0.16],
-            [-0.26, 0.16],
-          ]
-        : [[0, 0]];
-    const pad = v.kind === 'forklift' ? 0.02 : 0.07;
+    const body: [number, number][] = [
+      [0.18, -0.16],
+      [0.18, 0.16],
+      [-0.26, -0.16],
+      [-0.26, 0.16],
+    ];
+    const pad = 0.02;
     const inside = (x: number, z: number) =>
       body.some(([f, r]) => {
         const px = x + Math.cos(at.dir) * f - Math.sin(at.dir) * r - root.position.x;
@@ -1026,14 +1100,7 @@ export class Entities {
     if (back === 0) return at;
     const x = at.x - Math.cos(at.dir) * back;
     const z = at.z - Math.sin(at.dir) * back;
-    const over = v.kind === 'dockhand' ? Math.min(LEAN_MOST, (at.over ?? 0) + back) : at.over;
-    return {
-      ...at,
-      x,
-      z,
-      h: at.h + surfaceY(this.map, at.x, at.z) - surfaceY(this.map, x, z),
-      over,
-    };
+    return { ...at, x, z, h: at.h + surfaceY(this.map, at.x, at.z) - surfaceY(this.map, x, z) };
   }
 
   /**
@@ -1190,7 +1257,11 @@ export class Entities {
     const load = e.model.crates[0];
     if (!w?.place || !load?.visible || !load.parent || down <= 0) return;
     load.parent.updateWorldMatrix(true, false);
-    const from = load.getWorldPosition(new Vector3()).lerp(w.place, down);
+    // Setting one down straight after taking it up, as off a stack onto a
+    // truck beside it, it goes over from one to the other as they go on.
+    const on = w.stage === 'drop' ? ease((w.at ?? 1) / 0.6) : 1;
+    const to = w.taken ? w.taken.clone().lerp(w.place, on) : w.place;
+    const from = load.getWorldPosition(new Vector3()).lerp(to, w.taken ? down : down * on);
     load.position.copy(load.parent.worldToLocal(from));
   }
 

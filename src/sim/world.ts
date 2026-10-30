@@ -5427,7 +5427,9 @@ export class World {
       const pile = this.piles.get(p.stockIdx);
       if (pile) return { pile: pile.idx, slot: pile.crates.length - 1 };
       const bay = this.bays.get(p.stockIdx);
-      return bay?.tiles ? store(bay) : undefined;
+      if (!bay) return undefined;
+      // Off a truck bay's stack, as onto a truck there.
+      return bay.tiles ? store(bay) : { bay: bay.idx, slot: last(bay.crates.length) };
     }
     // Onto a truck it is loading.
     const truck = p.truckId !== undefined && this.trucks.find((q) => q.id === p.truckId);
@@ -5439,6 +5441,8 @@ export class World {
     if (pile) return { pile: pile.idx, slot: pile.crates.length };
     const bay = this.bays.get(p.bayIdx);
     if (!bay) return undefined;
+    const onto = this.straightOnto(p, bay);
+    if (onto) return { truck: onto.id, slot: onto.cargo };
     return bay.tiles ? store(bay) : { bay: bay.idx, slot: bay.crates.length };
   }
 
@@ -5815,11 +5819,28 @@ export class World {
   }
 
   /**
-   * A crate truck at a truck bay or crate storage, which dockhands and
-   * forklifts with nothing else to do help load, besides its own crew.
+   * A crate truck at a truck bay or crate storage, which only dockhands and
+   * forklifts load: it has no crew of its own.
    */
   private byHand(t: Truck, bay: Bay): boolean {
     return !t.boxes && !bay.yard && !bay.pile;
+  }
+
+  /**
+   * A crate truck loading at the truck bay a dockhand or forklift brings
+   * crates to, with room for them all: they go straight onto it.
+   */
+  private straightOnto(p: Dockhand, bay: Bay): Truck | undefined {
+    if (isBoxy(p) || p.outbound || p.truckId !== undefined || bay.tiles || p.carrying <= 0) {
+      return undefined;
+    }
+    return this.trucks.find(
+      (t) =>
+        t.state === 'loading' &&
+        t.bayIdx === bay.idx &&
+        this.byHand(t, bay) &&
+        t.cargo + (t.coming ?? 0) + p.carrying <= t.capacity,
+    );
   }
 
   /** Crate trucks waiting to be loaded, for dockhands and forklifts. */
@@ -5833,8 +5854,8 @@ export class World {
         bay.crates.length - (bay.reserved ?? 0),
       );
       if (avail <= 0) continue;
-      // Last of all: boats and the quay come first, and the truck loads itself anyway.
-      sources.push({ tile: this.crateTruckSpot(bay, t), avail, truck: t, load: true, rank: 3 });
+      // Once the boats are seen to, nearest first, as crates in storage are.
+      sources.push({ tile: this.crateTruckSpot(bay, t), avail, truck: t, load: true, rank: 1 });
     }
   }
 
@@ -5860,18 +5881,11 @@ export class World {
     const bay = this.dest(t.bayIdx);
     if (!bay || this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
     if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
-    // Only as many as save the truck a wait: it sets them on while its own
-    // crew is still loading the rest, never keeping the truck waiting for it.
     const room = Math.min(
       t.capacity - t.cargo - (t.coming ?? 0),
       bay.crates.length - (bay.reserved ?? 0),
     );
-    const speed = p.kind === 'forklift' ? B.FORKLIFT_SPEED : B.WALK_SPEED;
-    const there =
-      (this.dist(this.tileOf(p), src.tile) * 1.25) / speed +
-      this.handlingTicks(p, B.PICK_TICKS) +
-      this.handlingTicks(p, B.DROP_TICKS);
-    const n = Math.min(p.capacity, src.avail, Math.floor(room - there / this.truckTicks(t, bay)));
+    const n = Math.min(p.capacity, src.avail, room);
     if (n <= 0) return false;
     if (!this.headTo(p, src.tile)) return false;
     bay.reserved = (bay.reserved ?? 0) + n;
@@ -8291,7 +8305,13 @@ export class World {
           this.boxLooks(bay).push(...this.carriedLooks(p));
           p.cargoLooks = undefined;
         }
-        (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
+        // A truck waiting at the bay: straight onto it.
+        const onto = this.straightOnto(p, bay);
+        if (onto) {
+          onto.cargo += p.carrying;
+          onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
+          onto.idle = 0;
+        } else (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         if (boxy) this.tip('customs');
         if (bay.pile) this.tip('landed');
         bayIncoming(bay, boxy, -p.planned);
@@ -8432,10 +8452,14 @@ export class World {
     if (p.kind === 'dockhand' || p.kind === 'forklift') this.crateTruckSources(sources);
     // The boat moored longest is unloaded first, however near another lies:
     // others only once its crates are all spoken for, or its spots taken.
+    // A crate truck is loaded by whoever is nearest it, boats or no: one
+    // standing at its bay sees it full before going back to the boats.
     const moored = (s: Source) => s.boat?.mooredTicks ?? -1;
+    const near = (s: Source) => s.truck && !s.truck.boxes && this.dist(here, s.tile) <= 2;
     const ordered = sources.sort(
       (a, b) =>
         a.rank - b.rank ||
+        Number(near(b)) - Number(near(a)) ||
         moored(b) - moored(a) ||
         this.dist(here, a.tile) - this.dist(here, b.tile),
     );
@@ -9312,8 +9336,26 @@ export class World {
           (!onward || this.truckable(b)) &&
           (!only || only(b)),
       )
-      .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
+      .sort((a, b) => this.bayCost(from, a, boxes) - this.bayCost(from, b, boxes));
     return bays.find((b) => this.dropAt(p, b, from) >= 0) ?? null;
+  }
+
+  /**
+   * How far off a bay is to bring cargo to: crates go a good way further to
+   * a truck bay where a truck waits for them, to set them straight on it.
+   */
+  private bayCost(from: number, b: Bay, boxes: boolean): number {
+    const waiting =
+      !boxes &&
+      !b.tiles &&
+      this.trucks.some(
+        (t) =>
+          t.state === 'loading' &&
+          t.bayIdx === b.idx &&
+          this.byHand(t, b) &&
+          t.cargo + (t.coming ?? 0) + b.incoming < t.capacity,
+      );
+    return this.distTo(from, b) - (waiting ? B.TRUCK_WAITING_PULL : 0);
   }
 
   /**
@@ -11978,11 +12020,17 @@ export class World {
         // With nothing more here for it, it goes with what it has rather
         // than wait for more.
         const done = (t.coming ?? 0) === 0 && this.unclaimed(bay, t.boxes, t) <= 0;
-        if (this.byStacker(t, bay)) {
+        // Crates go on by hand: dockhands and forklifts load it, as
+        // containers at a yard with no gantry go on by reach stacker.
+        const hands = this.byHand(t, bay);
+        if (this.byStacker(t, bay) || hands) {
           if ((t.coming ?? 0) > 0) t.idle = 0;
           else t.idle += every;
           const full = t.cargo >= t.capacity;
-          const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
+          // With crates there for it, it waits as long as it would for any.
+          const waiting = hands && bay.crates.length > (bay.reserved ?? 0);
+          const bored =
+            t.cargo > 0 && !waiting ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
           if (full || bored || done) this.truckLeave(t);
           return;
         }
@@ -13443,6 +13491,12 @@ export class World {
     }
     if (this.collectable(bay) === 0) {
       return 'Waiting for more cargo. It leaves part-loaded if none comes soon.';
+    }
+    if (this.byHand(t, bay) && (t.coming ?? 0) === 0) {
+      const crew = this.people.filter((p) => p.kind === 'dockhand' || p.kind === 'forklift');
+      return crew.length === 0
+        ? 'Dockhands or forklifts load crate trucks, and there are none. Hire some.'
+        : 'Waiting for a dockhand or forklift to load it: they are busy, or cannot walk or drive here. More of them, or a path to this bay, load it sooner.';
     }
     return undefined;
   }

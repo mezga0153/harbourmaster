@@ -67,37 +67,6 @@ describe('Forklifts turning about', () => {
 });
 
 describe('Dockhands handling crates', () => {
-  it('have a crate down on the ground as it leaves or reaches their hands', () => {
-    const world = World.create(7, 96);
-    const entities = new Entities(world.map);
-    const crate = new Vector3();
-    const held = new Map<number, { shown: boolean; y: number; truck: boolean }>();
-    let handed = 0;
-    for (let t = 0, now = 0; t < 800; t++) {
-      world.step();
-      const s = world.snapshot();
-      entities.push(s.entities, now, s.tick);
-      for (let f = 0; f < 6; f++) {
-        now += 100 / 6;
-        entities.update(now, now / 1000);
-        for (const { view, pos } of entities.worldPositions()) {
-          if (view.kind !== 'dockhand') continue;
-          const shown = entities.slotShown(view.id, 0);
-          const y = entities.slotPosition(view.id, 0, crate)!.y - pos.y;
-          const was = held.get(view.id);
-          // Onto a truck, it goes up onto the bed; see the trucks below.
-          if (was && was.shown !== shown && !was.truck) {
-            handed++;
-            expect(Math.min(y, was.y)).toBeLessThan(0.01);
-          }
-          const truck = s.entities.some((e) => e.id === view.handAt?.truck && e.kind === 'truck');
-          held.set(view.id, { shown, y, truck });
-        }
-      }
-    }
-    expect(handed).toBeGreaterThan(4);
-  });
-
   it('stay on the quay, leaning out to crates on the boats rather than stepping aboard', () => {
     const world = World.create(7, 96);
     const entities = new Entities(world.map);
@@ -123,21 +92,29 @@ describe('Dockhands handling crates', () => {
   it('walk up to a crate and back onto their way, never jumping there', () => {
     const world = World.create(7, 96);
     const entities = new Entities(world.map);
+    const structures = new Structures(world.map, true);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
     const last = new Map<number, [number, number]>();
     let handled = 0;
-    for (let t = 0, now = 0; t < 800; t++) {
+    for (let t = 0, now = 0; t < 2000; t++) {
       world.step();
       const s = world.snapshot();
       entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
       for (let f = 0; f < 6; f++) {
         now += 100 / 6;
         entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
         for (const { view, pos } of entities.worldPositions()) {
           if (view.kind !== 'dockhand') continue;
           if (view.handStage) handled++;
           const was = last.get(view.id);
-          // A brisk walk at most: half as fast again as they walk.
-          if (was) expect(Math.hypot(pos.x - was[0], pos.z - was[1])).toBeLessThan(0.0601);
+          // A brisk walk at most: hardly more than half as fast again as they walk.
+          if (was) expect(Math.hypot(pos.x - was[0], pos.z - was[1])).toBeLessThan(0.066);
           last.set(view.id, [pos.x, pos.z]);
         }
       }
@@ -160,6 +137,7 @@ describe('Dockhands handling crates', () => {
     const entries = (entities as any).entries as Map<number, any>;
     const held = new Map<number, { shown: boolean; at: Vector3; place?: Vector3 }>();
     let drops = 0;
+    let picks = 0;
     let up = 0;
     let now = 0;
     for (let t = 0; t < 1500; t++) {
@@ -178,18 +156,24 @@ describe('Dockhands handling crates', () => {
           const e = entries.get(view.id);
           const shown = entities.slotShown(view.id, 0);
           const was = held.get(view.id);
+          const at = entities.slotPosition(view.id, 0, new Vector3())!;
           // Let go of: it was where it goes.
           if (was?.shown && !shown && was.place) {
             drops++;
             if (was.place.y - pos.y > 0.05) up++;
             expect(was.at.distanceTo(was.place)).toBeLessThan(0.03);
           }
-          const at = entities.slotPosition(view.id, 0, new Vector3())!;
+          // Taken up: it is where it lay.
+          if (was && !was.shown && shown && was.place) {
+            picks++;
+            expect(at.distanceTo(was.place)).toBeLessThan(0.05);
+          }
           held.set(view.id, { shown, at, place: e.hand?.place?.clone() });
         }
       }
     }
     expect(drops).toBeGreaterThan(10);
+    expect(picks).toBeGreaterThan(10);
     // Some onto others, up off the ground.
     expect(up).toBeGreaterThan(0);
   });

@@ -586,10 +586,14 @@ describe('Coastal Wharf tier', () => {
     expect(world.stats.trucks).toBe(0);
     const spot = m.build.findIndex((_, i) => !placementError(m, 'largeBay', i));
     world.command({ type: 'build', kind: 'largeBay', tiles: [spot] });
-    // Give the large bay something to collect.
+    // Give the large bay something to collect: a big truck comes for it.
     world.bays.get(spot)!.crates.push(...Array(B.BIG_TRUCK_CAPACITY).fill(20));
-    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
-    expect(world.stats.trucks).toBeGreaterThan(0);
+    let came = false;
+    for (let t = 0; t < TICKS_PER_DAY && !came; t++) {
+      world.step();
+      came = world.trucks.some((k) => k.bayIdx === spot && k.state === 'loading');
+    }
+    expect(came).toBe(true);
   });
 
   it('needs a harbour office before boats use a quay', () => {
@@ -944,7 +948,7 @@ describe('Buildings', () => {
     return m.idx(x, r + side);
   }
 
-  it('marks out crate storage on port roads, and loads trucks fast from inside the port', () => {
+  it('marks out crate storage on port roads, where a forklift loads trucks from inside the port', () => {
     const world = World.create(7, 96);
     world.boats.length = 0; // no catch landing in the truck bay meanwhile
     world.tier = 1;
@@ -992,6 +996,17 @@ describe('Buildings', () => {
     world.command({ type: 'bulldoze', tiles: turn });
     world.command({ type: 'build', kind: 'portRoad', tiles: turn });
     expect(turn.every((i) => m.build[i] === Build.PortRoad)).toBe(true);
+    // A forklift on the port road loads them: trucks have no crew of their own.
+    world.cash = 100_000;
+    const lift = world['spawnDockhand'](inside[1], {
+      id: 0,
+      name: 'Forklift 1',
+      skill: 3,
+      trait: null,
+      wage: 0,
+    });
+    lift.kind = 'forklift';
+    lift.capacity = B.FORKLIFT_CAPACITY;
     let together = false;
     let loadTime = 0;
     for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
@@ -1006,8 +1021,8 @@ describe('Buildings', () => {
     }
     expect(together).toBe(true);
     expect(store.crates.length).toBe(0);
-    // 24 crates, two trucks at a time, quicker per crate than by hand.
-    expect(loadTime).toBeLessThan((24 * B.BAY_LOAD_TICKS) / 2);
+    // 24 crates, a pallet a trip.
+    expect(loadTime).toBeLessThan(24 * B.BAY_LOAD_TICKS);
   });
 
   it('keeps what an area holds as it grows, joins up or shrinks', () => {
@@ -1351,9 +1366,14 @@ describe('Buildings', () => {
     expect(m.orient[gate]).toBe(3);
     // Staff never use the gate.
     expect(drivable(Build.Gate) || walkable(Build.Gate)).toBe(false);
-    for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
+    // A truck comes in to be loaded.
+    let came = false;
+    for (let t = 0; t < TICKS_PER_DAY; t++) {
+      world.step();
+      came ||= world.trucks.some((k) => k.bayIdx === bay && k.state === 'loading');
+    }
     expect(goods.noAccess).toBe(false);
-    expect(goods.crates.length).toBeLessThan(4);
+    expect(came).toBe(true);
   });
 });
 
@@ -2424,7 +2444,8 @@ describe('Container Port tier', () => {
     expect(world.people.filter((p) => p.kind === 'dockhand').every((p) => p.carrying <= 1)).toBe(
       true,
     );
-    expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
+    // Less from the crates meanwhile, which go on their trucks by hand.
+    expect(world.stats.earned - earned).toBeGreaterThan(150 * 2);
   });
 
   it('lets a yard stop taking containers, so the trucks empty it, and take them again', () => {
