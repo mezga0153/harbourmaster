@@ -55,8 +55,11 @@ function parkingLot(world: World): number[] {
     m.idx(x + 2, r + 1),
   ];
   world.command({ type: 'build', kind: 'road', tiles: [...loop, ...lot] });
-  // Marked out on the road between the two.
+  // Marked out on the road between the two: parking comes with the Coastal Wharf.
+  const tier = world.tier;
+  world.tier = Math.max(1, tier);
   world.command({ type: 'build', kind: 'parking', tiles: lot });
+  world.tier = tier;
   return lot;
 }
 
