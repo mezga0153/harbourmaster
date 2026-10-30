@@ -2,7 +2,15 @@
 // on a button, and every engine on a switch, to try out and tune by ear.
 
 import { VESSEL_SIZE, type Hull, type RoadEngine } from './mix';
-import { roadPitch, Synth, type Loop } from './synth';
+import {
+  CONTAINER_STYLES,
+  containerStyle,
+  roadPitch,
+  setContainerStyle,
+  Synth,
+  type ContainerStyle,
+  type Loop,
+} from './synth';
 
 let synth: Synth | null = null;
 const loops = new Map<string, Loop>();
@@ -122,13 +130,49 @@ function pitchTo(loop: Loop, f: number, s: Synth): void {
 }
 
 /** A yard at work: a container landing every second or so, for a while. */
-function busyYard(s: Synth): void {
+function busyYard(s: Synth, style: ContainerStyle): void {
   let t = 0;
   for (let k = 0; k < 10; k++) {
     t += 600 + Math.random() * 900;
     const onTruck = Math.random() < 0.3;
-    setTimeout(() => s.clank(0.7, (Math.random() * 2 - 1) * 0.6, far, onTruck), t);
+    setTimeout(() => s.clank(0.7, (Math.random() * 2 - 1) * 0.6, far, onTruck, style), t);
   }
+}
+
+/** Each way a container can sound, to try, and to pick for the game. */
+function containerRows(): HTMLElement[] {
+  const picks: HTMLButtonElement[] = [];
+  const mark = () =>
+    picks.forEach((b) => {
+      const on = b.dataset.style === containerStyle();
+      b.classList.toggle('on', on);
+      b.textContent = on ? 'Used in the game' : 'Use in the game';
+    });
+  const rows = CONTAINER_STYLES.map((c) => {
+    const pick = el('button', {
+      onclick: () => {
+        setContainerStyle(c.id);
+        mark();
+      },
+    });
+    pick.dataset.style = c.id;
+    picks.push(pick);
+    return el(
+      'div',
+      { className: 'engine' },
+      el('div', {}, el('strong', {}, c.name), el('br'), el('small', {}, c.note)),
+      el(
+        'div',
+        { className: 'controls' },
+        button('On a stack', (s) => s.clank(0.7, pan, far, false, c.id)),
+        button('On a truck', (s) => s.clank(0.7, pan, far, true, c.id)),
+        button('A busy yard', (s) => busyYard(s, c.id)),
+        pick,
+      ),
+    );
+  });
+  mark();
+  return rows;
 }
 
 function busyQuay(s: Synth): void {
@@ -166,13 +210,16 @@ lab.append(
     ),
   ),
   section(
-    'Containers (steel)',
+    'Containers (steel): pick the one you like',
+    ...containerRows(),
     el(
-      'div',
-      { className: 'row' },
-      button('On a stack or the ground', (s) => s.clank(0.7, pan, far)),
-      button('On a truck or tractor', (s) => s.clank(0.7, pan, far, true)),
-      button('A busy yard', busyYard),
+      'p',
+      {},
+      el(
+        'small',
+        {},
+        'The one marked “Used in the game” plays in the game, in this browser, from the next container on.',
+      ),
     ),
   ),
   section(
@@ -230,8 +277,18 @@ lab.append(
 async function measure(): Promise<Record<string, { peak: number; rms: number }>> {
   const out: Record<string, { peak: number; rms: number }> = {};
   const cases: [string, (s: Synth) => void, number][] = [
-    ['clank', (s) => s.clank(0.7, 0, 0), 3],
-    ['clankTruck', (s) => s.clank(0.7, 0, 0, true), 3],
+    ...CONTAINER_STYLES.flatMap((c) => [
+      [`clank ${c.id}`, (s: Synth) => s.clank(0.7, 0, 0, false, c.id), 3] as [
+        string,
+        (s: Synth) => void,
+        number,
+      ],
+      [`clank ${c.id} truck`, (s: Synth) => s.clank(0.7, 0, 0, true, c.id), 3] as [
+        string,
+        (s: Synth) => void,
+        number,
+      ],
+    ]),
     ['thunk', (s) => s.thunk(0.45, 0, 0), 1.5],
     ...hulls.map(
       ([h]) =>

@@ -66,6 +66,39 @@ export interface Loop {
   pitch?: AudioParam[];
 }
 
+/** The ways a container can sound as it is set down; the sound lab lets the player choose. */
+export type ContainerStyle = 'bang' | 'hollow' | 'clang' | 'thump';
+export const CONTAINER_STYLES: { id: ContainerStyle; name: string; note: string }[] = [
+  { id: 'bang', name: 'Deep bang', note: 'a hard, low bang echoing off the stacks' },
+  { id: 'hollow', name: 'Hollow box', note: 'an empty steel box booming' },
+  { id: 'clang', name: 'Steel clang', note: 'a sharper crack of steel on steel' },
+  { id: 'thump', name: 'Muffled thump', note: 'heavy and dull, through the ground' },
+];
+
+const STYLE_KEY = 'harbourmaster.containerSound';
+
+/** How much each container sound is made up by, to land about as loud as the rest. */
+const STYLE_GAIN: Record<ContainerStyle, number> = { bang: 1.8, hollow: 4.5, clang: 3, thump: 2 };
+
+/** The container sound the player picked in the sound lab. */
+export function containerStyle(): ContainerStyle {
+  try {
+    const v = localStorage.getItem(STYLE_KEY);
+    if (CONTAINER_STYLES.some((c) => c.id === v)) return v as ContainerStyle;
+  } catch {
+    // No storage here: the default.
+  }
+  return 'bang';
+}
+
+export function setContainerStyle(style: ContainerStyle): void {
+  try {
+    localStorage.setItem(STYLE_KEY, style);
+  } catch {
+    // Kept for this visit only.
+  }
+}
+
 /** Each land diesel: its pitch, its injectors' knock, and any whine. */
 const ROAD = {
   truck: { f: 36, knock: 0.35, knockAt: 950, whine: 0, whineAt: 0 },
@@ -443,59 +476,79 @@ export class Synth {
   }
 
   /**
-   * Thirty tonnes of steel box set down: a deep boom as it lands, the
-   * clang of its walls ringing low and hollow, then the twistlocks
-   * seating and a rattle of the doors. Onto a trailer, a duller thump with
-   * the chassis taking the weight; onto a stack or the ground, more ring.
+   * A band of noise struck and dying away: a resonance that sounds like a
+   * real impact rather than a pure tone. Made up for how narrow the band
+   * is, so `level` is about how loud it comes out whatever the `q`.
    */
-  clank(gain: number, pan: number, far = 0, onTruck = false): void {
+  private band(out: AudioNode, at: number, f: number, q: number, level: number, decay: number) {
+    const makeUp = Math.min(60, Math.sqrt((q * this.ctx.sampleRate) / 2 / f) * 0.35);
+    this.burst(out, at, 'bandpass', f, q, level * makeUp, decay);
+  }
+
+  /** A sine dropping in pitch: the weight of something heavy landing. */
+  private drop(out: AudioNode, at: number, from: number, to: number, level: number, decay: number) {
+    const o = this.osc('sine', from);
+    o.frequency.setValueAtTime(from, at);
+    o.frequency.exponentialRampToValueAtTime(to, at + decay * 0.8);
+    const g = this.gainNode(0);
+    this.envelope(g, at, level, 0.004, decay);
+    o.connect(g).connect(out);
+    o.start(at);
+    o.stop(at + decay + 0.1);
+  }
+
+  /**
+   * A container set down, in one of several ways of sounding it (see
+   * CONTAINER_STYLES; the player picks in the sound lab). Onto a trailer it
+   * comes duller, with the springs taking the weight.
+   */
+  clank(gain: number, pan: number, far = 0, onTruck = false, style: ContainerStyle = 'bang'): void {
     const t = this.now + 0.01;
-    const out = this.voice(gain, pan, far, 2.2);
-    // The weight landing.
-    const boom = this.osc('sine', rnd(58, 66));
-    boom.frequency.exponentialRampToValueAtTime(32, t + 0.35);
-    const bg = this.gainNode(0);
-    this.envelope(bg, t, 0.9, 0.004, 0.45);
-    boom.connect(bg).connect(out);
-    boom.start(t);
-    boom.stop(t + 0.6);
-    this.burst(out, t, 'lowpass', 220, 0.7, 0.9, 0.22);
-    // The box's walls and frame ringing: low, inharmonic and hollow.
-    const base = rnd(78, 96) * (onTruck ? 0.9 : 1);
-    const ring = onTruck ? 0.45 : 1;
-    this.ring(
-      out,
-      t,
-      [
-        [base, 0.3, 0.9],
-        [base * 1.47, 0.24, 0.75],
-        [base * 2.09, 0.18, 0.6],
-        [base * 2.91, 0.12, 0.45],
-        [base * 3.83, 0.08, 0.35],
-        [base * 5.17, 0.05, 0.25],
-      ].map(([f, v, d]) => [f * rnd(0.98, 1.02), v * ring, d * ring] as [number, number, number]),
-    );
-    // The clang of the corner castings meeting.
-    this.burst(out, t, 'bandpass', rnd(600, 900), 1.2, 0.5, 0.08);
-    // Twistlocks seating, and the doors rattling in their frame.
-    const lock = t + rnd(0.1, 0.16);
-    this.burst(out, lock, 'bandpass', rnd(2200, 3000), 3, 0.28, 0.03);
-    this.ring(out, lock, [
-      [rnd(1150, 1350), 0.05, 0.18],
-      [rnd(1900, 2200), 0.03, 0.12],
-    ]);
-    for (let k = 0; k < 3; k++) {
-      this.burst(out, lock + rnd(0.04, 0.3), 'bandpass', rnd(350, 600), 2.5, 0.12, 0.05);
+    const voice = this.voice(gain, pan, far, 2.4);
+    // Each made up to land about as loud as the others.
+    const out = this.gainNode(STYLE_GAIN[style]);
+    out.connect(voice);
+    const v = rnd(0.92, 1.08);
+    const bright = onTruck ? 0.6 : 1;
+    switch (style) {
+      case 'bang':
+        // A deep, hard bang that echoes off the stacks.
+        this.burst(out, t, 'lowpass', 160 * v, 0.7, 1.1, 0.32);
+        this.drop(out, t, 55 * v, 34, 0.7, 0.28);
+        this.band(out, t, 260 * v, 2, 0.5, 0.22);
+        this.band(out, t, 620 * v, 2.2, 0.35 * bright, 0.14);
+        this.burst(out, t, 'bandpass', 2100 * v, 0.8, 0.3 * bright, 0.03);
+        // Settling on its corners a moment later.
+        this.burst(out, t + rnd(0.06, 0.09), 'lowpass', 220, 0.7, 0.35, 0.12);
+        break;
+      case 'hollow':
+        // An empty steel box: a booming hollow note under the bang.
+        this.burst(out, t, 'lowpass', 180 * v, 0.7, 0.8, 0.25);
+        this.band(out, t, 92 * v, 14, 0.55, 0.75);
+        this.band(out, t, 141 * v, 12, 0.4, 0.55);
+        this.band(out, t, 230 * v, 8, 0.25 * bright, 0.35);
+        this.burst(out, t, 'bandpass', 1500 * v, 1, 0.25 * bright, 0.04);
+        break;
+      case 'clang':
+        // Steel on steel: a sharp crack and a short metallic clang.
+        this.burst(out, t, 'highpass', 2600, 0.7, 0.45 * bright, 0.025);
+        this.band(out, t, 470 * v, 3, 0.45, 0.28);
+        this.band(out, t, 910 * v, 3.5, 0.4 * bright, 0.2);
+        this.band(out, t, 1530 * v, 4, 0.25 * bright, 0.14);
+        this.burst(out, t, 'lowpass', 220 * v, 0.7, 0.7, 0.16);
+        this.band(out, t + rnd(0.05, 0.08), 1100 * v, 4, 0.12 * bright, 0.1);
+        break;
+      case 'thump':
+        // Heard through the ground: a heavy, muffled thump and a clack of the locks.
+        this.burst(out, t, 'lowpass', 120 * v, 0.7, 1.2, 0.26);
+        this.drop(out, t, 72 * v, 40, 0.65, 0.22);
+        this.band(out, t, 310 * v, 1.2, 0.22, 0.08);
+        this.band(out, t + rnd(0.1, 0.15), 2500, 5, 0.12 * bright, 0.025);
+        break;
     }
     if (onTruck) {
       // The trailer's springs taking the weight.
-      const sag = this.osc('sine', 45);
-      sag.frequency.exponentialRampToValueAtTime(38, t + 0.5);
-      const sg = this.gainNode(0);
-      this.envelope(sg, t + 0.05, 0.35, 0.05, 0.4);
-      sag.connect(sg).connect(out);
-      sag.start(t);
-      sag.stop(t + 0.7);
+      this.drop(voice, t + 0.04, 46, 37, 0.3, 0.45);
     }
   }
 
