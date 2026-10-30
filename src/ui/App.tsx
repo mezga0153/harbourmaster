@@ -15,7 +15,7 @@ import { SettingsPanel } from './Settings';
 import { SoundControl } from './Sound';
 import { soundSettings } from '../audio/sound';
 import { isMachineKind, MACHINES } from '../sim/machines';
-import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
+import { MACHINE_TIER } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
 import { RailwayPanel, TownPanel } from './Town';
 import { TOWN_STAGES } from '../sim/town';
@@ -27,6 +27,7 @@ import {
   SELECT_TOOL,
   UNMARK_TOOL,
   type Category,
+  toolsAt,
   type ToolDef,
 } from './tools';
 import {
@@ -251,6 +252,16 @@ function TopBar({ actions }: { actions: Actions }) {
       </div>
 
       <div class="topbar-right">
+        {s.town && (
+          <button
+            class={`btn ${selection.value?.type === 'town' ? 'on' : ''}`}
+            onClick={() => openTown(actions)}
+            title={`${s.town.name}: what the town wants, and how big it must grow for the port to grow`}
+          >
+            <Icon name="town" />
+            <span>Town</span>
+          </button>
+        )}
         {MENU.map((m) => {
           const badge = m.badge(s);
           return (
@@ -369,6 +380,19 @@ function MobileMenu({ actions }: { actions: Actions }) {
           )}
         </div>
         <div class="drawer-list">
+          {s.town && (
+            <button
+              class={`drawer-item ${selection.value?.type === 'town' ? 'on' : ''}`}
+              onClick={() => {
+                close();
+                openTown(actions);
+              }}
+            >
+              <Icon name="town" />
+              <span>Town</span>
+              <Icon name="chevron" />
+            </button>
+          )}
           {MENU.map((m) => item(m.id, m.icon, m.label, m.badge(s)))}
           {item('handbook', 'book', 'Handbook', null)}
           {item('settings', 'settings', 'Settings', null)}
@@ -1050,16 +1074,10 @@ function HoverTip() {
   );
 }
 
-/** What the build menu says about a tool: whether it is unlocked, what it does and costs. */
+/** What the build menu says about a tool: what it does and costs. */
 function toolInfo(t: ToolDef) {
   const def = t.tool in BUILDABLES ? BUILDABLES[t.tool as BuildKind] : null;
   const machine = isMachineKind(t.tool) ? MACHINES[t.tool] : null;
-  const needTier = def
-    ? BUILD_TIER[t.tool as BuildKind]
-    : isMachineKind(t.tool)
-      ? MACHINE_TIER[t.tool]
-      : (t.tier ?? 0);
-  const locked = needTier > (snapshot.value?.progress.tier ?? 0);
   const hint = def
     ? def.hint
     : machine
@@ -1071,28 +1089,22 @@ function toolInfo(t: ToolDef) {
     : t.upkeep
       ? `${money(t.upkeep)}/day to run`
       : null;
-  return { locked, needTier, hint, price, upkeep };
+  return { hint, price, upkeep };
 }
 
 function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
-  const { locked, needTier, hint, price } = toolInfo(t);
-  const title = locked
-    ? `${t.label}: unlocks at the ${TIERS[needTier].name}. See the Port panel (P).`
-    : [hint ? `${t.label}: ${hint}` : t.label, t.key && `(${t.key})`].filter(Boolean).join(' ');
+  const { hint, price } = toolInfo(t);
+  const title = [hint ? `${t.label}: ${hint}` : t.label, t.key && `(${t.key})`]
+    .filter(Boolean)
+    .join(' ');
   return (
     <button
-      class={`tool ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
-      onClick={() => (locked ? (panel.value = 'port') : (tool.value = active ? 'select' : t.tool))}
+      class={`tool ${active ? 'on' : ''}`}
+      onClick={() => (tool.value = active ? 'select' : t.tool)}
       title={title}
       aria-pressed={active}
     >
-      {locked ? (
-        <span class="lock">
-          <Icon name="lock" />
-        </span>
-      ) : (
-        t.key && <kbd>{t.key}</kbd>
-      )}
+      {t.key && <kbd>{t.key}</kbd>}
       <Icon name={t.icon} />
       <span class="tool-label">{t.label}</span>
       <span class="tool-cost">{price}</span>
@@ -1113,12 +1125,12 @@ function ToolCard({
   active: boolean;
   onHover(t: ToolDef | null): void;
 }) {
-  const { locked, price } = toolInfo(t);
+  const { price } = toolInfo(t);
   const picture = thumbnail(t.tool);
   return (
     <button
-      class={`build-card ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
-      onClick={() => (locked ? (panel.value = 'port') : (tool.value = active ? 'select' : t.tool))}
+      class={`build-card ${active ? 'on' : ''}`}
+      onClick={() => (tool.value = active ? 'select' : t.tool)}
       onMouseEnter={() => onHover(t)}
       onMouseLeave={() => onHover(null)}
       onFocus={() => onHover(t)}
@@ -1128,12 +1140,7 @@ function ToolCard({
     >
       <span class="build-picture">
         {picture ? <img src={picture} alt="" draggable={false} /> : <Icon name={t.icon} />}
-        {locked && (
-          <span class="lock">
-            <Icon name="lock" />
-          </span>
-        )}
-        {!locked && t.key && <kbd>{t.key}</kbd>}
+        {t.key && <kbd>{t.key}</kbd>}
       </span>
       <span class="build-label">{t.label}</span>
       <span class="build-cost">{price}</span>
@@ -1150,10 +1157,16 @@ function CategoryTray({ cat }: { cat: Category }) {
   const current = tool.value;
   const [hovered, setHovered] = useState<ToolDef | null>(null);
   const [, redraw] = useState(0);
-  const tabs = [...new Set(cat.tools.map((t) => t.group ?? cat.label))];
-  const inHand = cat.tools.find((t) => t.tool === current);
-  const tab = trayTabs.get(cat.id) ?? (inHand ? (inHand.group ?? cat.label) : undefined) ?? tabs[0];
-  const shown = cat.tools.filter((t) => (t.group ?? cat.label) === tab);
+  // Only what the port has come to: the rest are not shown at all.
+  const tools = toolsAt(cat, snapshot.value?.progress.tier ?? 0);
+  const tabs = [...new Set(tools.map((t) => t.group ?? cat.label))];
+  const inHand = tools.find((t) => t.tool === current);
+  const kept = trayTabs.get(cat.id);
+  const tab =
+    (kept && tabs.includes(kept) ? kept : undefined) ??
+    (inHand ? (inHand.group ?? cat.label) : undefined) ??
+    tabs[0];
+  const shown = tools.filter((t) => (t.group ?? cat.label) === tab);
   const about = hovered ?? inHand ?? null;
   const info = about && toolInfo(about);
   const pick = (g: string) => {
@@ -1200,11 +1213,7 @@ function CategoryTray({ cat }: { cat: Category }) {
                 {about.key && <kbd>{about.key}</kbd>}
               </span>
             </div>
-            <p class="muted">
-              {info.locked
-                ? `Unlocks at the ${TIERS[info.needTier].name}. See the Port panel (P).`
-                : info.hint}
-            </p>
+            <p class="muted">{info.hint}</p>
           </>
         ) : (
           <p class="muted">
@@ -1256,7 +1265,10 @@ function TimeControl({ actions }: { actions: Actions }) {
 
 function BuildBar() {
   const current = tool.value;
-  const open = CATEGORIES.find((c) => c.id === openCategory.value);
+  const tier = snapshot.value?.progress.tier ?? 0;
+  // Menus with nothing in them yet are not shown at all.
+  const categories = CATEGORIES.filter((c) => toolsAt(c, tier).length > 0);
+  const open = categories.find((c) => c.id === openCategory.value);
   return (
     <>
       {open && <CategoryTray key={open.id} cat={open} />}
@@ -1265,8 +1277,9 @@ function BuildBar() {
           <ToolButton t={SELECT_TOOL} active={current === 'select'} />
         </div>
         <div class="dock-group">
-          {CATEGORIES.map((c) => {
-            const using = c.tools.find((t) => t.tool === current);
+          {categories.map((c) => {
+            const tools = toolsAt(c, tier);
+            const using = tools.find((t) => t.tool === current);
             const isOpen = openCategory.value === c.id;
             return (
               <button
@@ -1274,12 +1287,12 @@ function BuildBar() {
                 class={`tool category ${isOpen ? 'open' : ''} ${using ? 'on' : ''}`}
                 onClick={() => (openCategory.value = isOpen ? null : c.id)}
                 aria-expanded={isOpen}
-                title={c.tools.map((t) => t.label).join(', ')}
+                title={tools.map((t) => t.label).join(', ')}
               >
                 <Icon name={using?.icon ?? c.icon} />
                 <span class="tool-label">{c.label}</span>
                 <span class="tool-cost">
-                  {using ? using.label : `${c.tools.length} item${c.tools.length === 1 ? '' : 's'}`}
+                  {using ? using.label : `${tools.length} item${tools.length === 1 ? '' : 's'}`}
                 </span>
               </button>
             );

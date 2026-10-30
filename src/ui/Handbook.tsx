@@ -375,12 +375,15 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          Upgrade the port in the Port panel once it has handled enough crates and holds enough
-          contracts. Each step unlocks more:
+          The port grows with the town up the coast. Once enough people live there, the harbour
+          authority lets you upgrade the port in the Port panel, for a fee. Jobs at the port, and
+          goods trucked out and delivered to the town's businesses, make the town grow; see the Town
+          panel. Each step unlocks more:
         </p>
         {TIERS.map((t) => (
           <p key={t.name}>
             <b>{t.name}</b>
+            {t.town > 0 ? ` (a town of ${t.town.toLocaleString('en-US')})` : ''}
             {t.comingSoon ? ' (coming later)' : ''}: {t.unlocks.join('; ')}.
           </p>
         ))}

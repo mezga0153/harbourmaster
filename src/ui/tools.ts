@@ -1,4 +1,8 @@
 import * as B from '../sim/balance';
+import { isMachineKind } from '../sim/machines';
+import { BUILDABLES } from '../sim/rules';
+import { BUILD_TIER, MACHINE_TIER } from '../sim/tiers';
+import type { BuildKind } from '../sim/types';
 import type { IconName } from './icons';
 import { money } from './format';
 import type { Tool } from './store';
@@ -261,6 +265,25 @@ export const CATEGORIES: Category[] = [
     tools: [{ tool: 'breakHut', icon: 'hut', label: 'Break hut', key: 'K' }],
   },
 ];
+
+/** The port's step up a tool comes with, see TIERS. */
+export function toolTier(t: ToolDef): number {
+  if (t.tool in BUILDABLES) return BUILD_TIER[t.tool as BuildKind];
+  if (isMachineKind(t.tool)) return MACHINE_TIER[t.tool];
+  return t.tier ?? 0;
+}
+
+/** The tools of a category the port has come to, at step `tier`: the rest are not shown at all. */
+export function toolsAt(cat: Category, tier: number): ToolDef[] {
+  return cat.tools.filter((t) => toolTier(t) <= tier);
+}
+
+/** The tool a shortcut picks up, if the port has come to it yet. */
+export function keyTool(key: string, tier: number): Tool | undefined {
+  const t = TOOL_KEYS[key];
+  const def = t && [...CATEGORIES.flatMap((c) => c.tools), BULLDOZE_TOOL].find((d) => d.tool === t);
+  return def && toolTier(def) <= tier ? t : undefined;
+}
 
 export function categoryOf(t: Tool): Category | undefined {
   return CATEGORIES.find((c) => c.tools.some((d) => d.tool === t));

@@ -7,10 +7,12 @@ export interface Tier {
   blurb: string;
   /** Paid to the harbour authority to upgrade. */
   cost: number;
-  /** Crates handled since the port opened. */
-  crates: number;
-  /** Fishery or shipping line contracts active at once. */
-  contracts: number;
+  /**
+   * People living in the town up the coast: the harbour authority lets the
+   * port grow as the town it serves does, a step as it becomes a town, a
+   * large town and a city (see TOWN_STAGES).
+   */
+  town: number;
   unlocks: string[];
   /** Planned but not in the game yet. */
   comingSoon?: boolean;
@@ -21,8 +23,7 @@ export const TIERS: Tier[] = [
     name: 'Fishing Jetty',
     blurb: 'A wooden pier, a few dockhands and the local fishing boats.',
     cost: 0,
-    crates: 0,
-    contracts: 0,
+    town: 0,
     unlocks: [
       'Wooden jetties',
       'Truck bays',
@@ -35,8 +36,7 @@ export const TIERS: Tier[] = [
     name: 'Coastal Wharf',
     blurb: 'Concrete quays reach deep water, machines move cargo faster and coasters call.',
     cost: 4000,
-    crates: 300,
-    contracts: 2,
+    town: 300,
     unlocks: [
       'Concrete quay, up to 8 m deep',
       'Forklifts (4 crates a trip), forklift depots, port roads and machines-only areas',
@@ -52,8 +52,7 @@ export const TIERS: Tier[] = [
     name: 'Container Port',
     blurb: 'Feeder ships bring containers: harbour cranes lift them, reach stackers move them.',
     cost: 25000,
-    crates: 2000,
-    contracts: 4,
+    town: 800,
     unlocks: [
       'Mobile harbour cranes (on a 2-wide quay)',
       'Ship-to-shore gantry cranes, quick, with a bay between their legs for reach stackers',
@@ -69,8 +68,7 @@ export const TIERS: Tier[] = [
     name: 'Bulk Terminal',
     blurb: 'Coal, grain and ore on conveyor belts, silos and trains.',
     cost: 80000,
-    crates: 10000,
-    contracts: 8,
+    town: 2000,
     unlocks: ['Conveyor belts', 'Grab cranes', 'Silos', 'Rail sidings'],
     comingSoon: true,
   },

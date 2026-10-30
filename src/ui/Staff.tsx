@@ -6,7 +6,7 @@ import type { Actions } from './App';
 import { money } from './format';
 import { Icon } from './icons';
 import { MACHINES } from '../sim/machines';
-import { MACHINE_TIER, TIERS } from '../sim/tiers';
+import { MACHINE_TIER } from '../sim/tiers';
 import type { MachineKind } from '../sim/types';
 import { panel, snapshot, tool } from './store';
 import { InfoHeader, Meter } from './widgets';
@@ -297,41 +297,45 @@ export function StaffPanel({ actions }: { actions: Actions }) {
         <PersonCard key={p.id} p={p} actions={actions} />
       ))}
 
-      <div class="section-title">
-        <span>Machines</span>
-        <span class="muted">
-          {machines.length} forklift{machines.length === 1 ? '' : 's'}
-        </span>
-      </div>
-      <div class="card offer">
-        <div class="card-head">
-          <Icon name="forklift" />
-          <strong>Forklift</strong>
-          {locked && <span class="badge">{TIERS[MACHINE_TIER.forklift].name}</span>}
-        </div>
-        <p class="muted">
-          Carries {B.FORKLIFT_CAPACITY} crates a trip and never tires, but only drives on quays,
-          paths and roads, not wooden jetties. Lives at a forklift depot ({B.DEPOT_SLOTS} per
-          depot), where it refuels and gets repaired.
-        </p>
-        <div class="card-foot">
-          <span class="muted">Operator {money(B.FORKLIFT_WAGE)}/day</span>
-          <button
-            class="btn primary sm"
-            disabled={locked || s.cash < B.FORKLIFT_PRICE}
-            onClick={() => {
-              // Buying is done by placing it, like a building.
-              tool.value = 'forklift';
-              panel.value = null;
-            }}
-          >
-            {locked ? 'Locked' : `Place · ${money(B.FORKLIFT_PRICE)}`}
-          </button>
-        </div>
-      </div>
-      {machines.map((p) => (
-        <MachineCard key={p.id} p={p} actions={actions} />
-      ))}
+      {/* Machines once the port has come to them; not shown before. */}
+      {!locked && (
+        <>
+          <div class="section-title">
+            <span>Machines</span>
+            <span class="muted">
+              {machines.length} forklift{machines.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div class="card offer">
+            <div class="card-head">
+              <Icon name="forklift" />
+              <strong>Forklift</strong>
+            </div>
+            <p class="muted">
+              Carries {B.FORKLIFT_CAPACITY} crates a trip and never tires, but only drives on quays,
+              paths and roads, not wooden jetties. Lives at a forklift depot ({B.DEPOT_SLOTS} per
+              depot), where it refuels and gets repaired.
+            </p>
+            <div class="card-foot">
+              <span class="muted">Operator {money(B.FORKLIFT_WAGE)}/day</span>
+              <button
+                class="btn primary sm"
+                disabled={s.cash < B.FORKLIFT_PRICE}
+                onClick={() => {
+                  // Buying is done by placing it, like a building.
+                  tool.value = 'forklift';
+                  panel.value = null;
+                }}
+              >
+                Place · {money(B.FORKLIFT_PRICE)}
+              </button>
+            </div>
+          </div>
+          {machines.map((p) => (
+            <MachineCard key={p.id} p={p} actions={actions} />
+          ))}
+        </>
+      )}
     </aside>
   );
 }

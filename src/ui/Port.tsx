@@ -26,13 +26,15 @@ function Requirement({ label, have, need }: { label: string; have: number; need:
 export function PortPanel({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
-  const { tier, crates, contracts, canUpgrade } = s.progress;
+  const { tier, town, canUpgrade } = s.progress;
+  const townName = s.town?.name ?? 'the town';
   return (
     <aside class="side panel wide" aria-label="Port development">
       <InfoHeader kicker="Development" title="Port" onClose={() => (panel.value = null)} />
       <p class="muted intro">
-        Grow the port to unlock new quays, machines and bigger ships. Each upgrade needs a track
-        record and a fee to the harbour authority.
+        The port grows with the town it serves: once {townName} has enough people, the harbour
+        authority lets you upgrade, for a fee, to unlock new quays, machines and bigger ships. Jobs
+        at the port and goods sent into town make it grow.
       </p>
       {TIERS.map((t, k) => {
         const state =
@@ -55,8 +57,7 @@ export function PortPanel({ actions }: { actions: Actions }) {
             {TIER_TOPIC[k] && !t.comingSoon && <More topic={TIER_TOPIC[k]} label="How it works" />}
             {state === 'next' && !t.comingSoon && (
               <>
-                <Requirement label="Crates handled" have={crates} need={t.crates} />
-                <Requirement label="Active contracts" have={contracts} need={t.contracts} />
+                <Requirement label={`People in ${townName}`} have={town} need={t.town} />
                 <Requirement label="Cash for the fee" have={Math.max(0, s.cash)} need={t.cost} />
                 <div class="actions">
                   <button

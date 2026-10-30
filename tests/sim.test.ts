@@ -527,19 +527,29 @@ describe('Coastal Wharf tier', () => {
     expect(world.people.some((p) => p.kind === 'forklift')).toBe(false);
   });
 
-  it('upgrades only once the requirements are met', () => {
+  it('upgrades only once the town has grown enough, for the fee', () => {
     const world = World.create(7, 96);
+    world.cash = TIERS[1].cost + 100;
     world.command({ type: 'upgrade' });
     expect(world.tier).toBe(0);
-    world.stats.cratesHandled = TIERS[1].crates;
-    world.command({
-      type: 'signContract',
-      id: world.offers.find((o) => o.terms.kind === 'fishery')!.id,
-    });
+    // Big enough a town, but not the cash for the fee.
+    let people = TIERS[1].town;
+    world['townSize'] = () => people;
+    world.cash = TIERS[1].cost - 1;
+    world.command({ type: 'upgrade' });
+    expect(world.tier).toBe(0);
     world.cash = TIERS[1].cost + 100;
+    expect(world.snapshot().progress).toMatchObject({ town: people, canUpgrade: true });
     world.command({ type: 'upgrade' });
     expect(world.tier).toBe(1);
     expect(world.cash).toBe(100);
+    // The next step needs a bigger town still.
+    world.cash = TIERS[2].cost;
+    world.command({ type: 'upgrade' });
+    expect(world.tier).toBe(1);
+    people = TIERS[2].town;
+    world.command({ type: 'upgrade' });
+    expect(world.tier).toBe(2);
   });
 
   function buildOffice(world: World): number {

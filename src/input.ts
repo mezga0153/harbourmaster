@@ -60,7 +60,7 @@ import {
   togglePanel,
   tool,
 } from './ui/store';
-import { categoryOf, TOOL_KEYS } from './ui/tools';
+import { categoryOf, keyTool, TOOL_KEYS } from './ui/tools';
 
 type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place' | 'pinch';
 
@@ -289,8 +289,10 @@ export class Input {
     } else if (k === 'm') togglePanel('finance');
     else if (k === 'p') togglePanel('port');
     else if (k === '?') togglePanel('handbook');
-    else if (k in TOOL_KEYS) {
-      const next = tool.value === TOOL_KEYS[k] ? 'select' : TOOL_KEYS[k];
+    else if (keyTool(k, snapshot.value?.progress.tier ?? 0)) {
+      // Only what the port has come to: the rest are not in the build menu.
+      const picked = TOOL_KEYS[k];
+      const next = tool.value === picked ? 'select' : picked;
       tool.value = next;
       // Show the category the shortcut belongs to, as if it had been clicked.
       const cat = categoryOf(next);

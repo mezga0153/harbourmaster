@@ -1167,6 +1167,8 @@ export class World {
   private lotsCache: ParkingLot[] | null = null;
   /** The town up the coast, which grows with the port. */
   town: Town | null = null;
+  /** The step up the player has been told the town is big enough for. */
+  private tierReadyTold = 0;
   rail: RailState;
   /**
    * The town and the trains draw their own random numbers, so they never
@@ -2368,22 +2370,45 @@ export class World {
     }
   }
 
-  private tierProgress(): { crates: number; contracts: number } {
-    return { crates: this.stats.cratesHandled, contracts: this.fisheries().length };
+  /** People in the town: the port may grow a step once there are enough of them. */
+  private townSize(): number {
+    return this.town ? population(this.town, this.map) : 0;
+  }
+
+  /** Tell the player, once, when the town has grown enough for the next step up. */
+  private townGrownEnough(): void {
+    const next = TIERS[this.tier + 1];
+    if (!next || next.comingSoon || this.townSize() < next.town) return;
+    if (this.tierReadyTold >= this.tier + 1) return;
+    this.tierReadyTold = this.tier + 1;
+    const name = this.town?.name ?? 'The town';
+    this.message(
+      `${name} has grown to ${this.townSize().toLocaleString('en-US')} people: the harbour authority will let the port become a ${next.name}. See the Port panel (P).`,
+      'good',
+    );
   }
 
   canUpgrade(): boolean {
     const next = TIERS[this.tier + 1];
     if (!next || next.comingSoon) return false;
-    const p = this.tierProgress();
-    return p.crates >= next.crates && p.contracts >= next.contracts && this.cash >= next.cost;
+    return this.townSize() >= next.town && this.cash >= next.cost;
   }
 
   private upgrade(): void {
     const next = TIERS[this.tier + 1];
     if (!next || next.comingSoon) return this.message('No further upgrades yet.', 'info');
-    if (!this.canUpgrade())
-      return this.message('The port does not meet the requirements yet.', 'bad');
+    if (this.townSize() < next.town) {
+      return this.message(
+        `The harbour authority waits for the town to grow: ${next.name} needs ${next.town.toLocaleString('en-US')} people in town, it has ${this.townSize().toLocaleString('en-US')}.`,
+        'bad',
+      );
+    }
+    if (this.cash < next.cost) {
+      return this.message(
+        `Not enough cash for the harbour authority's fee of $${next.cost.toLocaleString('en-US')}.`,
+        'bad',
+      );
+    }
     this.book('construction', -next.cost);
     this.tier++;
     this.capacityCache = null;
@@ -2983,6 +3008,7 @@ export class World {
       if (this.tick - at > TICKS_PER_DAY * 3) this.unloadedAt.delete(id);
     }
     if (this.town) townDay(this.town, this.jobs(), this.map);
+    this.townGrownEnough();
     const late = this.demurrageToday;
     this.demurrageToday = { amount: 0, ships: 0 };
     if (late.amount >= B.DEMURRAGE_NOTICE) {
@@ -14273,7 +14299,7 @@ export class World {
         idle: this.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
       },
       depots: this.depotViews(),
-      progress: { tier: this.tier, ...this.tierProgress(), canUpgrade: this.canUpgrade() },
+      progress: { tier: this.tier, town: this.townSize(), canUpgrade: this.canUpgrade() },
       cranes: [...this.cranes.values()].map((c) => ({
         idx: c.idx,
         kind: c.kind,

@@ -1,5 +1,6 @@
 import { Fragment } from 'preact';
 import * as B from '../sim/balance';
+import { TIERS } from '../sim/tiers';
 import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './App';
 import { money } from './format';
@@ -23,10 +24,80 @@ export function TownPanel({ actions }: { actions: Actions }) {
   const close = () => (selection.value = null);
   const next = TOWN_STAGES[t.stage + 1];
   const from = TOWN_STAGES[t.stage].from;
+  // What the businesses take a day, in crates' worth, and how much of it the port brings.
+  const wanted = t.businesses.reduce(
+    (n, b) => n + b.count * b.perDay * (b.boxes ? B.CONTAINER_GOODS : 1),
+    0,
+  );
+  const share = wanted > 0 ? t.supplied / wanted : 0;
+  // The next step up for the port, which waits on the town.
+  const tier = TIERS[s.progress.tier + 1];
   return (
     <aside class="side panel" aria-label="Town">
       <InfoHeader kicker={TOWN_STAGES[t.stage].name} title={t.name} onClose={close} />
       <p class="muted">{BLURBS[t.stage]}</p>
+      {wanted > 0 && (
+        <div class="card town-wants">
+          <div class="card-head">
+            <strong>What the town wants</strong>
+            <span class={`badge ${share >= 0.8 ? 'good' : share >= 0.4 ? '' : 'bad'}`}>
+              {Math.round(Math.min(1, share) * 100)}% supplied
+            </span>
+          </div>
+          <dl class="props">
+            {t.businesses.map((b) => (
+              <Fragment key={b.label}>
+                <dt>
+                  {b.count > 1 ? `${b.count} ` : ''}
+                  {b.label[0].toUpperCase() + b.label.slice(1)}
+                  {b.count > 1 ? 's' : ''}
+                </dt>
+                <dd>
+                  {b.count * b.perDay} {b.boxes ? 'containers' : 'crates'} a day
+                </dd>
+              </Fragment>
+            ))}
+            <dt>Delivered lately</dt>
+            <dd title="Crates' worth a day the hauliers dropped at the town's businesses lately">
+              {count(t.supplied)} of {count(wanted)} a day
+            </dd>
+            <dt>Still wanted today</dt>
+            <dd>
+              {count(t.wants.crates)} crates
+              {t.businesses.some((b) => b.boxes) ? `, ${count(t.wants.boxes)} containers` : ''}
+            </dd>
+          </dl>
+          <Meter value={share} tone={share >= 0.8 ? 'good' : 'ok'} />
+          <p class="muted">
+            Hauliers drop goods at the town’s businesses on their way out, for{' '}
+            {Math.round(B.TOWN_DELIVERY_BONUS * 100)}% more than the usual fee, and goods delivered
+            in town count double towards its growth. The trucks need a public road from the port to
+            the town.
+          </p>
+        </div>
+      )}
+      {tier && !tier.comingSoon && (
+        <div class="card town-port">
+          <div class="card-head">
+            <strong>The port grows with the town</strong>
+          </div>
+          <p class="muted">
+            {s.progress.canUpgrade || t.population >= tier.town
+              ? `${t.name} is big enough for the port to become a ${tier.name}: see the Port panel.`
+              : `The harbour authority lets the port become a ${tier.name} once ${count(tier.town)} people live here.`}
+          </p>
+          <div class="req">
+            <span>People</span>
+            <Meter
+              value={t.population / tier.town}
+              tone={t.population >= tier.town ? 'good' : 'ok'}
+            />
+            <span class="req-value">
+              {count(Math.min(t.population, tier.town))} / {count(tier.town)}
+            </span>
+          </div>
+        </div>
+      )}
       <dl class="props">
         <dt>Population</dt>
         <dd>{count(t.population)}</dd>
@@ -45,38 +116,6 @@ export function TownPanel({ actions }: { actions: Actions }) {
         <dt>The port supports</dt>
         <dd>{count(t.target)} people</dd>
       </dl>
-      {t.businesses.length > 0 && (
-        <>
-          <div class="section-title">
-            <span>Businesses</span>
-          </div>
-          <dl class="props">
-            {t.businesses.map((b) => (
-              <Fragment key={b.label}>
-                <dt>
-                  {b.count > 1 ? `${b.count} ` : ''}
-                  {b.label[0].toUpperCase() + b.label.slice(1)}
-                  {b.count > 1 ? 's' : ''}
-                </dt>
-                <dd>
-                  {b.perDay} {b.boxes ? 'containers' : 'crates'} a day
-                </dd>
-              </Fragment>
-            ))}
-            <dt>Still wanted today</dt>
-            <dd>
-              {count(t.wants.crates)} crates
-              {t.businesses.some((b) => b.boxes) ? `, ${count(t.wants.boxes)} containers` : ''}
-            </dd>
-          </dl>
-          <p class="muted">
-            Hauliers drop goods at the town’s businesses on their way out, for{' '}
-            {Math.round(B.TOWN_DELIVERY_BONUS * 100)}% more than the usual fee. Goods delivered in
-            town count double towards its growth. The trucks need a public road from the port to the
-            town.
-          </p>
-        </>
-      )}
       {next && (
         <>
           <p class="muted">

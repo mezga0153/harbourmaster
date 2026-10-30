@@ -228,8 +228,8 @@ export interface CraneView {
 
 export interface TierProgress {
   tier: number;
-  crates: number;
-  contracts: number;
+  /** People in the town now, which the next step up needs enough of; see Tier.town. */
+  town: number;
   canUpgrade: boolean;
 }
 
