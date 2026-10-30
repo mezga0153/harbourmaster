@@ -39,6 +39,7 @@ export const TIERS: Tier[] = [
       'Shipping lines with coasters (need a 2-wide quay)',
       'Large truck bays for big trucks',
       'Tug berths and harbour tugs, to work coasters and feeders in and out',
+      'One-way roads and one-way port gates',
     ],
   },
   {
@@ -55,6 +56,7 @@ export const TIERS: Tier[] = [
       'Container yards marked out on port roads and quays, and container hauliers',
       'Yard gantries, which load the trucks at a container yard where reach stackers otherwise must',
       'Terminal tractors, which shuttle containers between the cranes and yards with a yard gantry',
+      'New exits off the highway, traffic lights and roundabouts',
     ],
   },
   {

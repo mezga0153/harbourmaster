@@ -13,7 +13,17 @@ import type { GameMap } from '../sim/map';
 import { EXTENSION, FACING, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
-import { HIGHWAY_X, TOWN } from '../sim/town';
+import {
+  GATE_IN,
+  GATE_OUT,
+  greenAt,
+  hasHighway,
+  hasLights,
+  HIGHWAY_COLUMNS,
+  isExit,
+  oneWay,
+} from '../sim/roads';
+import { TOWN } from '../sim/town';
 import {
   Build,
   isDock,
@@ -47,6 +57,9 @@ const LIGHT = 0xfff2b0;
 const BALLAST = 0x9b9284;
 const STEEL = 0x8d939b;
 const LAMP_RED = 0xff3b2f;
+const LAMP_GREEN = 0x3dff6e;
+/** The highway's crash barrier down the middle. */
+const BARRIER = 0xc9ccd0;
 /** A thin bar from `a` to `b`, for stays and bracing. */
 function strut(
   a: [number, number, number],
@@ -145,6 +158,12 @@ interface GateParts {
   boom: Object3D;
   open: boolean;
   angle: number;
+}
+
+/** A junction's traffic lights: the red and green lamps facing each way. */
+interface LightParts {
+  ns: { red: Object3D; green: Object3D }[];
+  ew: { red: Object3D; green: Object3D }[];
 }
 
 interface CrossingParts {
@@ -361,6 +380,9 @@ export class Structures {
   /** Buoys, bobbing on the swell. */
   private buoys = new Map<number, Object3D>();
   private crossings = new Map<number, CrossingParts>();
+  private lights = new Map<number, LightParts>();
+  /** The game's tick, for the traffic lights' phases. */
+  private tick = 0;
   /** Yard gantries, by tile, for their trolley to run as they load trucks. */
   private yardGantries = new Map<number, YardGantryParts>();
   /** Where a truck's container slot is in the world; set by the renderer. */
@@ -387,7 +409,7 @@ export class Structures {
     bare = false,
   ) {
     for (let i = 0; i < map.build.length; i++) this.rebuild(i);
-    if (!bare) this.group.add(this.highway(), this.mainLine(), this.boundary());
+    if (!bare) this.group.add(this.highwayEnds(), this.mainLine(), this.boundary());
   }
 
   /** What is drawn on tile `i`, if anything. */
@@ -516,8 +538,22 @@ export class Structures {
     this.train = train;
   }
 
+  /** The game's tick, which the traffic lights change by as they do in the game. */
+  setTick(tick: number): void {
+    this.tick = tick;
+  }
+
   /** Per-frame animation: slew cranes towards their boats, bob the hooks, lift barriers. */
   update(dt: number, time: number): void {
+    for (const [i, l] of this.lights) {
+      const green = greenAt(i, this.tick);
+      for (const way of ['ns', 'ew'] as const) {
+        for (const lamp of l[way]) {
+          lamp.green.visible = green === way;
+          lamp.red.visible = green !== way;
+        }
+      }
+    }
     for (const c of this.crossings.values()) {
       const closed = crossingClosed(this.train, c.y);
       c.angle += ((closed ? 0 : 1.45) - c.angle) * Math.min(1, dt * 3);
@@ -1515,6 +1551,7 @@ export class Structures {
       this.gates.delete(i);
       this.buoys.delete(i);
       this.crossings.delete(i);
+      this.lights.delete(i);
       this.yardGantries.delete(i);
     }
     let obj = this.make(i);
@@ -1604,16 +1641,24 @@ export class Structures {
           return bake(g);
         }
         const road = [Build.Road, Build.Crossing];
-        const ew = this.is(i, 1, 0, ...road) || this.is(i, -1, 0, ...road) || i === this.map.entry;
+        // Off a highway exit, it runs on from the slip road.
+        const offExit = this.map.xOf(i) === HIGHWAY_COLUMNS && isExit(this.map, i - 1);
+        const ew = this.is(i, 1, 0, ...road) || this.is(i, -1, 0, ...road) || offExit;
         const ns = this.is(i, 0, 1, ...road) || this.is(i, 0, -1, ...road);
-        if (ew !== ns) {
+        const way = oneWay(this.map, i);
+        if (way >= 0) roadArrow(g, top + 0.05, way);
+        else if (ew !== ns) {
           for (const o of [0.25, 0.75]) {
             const [x, z, w, d] = ew ? [o, 0.5, 0.26, 0.05] : [0.5, o, 0.05, 0.26];
             g.add(box(w, 0.01, d, C.marking, x, top + 0.05, z));
           }
         }
+        if (hasLights(this.map, i)) this.trafficLights(g, i, top + 0.05);
         return g;
       }
+      case Build.Highway:
+        this.highwayTile(g, i, top);
+        return bake(g);
       case Build.Rail:
         this.track(
           g,
@@ -1668,10 +1713,17 @@ export class Structures {
           this.machinesOutline(g, i, QUAY_Y);
           return g;
         }
-        for (const o of [0.15, 0.6]) {
-          const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
-          g.add(box(w, 0.006, d, C.marking, x, QUAY_Y, z));
+        const way = oneWay(this.map, i);
+        if (way >= 0) roadArrow(g, QUAY_Y, way);
+        else {
+          for (const o of [0.15, 0.6]) {
+            const [x, z, w, d] = along
+              ? [o + 0.125, 0.5, 0.25, 0.04]
+              : [0.5, o + 0.125, 0.04, 0.25];
+            g.add(box(w, 0.006, d, C.marking, x, QUAY_Y, z));
+          }
         }
+        if (hasLights(this.map, i)) this.trafficLights(g, i, QUAY_Y);
         return g;
       }
       case Build.Parking: {
@@ -1724,6 +1776,9 @@ export class Structures {
         }
         g.add(boom);
         this.gates.set(i, { boom, open: false, angle: 0 });
+        // A one-way gate: an arrow in through it from the road (-z), or out to it.
+        const o = this.map.orient[i];
+        if (o & (GATE_IN | GATE_OUT)) roadArrow(g, y, o & GATE_IN ? 3 : 1);
         return g;
       }
       case Build.TugBerth: {
@@ -2647,25 +2702,84 @@ export class Structures {
   }
 
   /**
-   * Past the west edge of the map: the highway running north to south, and
-   * the roads off the map's edge joining it, the trucks' and the town's.
+   * A tile of the highway: a carriageway of two lanes one way, the solid
+   * line along its outer edge and the crash barrier down the middle, both
+   * open at an exit, and now and then an arrow the way it goes.
    */
-  private highway(): Object3D {
-    const g = new Group();
-    const hx = HIGHWAY_X;
-    const top = landTop(this.map.terrain[this.map.entry]);
-    const len = this.map.h + 2 * MARGIN;
-    g.add(box(1, 0.05, len, C.asphalt, hx, top, this.map.h / 2));
-    for (let z = -MARGIN; z < this.map.h + MARGIN; z++) {
-      g.add(box(0.05, 0.01, 0.26, C.marking, hx, top + 0.05, z + 0.25));
+  private highwayTile(g: Group, i: number, top: number): void {
+    const m = this.map;
+    const x = m.xOf(i);
+    const y = m.yOf(i);
+    const exit = isExit(m, i);
+    g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
+    const lineY = top + 0.05;
+    // Dashes between its two lanes.
+    for (const z of [0.12, 0.62]) g.add(box(0.04, 0.008, 0.26, C.marking, 0.5, lineY, z + 0.13));
+    // The edge line on the outside; open where the slip road joins at an exit.
+    const outer = x === 0 ? 0.07 : 0.93;
+    if (!(exit && x === HIGHWAY_COLUMNS - 1)) {
+      g.add(box(0.04, 0.008, 1, C.marking, outer, lineY, 0.5));
     }
-    for (let y = 0; y < this.map.h; y++) {
-      const i = this.map.idx(0, y);
-      if (!isPublicRoad(this.map.build[i])) continue;
-      const w = -(hx + 0.5);
-      g.add(box(w, 0.05, 1, C.asphalt, -w / 2, landTop(this.map.terrain[i]), y + 0.5));
+    // Half the barrier down the middle each side; at an exit, the gap through it.
+    const inner = x === 0 ? 0.975 : 0.025;
+    if (!exit) {
+      g.add(box(0.05, 0.09, 1, BARRIER, inner, lineY, 0.5));
+    } else {
+      // Give-way lines across the gap, and the barrier's ends.
+      g.add(box(0.05, 0.008, 0.9, C.marking, inner, lineY, 0.5));
+    }
+    if (y % 12 === 6 && !exit) roadArrow(g, lineY, m.orient[i] & 3);
+  }
+
+  /**
+   * The highway running on past the north and south ends of the map, so
+   * trucks come in from somewhere and go somewhere.
+   */
+  private highwayEnds(): Object3D {
+    const g = new Group();
+    const m = this.map;
+    if (!hasHighway(m)) return g;
+    for (const [from, y] of [
+      [-MARGIN, 0],
+      [m.h, m.h - 1],
+    ] as const) {
+      const top = landTop(m.terrain[m.idx(0, y)]);
+      const z = from + MARGIN / 2;
+      g.add(box(HIGHWAY_COLUMNS, 0.05, MARGIN, C.asphalt, HIGHWAY_COLUMNS / 2, top, z));
+      g.add(box(0.04, 0.008, MARGIN, C.marking, 0.07, top + 0.05, z));
+      g.add(box(0.04, 0.008, MARGIN, C.marking, HIGHWAY_COLUMNS - 0.07, top + 0.05, z));
+      g.add(box(0.1, 0.09, MARGIN, BARRIER, 1, top + 0.05, z));
+      for (let k = 0; k < MARGIN; k += 1) {
+        for (const x of [0.5, 1.5]) {
+          g.add(box(0.04, 0.008, 0.26, C.marking, x, top + 0.05, from + k + 0.25));
+        }
+      }
     }
     return bake(g);
+  }
+
+  /**
+   * Traffic lights on a junction: a post at each corner, by the lane
+   * coming in on its right, its lamps red or green as the game has them.
+   */
+  private trafficLights(g: Group, i: number, top: number): void {
+    const parts: LightParts = { ns: [], ew: [] };
+    // Corner, and which traffic it faces: in on the right-hand side of the road.
+    for (const [px, pz, way] of [
+      [0.08, 0.92, 'ew'],
+      [0.92, 0.08, 'ew'],
+      [0.92, 0.92, 'ns'],
+      [0.08, 0.08, 'ns'],
+    ] as const) {
+      g.add(cyl(0.018, 0.34, C.chassis, px, top, pz));
+      g.add(box(0.06, 0.13, 0.06, C.funnel, px, top + 0.3, pz));
+      const red = box(0.065, 0.04, 0.065, LAMP_RED, px, top + 0.38, pz);
+      const green = box(0.065, 0.04, 0.065, LAMP_GREEN, px, top + 0.31, pz);
+      green.visible = false;
+      g.add(red, green);
+      parts[way].push({ red, green });
+    }
+    this.lights.set(i, parts);
   }
 
   /** Stakes and a painted line where the port's land ends and the country begins. */
@@ -2791,4 +2905,25 @@ function turn(obj: Object3D, orient: number): Object3D {
   const outer = new Group();
   outer.add(pivot);
   return outer;
+}
+
+/**
+ * An arrow painted on a road, the way traffic goes on it (a facing, see
+ * FACING): a shaft and a head, flat on the tarmac at height `y`.
+ */
+function roadArrow(g: Group, y: number, facing: number): void {
+  const [dx, dy] = FACING[facing & 3];
+  const arrow = new Group();
+  arrow.add(box(0.07, 0.008, 0.36, C.marking, 0, 0, -0.06));
+  // The head: two strokes back from the tip, either side of the shaft.
+  for (const side of [-1, 1]) {
+    const head = new Group();
+    head.position.set(0, 0, 0.14);
+    head.rotation.y = side * 2.4;
+    head.add(box(0.07, 0.008, 0.2, C.marking, 0, 0, 0.1));
+    arrow.add(head);
+  }
+  arrow.position.set(0.5, y, 0.5);
+  arrow.rotation.y = Math.atan2(dx, dy);
+  g.add(arrow);
 }

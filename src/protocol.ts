@@ -16,6 +16,16 @@ export type Command =
   | { type: 'unmark'; tiles: number[] }
   /** Mark port road and quay tiles out as storage, or clear them. */
   | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }
+  /** Open an exit off the highway at row `row`, with a road off it. */
+  | { type: 'exit'; row: number }
+  /** Make road tiles one way, the way the drag ran along them; or (`on` false) two way again. */
+  | { type: 'oneWay'; tiles: number[]; on: boolean }
+  /** Put up traffic lights at a junction, or take them down. */
+  | { type: 'lights'; tile: number }
+  /** Let trucks through a port gate both ways, only in, or only out. */
+  | { type: 'gateWay'; tile: number; way: 'both' | 'in' | 'out' }
+  /** A roundabout: a ring of one-way road round an island at `tile`. */
+  | { type: 'roundabout'; tile: number }
   /** Dredge (dig the seabed deeper, or the shore out into sea) or reclaim (fill it in). */
   | { type: 'terraform'; tiles: number[]; raise: boolean }
   | { type: 'hire'; candidateId: number }

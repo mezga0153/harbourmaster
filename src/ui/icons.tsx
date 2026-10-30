@@ -269,6 +269,35 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M20 5c-3-1.5-5.5-1.5-8 0v15c2.5-1.5 5-1.5 8 0z" />
     </>
   ),
+  oneWay: (
+    <>
+      <path d="M4 12h14" />
+      <path d="M13 7l5 5-5 5" />
+      <path d="M4 5h16M4 19h16" />
+    </>
+  ),
+  lights: (
+    <>
+      <rect x="8" y="2.5" width="8" height="15" rx="2" />
+      <circle cx="12" cy="6.5" r="1.6" />
+      <circle cx="12" cy="13" r="1.6" />
+      <path d="M12 17.5v4" />
+    </>
+  ),
+  roundabout: (
+    <>
+      <circle cx="12" cy="12" r="5" />
+      <path d="M12 2v5M12 17v5M2 12h5M17 12h5" />
+      <path d="M15.5 7.8l1.2 1.7-2 .3" />
+    </>
+  ),
+  exit: (
+    <>
+      <path d="M7 21V3M11 21V3" />
+      <path d="M11 13c4 0 6-2 8-5" />
+      <path d="M16 7.5l3 .5-.3 3" />
+    </>
+  ),
   sound: (
     <>
       <path d="M4 9h3l5-4v14l-5-4H4z" />

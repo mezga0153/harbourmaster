@@ -1,6 +1,21 @@
 import * as B from './balance';
 import type { GameMap } from './map';
 import type { CostFn } from './path';
+import {
+  canBeOneWay,
+  flowOk,
+  HIGHWAY_COLUMNS,
+  LIGHTS,
+  linked,
+  ONE_WAY,
+  GATE_IN,
+  GATE_OUT,
+  hasHighway,
+  highwayIns,
+  isExit,
+  isHighway,
+  oneWay,
+} from './roads';
 import { ownedByTown } from './town';
 import {
   Build,
@@ -264,12 +279,111 @@ export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean
  * machines only, but never the ground kept for machines round a crane or a
  * gantry crane's rails. With what clearing the storage gives back.
  */
-export function unmarkable(map: GameMap, i: number): { store: boolean; machines: boolean } {
-  if (!map.buildable(i)) return { store: false, machines: false };
+export function unmarkable(
+  map: GameMap,
+  i: number,
+): { store: boolean; machines: boolean; road: boolean } {
+  if (!map.buildable(i)) return { store: false, machines: false, road: false };
   return {
     store: map.store[i] !== 0,
     machines: forkliftOnly(map, i) && gantryOver(map, i, true) < 0,
+    // One way, or traffic lights: back to a plain road.
+    road: canBeOneWay(map.build[i]) && (map.orient[i] & (ONE_WAY | LIGHTS)) !== 0,
   };
+}
+
+/** Why tile `i` cannot be made one way, or null. */
+export function oneWayError(map: GameMap, i: number): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
+  const b = map.build[i];
+  if (isHighway(b)) return 'The highway is one way each side already';
+  if (!canBeOneWay(b)) return 'Only public roads and port roads can be made one way';
+  if (ownedByTown(map, i)) return 'This belongs to the town';
+  return null;
+}
+
+/**
+ * Whether trucks meet other traffic at tile `i`, given how they drive
+ * (`road`): three or four ways off it, other than inside a block of road
+ * two wide, which is open ground.
+ */
+export function junctionAt(map: GameMap, i: number, road: CostFn = truckCost(map)): boolean {
+  if (!Number.isFinite(road(i))) return false;
+  const ways = map.neighbors4(i).filter((n) => Number.isFinite(road(n)) && linked(map, i, n));
+  if (ways.length < 3) return false;
+  const ok = (x: number, y: number) =>
+    map.inBounds(x, y) &&
+    Number.isFinite(road(map.idx(x, y))) &&
+    !isHighway(map.build[map.idx(x, y)]);
+  const x = map.xOf(i);
+  const y = map.yOf(i);
+  return ![-1, 1].some((dx) =>
+    [-1, 1].some((dy) => ok(x + dx, y) && ok(x, y + dy) && ok(x + dx, y + dy)),
+  );
+}
+
+/** Why traffic lights cannot go up (or come down) at tile `i`, or null. */
+export function lightsError(map: GameMap, i: number): string | null {
+  if (!map.buildable(i)) return OUTSIDE;
+  if (isHighway(map.build[i]))
+    return 'Nobody waits on the highway: trucks out there pass through each other';
+  if (!canBeOneWay(map.build[i])) return 'Traffic lights go at a road junction';
+  if (ownedByTown(map, i)) return 'This belongs to the town';
+  if (!junctionAt(map, i)) return 'Traffic lights go where three or four roads meet';
+  return null;
+}
+
+/**
+ * A roundabout's ring round its island, as steps from the island, each
+ * with the way traffic goes on it: anticlockwise, keeping right, so the
+ * island is always on the left.
+ */
+export const ROUNDABOUT_RING: readonly (readonly [number, number, number])[] = [
+  [1, 1, 3],
+  [1, 0, 3],
+  [1, -1, 2],
+  [0, -1, 2],
+  [-1, -1, 1],
+  [-1, 0, 1],
+  [-1, 1, 0],
+  [0, 1, 0],
+];
+
+/** Why a roundabout cannot go round an island at `c`, or null. */
+export function roundaboutError(map: GameMap, c: number): string | null {
+  const cx = map.xOf(c);
+  const cy = map.yOf(c);
+  const tiles = [[0, 0], ...ROUNDABOUT_RING].map(([dx, dy]) => [cx + dx, cy + dy]);
+  for (const [x, y] of tiles) {
+    if (!map.inBounds(x, y) || !map.buildable(map.idx(x, y))) return OUTSIDE;
+    const i = map.idx(x, y);
+    const b = map.build[i];
+    if (isHighway(b)) return 'Too near the highway';
+    if (b === Build.Rail || b === Build.Crossing) return 'The railway is in the way';
+    if (ownedByTown(map, i)) return 'This belongs to the town';
+    if (b === Build.Road) continue;
+    if (b !== Build.None) return 'A roundabout needs 3×3 of public road or clear land';
+    if (!map.isLand(i)) return 'Must be built on land';
+    if (map.terrain[i] === Terrain.Rock) return 'Rock is in the way';
+  }
+  return null;
+}
+
+/** What a roundabout round the island at `c` costs: the junction, and road where there is none. */
+export function roundaboutCost(map: GameMap, c: number): number {
+  let cost = B.ROUNDABOUT_COST;
+  for (const [dx, dy] of ROUNDABOUT_RING) {
+    const i = map.idx(map.xOf(c) + dx, map.yOf(c) + dy);
+    if (map.build[i] === Build.None) cost += BUILDABLES.road.cost;
+    if (map.deco[i] === Deco.Tree) cost += B.TREE_CLEAR_COST;
+  }
+  return cost;
+}
+
+/** Which way trucks may go through a port gate. */
+export function gateWay(map: GameMap, i: number): 'both' | 'in' | 'out' {
+  if (map.build[i] !== Build.Gate) return 'both';
+  return map.orient[i] & GATE_IN ? 'in' : map.orient[i] & GATE_OUT ? 'out' : 'both';
 }
 
 export function unmarkRefund(map: GameMap, i: number): number {
@@ -482,6 +596,8 @@ export function placementError(
     return atWater ? null : 'Put the crane at the quay edge, next to open water';
   }
   if (ownedByTown(map, i)) return 'This belongs to the town';
+  if (isHighway(map.build[i]))
+    return 'The highway runs here: open an exit off it with the exit tool';
   // A public road crosses the railway on the level.
   if (map.build[i] === Build.Rail) {
     if (kind !== 'road') return 'The railway is in the way';
@@ -686,6 +802,14 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (!map.buildable(i)) return OUTSIDE;
   const empty = map.build[i] === Build.None && map.deco[i] === Deco.None;
   if (empty && map.terrain[i] !== Terrain.Rock) return 'Nothing to clear';
+  if (isHighway(map.build[i])) {
+    if (!isExit(map, i))
+      return 'The highway is not yours to dig up: open exits off it with the exit tool';
+    const y = map.yOf(i);
+    if (y === map.yOf(map.entry)) return 'The port’s first exit off the highway stays open';
+    if (ownedByTown(map, map.idx(HIGHWAY_COLUMNS, y))) return 'The town’s exit stays open';
+    return null;
+  }
   if (i === map.entry) return 'The main road cannot be removed';
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
@@ -695,6 +819,7 @@ export function bulldozeError(map: GameMap, i: number): string | null {
 /** Money gained (positive) or spent (negative) by bulldozing a tile. */
 export function bulldozeValue(map: GameMap, i: number): number {
   if (map.build[i] === Build.Crossing) return Math.floor(B.CROSSING_COST * B.BULLDOZE_REFUND);
+  if (isExit(map, i)) return Math.floor(B.EXIT_COST * B.BULLDOZE_REFUND);
   const kind = kindOfCode(map.build[i]);
   const store = storeKindAt(map, i);
   const marked = store ? Math.floor(STORE_COST[store] * B.BULLDOZE_REFUND) : 0;
@@ -849,7 +974,7 @@ export function truckCost(
   const way = (i: number): 'road' | 'port' | 'gate' | null => {
     const b = map.build[i];
     if (map.store[i] || nearCrane(map, i)) return null;
-    if (isPublicRoad(b)) return 'road';
+    if (isPublicRoad(b) || isHighway(b)) return 'road';
     // A parking space is driven through from the road on one side to the
     // road on the other, which are of a kind; see parkingLots.
     if (b === Build.Parking) return space?.has(i) ? 'gate' : null;
@@ -863,12 +988,26 @@ export function truckCost(
   return (i, from) => {
     const here = way(i);
     if (!here) return Infinity;
-    const there = from === undefined || from < 0 ? null : way(from);
+    const known = from !== undefined && from >= 0;
+    // Along the highway its own way, on and off at the exits, and never
+    // the wrong way down a one-way road.
+    if (known && !flowOk(map, from, i)) return Infinity;
+    const there = known ? way(from) : null;
     const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
     if (jump) return Infinity;
+    // A port gate for trucks only coming in, or only going out.
+    if (known && map.build[i] === Build.Gate) {
+      if (there === 'road' && map.orient[i] & GATE_OUT) return Infinity;
+      if (there === 'port' && map.orient[i] & GATE_IN) return Infinity;
+    }
+    if (known && map.build[from] === Build.Gate) {
+      if (here === 'port' && map.orient[from] & GATE_OUT) return Infinity;
+      if (here === 'road' && map.orient[from] & GATE_IN) return Infinity;
+    }
     // Keep to the right on a road wider than one: a tile with road to its
-    // right, the way the truck is going, is the oncoming lane.
-    if (from !== undefined && from >= 0 && here !== 'gate') {
+    // right, the way the truck is going, is the oncoming lane. A one-way
+    // road has no oncoming lane.
+    if (known && here !== 'gate' && oneWay(map, i) < 0) {
       const dx = map.xOf(i) - map.xOf(from);
       const dy = map.yOf(i) - map.yOf(from);
       const rx = map.xOf(i) - dy;
@@ -890,9 +1029,12 @@ export function truckReach(map: GameMap): Int32Array {
   const cost = truckCost(map);
   const dist = new Int32Array(map.build.length).fill(-1);
   const queue: number[] = [];
-  if (Number.isFinite(cost(map.entry))) {
-    dist[map.entry] = 0;
-    queue.push(map.entry);
+  // In off the ends of the highway; on maps without one, at the main road's end.
+  const starts = hasHighway(map) ? highwayIns(map).map((s) => s.tile) : [map.entry];
+  for (const s of starts) {
+    if (s < 0 || !Number.isFinite(cost(s))) continue;
+    dist[s] = 0;
+    queue.push(s);
   }
   for (let k = 0; k < queue.length; k++) {
     const cur = queue[k];

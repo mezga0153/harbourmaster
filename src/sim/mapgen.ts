@@ -1,8 +1,9 @@
-import { BOAT_DRAFT, MAX_JETTY_DEPTH } from './balance';
+import { BOAT_DRAFT, MAX_JETTY_DEPTH, MAX_QUAY_DEPTH } from './balance';
 import { GameMap } from './map';
 import { fbm } from './noise';
 import { Rng } from './rng';
-import { Build, Deco, MAP_SIZE, Terrain, TOWN_BAND } from './types';
+import { HIGHWAY_COLUMNS, layHighway, setExit } from './roads';
+import { Build, Deco, MAP_SIZE, Terrain, townBand } from './types';
 
 export interface GeneratedMap {
   map: GameMap;
@@ -15,7 +16,7 @@ export interface GeneratedMap {
  * The port's land is `size` square; `band` more rows of the same coast run
  * on past it to the south, where the town is. See plan.md §11, Map generation.
  */
-export function generateMap(seed: number, size = MAP_SIZE, band = TOWN_BAND): GeneratedMap {
+export function generateMap(seed: number, size = MAP_SIZE, band = townBand(size)): GeneratedMap {
   const W = size;
   const H = size + band;
   const map = new GameMap(W, H, size);
@@ -23,7 +24,12 @@ export function generateMap(seed: number, size = MAP_SIZE, band = TOWN_BAND): Ge
 
   // Wobbly shoreline per row, then 2D noise for bays, headlands and islands.
   for (let y = 0; y < H; y++) {
-    const shore = W * 0.42 + (fbm(seed, 3.7, y * 0.03, 3) - 0.5) * W * 0.45;
+    // On the bigger maps the coast keeps nearer the highway, with more sea off it;
+    // the 96-tile maps of old saves come out as they always did.
+    const big = W > 96;
+    const shore =
+      W * (big ? 0.32 : 0.42) +
+      (fbm(seed, 3.7, y * (big ? 0.02 : 0.03), 3) - 0.5) * W * (big ? 0.4 : 0.45);
     for (let x = 0; x < W; x++) {
       const s = shore + (fbm(seed + 11, x * 0.07, y * 0.07) - 0.5) * 26;
       let land = x < s;
@@ -51,7 +57,12 @@ export function generateMap(seed: number, size = MAP_SIZE, band = TOWN_BAND): Ge
     const x = map.xOf(i);
     const y = map.yOf(i);
     if (!map.isLand(i)) {
-      const d = 0.8 + distToLand[i] * 0.55 + (fbm(seed + 23, x * 0.1, y * 0.1) - 0.5) * 6;
+      const d = seaDepth(
+        distToLand[i],
+        fbm(seed + 23, x * 0.1, y * 0.1),
+        fbm(seed + 29, x * 0.05, y * 0.05),
+        W,
+      );
       // Rounded once here so saving (which keeps one decimal) never changes the map.
       map.depth[i] = Math.round(Math.min(24, Math.max(0.5, d)) * 10) / 10;
       continue;
@@ -66,8 +77,30 @@ export function generateMap(seed: number, size = MAP_SIZE, band = TOWN_BAND): Ge
     }
   }
 
+  layHighway(map, []);
   const spawn = layoutStart(map);
   return { map, spawn };
+}
+
+/** Just too deep for a quay: one go of filling in, and a quay can stand there. */
+export const SHELF_DEPTH = MAX_QUAY_DEPTH + 1.2;
+
+/**
+ * How deep the sea is `dist` tiles out from land, with `n` and `slow` two
+ * noise values from 0 to 1. It shelves down from the beach as it always
+ * did, past where a quay can stand, then lies a little too deep for one
+ * over a broad shelf, a third of the way across the map's sea, before
+ * dropping away to the deep water off the edge.
+ */
+export function seaDepth(dist: number, n: number, slow: number, size: number): number {
+  const slope = 0.8 + dist * 0.55 + (n - 0.5) * 6;
+  // Where the slope reaches the shelf, and how far out the shelf runs.
+  const start = (SHELF_DEPTH - 0.8) / 0.55;
+  const width = size * 0.12 + (slow - 0.5) * size * 0.08;
+  const shelf = SHELF_DEPTH - 0.3 + (n - 0.5) * 1.2;
+  if (dist <= start + width) return Math.min(slope, shelf);
+  const drop = SHELF_DEPTH + (dist - start - width) * 0.55 + (n - 0.5) * 4;
+  return Math.max(shelf, drop);
 }
 
 /** Find a row where a small jetty fits and lay out road, bay, path and jetty. */
@@ -82,23 +115,36 @@ function layoutStart(map: GameMap): number {
 
   let row = -1;
   let shoreX = -1;
+  const fits = (r: number, xl: number) =>
+    [1, 2, 3, 4].every((d) => isOcean(xl + d, r)) &&
+    isOcean(xl + 3, r - 1) &&
+    isOcean(xl + 3, r + 1) &&
+    // Room for a boat to moor across the jetty tip.
+    isOcean(xl + 4, r - 1) &&
+    isOcean(xl + 4, r + 1) &&
+    map.depth[map.idx(xl + 4, r)] >= BOAT_DRAFT;
+  if (W > 96) {
+    // A big map: where the coast comes in nearest the highway, a natural
+    // harbour a short drive off it, well away from the ends of the port's land.
+    for (let r = Math.round(map.limit * 0.25); r <= Math.round(map.limit * 0.75); r++) {
+      const xw = firstOcean(r);
+      if (xw < 16 || xw > W - 12 || !fits(r, xw - 1)) continue;
+      const better =
+        row < 0 || xw < shoreX + 1 || (xw === shoreX + 1 && Math.abs(r - cy) < Math.abs(row - cy));
+      if (better) {
+        row = r;
+        shoreX = xw - 1;
+      }
+    }
+  }
   for (let k = 0; k < 60 && row < 0; k++) {
     const r = cy + (k % 2 === 0 ? k / 2 : -(k + 1) / 2);
     if (r < 3 || r > map.limit - 4) continue;
     const xw = firstOcean(r);
     if (xw < 16 || xw > W - 12) continue;
-    const xl = xw - 1;
-    const fits =
-      [1, 2, 3, 4].every((d) => isOcean(xl + d, r)) &&
-      isOcean(xl + 3, r - 1) &&
-      isOcean(xl + 3, r + 1) &&
-      // Room for a boat to moor across the jetty tip.
-      isOcean(xl + 4, r - 1) &&
-      isOcean(xl + 4, r + 1) &&
-      map.depth[map.idx(xl + 4, r)] >= BOAT_DRAFT;
-    if (fits) {
+    if (fits(r, xw - 1)) {
       row = r;
-      shoreX = xl;
+      shoreX = xw - 1;
     }
   }
 
@@ -133,7 +179,9 @@ function layoutStart(map: GameMap): number {
     }
   }
 
-  for (let x = 0; x <= shoreX - 5; x++) map.build[map.idx(x, row)] = Build.Road;
+  // The road off the highway's first exit down to the jetty.
+  for (let x = HIGHWAY_COLUMNS; x <= shoreX - 5; x++) map.build[map.idx(x, row)] = Build.Road;
+  setExit(map, row, true);
   map.build[map.idx(shoreX - 4, row)] = Build.TruckBay;
   map.orient[map.idx(shoreX - 4, row)] = 2; // entrance towards the road, -x
   for (let x = shoreX - 3; x <= shoreX; x++) map.build[map.idx(x, row)] = Build.Footpath;
@@ -142,7 +190,7 @@ function layoutStart(map: GameMap): number {
     map.build[i] = Build.Jetty;
     map.depth[i] = Math.min(map.depth[i], MAX_JETTY_DEPTH - 0.5);
   }
-  map.entry = map.idx(0, row);
+  map.entry = map.idx(HIGHWAY_COLUMNS - 1, row);
 
   return map.idx(shoreX, row);
 }
@@ -152,7 +200,8 @@ function layoutStart(map: GameMap): number {
  * same port, with that country added on from the map it was made from.
  */
 export function extendMap(old: GameMap, seed: number): GameMap {
-  const fresh = generateMap(seed).map;
+  // Made at the size it was then.
+  const fresh = generateMap(seed, old.w).map;
   if (old.h >= fresh.h || old.w !== fresh.w) return old;
   const map = new GameMap(old.w, fresh.h, old.h);
   const n = old.w * old.h;

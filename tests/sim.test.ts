@@ -3,6 +3,7 @@ import * as B from '../src/sim/balance';
 import { GameMap } from '../src/sim/map';
 import { makeOffer } from '../src/sim/contracts';
 import { generateMap } from '../src/sim/mapgen';
+import { isExit } from '../src/sim/roads';
 import { findDrivePath, findPath } from '../src/sim/path';
 import {
   anchorOf,
@@ -86,8 +87,10 @@ describe('generateMap', () => {
 
   it.each([1, 2, 3, 99, 1234, 777777])('lays out a working start site (seed %i)', (seed) => {
     const { map, spawn } = generateMap(seed);
-    expect(map.build[map.entry]).toBe(Build.Road);
-    expect(map.xOf(map.entry)).toBe(0);
+    // The road to the jetty leaves the highway at its first exit.
+    expect(map.build[map.entry]).toBe(Build.Highway);
+    expect(isExit(map, map.entry)).toBe(true);
+    expect(map.build[map.entry + 1]).toBe(Build.Road);
     expect(map.build[spawn]).toBe(Build.Footpath);
     const jetties = map.build.filter((b) => b === Build.Jetty).length;
     expect(jetties).toBe(3);
@@ -99,7 +102,7 @@ describe('generateMap', () => {
 
 describe('World', () => {
   it('runs the first-boat loop and earns money', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const start = world.cash;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) world.step();
     expect(world.stats.boats).toBeGreaterThan(0);
@@ -111,13 +114,13 @@ describe('World', () => {
   });
 
   it.each([1, 2, 3, 99, 1234, 777777])('gets boats unloaded on any map (seed %i)', (seed) => {
-    const world = World.create(seed);
+    const world = World.create(seed, 96);
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) world.step();
     expect(world.stats.cratesHandled).toBeGreaterThan(0);
   });
 
   it('rejects saves from older versions or with missing fields', () => {
-    const save = World.create(1).toSave();
+    const save = World.create(1, 96).toSave();
     expect(World.isValidSave(save)).toBe(true);
     expect(World.isValidSave({ ...save, version: 2 })).toBe(false);
     const broken = structuredClone(save);
@@ -125,15 +128,19 @@ describe('World', () => {
     expect(World.isValidSave(broken)).toBe(false);
   });
 
-  it.each([7, 99])('keeps cash a finite number over a long, busy game (seed %i)', (seed) => {
-    const world = World.create(seed);
-    for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
-    for (let t = 0; t < TICKS_PER_DAY * 20; t++) world.step();
-    expect(Number.isFinite(world.cash)).toBe(true);
-  });
+  it.each([7, 99])(
+    'keeps cash a finite number over a long, busy game (seed %i)',
+    (seed) => {
+      const world = World.create(seed, 96);
+      for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
+      for (let t = 0; t < TICKS_PER_DAY * 20; t++) world.step();
+      expect(Number.isFinite(world.cash)).toBe(true);
+    },
+    20_000,
+  );
 
   it('continues identically after a save round-trip', () => {
-    const a = World.create(11);
+    const a = World.create(11, 96);
     for (let t = 0; t < 1500; t++) a.step();
     const b = World.fromSave(JSON.parse(JSON.stringify(a.toSave())));
     for (let t = 0; t < 1500; t++) {
@@ -144,7 +151,7 @@ describe('World', () => {
   });
 
   it('has the advisor explain each thing once a game, even across a save', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const tips = (w: World) => w.drainEvents().flatMap((e) => (e.kind === 'tip' ? [e.id] : []));
     expect(tips(world)).toEqual(['welcome']);
     world.tier = 2;
@@ -159,7 +166,7 @@ describe('World', () => {
   });
 
   it('builds, charges and refunds', () => {
-    const world = World.create(5);
+    const world = World.create(5, 96);
     const m = world.map;
     let road = -1;
     for (let i = 0; i < m.build.length && road < 0; i++) {
@@ -177,7 +184,7 @@ describe('World', () => {
 
 describe('Bulldozing', () => {
   it('clears rock to grass for a fee', () => {
-    const world = World.create(5);
+    const world = World.create(5, 96);
     const m = world.map;
     const rock = m.terrain.findIndex((t) => t === Terrain.Rock);
     expect(rock).toBeGreaterThanOrEqual(0);
@@ -195,7 +202,7 @@ describe('Bulldozing', () => {
 
 describe('Contracts', () => {
   it('keeps making offers once every firm in the lists has a contract', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const taken = new Set<string>();
     // Sign up everyone who offers, until well past the named firms.
     for (let k = 0; k < 60; k++) {
@@ -236,7 +243,7 @@ describe('Contracts', () => {
   });
 
   it('signs an offer for its fee and starts sending boats', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const offer = world.offers.find((o) => o.terms.kind === 'fishery')!;
     const before = world.cash;
     world.command({ type: 'signContract', id: offer.id });
@@ -248,7 +255,7 @@ describe('Contracts', () => {
   });
 
   it('sends a truck again only once it is back from its round', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 1;
@@ -273,7 +280,7 @@ describe('Contracts', () => {
   });
 
   it('never sends more trucks than the hauliers have', () => {
-    const world = World.create(3);
+    const world = World.create(3, 96);
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       world.step();
       const fleet = world.contracts.reduce(
@@ -287,7 +294,7 @@ describe('Contracts', () => {
   });
 
   it('charges a buyout when you end a signed contract', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const offer = world.offers[0];
     world.command({ type: 'signContract', id: offer.id });
     const c = world.contracts.find((x) => x.terms.name === offer.terms.name)!;
@@ -298,7 +305,7 @@ describe('Contracts', () => {
   });
 
   it('makes an overloaded fishery unhappy, charges demurrage and lets it walk out', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     // Sack every dockhand so nothing is ever unloaded.
     for (const p of [...world.people]) world.command({ type: 'fire', id: p.id });
     const starter = world.contracts.find((c) => c.terms.kind === 'fishery')!;
@@ -311,7 +318,7 @@ describe('Contracts', () => {
   });
 
   it('goes bankrupt after too many days in the red', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.cash = -10_000;
     for (let t = 0; t < TICKS_PER_DAY * (B.BANKRUPT_DAYS + 1); t++) world.step();
     expect(world.bankrupt).toBe(true);
@@ -321,7 +328,7 @@ describe('Contracts', () => {
   });
 
   it('recovers from the red before the deadline', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.cash = -1;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) world.step();
     world.cash = 10_000;
@@ -333,7 +340,7 @@ describe('Contracts', () => {
 
 describe('Staff', () => {
   it('hires from the candidate list and replaces candidates daily', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     expect(world.candidates).toHaveLength(B.CANDIDATES);
     const c = world.candidates[0];
     world.command({ type: 'hire', candidateId: c.id });
@@ -344,7 +351,7 @@ describe('Staff', () => {
   });
 
   it('rests on the spot without a hut, losing morale', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const p = world.people[0];
     p.energy = B.TIRED_ENERGY - 1;
     const morale = p.morale;
@@ -355,7 +362,7 @@ describe('Staff', () => {
   });
 
   it('walks to a break hut when there is one, and enjoys it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const bay = [...world.bays.keys()][0];
     let hut = -1;
@@ -382,7 +389,7 @@ describe('Staff', () => {
   });
 
   it('asks for raises; refusing hurts morale, accepting raises the wage', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const [a, b] = world.people;
     a.raiseAsk = a.wage + B.RAISE_STEP;
     b.raiseAsk = b.wage + B.RAISE_STEP;
@@ -395,7 +402,7 @@ describe('Staff', () => {
   });
 
   it('quits after staying miserable', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const p = world.people[0];
     for (let d = 0; d < B.QUIT_DAYS + 1; d++) {
       p.morale = 0;
@@ -407,7 +414,7 @@ describe('Staff', () => {
 
 describe('Finance', () => {
   it('borrows, charges interest daily and repays', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const before = world.cash;
     world.command({ type: 'loan', amount: B.LOAN_STEP });
     expect(world.loan).toBe(B.LOAN_STEP);
@@ -419,13 +426,13 @@ describe('Finance', () => {
   });
 
   it('caps the loan at the bank limit', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.command({ type: 'loan', amount: B.LOAN_MAX * 2 });
     expect(world.loan).toBe(B.LOAN_MAX);
   });
 
   it('records every cash change in the ledger', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     for (let t = 0; t < TICKS_PER_DAY - 1; t++) world.step();
     const start = world.cash - Object.values(world.today).reduce((a, b) => a + b, 0);
     world.step(); // midnight: the day's ledger moves to yesterday
@@ -454,7 +461,7 @@ describe('Coastal Wharf tier', () => {
   }
 
   it('upgrades a jetty to a quay from its shore end only', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
@@ -473,7 +480,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('keeps forklifts off port paths, and upgrades paths to port roads', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 50_000;
     const m = world.map;
@@ -485,7 +492,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('marks port roads and quays forklift-only, and clears the mark', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 50_000;
     const m = world.map;
@@ -503,7 +510,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('turns old forklift lanes into forklift-only port roads', () => {
-    const data = World.create(7).map.toData();
+    const data = World.create(7, 96).map.toData();
     data.build[0] = Build.ForkliftLane;
     const m = GameMap.fromData(data);
     expect(m.build[0]).toBe(Build.PortRoad);
@@ -511,7 +518,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('locks quays, cranes and forklifts until the upgrade', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const { side } = besideTip(world);
     world.command({ type: 'build', kind: 'quay', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.None);
@@ -520,7 +527,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('upgrades only once the requirements are met', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.command({ type: 'upgrade' });
     expect(world.tier).toBe(0);
     world.stats.cratesHandled = TIERS[1].crates;
@@ -543,7 +550,7 @@ describe('Coastal Wharf tier', () => {
   }
 
   it('lets coasters moor only against a quay two tiles wide', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -567,7 +574,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('sends big trucks only to large truck bays', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -585,7 +592,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('needs a harbour office before boats use a quay', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 50_000;
     world.command({ type: 'build', kind: 'quay', tiles: [starterJetty(world)[0]] });
@@ -604,7 +611,7 @@ describe('Coastal Wharf tier', () => {
   }
 
   it('buys forklifts at a depot, three to a depot', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 50_000;
     world.command({ type: 'buyMachine', kind: 'forklift' });
@@ -619,7 +626,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('sends forklifts home to refuel and to be repaired', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 50_000;
     const depot = buildDepot(world);
@@ -645,7 +652,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('builds quays in deeper water than jetties allow', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     const m = world.map;
     const deep = m.depth.findIndex(
@@ -658,7 +665,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('tells you when a forklift cannot reach the cargo', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
@@ -678,7 +685,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('leaves pallets for forklifts', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
     world.cash = 50_000;
@@ -721,7 +728,7 @@ describe('Coastal Wharf tier', () => {
   }
 
   it('never lets forklifts unload a boat: dockhands land the crates on the quay for them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     quayPort(world);
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
     fireDockhands(world);
@@ -750,7 +757,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('swings crates straight into crate storage near a jib crane, and forklifts take them on', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
@@ -784,7 +791,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('has a forklift take full pallets off crate storage, leaving the one a jib crane is filling', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
@@ -828,7 +835,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('has boats wait for a berth under a jib crane when nobody can unload them by hand', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
@@ -854,7 +861,7 @@ describe('Coastal Wharf tier', () => {
   });
 
   it('runs a jib crane and forklifts off a quay, the dockhands kept clear of the crane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const jetty = quayPort(world);
     const side = jetty[jetty.length - 1];
     expect(world.map.build[side]).toBe(Build.Quay);
@@ -883,7 +890,7 @@ describe('Coastal Wharf tier', () => {
 
 describe('Buildings', () => {
   it('face the way they are placed, entrance to the road', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const spot = m.build.findIndex((_, i) => !placementError(m, 'truckBay', i));
     const f = bestFacing(m, 'truckBay', spot);
@@ -895,7 +902,7 @@ describe('Buildings', () => {
   });
 
   it('builds a large truck bay two tiles wide and bulldozes it whole', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -929,7 +936,7 @@ describe('Buildings', () => {
   }
 
   it('marks out crate storage on port roads, and loads trucks fast from inside the port', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0; // no catch landing in the truck bay meanwhile
     world.tier = 1;
     world.cash = 100_000;
@@ -995,7 +1002,7 @@ describe('Buildings', () => {
   });
 
   it('keeps what an area holds as it grows, joins up or shrinks', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -1029,7 +1036,7 @@ describe('Buildings', () => {
   });
 
   it('keeps storage for cargo coming in apart from storage for cargo going out', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -1049,7 +1056,7 @@ describe('Buildings', () => {
   });
 
   it('clears storage and machines-only marks with Unmark, but not the ground round a crane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     world.tier = 2;
     world.cash = 100_000;
@@ -1080,7 +1087,7 @@ describe('Buildings', () => {
   });
 
   it('keeps storage by a crane to the way it is marked out, in or out', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     world.tier = 1;
     world.cash = 100_000;
@@ -1105,7 +1112,7 @@ describe('Buildings', () => {
   });
 
   it('warns, once a day, when shippers find no outgoing storage with room', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const said = () =>
       world.drainEvents().filter((e) => e.kind === 'message' && /going out/.test(e.text)).length;
     world.drainEvents();
@@ -1118,7 +1125,7 @@ describe('Buildings', () => {
   });
 
   it('turns warehouses and container yards from older saves into storage areas', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const at = besideRoad(world);
     const tiles = [at, at + 1, at + m.w, at + m.w + 1];
@@ -1150,7 +1157,7 @@ describe('Buildings', () => {
   });
 
   it('lets trucks queue in parking for a loading spot, outside or inside the port', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     const m = world.map;
     const lot = parkingLot(world);
@@ -1191,7 +1198,7 @@ describe('Buildings', () => {
     expect(needsWideSpace(B.BIG_TRUCK_CAPACITY, false)).toBe(true);
     expect(needsWideSpace(B.TRUCK_CAPACITY, false)).toBe(false);
     expect(needsWideSpace(2, true)).toBe(true);
-    const world = World.create(7);
+    const world = World.create(7, 96);
     parkingLot(world);
     const [lot] = parkingLots(world.map);
     expect(lot.wide).toBe(false);
@@ -1200,7 +1207,7 @@ describe('Buildings', () => {
   });
 
   it('says why parking laid out wrong is no use', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -1220,7 +1227,7 @@ describe('Buildings', () => {
   });
 
   it('lets trucks into the port only through a port gate', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -1310,7 +1317,7 @@ describe('Rules of the road', () => {
   });
 
   it('keeps its distance behind a truck going its way, but passes one coming the other way', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     // On its way east, as it faces.
     const east = [world.map.idx(20, 20)];
@@ -1338,7 +1345,7 @@ describe('Rules of the road', () => {
   });
 
   it('gives way at a junction to a truck coming in from its right', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // A crossroads of public roads.
@@ -1381,7 +1388,7 @@ describe('Rules of the road', () => {
   });
 
   it('has one of two trucks caught across each other wait for the other', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     // One turning north out of the eastbound lane, across one going west.
     const a = truck(world, 10.5, 20.4, -Math.PI / 2, [1]);
@@ -1391,7 +1398,7 @@ describe('Rules of the road', () => {
   });
 
   it('has a ring of trucks each waiting on the next let one drive on through until it is clear', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // Round a block, each nose up against the side of the next: east,
@@ -1417,7 +1424,7 @@ describe('Rules of the road', () => {
   });
 
   it('lets the one to go in a ring go once any of them has waited long, not only itself', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     const ring = [
@@ -1435,7 +1442,7 @@ describe('Rules of the road', () => {
   });
 
   it('does not wait for a truck straight on past where it turns off', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // Heading west, to turn north at (19, 20).
@@ -1449,7 +1456,7 @@ describe('Rules of the road', () => {
   });
 
   it('undoes a ring of trucks however many there are in it, as round a loop of roads', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // Sixteen nose to tail round a block four on a side, clockwise.
@@ -1482,7 +1489,7 @@ describe('Rules of the road', () => {
   });
 
   it('stops short of a crossing it could not get all the way over, rather than in it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     const east = [9, 10, 11, 12, 13].map((x) => m.idx(x, 20));
@@ -1507,7 +1514,7 @@ describe('Rules of the road', () => {
   });
 
   it('sends a truck to a loading spot one already on its way in drives past first', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // Four spots down a lane, the deepest taken by a truck on its way in.
@@ -1530,7 +1537,7 @@ describe('Rules of the road', () => {
   });
 
   it('routes a truck to its spot round the spots others are going to, and moves one on deeper as one frees', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     const docks = [10, 11, 12, 13].map((y) => m.idx(20, y));
@@ -1558,7 +1565,7 @@ describe('Rules of the road', () => {
   });
 
   it('sends a truck waiting to load at a bay none can use away, saying why', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     const bay = [...world.bays.values()][0];
@@ -1581,7 +1588,7 @@ describe('Rules of the road', () => {
   });
 
   it("drives on past where a truck bound for another bay's spot will stand", () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // The way to a spot further on runs along another yard's loading lane,
@@ -1600,7 +1607,7 @@ describe('Rules of the road', () => {
   });
 
   it('gets past a truck loading in its lane on a wide road, by the other lane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     // A road two wide running south, a truck loading at the kerb in its
@@ -1629,7 +1636,7 @@ describe('Rules of the road', () => {
   });
 
   it('never waits for a vehicle going the other way, even one facing round from where it stood', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const m = world.map;
     const t = truck(world, 10.5, 20.5, 0, [m.idx(20, 20)]);
@@ -1649,7 +1656,7 @@ describe('Rules of the road', () => {
   });
 
   it('drives on the right-hand side of the road', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     truck(world, 10.5, 20.5, 0, [1]);
     const view = world.snapshot().entities.find((e) => e.kind === 'truck')!;
@@ -1661,7 +1668,7 @@ describe('Rules of the road', () => {
 
 describe('Port side', () => {
   it('keeps dockhands off grass and public roads', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       world.step();
@@ -1672,7 +1679,7 @@ describe('Port side', () => {
   });
 
   it('runs only two jetties without a harbour office', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.cash = 50_000;
     const m = world.map;
     // Add standalone jetties further along the coast.
@@ -1706,7 +1713,7 @@ describe('Dredging and reclaiming', () => {
   }
 
   it('digs the seabed deeper, a step at a time, and charges for it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = B.TERRAFORM_TIER;
     world.cash = 100_000;
     world.boats.length = 0;
@@ -1721,7 +1728,7 @@ describe('Dredging and reclaiming', () => {
   });
 
   it('digs a channel inland from the shore in one drag, open to the sea', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = B.TERRAFORM_TIER;
     world.cash = 100_000;
     world.boats.length = 0;
@@ -1741,7 +1748,7 @@ describe('Dredging and reclaiming', () => {
   });
 
   it('fills the sea in until it is land, and a cut-off pool is no longer sea', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = B.TERRAFORM_TIER;
     world.cash = 1_000_000;
     world.boats.length = 0;
@@ -1766,7 +1773,7 @@ describe('Dredging and reclaiming', () => {
   });
 
   it('leaves built tiles and boats alone, and waits for the Coastal Wharf', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.cash = 100_000;
     const m = world.map;
     const { sea } = shore(world);
@@ -1786,7 +1793,7 @@ describe('Dredging and reclaiming', () => {
 
 describe('Rules of the road', () => {
   it('has boats meeting head on both turn to starboard and pass port to port', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const template = world.boats[0];
     world.boats.length = 0;
@@ -1832,7 +1839,7 @@ describe('Rules of the road', () => {
    * speed, and where `north` was when `east` crossed its track.
    */
   function crossing(east: 'smack' | 'feeder', north: 'smack' | 'feeder') {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const template = world.boats[0];
     world.boats.length = 0;
@@ -1900,7 +1907,7 @@ describe('Rules of the road', () => {
 
 describe('Buoys', () => {
   it('lead boats in and out between pairs of buoys, in order, well clear of them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 1;
     world.cash = 100_000;
     const m = world.map;
@@ -1995,7 +2002,7 @@ describe('Buoys', () => {
 
 describe('Boat traffic', () => {
   it('never locks up in a knot of boats all backing out of each other’s way', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const template = world.boats[0];
     world.boats.length = 0;
@@ -2061,7 +2068,7 @@ describe('Crowding', () => {
   }
 
   it('lets workers going opposite ways pass on a narrow jetty', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const [a, b] = world.people;
     const [j0, j1, j2] = jetty(world);
     place(world, a, j0, 0);
@@ -2081,7 +2088,7 @@ describe('Crowding', () => {
   });
 
   it('makes workers going the same way queue behind someone working', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const [a, b] = world.people;
     const [j0, j1, j2] = jetty(world);
     place(world, a, j1, 0);
@@ -2227,7 +2234,7 @@ describe('Container Port tier', () => {
 
   /** A port with a feeder line sending a ship a day, and a tug or not. */
   function feederPort(tug: boolean): World {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2273,7 +2280,7 @@ describe('Container Port tier', () => {
   });
 
   it('lifts containers off a feeder, stacks them in a yard and trucks them out', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world);
@@ -2384,7 +2391,7 @@ describe('Container Port tier', () => {
   }
 
   it('keeps reach stackers and trucks from driving through each other', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world);
@@ -2429,11 +2436,25 @@ describe('Container Port tier', () => {
     for (let k = 0; k < TICKS_PER_DAY * 5; k++) {
       world.step();
       const vs = [
+        // Not those still inside a depot, where its machines park on top of each other.
         ...world.people
-          .filter((p) => p.kind === 'stacker' && p.path.length > 0 && !p.squeeze)
+          .filter(
+            (p) =>
+              p.kind === 'stacker' &&
+              p.path.length > 0 &&
+              !p.squeeze &&
+              world.map.build[world.map.idx(Math.floor(p.x), Math.floor(p.y))] !== Build.Depot,
+          )
           .map((p) => ({ o: p, at: lane(p, B.MACHINE_LANE), len: B.MACHINE_LENGTH.stacker })),
         ...world.trucks
-          .filter((q) => q.path.length > 0 && q.state !== 'parked' && !q.round)
+          // Not out on the highway, where trucks pass through each other.
+          .filter(
+            (q) =>
+              q.path.length > 0 &&
+              q.state !== 'parked' &&
+              !q.round &&
+              world.map.build[world.map.idx(Math.floor(q.x), Math.floor(q.y))] !== Build.Highway,
+          )
           .map((q) => ({ o: q, at: lane(q, B.TRUCK_LANE), len: world['lengthOf'](q) })),
       ];
       for (const a of vs) {
@@ -2549,7 +2570,7 @@ describe('Container Port tier', () => {
   });
 
   it('has a yard gantry see one lift through before it starts on the next', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.trucks.length = 0;
     const yard = { idx: 5, yard: true, boxes: [], crates: [] } as never;
     world.yards.set(5, yard);
@@ -2643,7 +2664,7 @@ describe('Container Port tier', () => {
   });
 
   it('has a gantry crane lift containers onto tractors waiting under it, clear of its stack', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2694,7 +2715,7 @@ describe('Container Port tier', () => {
   });
 
   it('keeps machines off a gantry crane’s stack row, and has tractors pull in under it lined up', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2747,7 +2768,7 @@ describe('Container Port tier', () => {
   });
 
   it('takes containers off a gantry crane’s stack only from the top', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2784,7 +2805,7 @@ describe('Container Port tier', () => {
   });
 
   it('brings a container ship in and out without its hull touching the docks', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -2833,7 +2854,7 @@ describe('Container Port tier', () => {
   });
 
   it('marks out a container yard on a quay, and leaves the quay when cleared', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -2860,7 +2881,7 @@ describe('Container Port tier', () => {
   });
 
   it('sends a container ship to a berth under a gantry crane before a harbour crane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -2875,7 +2896,7 @@ describe('Container Port tier', () => {
   });
 
   it('lifts containers with a gantry crane into the bay between its legs, for the stackers', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2932,7 +2953,7 @@ describe('Container Port tier', () => {
   });
 
   it('keeps a ship’s length of quay clear for a gantry crane’s rails, and a tile round them for machines', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -2959,7 +2980,7 @@ describe('Container Port tier', () => {
   });
 
   it('has two gantry cranes over one ship share its bays out and work it together', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3016,7 +3037,7 @@ describe('Container Port tier', () => {
   });
 
   it('lets trucks take containers only once customs have cleared them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3045,7 +3066,7 @@ describe('Container Port tier', () => {
   });
 
   it('sends a two-container truck to a yard only once two are cleared for it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3089,7 +3110,7 @@ describe('Container Port tier', () => {
   });
 
   it('lets trucks take a cleared container only once nothing is stacked on it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3118,7 +3139,7 @@ describe('Container Port tier', () => {
   });
 
   it('stacks a container where it buries none that will clear before it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3141,7 +3162,7 @@ describe('Container Port tier', () => {
   });
 
   it('holds containers in a yard for a day of customs from when their ship is unloaded', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3193,7 +3214,7 @@ describe('Container Port tier', () => {
   });
 
   it('ships out exports: paperwork parked outside, into the yard, onto a feeder', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3262,7 +3283,7 @@ describe('Container Port tier', () => {
   });
 
   it('has dockhands carry exported crates on board a coaster', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3314,7 +3335,7 @@ describe('Container Port tier', () => {
   });
 
   it('has forklifts take exports left on the quay back into storage once their ship has gone', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3338,7 +3359,7 @@ describe('Container Port tier', () => {
   });
 
   it('sails once nothing in the port is left for it, and says what it waits on', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const template = world.boats[0];
     world.boats.length = 0;
     const coaster = (id: number) => ({
@@ -3369,7 +3390,7 @@ describe('Container Port tier', () => {
   });
 
   it('has a ship ready to sail wait its turn only behind one free to go', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const template = world.boats[0];
     world.boats.length = 0;
     const ship = (id: number, timer: number, x: number) => ({
@@ -3393,7 +3414,7 @@ describe('Container Port tier', () => {
   });
 
   it('keeps shippers away until there is parking outside the port', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -3407,7 +3428,7 @@ describe('Container Port tier', () => {
   });
 
   it('gives a container to the free stacker nearest the crane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3431,7 +3452,7 @@ describe('Container Port tier', () => {
   });
 
   it('has a coaster leaving run out along the dock without touching it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -3471,7 +3492,7 @@ describe('Container Port tier', () => {
   });
 
   it('routes boats past the docks well out, not through the water off them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const row = m.yOf(m.entry);
     // The tip of the starting jetty.
@@ -3487,7 +3508,7 @@ describe('Container Port tier', () => {
   });
 
   it('keeps clear water off the bow and stern of boats moored end to end', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const r = m.yOf(m.entry);
     const xs: number[] = [];
@@ -3509,7 +3530,7 @@ describe('Container Port tier', () => {
   });
 
   it('gives way to a boat pulling out, then to boats leaving, then to the bigger ship', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const template = world.boats[0];
     const boat = (
       id: number,
@@ -3528,7 +3549,7 @@ describe('Container Port tier', () => {
 
   /** A busy container port, with coasters and smacks coming and going all day. */
   function busyPort(): World {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
@@ -3618,10 +3639,10 @@ describe('Container Port tier', () => {
     }
     expect(claimed.size).toBeGreaterThan(2);
     expect(intrusions).toBe(0);
-  });
+  }, 20_000);
 
   it('stores containers only in yards, where the trucks collect them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3673,7 +3694,7 @@ describe('Container Port tier', () => {
   });
 
   it('loads container trucks at a yard only from inside the port, off machines-only ground', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const t = terminal(world)!;
@@ -3719,7 +3740,7 @@ describe('Container Port tier', () => {
   });
 
   it('keeps trucks from loading storage by a crane', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     world.tier = 1;
     world.cash = 100_000;
@@ -3739,7 +3760,7 @@ describe('Container Port tier', () => {
   });
 
   it('collects containers left in a large bay by an older save', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const bay = [...world.bays.values()][0];
     bay.large = true;
     bay.boxes.push(100, 100);

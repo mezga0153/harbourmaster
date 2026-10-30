@@ -17,6 +17,7 @@ import {
 } from 'three';
 import type { GameMap } from '../sim/map';
 import { hash01 } from '../sim/noise';
+import { HIGHWAY_COLUMNS } from '../sim/roads';
 import { Build, Deco, Terrain } from '../sim/types';
 import { C } from './palette';
 import { hasAsset, instanced, ROCKS, TREES, type AssetName } from './assets';
@@ -388,8 +389,8 @@ export function buildTrees(map: GameMap): Group {
         ? map.deco[map.idx(x, y)] === Deco.Tree
         : terrainAt(map, x, y) === Terrain.Grass && hash01(7, x, y) < 0.1;
       if (!tree) continue;
-      // Keep the scenery road clear.
-      if (!inside && y === map.yOf(map.entry) && x < 0) continue;
+      // Keep the highway clear where it runs on past the ends of the map.
+      if (!inside && x >= 0 && x < HIGHWAY_COLUMNS) continue;
       spots.push({ x, y, s: 0.8 + hash01(9, x, y) * 0.5, v: hash01(13, x, y) });
     }
   }

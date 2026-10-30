@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { crossingClosed, railColumn } from '../src/sim/railway';
+import { exitRows, HIGHWAY_COLUMNS } from '../src/sim/roads';
 import { bulldozeError, OUTSIDE, placementError, terraformError } from '../src/sim/rules';
 import type { GameMap } from '../src/sim/map';
 import { isTownStreet, ownedByTown, TOWN_LAYOUT, TOWN_STAGES, townHomes } from '../src/sim/town';
-import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, TOWN_BAND } from '../src/sim/types';
+import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, townBand } from '../src/sim/types';
 import { World } from '../src/sim/world';
 
 /** Public road joined to `from`. */
@@ -22,9 +23,16 @@ function roadsFrom(m: GameMap, from: number): Set<number> {
   return seen;
 }
 
+/** The road off the town's exit from the highway, out past the port's land. */
+function townExit(m: GameMap): number {
+  const row = exitRows(m).find((y) => y > m.limit);
+  expect(row).toBeDefined();
+  return m.idx(HIGHWAY_COLUMNS, row!);
+}
+
 describe('Railway', () => {
   it.each([1, 2, 3, 7, 99, 1234, 777777])('runs the length of every map (seed %i)', (seed) => {
-    const m = World.create(seed).map;
+    const m = World.create(seed, 96).map;
     const x = railColumn(m);
     expect(x).toBeGreaterThanOrEqual(3);
     for (let y = 0; y < m.h; y++) {
@@ -35,7 +43,7 @@ describe('Railway', () => {
   });
 
   it('sends trains along now and then', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     let seen = 0;
     let wasRunning = false;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
@@ -48,7 +56,7 @@ describe('Railway', () => {
   });
 
   it('holds trucks at the crossing while the barriers are down', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const x = railColumn(m);
     const ey = m.yOf(m.entry);
@@ -73,7 +81,7 @@ describe('Railway', () => {
   });
 
   it('can be crossed by a public road but not built over or taken up', () => {
-    const world = World.create(5);
+    const world = World.create(5, 96);
     world.cash = 10_000;
     const m = world.map;
     const x = railColumn(m);
@@ -92,7 +100,7 @@ describe('Railway', () => {
 
 describe('Town', () => {
   it.each([1, 2, 3, 7, 99, 1234, 777777])('starts as a fishing village (seed %i)', (seed) => {
-    const world = World.create(seed);
+    const world = World.create(seed, 96);
     const t = world.town!;
     expect(t).not.toBeNull();
     const m = world.map;
@@ -100,16 +108,15 @@ describe('Town', () => {
     expect(townHomes(m)).toBeGreaterThanOrEqual(B.TOWN_START);
     expect(m.build.some((b) => b === Build.Chapel)).toBe(true);
     expect(m.build.some((b) => b === Build.FishMarket)).toBe(true);
-    // Out in the country past the port's land, with a road to the highway off the map's edge.
+    // Out in the country past the port's land, with a road to its own exit off the highway.
     for (let i = 0; i < m.build.length; i++) {
       if (ownedByTown(m, i)) expect(m.yOf(i)).toBeGreaterThan(m.limit);
     }
-    expect(m.xOf(t.gate)).toBe(0);
-    expect(roadsFrom(m, t.gate).has(t.centre)).toBe(true);
+    expect(roadsFrom(m, townExit(m)).has(t.centre)).toBe(true);
   });
 
   it.each([1, 3, 7, 99])('lays streets that never run two wide (seed %i)', (seed) => {
-    const world = World.create(seed);
+    const world = World.create(seed, 96);
     world.debug({ type: 'debug', town: 2500 });
     const m = world.map;
     for (let y = 0; y < m.h - 1; y++) {
@@ -121,7 +128,7 @@ describe('Town', () => {
   });
 
   it('takes deliveries from the hauliers, for a bonus', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
     let unloading = 0;
     for (let d = 0; d < 8; d++) {
@@ -135,7 +142,7 @@ describe('Town', () => {
   });
 
   it('is laid out again from an older save, as big as it was', () => {
-    const world = World.create(5);
+    const world = World.create(5, 96);
     world.debug({ type: 'debug', town: 600 });
     const homes = townHomes(world.map);
     const save = world.toSave();
@@ -143,11 +150,12 @@ describe('Town', () => {
     const loaded = World.fromSave(save);
     expect(loaded.town!.layout).toBe(TOWN_LAYOUT);
     expect(townHomes(loaded.map)).toBeGreaterThanOrEqual(homes);
-    expect(roadsFrom(loaded.map, loaded.town!.gate).has(loaded.town!.centre)).toBe(true);
+    expect(roadsFrom(loaded.map, townExit(loaded.map)).has(loaded.town!.centre)).toBe(true);
   });
 
   it('adds the country past the port to a save from before it', () => {
-    const world = World.create(5);
+    // On the 96-tile maps of then.
+    const world = World.create(5, 96);
     const save = world.toSave();
     const n = save.map.w * 96;
     // As saved before: 96 rows, no town, no line.
@@ -164,7 +172,7 @@ describe('Town', () => {
     delete save.rail;
     const loaded = World.fromSave(save);
     const m = loaded.map;
-    expect(m.h).toBe(96 + TOWN_BAND);
+    expect(m.h).toBe(96 + townBand(96));
     expect(m.limit).toBe(96);
     expect(m.yOf(loaded.town!.centre)).toBeGreaterThan(96);
     const x = railColumn(m);
@@ -174,7 +182,7 @@ describe('Town', () => {
   });
 
   it('cannot be built on, cleared or dredged by the player', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.cash = 1_000_000;
     const m = world.map;
     const field = m.build.findIndex(
@@ -187,7 +195,7 @@ describe('Town', () => {
   });
 
   it('grows with the port into a city, and keeps clear of it', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const m = world.map;
     const t = world.town!;
     t.demand = 3000;
@@ -213,7 +221,7 @@ describe('Town', () => {
   });
 
   it('grows from jobs and goods shipped, and shrinks back without them', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
     for (let d = 0; d < 10; d++) for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
     const t = world.town!;
@@ -223,7 +231,7 @@ describe('Town', () => {
   });
 
   it('is founded, with a railway, when an older save loads', () => {
-    const save = World.create(3).toSave();
+    const save = World.create(3, 96).toSave();
     // Take the town and line off the map, as a save from before them.
     save.map.build = save.map.build.map((b, i) =>
       isTownBuilding(b) || b === Build.Rail

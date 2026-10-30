@@ -25,7 +25,21 @@ export type Tool =
   | 'unmark'
   | 'forkliftOnly'
   | 'dredge'
-  | 'reclaim';
+  | 'reclaim'
+  | RoadTool;
+
+/** Tools for the rules of the road rather than for building. */
+export type RoadTool = 'highwayExit' | 'oneWay' | 'lights' | 'roundabout' | 'gateWay';
+export const ROAD_TOOLS: readonly RoadTool[] = [
+  'highwayExit',
+  'oneWay',
+  'lights',
+  'roundabout',
+  'gateWay',
+];
+export function isRoadTool(t: Tool): t is RoadTool {
+  return (ROAD_TOOLS as readonly string[]).includes(t);
+}
 
 export type Selection =
   | { type: 'entity'; id: number }

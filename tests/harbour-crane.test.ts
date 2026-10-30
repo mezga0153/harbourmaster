@@ -65,7 +65,7 @@ describe('Harbour crane', () => {
    * snapshot at `speed`, and watches the crane hand each container over.
    */
   function watch(speed: number, frames: number) {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.tier = 2;
     world.cash = 1_000_000;
     const crane = terminal(world);

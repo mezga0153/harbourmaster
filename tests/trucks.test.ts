@@ -16,7 +16,7 @@ function drive(
   then: (e: Entities, tick: number, moving: boolean) => void,
   extra = 0,
 ) {
-  const map = World.create(7).map;
+  const map = World.create(7, 96).map;
   const entities = new Entities(map);
   let [x, y] = route[0];
   let dir = Math.atan2(route[1][1] - y, route[1][0] - x);
@@ -171,7 +171,7 @@ describe('Articulated trucks', () => {
 
   it('does not jackknife pushed back', () => {
     // Round a corner and then straight back the way it came, still facing on.
-    const map = World.create(7).map;
+    const map = World.create(7, 96).map;
     const entities = new Entities(map);
     const at = (x: number, y: number, dir: number): EntityView => ({
       id: 1,

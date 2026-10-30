@@ -26,15 +26,25 @@ import {
   machinesOnly,
   unmarkable,
   unmarkRefund,
+  gateWay,
+  lightsError,
+  oneWayError,
+  ROUNDABOUT_RING,
+  roundaboutCost,
+  roundaboutError,
 } from './sim/rules';
+import { exitError, hasLights, HIGHWAY_COLUMNS, oneWay, stepFacing } from './sim/roads';
+import { TIERS } from './sim/tiers';
 import * as B from './sim/balance';
 import { isMachineKind, MACHINES } from './sim/machines';
 import { ownedByTown } from './sim/town';
 import { Build, isTownBuilding, STORE_CODE, type BuildKind } from './sim/types';
 import {
   hover,
+  isRoadTool,
   isStoreTool,
   openCategory,
+  type RoadTool,
   panel,
   preview,
   rotation,
@@ -128,6 +138,7 @@ export class Input {
       t === 'bulldoze' ||
       t === 'unmark' ||
       t === 'forkliftOnly' ||
+      t === 'oneWay' ||
       isStoreTool(t) ||
       t === 'dredge' ||
       t === 'reclaim' ||
@@ -178,6 +189,7 @@ export class Input {
         else if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
         else if (t === 'unmark') this.send({ type: 'unmark', tiles });
+        else if (isRoadTool(t)) this.sendRoad(t, tiles);
         else if (t === 'dredge' || t === 'reclaim') {
           this.send({ type: 'terraform', tiles, raise: t === 'reclaim' });
         } else if (t === 'forkliftOnly') {
@@ -322,6 +334,7 @@ export class Input {
     }
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
+    if (isRoadTool(t)) return this.previewRoad(map, t, this.tilesFor(i));
     if (t === 'unmark') return this.previewUnmark(map, this.tilesFor(i));
     if (isStoreTool(t)) return this.previewStore(map, t, this.tilesFor(i));
     if (t === 'jibCrane' || t === 'harbourCrane') this.showCraneGround(map, t, i, 0);
@@ -372,6 +385,32 @@ export class Input {
                 : -placementCost(map, t as BuildKind, tile);
       });
     }
+    // A public road up to the highway, meeting it head on, opens an exit there.
+    let note = TOOL_NOTES[t];
+    if (t === 'road') {
+      const meets = tiles.filter((k, n) => {
+        if (!ok[n] || map.xOf(k) !== HIGHWAY_COLUMNS) return false;
+        const y = map.yOf(k);
+        return ![y - 1, y + 1].some(
+          (r) =>
+            tiles.includes(map.idx(HIGHWAY_COLUMNS, r)) ||
+            (r >= 0 && r < map.h && map.build[map.idx(HIGHWAY_COLUMNS, r)] === Build.Road),
+        );
+      });
+      for (const k of meets) {
+        const tier = snapshot.value?.progress.tier ?? 0;
+        const why =
+          tier < B.EXIT_TIER
+            ? `exits open from the ${TIERS[B.EXIT_TIER].name}`
+            : exitError(map, map.yOf(k));
+        if (why)
+          note = `Meets the highway, but no exit opens: ${why[0].toLowerCase()}${why.slice(1)}`;
+        else {
+          note = `Meets the highway: an exit opens here, for $${B.EXIT_COST.toLocaleString('en-US')}`;
+          value -= B.EXIT_COST;
+        }
+      }
+    }
     this.renderer.overlay.setGhosts(map, tiles, ok);
     this.renderer.overlay.setArrow(map, null, 0);
     preview.value = {
@@ -379,7 +418,105 @@ export class Input {
       rotatable: false,
       value,
       error: pending.size === 0 ? error : null,
-      note: TOOL_NOTES[t],
+      note,
+    };
+  }
+
+  /** The gate's next way, clicking round: both ways, in only, out only. */
+  private nextGateWay(map: GameMap, i: number): 'both' | 'in' | 'out' {
+    const now = gateWay(map, anchorOf(map, i));
+    return now === 'both' ? 'in' : now === 'in' ? 'out' : 'both';
+  }
+
+  private sendRoad(t: RoadTool, tiles: number[]): void {
+    const map = this.getMap();
+    if (!map) return;
+    const i = tiles[tiles.length - 1];
+    if (t === 'oneWay') this.send({ type: 'oneWay', tiles, on: true });
+    else if (t === 'highwayExit') this.send({ type: 'exit', row: map.yOf(i) });
+    else if (t === 'lights') this.send({ type: 'lights', tile: i });
+    else if (t === 'roundabout') this.send({ type: 'roundabout', tile: i });
+    else this.send({ type: 'gateWay', tile: i, way: this.nextGateWay(map, i) });
+  }
+
+  /** What a road tool would do here, what it costs, and why not if it cannot. */
+  private previewRoad(map: GameMap, t: RoadTool, tiles: number[]): void {
+    const tier = snapshot.value?.progress.tier ?? 0;
+    const need =
+      t === 'highwayExit'
+        ? B.EXIT_TIER
+        : t === 'lights' || t === 'roundabout'
+          ? B.LIGHTS_TIER
+          : B.ONE_WAY_TIER;
+    const locked = tier < need ? `Unlocks at the ${TIERS[need].name}` : null;
+    const i = tiles[tiles.length - 1];
+    let shown = [i];
+    let ok = [false];
+    let value = 0;
+    let error: string | null = null;
+    let note: string | undefined;
+    let arrow: { at: number; facing: number } | null = null;
+    if (t === 'oneWay') {
+      shown = tiles;
+      ok = tiles.map((k) => !oneWayError(map, k));
+      const count = ok.filter(Boolean).length;
+      value = -count * B.ONE_WAY_COST;
+      error = count > 0 ? null : oneWayError(map, tiles[0]);
+      if (tiles.length > 1) {
+        arrow = { at: i, facing: stepFacing(map, tiles[tiles.length - 2], i) };
+        note = 'Traffic will go the way you drag';
+      } else if (oneWay(map, i) >= 0) {
+        arrow = { at: i, facing: oneWay(map, i) ^ 2 };
+        note = 'Click to turn it round';
+      } else note = 'Drag along the road the way the traffic should go';
+    } else if (t === 'highwayExit') {
+      const y = map.yOf(i);
+      shown = Array.from({ length: HIGHWAY_COLUMNS + 1 }, (_, x) => map.idx(x, y));
+      error =
+        map.xOf(i) > HIGHWAY_COLUMNS ? 'Click the highway, down the west edge' : exitError(map, y);
+      ok = shown.map(() => !error);
+      value = -B.EXIT_COST;
+    } else if (t === 'lights') {
+      error = lightsError(map, i);
+      ok = [!error];
+      const on = hasLights(map, i);
+      value = on ? 0 : -B.LIGHTS_COST;
+      if (on && !error) note = 'Click to take them down';
+    } else if (t === 'roundabout') {
+      const inside =
+        map.xOf(i) >= 1 && map.yOf(i) >= 1 && map.xOf(i) < map.w - 1 && map.yOf(i) < map.h - 1;
+      shown = inside
+        ? [i, ...ROUNDABOUT_RING.map(([dx, dy]) => map.idx(map.xOf(i) + dx, map.yOf(i) + dy))]
+        : [i];
+      error = inside ? roundaboutError(map, i) : 'Too near the edge of the map';
+      ok = shown.map(() => !error);
+      value = error ? 0 : -roundaboutCost(map, i);
+      note = 'The island goes on the tile you click';
+    } else {
+      const gate = map.build[anchorOf(map, i)] === Build.Gate;
+      error = gate ? null : 'Click a port gate';
+      ok = [gate];
+      if (gate) {
+        const next = this.nextGateWay(map, i);
+        note =
+          next === 'both'
+            ? 'Click to let trucks through both ways'
+            : `Click to let trucks only ${next}`;
+        value = -B.GATE_WAY_COST;
+      }
+    }
+    if (locked) {
+      error = locked;
+      ok = ok.map(() => false);
+    }
+    this.renderer.overlay.setGhosts(map, shown, ok);
+    this.renderer.overlay.setArrow(map, arrow?.at ?? null, arrow?.facing ?? 0);
+    preview.value = {
+      count: error ? 0 : ok.filter(Boolean).length,
+      rotatable: false,
+      value,
+      error,
+      note,
     };
   }
 
@@ -396,7 +533,7 @@ export class Input {
   private previewUnmark(map: GameMap, tiles: number[]): void {
     const ok = tiles.map((t) => {
       const what = unmarkable(map, t);
-      return what.store || what.machines;
+      return what.store || what.machines || what.road;
     });
     this.renderer.overlay.setGhosts(map, tiles, ok);
     this.renderer.overlay.setArrow(map, null, 0);

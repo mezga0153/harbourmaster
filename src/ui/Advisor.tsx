@@ -97,6 +97,26 @@ const TIPS: Record<string, Tip> = {
     text: 'People on foot and the hauliers’ trucks keep off ground marked for machines, outlined in red, so forklifts do not queue behind dockhands. Mind that dockhands can still get to the boats.',
     topic: 'machinesOnly',
   },
+  exits: {
+    title: 'A new highway exit',
+    text: 'Trucks come in off whichever end of the highway is nearer and take the exit nearest where they are going, so an exit beside a busy yard takes them off the port’s own roads. Out on the highway they drive fast and pass through each other: it never jams.',
+    topic: 'trucks',
+  },
+  oneWay: {
+    title: 'One-way roads',
+    text: 'Trucks never drive against the arrows, nor turn round on a one-way road, but may turn into and out of it. Going on along a one-way road they have the right of way over trucks joining it, so a loop of one-way road keeps traffic moving.',
+    topic: 'trucks',
+  },
+  lights: {
+    title: 'Traffic lights',
+    text: 'Trucks going north and south, then east and west, take turns on green, with all red in between to clear the junction. Lights help where a junction is busy every way; where one road is far busier, a roundabout or one-way roads may do better.',
+    topic: 'trucks',
+  },
+  roundabout: {
+    title: 'Roundabouts',
+    text: 'Trucks go round anticlockwise, keeping right, and those coming onto it give way to those already on it. A truck that has to turn about can go round it, rather than finding somewhere wide enough to turn.',
+    topic: 'trucks',
+  },
   tier1: {
     title: 'Coastal Wharf',
     text: 'Quays reach deeper water for coasters, forklifts and jib cranes speed up the work, and storage can be marked out on port roads and quays.',

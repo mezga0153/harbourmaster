@@ -38,6 +38,28 @@ import { extendMap, generateMap } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
 import {
+  exitError,
+  exitRows,
+  GATE_IN,
+  GATE_OUT,
+  greenAt,
+  hasHighway,
+  hasLights,
+  HIGHWAY_COLUMNS,
+  highwayIns,
+  highwayOuts,
+  isExit,
+  isHighway,
+  layHighway,
+  LIGHTS,
+  linked,
+  nearestEnd,
+  ONE_WAY,
+  oneWay,
+  setExit,
+  stepFacing,
+} from './roads';
+import {
   BUSINESSES,
   clearTown,
   foundTown,
@@ -98,6 +120,13 @@ import {
   truckCost,
   truckReach,
   walkableAt,
+  gateWay,
+  junctionAt,
+  lightsError,
+  oneWayError,
+  ROUNDABOUT_RING,
+  roundaboutCost,
+  roundaboutError,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -1067,8 +1096,9 @@ export class World {
     this.town = foundTown(this.map, townName(this.scenery), () => {});
   }
 
-  static create(seed: number): World {
-    const { map, spawn } = generateMap(seed);
+  /** A new game; `size`, the port's land, for a map as big as they were before. */
+  static create(seed: number, size?: number): World {
+    const { map, spawn } = generateMap(seed, size);
     const world = new World(seed, map, new Rng(seed));
     world.settle();
     for (let i = 0; i < map.build.length; i++) {
@@ -1213,8 +1243,12 @@ export class World {
     if (s.rail) world.rail = structuredClone(s.rail);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
+    // The highway runs down the map itself since it was laid on it.
+    world.layHighwayIn();
     if (s.town === undefined) world.settle();
     else if (s.town) world.relay({ ...s.town });
+    // The town's trucks drive to it off the highway now, not round past the map.
+    if (world.town) world.town.gate = -1;
     world.rebuildStores();
     return world;
   }
@@ -1318,6 +1352,16 @@ export class World {
         return this.bulldoze(cmd.tiles);
       case 'forkliftOnly':
         return this.markForkliftOnly(cmd.tiles, cmd.on);
+      case 'exit':
+        return this.openExit(cmd.row);
+      case 'oneWay':
+        return this.markOneWay(cmd.tiles, cmd.on);
+      case 'lights':
+        return this.toggleLights(cmd.tile);
+      case 'gateWay':
+        return this.setGateWay(cmd.tile, cmd.way);
+      case 'roundabout':
+        return this.buildRoundabout(cmd.tile);
       case 'unmark':
         return this.unmark(cmd.tiles);
       case 'store':
@@ -1409,6 +1453,7 @@ export class World {
       left = skipped;
     }
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
+    if (spent > 0 && kind === 'road') this.exitsFor(tiles);
     if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
       this.dockCache = null;
       const idle = this.docks().some((g) => !g.coordinated);
@@ -1485,6 +1530,224 @@ export class World {
     else if (firstError) this.message(firstError, 'bad');
   }
 
+  // ── Roads: the highway's exits, one-way roads, lights, gates ────
+
+  /**
+   * A public road just built up to the highway, meeting it head on rather
+   * than running alongside, opens an exit there; or says why it cannot.
+   */
+  private exitsFor(tiles: number[]): void {
+    const m = this.map;
+    if (!hasHighway(m)) return;
+    const road = (x: number, y: number) => m.inBounds(x, y) && isPublicRoad(m.build[m.idx(x, y)]);
+    const rows = new Set<number>();
+    for (const i of tiles) {
+      const y = m.yOf(i);
+      if (m.xOf(i) !== HIGHWAY_COLUMNS || !road(HIGHWAY_COLUMNS, y)) continue;
+      if (isExit(m, m.idx(1, y)) || road(HIGHWAY_COLUMNS, y - 1) || road(HIGHWAY_COLUMNS, y + 1))
+        continue;
+      rows.add(y);
+    }
+    for (const y of rows) this.openExit(y, true);
+  }
+
+  /** Open an exit off the highway at row `row`, and the road off it; `auto`, for a road built up to it. */
+  private openExit(row: number, auto = false): void {
+    const m = this.map;
+    const why = (text: string) =>
+      this.message(auto ? `The road meets the highway, but no exit opens: ${text}` : text, 'bad');
+    if (this.tier < B.EXIT_TIER) {
+      return why(
+        auto
+          ? `exits open from the ${TIERS[B.EXIT_TIER].name}.`
+          : `Highway exits open at the ${TIERS[B.EXIT_TIER].name}.`,
+      );
+    }
+    const err = exitError(m, row);
+    if (err) return why(auto ? `${err[0].toLowerCase()}${err.slice(1)}.` : err);
+    if (this.cash < B.EXIT_COST) {
+      return why(
+        auto ? `an exit costs $${B.EXIT_COST.toLocaleString('en-US')}.` : 'Not enough money',
+      );
+    }
+    this.book('construction', -B.EXIT_COST);
+    setExit(m, row, true);
+    const beside = m.idx(HIGHWAY_COLUMNS, row);
+    if (m.build[beside] === Build.None) {
+      m.build[beside] = Build.Road;
+      m.orient[beside] = 0;
+      m.deco[beside] = Deco.None;
+    }
+    for (let x = 0; x <= HIGHWAY_COLUMNS; x++) this.dirty.add(m.idx(x, row));
+    this.moneyAt(-B.EXIT_COST, beside);
+    this.tip('exits');
+  }
+
+  /**
+   * Make road tiles one way, the way the drag ran over them (the last the
+   * way it came onto it); one tile on its own is turned the other way.
+   * With `on` false, they go back to two way.
+   */
+  private markOneWay(tiles: number[], on: boolean): void {
+    const m = this.map;
+    if (this.tier < B.ONE_WAY_TIER) {
+      return this.message(`One-way roads unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
+    }
+    let spent = 0;
+    let firstError: string | null = null;
+    tiles.forEach((i, k) => {
+      if (i < 0 || i >= m.build.length || firstError === 'Not enough money') return;
+      const err = oneWayError(m, i);
+      if (err) {
+        firstError ??= err;
+        return;
+      }
+      const was = oneWay(m, i);
+      if (!on) {
+        if (was < 0) return;
+        m.orient[i] &= ~ONE_WAY;
+        this.dirty.add(i);
+        return;
+      }
+      const next = tiles[k + 1];
+      const prev = tiles[k - 1];
+      const along = (a: number, b: number) => m.neighbors4(a).includes(b);
+      const f =
+        next !== undefined && along(i, next)
+          ? stepFacing(m, i, next)
+          : prev !== undefined && along(prev, i)
+            ? stepFacing(m, prev, i)
+            : was >= 0
+              ? was ^ 2
+              : -1;
+      if (f < 0) {
+        firstError ??= 'Drag along the road the way the traffic should go';
+        return;
+      }
+      if (f === was) return;
+      if (this.cash < B.ONE_WAY_COST) {
+        firstError = 'Not enough money';
+        return;
+      }
+      this.book('construction', -B.ONE_WAY_COST);
+      spent += B.ONE_WAY_COST;
+      m.orient[i] = (m.orient[i] & ~3) | ONE_WAY | f;
+      this.dirty.add(i);
+    });
+    if (spent > 0) {
+      this.moneyAt(-spent, tiles[tiles.length - 1]);
+      this.tip('oneWay');
+    } else if (firstError) this.message(firstError, 'bad');
+  }
+
+  /** Put up traffic lights at a junction, or take them down again for nothing back. */
+  private toggleLights(i: number): void {
+    const m = this.map;
+    if (i < 0 || i >= m.build.length) return;
+    if (this.tier < B.LIGHTS_TIER) {
+      return this.message(`Traffic lights unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
+    }
+    const err = lightsError(m, i);
+    if (err) return this.message(err, 'bad');
+    const tiles = [i];
+    const on = !hasLights(m, i);
+    if (on && this.cash < B.LIGHTS_COST) return this.message('Not enough money', 'bad');
+    if (on) {
+      this.book('construction', -B.LIGHTS_COST);
+      this.moneyAt(-B.LIGHTS_COST, i);
+      this.tip('lights');
+    }
+    for (const t of tiles) {
+      m.orient[t] = on ? m.orient[t] | LIGHTS : m.orient[t] & ~LIGHTS;
+      this.dirty.add(t);
+    }
+  }
+
+  /** Let trucks through a port gate both ways, only in, or only out. */
+  private setGateWay(i: number, way: 'both' | 'in' | 'out'): void {
+    const m = this.map;
+    if (i < 0 || i >= m.build.length) return;
+    const g = anchorOf(m, i);
+    if (m.build[g] !== Build.Gate) return this.message('Pick a port gate', 'bad');
+    if (this.tier < B.ONE_WAY_TIER) {
+      return this.message(`One-way gates unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
+    }
+    if (gateWay(m, g) === way) return;
+    if (this.cash < B.GATE_WAY_COST) return this.message('Not enough money', 'bad');
+    this.book('construction', -B.GATE_WAY_COST);
+    this.moneyAt(-B.GATE_WAY_COST, g);
+    const bits = way === 'in' ? GATE_IN : way === 'out' ? GATE_OUT : 0;
+    m.orient[g] = (m.orient[g] & ~(GATE_IN | GATE_OUT)) | bits;
+    this.dirty.add(g);
+  }
+
+  /** A roundabout round an island at `c`: a ring of one-way road, keeping right. */
+  private buildRoundabout(c: number): void {
+    const m = this.map;
+    if (c < 0 || c >= m.build.length) return;
+    if (this.tier < B.LIGHTS_TIER) {
+      return this.message(`Roundabouts unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
+    }
+    const err = roundaboutError(m, c);
+    if (err) return this.message(err, 'bad');
+    const cost = roundaboutCost(m, c);
+    if (this.cash < cost) return this.message('Not enough money', 'bad');
+    this.book('construction', -cost);
+    this.moneyAt(-cost, c);
+    const cx = m.xOf(c);
+    const cy = m.yOf(c);
+    // The island in the middle.
+    m.build[c] = Build.None;
+    m.orient[c] = 0;
+    m.deco[c] = Deco.None;
+    this.dirty.add(c);
+    for (const [dx, dy, f] of ROUNDABOUT_RING) {
+      const i = m.idx(cx + dx, cy + dy);
+      m.build[i] = Build.Road;
+      m.orient[i] = ONE_WAY | f;
+      m.deco[i] = Deco.None;
+      this.dirty.add(i);
+    }
+    this.tip('roundabout');
+  }
+
+  /**
+   * Lay the highway down the west edge of a map from before it ran on the
+   * map: the roads that went off the edge there join it at exits, and
+   * anything else in its way is cleared. Trucks out on the old highway
+   * round to the town head off.
+   */
+  private layHighwayIn(): void {
+    const m = this.map;
+    if (hasHighway(m)) return;
+    const exits = new Set<number>([m.yOf(m.entry)]);
+    let cleared = false;
+    for (let y = 0; y < m.h; y++) {
+      if (isPublicRoad(m.build[m.idx(0, y)]) && isPublicRoad(m.build[m.idx(HIGHWAY_COLUMNS, y)])) {
+        exits.add(y);
+      }
+      for (let x = 0; x < HIGHWAY_COLUMNS; x++) {
+        const i = m.idx(x, y);
+        if (m.build[i] === Build.None || isPublicRoad(m.build[i])) continue;
+        this.bays.delete(i);
+        this.yards.delete(i);
+        cleared = true;
+      }
+    }
+    const row = m.yOf(m.entry);
+    const beside = m.idx(HIGHWAY_COLUMNS, row);
+    if (m.build[beside] === Build.None) m.build[beside] = Build.Road;
+    layHighway(m, exits);
+    m.entry = m.idx(HIGHWAY_COLUMNS - 1, row);
+    if (cleared) this.rebuildStores();
+    for (const t of this.trucks) {
+      if (!t.round && !t.then) continue;
+      t.round = undefined;
+      t.then = undefined;
+      this.headOut(t);
+    }
+  }
+
   /** Mark port road and quay tiles out as storage, or clear them, for a refund. */
   /**
    * Clear whatever marks lie on the tiles: storage, which gives back what
@@ -1504,7 +1767,8 @@ export class World {
         stores = true;
       }
       if (what.machines) this.map.orient[i] &= ~FORKLIFT_ONLY;
-      if (what.store || what.machines) {
+      if (what.road) this.map.orient[i] &= ~(ONE_WAY | LIGHTS);
+      if (what.store || what.machines || what.road) {
         this.dirty.add(i);
         any = true;
       }
@@ -1766,6 +2030,12 @@ export class World {
       }
       this.book('construction', value);
       net += value;
+      if (isHighway(this.map.build[i])) {
+        // Closing an exit: the barrier down the middle goes back across.
+        setExit(this.map, this.map.yOf(i), false);
+        for (let x = 0; x < HIGHWAY_COLUMNS; x++) this.dirty.add(this.map.idx(x, this.map.yOf(i)));
+        continue;
+      }
       if (this.map.build[i] === Build.Gantry) {
         this.cranes.delete(i);
         freed.push(...gantryGround(this.map, i, this.map.orient[i] & 3));
@@ -7701,10 +7971,11 @@ export class World {
     const m = this.map;
     for (const c of this.shippers()) {
       if (this.tick < c.nextBoatTick) continue;
-      if (!this.entryClear()) return;
       const wide = needsWideSpace(c.terms.capacity, c.terms.cargo === 'container');
       const space = this.freeParking(null, true, wide);
-      const into = space ? this.intoSpace(m.entry, space, -1) : null;
+      const from = this.arrival(space ? space.tiles[0] : m.entry);
+      if (!this.entryClear(from.tile)) continue;
+      const into = space ? this.intoSpace(from.tile, space, -1) : null;
       if (!space || !into) {
         c.nextBoatTick = this.tick + 60;
         this.tip('parking');
@@ -7721,9 +7992,9 @@ export class World {
         contractId: c.id,
         company: c.terms.name,
         capacity: c.terms.capacity,
-        x: m.xOf(m.entry) + 0.5,
-        y: m.yOf(m.entry) + 0.5,
-        dir: 0,
+        x: m.xOf(from.tile) + 0.5,
+        y: m.yOf(from.tile) + 0.5,
+        dir: from.dir,
         path: into.path,
         goal: into.path[into.path.length - 1],
         park: space.tiles[0],
@@ -9376,7 +9647,19 @@ export class World {
           .neighbors4(bay.idx)
           .filter((n) => reach[n] >= 0)
           .map((n) => reach[n] + 1);
-    return ends.length > 0 ? Math.min(...ends) : Infinity;
+    if (ends.length === 0) return Infinity;
+    // The way along the highway goes twice as fast as on other roads: as
+    // so much shorter a drive.
+    return Math.min(...ends) - this.highwayLeg() * (1 - B.TRUCK_SPEED / B.HIGHWAY_SPEED);
+  }
+
+  /** Tiles along the highway from its nearer end to the nearest exit, or 0 without one. */
+  private highwayLeg(): number {
+    const m = this.map;
+    if (!hasHighway(m)) return 0;
+    let best = Infinity;
+    for (const y of exitRows(m)) best = Math.min(best, y, m.h - 1 - y);
+    return Number.isFinite(best) ? best : 0;
   }
 
   /** A dock at this bay no truck is using or heading for, or -1. */
@@ -9433,7 +9716,8 @@ export class World {
       if (!path) continue;
       // It has to be able to drive away again, never backing out.
       const came = path.length >= 2 ? path[path.length - 2] : -1;
-      const out = this.drivePath(dock, came, m.entry, this.truckCost(m.entry, bay.idx));
+      const away = this.departure(dock);
+      const out = this.drivePath(dock, came, away, this.truckCost(away, bay.idx));
       if (!out) {
         this.dockTurn = true;
         continue;
@@ -9706,7 +9990,8 @@ export class World {
       if (bay.crates.length >= bayCap(bay)) this.bayFullTicks += 10;
     }
     for (const bay of bays) {
-      if (!this.entryClear()) return;
+      const from = this.arrival(bay.idx);
+      if (!this.entryClear(from.tile)) continue;
       // Container trucks collect containers; big trucks only fit a large bay.
       const free = (h: (typeof hauliers)[number]) => (out.get(h.id) ?? 0) < h.terms.fleet;
       // A container truck goes only for a full load: as many cleared
@@ -9748,7 +10033,8 @@ export class World {
       const served = !boxy || this.handlerFree(bay);
       const to = this.dockFor(
         bay,
-        (d, avoid) => this.drivePath(m.entry, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
+        (d, avoid) =>
+          this.drivePath(from.tile, -1, d, this.avoiding(this.truckCost(bay.idx), avoid)),
         B.truckLength(haulier.terms.capacity, boxy),
       );
       // No way to any free spot at all, rather than only past a truck there:
@@ -9764,7 +10050,7 @@ export class World {
       const space = spot >= 0 ? null : this.freeParking(bay, false, wide);
       // A bay beside it may have just sent a truck to the spot they share.
       if (spot < 0 && !space) continue;
-      const into = space ? this.intoSpace(m.entry, space, bay.idx) : null;
+      const into = space ? this.intoSpace(from.tile, space, bay.idx) : null;
       const path = space ? (into?.path ?? null) : (to?.path ?? null);
       const dock = path && path.length > 0 ? path[path.length - 1] : spot;
       if (!path) {
@@ -9778,9 +10064,9 @@ export class World {
         contractId: haulier.id,
         company: haulier.terms.name,
         capacity: haulier.terms.capacity,
-        x: m.xOf(m.entry) + 0.5,
-        y: m.yOf(m.entry) + 0.5,
-        dir: 0,
+        x: m.xOf(from.tile) + 0.5,
+        y: m.yOf(from.tile) + 0.5,
+        dir: from.dir,
         path,
         goal: dock,
         state: space ? 'toPark' : 'toBay',
@@ -10019,7 +10305,7 @@ export class World {
         return;
       }
       case 'leaving': {
-        const cost = this.truckCost(this.map.entry, t.bayIdx, t);
+        const cost = this.truckCost(t.goal, t.bayIdx, t);
         const r = this.move(
           t,
           cost,
@@ -10088,11 +10374,19 @@ export class World {
       t.lastY = t.y;
       // Off the map at the end of the way, it drives on out.
       const stop = t.state !== 'leaving';
-      if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, B.TRUCK_SPEED, Infinity, stop);
+      // Up to speed on the highway, between its exits, slowing for one ahead.
+      const here = this.tileOf(t);
+      const fast =
+        isHighway(this.map.build[here]) &&
+        [here, t.path[0], t.path[1]].every(
+          (i) => i === undefined || (isHighway(this.map.build[i]) && !isExit(this.map, i)),
+        );
+      const speed = fast ? B.HIGHWAY_SPEED : B.TRUCK_SPEED;
+      if (t.held > B.TRUCK_SQUEEZE_AFTER * 4) return this.drive(t, speed, Infinity, stop);
       const gap = this.gapAhead(t) - B.TRUCK_GAP;
       const room = Math.min(gap, this.toStopLine(t), this.toCrossing(t, gap));
       if (cost && t.held === B.REROUTE_AFTER) this.goRound(t, cost);
-      return this.drive(t, B.TRUCK_SPEED, room, stop);
+      return this.drive(t, speed, room, stop);
     };
   }
 
@@ -10218,6 +10512,9 @@ export class World {
       // of it gets by.
       if (o === t || !(this.onRoad(o) || this.docked(o))) continue;
       if (t.passing?.ids.includes(o.id)) continue;
+      // Out on the highway, off the port's ground, trucks pass through each
+      // other rather than ever queue: none holds up another there.
+      if (isHighway(this.map.build[this.tileOf(o)])) continue;
       const along = this.docked(o) ? this.onWay(t, o) : this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
@@ -10420,19 +10717,8 @@ export class World {
     if (this.junctionCache) return this.junctionCache;
     const m = this.map;
     const road = truckCost(m);
-    const ok = (x: number, y: number) => m.inBounds(x, y) && Number.isFinite(road(m.idx(x, y)));
     const out = new Uint8Array(m.build.length);
-    for (let i = 0; i < m.build.length; i++) {
-      if (!Number.isFinite(road(i))) continue;
-      const ways = m.neighbors4(i).filter((n) => Number.isFinite(road(n))).length;
-      if (ways < 3) continue;
-      const x = m.xOf(i);
-      const y = m.yOf(i);
-      const open = [-1, 1].some((dx) =>
-        [-1, 1].some((dy) => ok(x + dx, y) && ok(x, y + dy) && ok(x + dx, y + dy)),
-      );
-      if (!open) out[i] = 1;
-    }
+    for (let i = 0; i < m.build.length; i++) if (junctionAt(m, i, road)) out[i] = 1;
     this.junctionCache = out;
     return out;
   }
@@ -10448,17 +10734,24 @@ export class World {
     if (!this.turnCache) {
       const m = this.map;
       const road = truckCost(m);
-      const ok = (x: number, y: number) => m.inBounds(x, y) && Number.isFinite(road(m.idx(x, y)));
+      const ok = (x: number, y: number) =>
+        m.inBounds(x, y) && Number.isFinite(road(m.idx(x, y))) && !isHighway(m.build[m.idx(x, y)]);
       const out = new Uint8Array(m.build.length);
       const junctions = this.junctions();
+      // No coming round on the highway, nor anywhere on a one-way road.
+      const highway = hasHighway(m);
       for (let k = 0; k < m.build.length; k++) {
         const b = m.build[k];
-        if (k === m.entry || k === this.town?.gate || isBay(b) || isTownBuilding(b)) {
+        if (isHighway(b) || oneWay(m, k) >= 0) continue;
+        const end = !highway && (k === m.entry || k === this.town?.gate);
+        if (end || isBay(b) || isTownBuilding(b)) {
           out[k] = 1;
           continue;
         }
         if (!Number.isFinite(road(k))) continue;
-        const ways = m.neighbors4(k).filter((n) => Number.isFinite(road(n))).length;
+        const ways = m
+          .neighbors4(k)
+          .filter((n) => Number.isFinite(road(n)) && linked(m, k, n)).length;
         const x = m.xOf(k);
         const y = m.yOf(k);
         const open = [-1, 1].some((dx) =>
@@ -10494,10 +10787,36 @@ export class World {
     return m.inBounds(x, y) ? m.idx(x, y) : -1;
   }
 
-  /** How much a road's traffic has priority: public road over port road, both over parking. */
+  /**
+   * How much a road's traffic has priority: the highway over public road,
+   * public road over port road, all over parking.
+   */
   private roadRank(i: number): number {
     const b = this.map.build[i];
-    return isPublicRoad(b) ? 2 : b === Build.Parking ? 0 : 1;
+    return isHighway(b) ? 3 : isPublicRoad(b) ? 2 : b === Build.Parking ? 0 : 1;
+  }
+
+  /**
+   * Where a truck coming in for `goal` comes onto the map: off the end of
+   * the highway nearer it, heading in; on a map without one, at the end of
+   * the main road.
+   */
+  private arrival(goal: number): { tile: number; dir: number } {
+    const m = this.map;
+    if (!hasHighway(m)) return { tile: m.entry, dir: 0 };
+    const ins = highwayIns(m);
+    const tile = nearestEnd(
+      m,
+      ins.map((s) => s.tile),
+      m.yOf(goal),
+    );
+    return ins.find((s) => s.tile === tile)!;
+  }
+
+  /** Where a truck at `from` leaves the map: the end of the highway nearer it. */
+  private departure(from: number): number {
+    const m = this.map;
+    return hasHighway(m) ? nearestEnd(m, highwayOuts(m), m.yOf(from)) : m.entry;
   }
 
   /** Unit heading from tile `a` to the neighbouring tile `b`. */
@@ -10543,6 +10862,8 @@ export class World {
       // rather than stop across the junction.
       const d = Math.hypot(m.xOf(i) + 0.5 - t.x, m.yOf(i) + 0.5 - t.y);
       if (d - 0.5 < this.vehicleLength(t) / 2 - 0.05 && i === t.path[0]) return true;
+      // Onto and along the highway nobody gives way: they pass through each other there.
+      if (isHighway(m.build[i])) return true;
       if (!this.level(i)) return false;
       const here = this.tileOf(t);
       const fromParking = m.build[here] === Build.Parking && m.build[i] !== Build.Parking;
@@ -10550,12 +10871,25 @@ export class World {
       const held = this.heldFor(t);
       if (held > B.TRUCK_SQUEEZE_AFTER * 2) return true;
       if (!this.roomPast(t, i)) return false;
-      if (held > B.TRUCK_SQUEEZE_AFTER) return true;
-
       const [hx, hy] = this.heading(here, i);
       const exit = t.path[1];
       const [ex, ey] = exit === undefined ? [hx, hy] : this.heading(i, exit);
-      const rank = fromParking ? 0 : this.roadRank(here);
+      // Traffic lights: only on green, then minding what is still across it.
+      if (hasLights(m, i)) {
+        const green = greenAt(i, this.tick);
+        if (green !== (hx !== 0 ? 'ew' : 'ns')) return false;
+        for (const o of this.traffic()) {
+          if (o === t || this.tileOf(o) !== i || !this.rolling(o)) continue;
+          const ox = Math.cos(o.dir);
+          const oy = Math.sin(o.dir);
+          if (ox * ex + oy * ey > 0.7 || ox * hx + oy * hy < -0.7) continue;
+          return false;
+        }
+        return true;
+      }
+      if (held > B.TRUCK_SQUEEZE_AFTER) return true;
+
+      const rank = fromParking ? 0 : this.roadRank(here) + this.onOneWay(here, i);
       const cx = m.xOf(i) + 0.5;
       const cy = m.yOf(i) + 0.5;
       for (const o of this.traffic()) {
@@ -10582,7 +10916,7 @@ export class World {
         const theirRank =
           m.build[there] === Build.Parking && m.build[i] !== Build.Parking
             ? 0
-            : this.roadRank(there);
+            : this.roadRank(there) + this.onOneWay(there, i);
         const fromRight = dx * -hy + dy * hx > 0.5;
         const yields = theirRank > rank || (theirRank === rank && fromRight);
         if (!yields) continue;
@@ -10594,11 +10928,24 @@ export class World {
     };
   }
 
-  /** Nobody standing at the highway end of the road, where new trucks come in. */
-  private entryClear(): boolean {
+  /**
+   * Traffic already on a one-way road, going on along it through a
+   * junction, has the right of way over traffic joining it: round a
+   * roundabout, and down a one-way street.
+   */
+  private onOneWay(from: number, junction: number): number {
     const m = this.map;
-    const cx = m.xOf(m.entry) + 0.5;
-    const cy = m.yOf(m.entry) + 0.5;
+    const f = oneWay(m, junction);
+    return !isHighway(m.build[junction]) && f >= 0 && oneWay(m, from) >= 0 ? 0.5 : 0;
+  }
+
+  /** Nobody standing at the end of the highway (or road) where a new truck comes in. */
+  private entryClear(tile = this.map.entry): boolean {
+    const m = this.map;
+    // Trucks on the highway pass through each other.
+    if (isHighway(m.build[tile])) return true;
+    const cx = m.xOf(tile) + 0.5;
+    const cy = m.yOf(tile) + 0.5;
     return this.trucks.every(
       (o) =>
         !this.onRoad(o) || Math.hypot(o.x - cx, o.y - cy) > this.lengthOf(o) + B.TRUCK_GAP + 0.2,
@@ -10702,7 +11049,12 @@ export class World {
     const m = this.map;
     const here = this.tileOf(t);
     const gate = this.town?.gate ?? -1;
-    const exits = gate >= 0 && m.yOf(here) > m.limit ? [gate, m.entry] : [m.entry];
+    // Off the highway at the nearer end, or the other if that is no way out.
+    const exits = hasHighway(m)
+      ? [this.departure(here), ...highwayOuts(m).filter((e) => e !== this.departure(here))]
+      : gate >= 0 && m.yOf(here) > m.limit
+        ? [gate, m.entry]
+        : [m.entry];
     for (const exit of exits) {
       const path = this.routeFrom(t, exit, this.truckCost(exit, t.bayIdx, t));
       if (!path) continue;

@@ -45,8 +45,12 @@ export const PAPERWORK_TICKS = TICKS_PER_DAY;
 export const LOAD_WAIT = 300;
 /** A tile of truck parking, one truck to a tile. */
 export const PARKING_COST = 60;
-/** Ticks a truck is away once it leaves the port, on its round and back, before its haulier can send it again. */
-export const TRUCK_ROUND_TRIP = 120;
+/**
+ * Ticks a truck is away once it leaves the map, on its round and back,
+ * before its haulier can send it again: on top of its drive along the
+ * highway on the map, either way.
+ */
+export const TRUCK_ROUND_TRIP = 40;
 /** Ticks a container waits in the yard for customs to clear it before a truck may take it: a day. */
 export const CUSTOMS_TICKS = TICKS_PER_DAY;
 export const BAY_CAPACITY = 12;
@@ -326,6 +330,26 @@ export const DIG_LAND_COST = 800; // digging a shore tile out into sea
 export const RECLAIM_COST = 500; // per tile, per step shallower
 export const MAX_DREDGE_DEPTH = 12;
 export const TERRAFORM_TIER = 1;
+
+// Roads: the highway's exits, one-way roads and gates, traffic lights.
+/** Opening a new exit off the highway, with its slip road. */
+export const EXIT_COST = 6000;
+export const EXIT_TIER = 2;
+/**
+ * Trucks drive the highway this fast between its exits, in tiles a tick:
+ * nearly three times their pace on other roads. They pass through each
+ * other out there, so nothing ahead is ever in the way.
+ */
+export const HIGHWAY_SPEED = 2;
+/** Painting one tile of road one way. */
+export const ONE_WAY_COST = 15;
+export const ONE_WAY_TIER = 1;
+/** Making a port gate one way. */
+export const GATE_WAY_COST = 100;
+export const LIGHTS_COST = 800;
+export const LIGHTS_TIER = 2;
+/** A roundabout: a ring of one-way road round a little island, 3×3. */
+export const ROUNDABOUT_COST = 1200;
 
 export const BUOY_COST = 150;
 /** How far to one side of a lone buoy a boat passes it, in tiles. */

@@ -71,7 +71,7 @@ function terminal(world: World): number {
 
 /** The terminal with a tug, a feeder a day and container trucks calling. */
 function feederPort(): World {
-  const world = World.create(7);
+  const world = World.create(7, 96);
   world.tier = 2;
   world.cash = 1_000_000;
   const crane = terminal(world);

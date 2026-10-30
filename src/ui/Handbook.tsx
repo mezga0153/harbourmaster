@@ -229,14 +229,20 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          Hauliers' trucks come in from the highway along public roads, and onto port roads only
-          through a port gate. They load at truck bays and beside storage, and you are paid as each
-          one leaves.
+          Hauliers' trucks come in off the highway down the west edge of the map, at its nearer end,
+          and turn off at the exit nearest where they are going. They drive on along public roads,
+          and onto port roads only through a port gate. They load at truck bays and beside storage,
+          and you are paid as each one leaves.
         </p>
         <ul>
           <li>
-            A truck that leaves is away on its round for about {hours(B.TRUCK_ROUND_TRIP)} h before
-            its haulier can send it again, so the size of the fleet matters.
+            Out on the highway trucks drive fast and pass through each other, so it never jams. From
+            the {TIERS[B.EXIT_TIER].name} you can open more exits off it, to bring trucks in nearer
+            where they load: build a public road up to it, or use the exit tool.
+          </li>
+          <li>
+            A truck that leaves the map is away on its round for about {hours(B.TRUCK_ROUND_TRIP)} h
+            before its haulier can send it again, so the size of the fleet matters.
           </li>
           <li>
             Big trucks ({B.BIG_TRUCK_CAPACITY} crates) only fit a large truck bay or crate storage.
@@ -254,6 +260,16 @@ export const TOPICS: Record<TopicId, Topic> = {
           outside the port: shippers' trucks wait there for their paperwork. Between port roads,
           behind a gate, it is inside: trucks queue there for a free loading spot instead of going
           away. Select parking to see whether it works, and why not.
+        </p>
+        <p>
+          <b>Junctions.</b> Where roads meet, trucks give way to those on the bigger road, and on
+          roads alike to those coming from their right. From the {TIERS[B.ONE_WAY_TIER].name}:{' '}
+          <b>one-way roads</b>, which trucks never drive against nor turn round on, and traffic
+          going on along one has the right of way over traffic joining it; and <b>one-way gates</b>,
+          so trucks come in by one gate and leave by another. From the {TIERS[B.LIGHTS_TIER].name}:{' '}
+          <b>traffic lights</b>, which let each way through in turn, and <b>roundabouts</b>, a ring
+          of one-way road round an island, where trucks coming on give way to those already going
+          round. Port machines keep to none of these: they go where they need to inside the port.
         </p>
       </>
     ),

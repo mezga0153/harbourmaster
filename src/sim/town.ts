@@ -2,6 +2,7 @@ import * as B from './balance';
 import type { GameMap } from './map';
 import { fbm, hash01 } from './noise';
 import { MinHeap } from './path';
+import { exitError, HIGHWAY_COLUMNS, isHighway, linked, setExit } from './roads';
 import { Build, Deco, isPublicRoad, isTownBuilding, Terrain } from './types';
 
 // The town up the coast. It starts as a fishing village and grows with
@@ -14,8 +15,9 @@ import { Build, Deco, isPublicRoad, isTownBuilding, Terrain } from './types';
 export const TOWN = 128;
 
 /**
- * The highway past the west edge of the map runs north to south along
- * here, joining the port's road to the town's.
+ * Where the highway ran, past the west edge of the map, before it was laid
+ * on the map itself: trucks from older saves still on their way round it
+ * finish the trip this way.
  */
 export const HIGHWAY_X = -3.5;
 
@@ -156,6 +158,7 @@ function playerBuilt(map: GameMap, i: number): boolean {
     b !== Build.Road &&
     b !== Build.Rail &&
     b !== Build.Crossing &&
+    !isHighway(b) &&
     !isTownBuilding(b)
   );
 }
@@ -165,6 +168,8 @@ function free(map: GameMap, i: number): boolean {
   if (i < 0 || map.build[i] !== Build.None || !map.isLand(i)) return false;
   // Out in the country past the port's land, with a field's width to spare.
   if (map.yOf(i) <= map.limit) return false;
+  // Off the highway's verge, where exits are opened.
+  if (map.xOf(i) < HIGHWAY_COLUMNS + 2) return false;
   const x = map.xOf(i);
   const y = map.yOf(i);
   for (let dy = -2; dy <= 2; dy++) {
@@ -395,8 +400,10 @@ function truckRoads(map: GameMap): Uint8Array {
   const queue = [map.entry];
   out[map.entry] = 1;
   for (let head = 0; head < queue.length; head++) {
-    for (const n of map.neighbors4(queue[head])) {
-      if (!out[n] && isPublicRoad(map.build[n])) {
+    const cur = queue[head];
+    for (const n of map.neighbors4(cur)) {
+      const b = map.build[n];
+      if (!out[n] && (isPublicRoad(b) || isHighway(b)) && linked(map, cur, n)) {
         out[n] = 1;
         queue.push(n);
       }
@@ -444,6 +451,8 @@ function route(
       if (j < 0 || !map.isLand(j) || used.has(j) || map.yOf(j) <= map.limit) continue;
       const b = map.build[j];
       let c: number;
+      // Onto the highway only at its own exit, the goal beside it.
+      if (isHighway(b)) continue;
       // Joins the trucks' road well inland of the port, leaving it room to grow.
       if (roads[j] && b !== Build.Crossing) c = 0.5 + Math.max(0, 10 - near[j]) * 4;
       else if (b === Build.Rail) {
@@ -484,15 +493,16 @@ function route(
 }
 
 /**
- * The town's road out to the highway beyond the west edge of the map, by
+ * The town's road out to the highway down the west edge of the map, by
  * way of a spot off to one side so it bends rather than running straight.
- * Returns the tiles after `from`, the last on the edge, or [] when there is
- * no way through.
+ * Returns the tiles after `from`, the last beside the highway, where it
+ * has an exit of its own, or [] when there is no way through.
  */
 function highwayRoute(map: GameMap, from: number, seed: number): number[] {
   const roads = truckRoads(map);
   const near = portDistance(map);
-  const out = (i: number) => map.xOf(i) === 0 && map.yOf(i) > map.limit;
+  const out = (i: number) =>
+    map.xOf(i) === HIGHWAY_COLUMNS && map.yOf(i) > map.limit && !exitError(map, map.yOf(i));
   const fx = map.xOf(from);
   const fy = map.yOf(from);
   // Halfway to the edge, pushed off up or down the coast.
@@ -581,10 +591,14 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
       street(i);
     }
   }
-  // …and the road inland, out to the highway past the edge of the map.
+  // …and the road inland, out to its own exit off the highway.
   const out = highwayRoute(map, best, best ^ 0x2c1);
   for (const i of out) street(i);
-  if (out.length > 0) t.gate = out[out.length - 1];
+  const end = out.length > 0 ? out[out.length - 1] : -1;
+  if (end >= 0 && map.xOf(end) === HIGHWAY_COLUMNS) {
+    setExit(map, map.yOf(end), true);
+    for (let x = 0; x < HIGHWAY_COLUMNS; x++) touch(map.idx(x, map.yOf(end)));
+  }
 
   // Fish sheds on the beach below the village, doors to the sea.
   const cx = map.xOf(best);

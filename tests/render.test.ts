@@ -67,7 +67,7 @@ describe('Forklifts turning about', () => {
 
 describe('Dockhands handling crates', () => {
   it('have a crate down on the ground as it leaves or reaches their hands', () => {
-    const world = World.create(7);
+    const world = World.create(7, 96);
     const entities = new Entities(world.map);
     const crate = new Vector3();
     const held = new Map<number, { shown: boolean; y: number }>();
@@ -101,7 +101,7 @@ describe('Jib cranes', () => {
     // The starting jetty paved into a quay, a jib crane on its end, a
     // forklift to take on what it lands, and no dockhands to unload the
     // boats by hand.
-    const world = World.create(7);
+    const world = World.create(7, 96);
     world.boats.length = 0;
     world.tier = 1;
     world.cash = 100_000;

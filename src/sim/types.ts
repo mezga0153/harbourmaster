@@ -1,8 +1,13 @@
 export const TICKS_PER_SECOND = 10;
 export const TICKS_PER_DAY = 600;
-export const MAP_SIZE = 96;
+export const MAP_SIZE = 192;
 /** Rows of country along the south edge, past the port's land, where the town is. */
-export const TOWN_BAND = 36;
+export const TOWN_BAND = 72;
+
+/** The country band for a port's land `size` tiles square: as on the first, smaller maps. */
+export function townBand(size: number): number {
+  return Math.round((size * 3) / 8);
+}
 
 export const Terrain = { Water: 0, Sand: 1, Grass: 2, Rock: 3 } as const;
 export type TerrainCode = (typeof Terrain)[keyof typeof Terrain];
@@ -64,6 +69,11 @@ export const Build = {
    * unloads the trucks there, where otherwise reach stackers must.
    */
   YardGantry: 36,
+  /**
+   * The highway down the west edge of the map, a carriageway each way;
+   * see roads.ts. Not the player's to move, but they can open exits off it.
+   */
+  Highway: 37,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
