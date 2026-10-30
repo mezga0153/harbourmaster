@@ -2724,6 +2724,52 @@ export class World {
     return this.anchorageTile;
   }
 
+  /**
+   * Whether a long ship coming in is pointing away from where its way goes
+   * on, still a ship's length or more off its berth, not just waiting on
+   * others. A small boat turns on the spot.
+   */
+  private cannotTurn(b: Boat): boolean {
+    const m = this.map;
+    if (B.VESSELS[b.vessel].length < B.CAREFUL_LENGTH) return false;
+    const next = b.path[0];
+    if (next === undefined || this.roomWait.has(b) || b.yieldFor !== undefined) return false;
+    // Lining up alongside, swinging round slowly, is not being stuck.
+    if (b.berthing === 'align' || b.berthing === 'line' || b.berthing === 'out') return false;
+    const far =
+      Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y) >
+      B.VESSELS[b.vessel].length;
+    const course = Math.atan2(m.yOf(next) + 0.5 - b.y, m.xOf(next) + 0.5 - b.x);
+    return far && Math.cos(course - b.dir) < 0;
+  }
+
+  /**
+   * A boat coming in that has given up its berth sails back out to the
+   * anchorage, to wait its turn again: it keeps the time it has waited, so
+   * it is called in first.
+   */
+  private backToSea(b: Boat): void {
+    this.freeFairway(b);
+    b.berth = b.jetty = -1;
+    b.lineup = b.lineEnd = b.berthing = undefined;
+    b.plan = undefined;
+    b.waitingOn = undefined;
+    b.waitedFor = 0;
+    b.stall = 0;
+    b.held = 0;
+    b.best = Infinity;
+    const spot = this.anchorSpot(b);
+    const path = this.route(b, this.tileOf(b), spot, this.boatCostFor(b.draft));
+    if (!path) {
+      b.state = 'anchored';
+      b.speed = 0;
+      return;
+    }
+    b.path = path;
+    b.goal = spot;
+    b.state = 'approaching';
+  }
+
   /** A free spot at the anchorage, clear of other waiting boats. */
   private anchorSpot(boat: Boat): number {
     const m = this.map;
@@ -3353,6 +3399,11 @@ export class World {
         }
         return;
       case 'arriving': {
+        // Unable to come round for a good while, still far off its berth, as
+        // a long ship pointing the wrong way in a basin: it gives the berth
+        // up and heads back out to sea, to be called in again from the
+        // anchorage with room to come in properly.
+        if ((b.stall ?? 0) > B.BOAT_WEDGED_AFTER && this.cannotTurn(b)) return this.backToSea(b);
         // Come alongside: lie along the berth, parallel to the dock edge.
         const alongX = this.map.yOf(b.jetty) !== this.map.yOf(b.berth);
         // Something has been built where its hull would lie: another berth.
