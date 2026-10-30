@@ -66,7 +66,10 @@ export interface Loop {
   pitch?: AudioParam[];
 }
 
-/** The ways a container can sound as it is set down; the sound lab lets the player choose. */
+/**
+ * The ways a container can sound as it is set down, to compare in the sound
+ * lab. The game plays the muffled thump.
+ */
 export type ContainerStyle = 'bang' | 'hollow' | 'clang' | 'thump';
 export const CONTAINER_STYLES: { id: ContainerStyle; name: string; note: string }[] = [
   { id: 'bang', name: 'Deep bang', note: 'a hard, low bang echoing off the stacks' },
@@ -75,29 +78,8 @@ export const CONTAINER_STYLES: { id: ContainerStyle; name: string; note: string 
   { id: 'thump', name: 'Muffled thump', note: 'heavy and dull, through the ground' },
 ];
 
-const STYLE_KEY = 'harbourmaster.containerSound';
-
 /** How much each container sound is made up by, to land about as loud as the rest. */
 const STYLE_GAIN: Record<ContainerStyle, number> = { bang: 1.8, hollow: 4.5, clang: 3, thump: 2 };
-
-/** The container sound the player picked in the sound lab. */
-export function containerStyle(): ContainerStyle {
-  try {
-    const v = localStorage.getItem(STYLE_KEY);
-    if (CONTAINER_STYLES.some((c) => c.id === v)) return v as ContainerStyle;
-  } catch {
-    // No storage here: the default.
-  }
-  return 'bang';
-}
-
-export function setContainerStyle(style: ContainerStyle): void {
-  try {
-    localStorage.setItem(STYLE_KEY, style);
-  } catch {
-    // Kept for this visit only.
-  }
-}
 
 /** Each land diesel: its pitch, its injectors' knock, and any whine. */
 const ROAD = {
@@ -498,11 +480,17 @@ export class Synth {
   }
 
   /**
-   * A container set down, in one of several ways of sounding it (see
-   * CONTAINER_STYLES; the player picks in the sound lab). Onto a trailer it
+   * A container set down: a heavy, muffled thump, or another of
+   * CONTAINER_STYLES to compare in the sound lab. Onto a trailer it
    * comes duller, with the springs taking the weight.
    */
-  clank(gain: number, pan: number, far = 0, onTruck = false, style: ContainerStyle = 'bang'): void {
+  clank(
+    gain: number,
+    pan: number,
+    far = 0,
+    onTruck = false,
+    style: ContainerStyle = 'thump',
+  ): void {
     const t = this.now + 0.01;
     const voice = this.voice(gain, pan, far, 2.4);
     // Each made up to land about as loud as the others.

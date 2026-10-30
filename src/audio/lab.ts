@@ -2,15 +2,7 @@
 // on a button, and every engine on a switch, to try out and tune by ear.
 
 import { VESSEL_SIZE, type Hull, type RoadEngine } from './mix';
-import {
-  CONTAINER_STYLES,
-  containerStyle,
-  roadPitch,
-  setContainerStyle,
-  Synth,
-  type ContainerStyle,
-  type Loop,
-} from './synth';
+import { CONTAINER_STYLES, roadPitch, Synth, type ContainerStyle, type Loop } from './synth';
 
 let synth: Synth | null = null;
 const loops = new Map<string, Loop>();
@@ -139,40 +131,28 @@ function busyYard(s: Synth, style: ContainerStyle): void {
   }
 }
 
-/** Each way a container can sound, to try, and to pick for the game. */
+/** Each way a container can sound, to compare; the game plays the muffled thump. */
 function containerRows(): HTMLElement[] {
-  const picks: HTMLButtonElement[] = [];
-  const mark = () =>
-    picks.forEach((b) => {
-      const on = b.dataset.style === containerStyle();
-      b.classList.toggle('on', on);
-      b.textContent = on ? 'Used in the game' : 'Use in the game';
-    });
-  const rows = CONTAINER_STYLES.map((c) => {
-    const pick = el('button', {
-      onclick: () => {
-        setContainerStyle(c.id);
-        mark();
-      },
-    });
-    pick.dataset.style = c.id;
-    picks.push(pick);
-    return el(
+  return CONTAINER_STYLES.map((c) =>
+    el(
       'div',
       { className: 'engine' },
-      el('div', {}, el('strong', {}, c.name), el('br'), el('small', {}, c.note)),
+      el(
+        'div',
+        {},
+        el('strong', {}, c.name),
+        el('br'),
+        el('small', {}, c.id === 'thump' ? `${c.note}, in the game` : c.note),
+      ),
       el(
         'div',
         { className: 'controls' },
         button('On a stack', (s) => s.clank(0.7, pan, far, false, c.id)),
         button('On a truck', (s) => s.clank(0.7, pan, far, true, c.id)),
         button('A busy yard', (s) => busyYard(s, c.id)),
-        pick,
       ),
-    );
-  });
-  mark();
-  return rows;
+    ),
+  );
 }
 
 function busyQuay(s: Synth): void {
@@ -209,19 +189,7 @@ lab.append(
       slider('Volume', 0.7, (v) => (live().master.gain.value = v)),
     ),
   ),
-  section(
-    'Containers (steel): pick the one you like',
-    ...containerRows(),
-    el(
-      'p',
-      {},
-      el(
-        'small',
-        {},
-        'The one marked “Used in the game” plays in the game, in this browser, from the next container on.',
-      ),
-    ),
-  ),
+  section('Containers (steel)', ...containerRows()),
   section(
     'Crates and pallets (wood)',
     el(

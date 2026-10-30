@@ -22,7 +22,7 @@ import {
   type Listener,
   type RoadEngine,
 } from './mix';
-import { containerStyle, roadPitch, Synth, type Loop } from './synth';
+import { roadPitch, Synth, type Loop } from './synth';
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
 // afar, wind and the sea; zoomed in, the particular sounds of what is in
@@ -205,13 +205,12 @@ export class Soundscape {
       })
       .filter((h) => h.gain > 0.004)
       .sort((a, b) => b.gain - a.gain);
-    const style = containerStyle();
     for (const h of heard) {
       if (this.tokens[h.c.kind] < 1) continue;
       this.tokens[h.c.kind]--;
       switch (h.c.kind) {
         case 'clank':
-          s.clank(h.gain, h.pan, h.far, h.c.onTruck, style);
+          s.clank(h.gain, h.pan, h.far, h.c.onTruck);
           break;
         case 'thunk':
           s.thunk(h.gain, h.pan, h.far);
@@ -288,13 +287,7 @@ export class Soundscape {
     if (!running) return;
     // Far off, the work blurs into the odd clang and beep carried on the wind.
     if (Math.random() < act * far * 1.2 * dt) {
-      s.clank(
-        0.3 * far * (0.4 + 0.6 * act),
-        (Math.random() * 2 - 1) * 0.6,
-        1,
-        false,
-        containerStyle(),
-      );
+      s.clank(0.3 * far * (0.4 + 0.6 * act), (Math.random() * 2 - 1) * 0.6, 1);
     }
     if (Math.random() < act * far * 0.3 * dt) {
       s.beep(0.08 * far, (Math.random() * 2 - 1) * 0.6, 1);
