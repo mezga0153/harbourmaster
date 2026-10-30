@@ -22,6 +22,7 @@ import {
   type Listener,
   type RoadEngine,
 } from './mix';
+import { Music } from './music';
 import { roadPitch, Synth, type Loop } from './synth';
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
@@ -36,9 +37,11 @@ export interface SoundSettings {
   ambience: number;
   /** The work: engines, cranes, containers and crates, horns, 0 to 1 of the volume. */
   effects: number;
+  /** The music, 0 to 1 of the volume; none at 0. */
+  music: number;
 }
 
-const DEFAULTS: SoundSettings = { on: true, volume: 0.6, ambience: 1, effects: 1 };
+const DEFAULTS: SoundSettings = { on: true, volume: 0.6, ambience: 1, effects: 1, music: 0.5 };
 const share = (v: unknown, or: number) =>
   typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : or;
 
@@ -53,6 +56,7 @@ function loadSettings(): SoundSettings {
         volume: share(s.volume, DEFAULTS.volume),
         ambience: share(s.ambience, DEFAULTS.ambience),
         effects: share(s.effects, DEFAULTS.effects),
+        music: share(s.music, DEFAULTS.music),
       };
     }
   } catch {
@@ -104,6 +108,7 @@ interface Beds {
 
 export class Soundscape {
   private synth: Synth | null = null;
+  private music: Music | null = null;
   private beds: Beds | null = null;
   private tracker = new CueTracker();
   private snap: Snapshot | null = null;
@@ -179,6 +184,7 @@ export class Soundscape {
         winch: this.synth.winch(),
         rumble: this.synth.rumble(),
       };
+      this.music = new Music(this.synth.ctx, this.synth.music, this.synth.wetMusic);
     }
     this.apply();
   }
@@ -188,9 +194,12 @@ export class Soundscape {
     const s = this.synth;
     if (!s) return;
     const on = soundSettings.value.on && !document.hidden;
-    const { volume: v, ambience, effects } = soundSettings.value;
+    const { volume: v, ambience, effects, music } = soundSettings.value;
     s.master.gain.setTargetAtTime(on ? v * v : 0, s.now, 0.08);
-    s.setLevels(ambience * ambience, effects * effects);
+    s.setLevels(ambience * ambience, effects * effects, music * music);
+    // The band plays only while it is heard.
+    if (on && music > 0) this.music?.start();
+    else this.music?.stop();
     if (on && s.ctx.state === 'suspended') void s.ctx.resume();
     if (!on && s.ctx.state === 'running') {
       setTimeout(() => {

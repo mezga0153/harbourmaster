@@ -111,9 +111,13 @@ export class Synth {
   /** The beds, under the effects. */
   readonly ambience: GainNode;
   readonly effects: GainNode;
+  /** The music, under it all. */
+  readonly music: GainNode;
   /** Into the hall: sounds far off, or over water; from the beds, and from the effects. */
   private readonly wet: GainNode;
   private readonly wetAmbience: GainNode;
+  /** The music's own way into the hall. */
+  readonly wetMusic: GainNode;
   private readonly buffers: Record<'white' | 'pink' | 'brown', AudioBuffer>;
 
   /** Plays live, or into `into` (an OfflineAudioContext, say, to measure the sounds). */
@@ -133,6 +137,8 @@ export class Synth {
     this.ambience.connect(this.master);
     this.effects = ctx.createGain();
     this.effects.connect(this.master);
+    this.music = ctx.createGain();
+    this.music.connect(this.master);
     const verb = ctx.createConvolver();
     verb.buffer = impulse(ctx, 3.2);
     const verbOut = ctx.createGain();
@@ -142,6 +148,8 @@ export class Synth {
     this.wet.connect(verb);
     this.wetAmbience = ctx.createGain();
     this.wetAmbience.connect(verb);
+    this.wetMusic = ctx.createGain();
+    this.wetMusic.connect(verb);
     this.buffers = {
       white: noiseBuffer(ctx, 'white'),
       pink: noiseBuffer(ctx, 'pink'),
@@ -203,15 +211,17 @@ export class Synth {
   }
 
   /**
-   * How loud the beds (sea, wind, the hum) and the effects (the work, the
-   * ships) are, 0 to 1 each, echo and all.
+   * How loud the beds (sea, wind, the hum), the effects (the work, the
+   * ships) and the music are, 0 to 1 each, echo and all.
    */
-  setLevels(ambience: number, effects: number): void {
+  setLevels(ambience: number, effects: number, music = 0): void {
     const t = this.now;
     this.ambience.gain.setTargetAtTime(ambience, t, 0.08);
     this.wetAmbience.gain.setTargetAtTime(ambience, t, 0.08);
     this.effects.gain.setTargetAtTime(effects, t, 0.08);
     this.wet.gain.setTargetAtTime(effects, t, 0.08);
+    this.music.gain.setTargetAtTime(music, t, 0.08);
+    this.wetMusic.gain.setTargetAtTime(music, t, 0.08);
   }
 
   // ── Beds ────────────────────────────────────────────────

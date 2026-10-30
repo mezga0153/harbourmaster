@@ -48,7 +48,7 @@ function Level({
   label,
   hint,
 }: {
-  name: 'volume' | 'ambience' | 'effects';
+  name: 'volume' | 'ambience' | 'effects' | 'music';
   label: string;
   hint: string;
 }) {
@@ -176,6 +176,11 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
         name="ambience"
         label="Sea and wind"
         hint="Waves, the wind, the port's hum from afar"
+      />
+      <Level
+        name="music"
+        label="Music"
+        hint="Easy-going tunes, written as they play: never quite the same twice"
       />
       <p class="muted">Kept in this browser. Zoom in to hear the work, out to hear the port.</p>
 

@@ -2,6 +2,7 @@
 // on a button, and every engine on a switch, to try out and tune by ear.
 
 import { VESSEL_SIZE, type Hull, type RoadEngine } from './mix';
+import { Music } from './music';
 import { CONTAINER_STYLES, roadPitch, Synth, type ContainerStyle, type Loop } from './synth';
 
 let synth: Synth | null = null;
@@ -170,6 +171,38 @@ const hulls: [Hull, string][] = [
   ['feeder', 'Feeder ship'],
 ];
 
+let band: Music | null = null;
+
+/** The music on and off, and a fresh tune. */
+function musicRow(): HTMLElement {
+  const toggle = el('button', {}, 'Play');
+  const play = (fresh: boolean) => {
+    const s = live();
+    s.setLevels(1, 1, 0.5);
+    if (fresh || !band) {
+      band?.stop();
+      band = new Music(s.ctx, s.music, s.wetMusic);
+    }
+    band.start();
+    toggle.textContent = 'Stop';
+    toggle.classList.add('on');
+  };
+  toggle.onclick = () => {
+    if (band?.playing) {
+      band.stop();
+      toggle.textContent = 'Play';
+      toggle.classList.remove('on');
+    } else play(false);
+  };
+  return el(
+    'div',
+    { className: 'row' },
+    toggle,
+    el('button', { onclick: () => play(true) }, 'Another tune'),
+    slider('Music level', 0.5, (v) => live().setLevels(1, 1, v * v)),
+  );
+}
+
 const lab = document.getElementById('lab')!;
 lab.append(
   el('h1', {}, 'Sound lab'),
@@ -189,6 +222,7 @@ lab.append(
       slider('Volume', 0.7, (v) => (live().master.gain.value = v)),
     ),
   ),
+  section('Music', musicRow()),
   section('Containers (steel)', ...containerRows()),
   section(
     'Crates and pallets (wood)',
