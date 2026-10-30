@@ -9991,18 +9991,16 @@ export class World {
    * through it. The furthest along such a lane first. Null when there is none.
    * Only this bay's own trucks count for the order along its lane: one
    * driving on past another's, as a road on through a yard's loading lane,
-   * gets by those at it in traffic. Along a yard gantry's one-way lane
-   * trucks queue instead: one goes to the deepest free spot whatever stands
-   * or is coming in between, waits behind it in the lane, and moves on to
-   * its spot, or a nearer one, as the lane clears; see alongLane.
+   * gets by those at it in traffic. At a yard gantry's one-way lane trucks
+   * queue instead; see joinQueue.
    */
   private dockFor(
     bay: Bay,
     route: (dock: number, avoid: ReadonlySet<number>) => number[] | null,
     len = 1,
   ): { dock: number; path: number[] } | null {
+    if (this.oneWayLane(bay)) return this.joinQueue(bay, route, len);
     const m = this.map;
-    const queue = this.oneWayLane(bay);
     const standing = this.trucks.filter((o) => this.docked(o) && o.bayIdx === bay.idx);
     // Trucks on their way in to a loading spot: where each will stand, and
     // how far the nearest of them still has to go to each tile of its way
@@ -10038,10 +10036,6 @@ export class World {
         continue;
       }
       this.dockRouted = true;
-      if (queue) {
-        if (!best || path.length > best.path.length) best = { dock, path };
-        continue;
-      }
       const through = path.some((i, k) => {
         const prev = k > 0 ? path[k - 1] : -1;
         if (prev < 0) return false;
@@ -10065,6 +10059,66 @@ export class World {
       }
     }
     return best;
+  }
+
+  /**
+   * Trucks at a yard gantry reserve no spot: they join its queue, while
+   * there is room in it, a few longer than the spots along the lane, and
+   * head for the far end of the lane; there each takes the deepest spot
+   * free as it comes along, or waits behind the one in front (see
+   * alongLane). The way to the far end, or null with the queue full or no
+   * way in and out again.
+   */
+  private joinQueue(
+    bay: Bay,
+    route: (dock: number, avoid: ReadonlySet<number>) => number[] | null,
+    len: number,
+  ): { dock: number; path: number[] } | null {
+    const m = this.map;
+    const ways = this.laneWays();
+    this.dockRouted = false;
+    this.dockTurn = false;
+    const docks = this.loadingDocks(bay).filter((d) => ways.has(d));
+    if (docks.length === 0) return null;
+    const [dx, dy] = ways.get(docks[0])!;
+    const deep = (d: number) => m.xOf(d) * dx + m.yOf(d) * dy;
+    docks.sort((a, b) => deep(b) - deep(a));
+    const full = !this.queueRoom(bay, len);
+    for (const dock of docks) {
+      const path = route(dock, new Set());
+      if (!path) continue;
+      const came = path.length >= 2 ? path[path.length - 2] : -1;
+      const away = this.departure(dock);
+      if (!this.drivePath(dock, came, away, this.truckCost(away, bay.idx))) {
+        this.dockTurn = true;
+        continue;
+      }
+      this.dockRouted = true;
+      return full ? null : { dock, path };
+    }
+    return null;
+  }
+
+  /** Trucks loading at a yard gantry, or on their way in to its queue. */
+  private queued(bay: Bay): Truck[] {
+    return this.trucks.filter(
+      (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || this.docked(o)),
+    );
+  }
+
+  /** How many trucks are loading at a yard gantry or on their way in to its queue. */
+  private inQueue(bay: Bay): number {
+    return this.queued(bay).length;
+  }
+
+  /**
+   * Whether a yard gantry's queue has room for another truck `len` long:
+   * as long, bumper to bumper, as its lane and a little more, back along
+   * the way in. Long trucks take more of it than short ones.
+   */
+  private queueRoom(bay: Bay, len = 1): boolean {
+    const used = this.queued(bay).reduce((n, o) => n + this.lengthOf(o) + B.TRUCK_GAP, 0);
+    return used + len <= this.loadingDocks(bay).length + B.GANTRY_QUEUE_EXTRA;
   }
 
   /**
@@ -10159,8 +10213,10 @@ export class World {
    */
   private freeDockSet(bay: Bay, len = 1): Set<number> {
     const m = this.map;
+    // At a yard gantry, those on their way in to its queue hold no spot.
+    const queue = this.oneWayLane(bay);
     const at = this.trucks.filter(
-      (t) => t.state === 'toBay' || t.state === 'loading' || t.state === 'delivering',
+      (t) => this.docked(t) || (t.state === 'toBay' && !(queue && t.bayIdx === bay.idx)),
     );
     const taken = new Set(at.filter((t) => t.bayIdx === bay.idx).map((t) => t.goal));
     // Along a yard gantry's lane, the tractors it lifts for stand where the
@@ -11979,6 +12035,9 @@ export class World {
       if (t.staged === undefined && stores.some((b) => this.stagedFor(b, t))) {
         return `Waiting its turn: shippers' trucks parked nearer the outgoing ${store}, inside the port, unload first.${nearer}`;
       }
+      if (stores.some((b) => this.oneWayLane(b)) && !stores.some((b) => this.queueRoom(b))) {
+        return `Waiting its turn: the queue at the outgoing ${store}'s yard gantry is full. A longer yard along the gantry's lane gives room for more.${nearer}`;
+      }
       // Spots free, but those on their way in to the others have to get past them first.
       const free = stores.some((b) => this.freeDockSet(b, this.lengthOf(t)).size > 0);
       return free
@@ -11990,6 +12049,10 @@ export class World {
       if (!bay) return undefined;
       const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage' : 'truck bay';
       if (bay.noAccess) return bay.noAccessWhy;
+      if (this.oneWayLane(bay)) {
+        const n = this.inQueue(bay);
+        return `The queue at the yard gantry is full: ${n} ${n === 1 ? 'truck is' : 'trucks are'} loading or lined up for it. A longer yard along the gantry's lane gives room for more.`;
+      }
       if (!t.boxes || this.handlerFree(bay, t)) {
         const going = this.trucks.filter(
           (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || this.docked(o)),
