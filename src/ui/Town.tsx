@@ -36,6 +36,9 @@ export function TownPanel({ actions }: { actions: Actions }) {
     <aside class="side panel" aria-label="Town">
       <InfoHeader kicker={TOWN_STAGES[t.stage].name} title={t.name} onClose={close} />
       <p class="muted">{BLURBS[t.stage]}</p>
+      <button class="btn" onClick={close}>
+        Back to the port
+      </button>
       {wanted > 0 && (
         <div class="card town-wants">
           <div class="card-head">

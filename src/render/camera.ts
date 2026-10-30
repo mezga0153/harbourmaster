@@ -14,6 +14,43 @@ export class IsoCamera {
   private yaw = Math.PI / 4;
   private aspect = 1;
   private bounds = { minX: 0, minZ: 0, maxX: 100, maxZ: 100 };
+  /** Flying the view from one place and zoom to another, see flyTo. */
+  private fly?: {
+    from: { x: number; z: number; size: number };
+    to: { x: number; z: number; size: number };
+    t: number;
+    time: number;
+  };
+
+  /**
+   * Fly the view over to look at x, z this zoomed, over `time` seconds:
+   * pulling back as it sets off and closing in as it gets there, so the
+   * ground it crosses shows on the way.
+   */
+  flyTo(x: number, z: number, size: number, time = 1.4): void {
+    const b = this.bounds;
+    this.fly = {
+      from: { x: this.target.x, z: this.target.z, size: this.viewSize },
+      to: {
+        x: MathUtils.clamp(x, b.minX, b.maxX),
+        z: MathUtils.clamp(z, b.minZ, b.maxZ),
+        size: MathUtils.clamp(size, MIN_VIEW, MAX_VIEW),
+      },
+      t: 0,
+      time,
+    };
+  }
+
+  /** Which way is right across the screen, on the ground. */
+  get right(): [number, number] {
+    return [Math.cos(this.yaw), -Math.sin(this.yaw)];
+  }
+
+  /** Where the view looks and how zoomed, to fly back to later. */
+  get view(): { x: number; z: number; size: number } {
+    const to = this.fly?.to;
+    return to ? { ...to } : { x: this.target.x, z: this.target.z, size: this.viewSize };
+  }
 
   setBounds(w: number, h: number): void {
     this.bounds = { minX: 0, minZ: 0, maxX: w, maxZ: h };
@@ -50,6 +87,7 @@ export class IsoCamera {
   }
 
   zoom(factor: number): void {
+    this.fly = undefined;
     this.viewSize = MathUtils.clamp(this.viewSize * factor, MIN_VIEW, MAX_VIEW);
   }
 
@@ -61,6 +99,7 @@ export class IsoCamera {
 
   /** Pan in camera-relative ground units (right, forward). */
   panWorld(right: number, forward: number): void {
+    this.fly = undefined;
     const yaw = this.yaw;
     this.target.x += Math.cos(yaw) * right - Math.sin(yaw) * forward;
     this.target.z += -Math.sin(yaw) * right - Math.cos(yaw) * forward;
@@ -70,6 +109,20 @@ export class IsoCamera {
   }
 
   update(dt: number): void {
+    const f = this.fly;
+    if (f) {
+      f.t = Math.min(1, f.t + dt / f.time);
+      const e = f.t * f.t * (3 - 2 * f.t);
+      this.target.x = f.from.x + (f.to.x - f.from.x) * e;
+      this.target.z = f.from.z + (f.to.z - f.from.z) * e;
+      // Pulled back on the way, to see across the ground between.
+      const far = Math.hypot(f.to.x - f.from.x, f.to.z - f.from.z);
+      const over = Math.min(MAX_VIEW, Math.max(f.from.size, f.to.size, far * 0.9));
+      const size = f.from.size + (f.to.size - f.from.size) * e;
+      this.viewSize =
+        size + (over - Math.max(f.from.size, f.to.size)) * Math.sin(Math.PI * e) * 0.6;
+      if (f.t >= 1) this.fly = undefined;
+    }
     const goal = Math.PI / 4 + (this.yawStep * Math.PI) / 2;
     this.yaw += (goal - this.yaw) * Math.min(1, dt * 10);
 

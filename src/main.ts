@@ -10,7 +10,7 @@ import { GameMap } from './sim/map';
 import type { Hints } from './render/overlay';
 import * as B from './sim/balance';
 import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from './sim/rules';
-import { Build, isBay, TICKS_PER_DAY } from './sim/types';
+import { Build, isBay, isTownBuilding, TICKS_PER_DAY } from './sim/types';
 import { App, type Actions } from './ui/App';
 import { graphics } from './ui/prefs';
 import { advise, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
@@ -74,11 +74,65 @@ render(h(App, { actions }), hud);
 panel.subscribe((p) => {
   if (p === 'finance' || p === 'stats') send({ type: 'learnt', tip: 'screens' });
 });
+/** Where the view was before it flew over to the town, to fly back to. */
+let beforeTown: { x: number; z: number; size: number } | null = null;
 selection.subscribe((s) => {
   renderer.select(s?.type === 'entity' ? s.id : null);
   showReach();
   showGround();
+  flyForTown(s?.type === 'town');
 });
+
+/**
+ * Opening the town flies the view over to it, the whole town in sight, and
+ * closing it flies back to where it was, so the town is plainly up the
+ * coast from the port on the same map.
+ */
+function flyForTown(open: boolean): void {
+  const cam = renderer.cam;
+  if (!open) {
+    if (beforeTown) cam.flyTo(beforeTown.x, beforeTown.z, beforeTown.size);
+    beforeTown = null;
+    return;
+  }
+  if (beforeTown || !map) return;
+  beforeTown = cam.view;
+  // Once the panel is up, to see how much room it leaves.
+  requestAnimationFrame(() => {
+    if (beforeTown) flyOverTown();
+  });
+}
+
+/** Fly the view over to the whole of the town, beside the town panel. */
+function flyOverTown(): void {
+  const cam = renderer.cam;
+  if (!map) return;
+  const m = map;
+  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+  // Its homes, shops and works: its streets reach out to the highway.
+  for (let i = 0; i < m.build.length; i++) {
+    if (!isTownBuilding(m.build[i])) continue;
+    const [x, z] = [m.xOf(i), m.yOf(i)];
+    [x0, z0, x1, z1] = [Math.min(x0, x), Math.min(z0, z), Math.max(x1, x + 1), Math.max(z1, z + 1)];
+  }
+  const t = snapshot.peek()?.town;
+  if (!Number.isFinite(x0)) {
+    if (t) cam.flyTo(t.x + 0.5, t.y + 0.5, 20);
+    return;
+  }
+  // Seen from a corner, a square across S tiles spans S√2 across the screen
+  // and about 0.82 S up it, in what the town panel down the side leaves.
+  const span = Math.max(x1 - x0, z1 - z0) + 3;
+  // On a phone the panel is a sheet across the whole width: the town goes above it.
+  const panelWidth = document.querySelector('.side.panel')?.getBoundingClientRect().width ?? 0;
+  const side = panelWidth < innerWidth * 0.6 ? panelWidth : 0;
+  const wide = Math.max(1, innerWidth - side);
+  const size = Math.max(span * 0.82, (span * Math.SQRT2 * innerHeight) / wide) * 1.1;
+  // Moved over so it sits in the middle of what shows beside the panel.
+  const shift = (side / 2) * (size / Math.max(1, innerHeight));
+  const [rx, rz] = cam.right;
+  cam.flyTo((x0 + x1) / 2 + rx * shift, (z0 + z1) / 2 + rz * shift, size);
+}
 tool.subscribe(() => showChannels());
 
 /** With a buoy tool in hand, show the lines the pairs of buoys mark. */
