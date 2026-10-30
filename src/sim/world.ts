@@ -21,6 +21,7 @@ import * as B from './balance';
 import {
   fisheryDailyCrates,
   makeOffer,
+  paysPerContainer,
   STARTER_FISHERY,
   STARTER_HAULIER,
   type Contract,
@@ -556,6 +557,8 @@ export interface SaveData {
   stats: Stats;
   contracts: Contract[];
   offers: Offer[];
+  /** Container fees raised by half (older saves' deals still at the old rate otherwise). */
+  containerFees2?: boolean;
   candidates: Candidate[];
   cranes: Crane[];
   congestion: number;
@@ -1127,6 +1130,14 @@ export class World {
     world.stats = { ...s.stats, containers: s.stats.containers ?? 0 };
     world.contracts = s.contracts.map((c) => ({ ...c, terms: { ...c.terms } }));
     world.offers = s.offers.map((o) => ({ ...o, terms: { ...o.terms } }));
+    // Containers came to pay half as much again: older saves' deals too, once.
+    if (!s.containerFees2) {
+      for (const d of [...world.contracts, ...world.offers]) {
+        if (paysPerContainer(d.terms) && 'fee' in d.terms) {
+          d.terms.fee = Math.round(d.terms.fee * 1.5);
+        }
+      }
+    }
     world.candidates = s.candidates.map((c) => ({ ...c }));
     world.loan = s.loan;
     world.tier = s.tier;
@@ -1243,6 +1254,7 @@ export class World {
       stats: this.stats,
       contracts: this.contracts,
       offers: this.offers,
+      containerFees2: true,
       candidates: this.candidates,
       cranes: [...this.cranes.values()],
       congestion: this.congestion,

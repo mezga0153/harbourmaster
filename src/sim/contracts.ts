@@ -263,7 +263,9 @@ export function makeOffer(
       boatEvery: Math.round(rng.range(1.2, 2.2) * 20) / 20,
       cratesMin,
       cratesMax: Math.min(B.FEEDER_MAX_LOAD, cratesMin + Math.round(rng.int(2, 6) * grow)),
-      fee: rng.int(120, 170),
+      // A container pays half as much again as its eight crates of goods
+      // would: it takes costly cranes and machines to handle.
+      fee: rng.int(180, 255),
     };
     const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 100) * 100;
     return { id, terms, signingFee, expires };
@@ -333,6 +335,11 @@ export function makeOffer(
   return { id, terms, signingFee: fleet * 150, expires };
 }
 
+/** Whether a contract's or offer's fee is per container. */
+export function paysPerContainer(t: FisheryTerms | ShipperTerms | { kind: string }): boolean {
+  return ('vessel' in t && t.vessel === 'feeder') || ('cargo' in t && t.cargo === 'container');
+}
+
 /**
  * A shipper's offer: crates for the coasters from the Coastal Wharf on,
  * containers for the feeders from the Container Port on. Null before then,
@@ -364,7 +371,7 @@ function makeShipper(
         cargo: 'container',
         perDay: rng.int(4, 9),
         capacity: rng.int(1, B.CONTAINER_TRUCK_CAPACITY),
-        fee: rng.int(90, 140),
+        fee: rng.int(135, 210),
       }
     : {
         kind: 'shipper',
