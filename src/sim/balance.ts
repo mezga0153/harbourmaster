@@ -307,8 +307,10 @@ export const GANTRY_RUNNING_COST = 225;
 /** A yard gantry, which loads the trucks at a container yard. */
 export const YARD_GANTRY_COST = 12000;
 export const YARD_GANTRY_RUNNING_COST = 90;
-/** Ticks a yard gantry takes to lift a container onto a truck or off one. */
-export const YARD_GANTRY_TICKS = 15;
+/** Ticks a yard gantry takes to take a container up and set it down, besides running along its rails. */
+export const YARD_GANTRY_TICKS = 10;
+/** How fast a yard gantry runs along its rails, in tiles a tick. */
+export const YARD_GANTRY_SPEED = 2;
 export const STACKER_PRICE = 6000;
 export const STACKER_WAGE = 80;
 export const STACKER_SPEED = 0.32;

@@ -10,7 +10,7 @@ import {
 } from 'three';
 import type { BayView, CraneView, HandAt, PileView, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { EXTENSION, FACING, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
+import { EXTENSION, FACING, liftMarks, machinesOnly, ON_QUAY, parkingLots } from '../sim/rules';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import {
@@ -117,6 +117,9 @@ function palletUnder(c: Object3D, size: number): Object3D {
 
 /** How many tiles a yard gantry's rails run either way along its yard, at most. */
 const GANTRY_RUN = 12;
+/** A yard gantry's lift with no running along its rails; see liftMarks. */
+const NO_RUN = [0, 0.5, 0, 0.5];
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /**
  * A mobile harbour crane: how high its slewing deck stands on the tower,
  * where the boom's foot is on the deck (out along +x of it, and up), how
@@ -206,6 +209,15 @@ interface YardGantryParts {
   look: number;
   /** How far through a lift, 0 to 1. */
   phase: number;
+  /**
+   * The lift's legs, as shares of it (see liftMarks), how many ticks it
+   * takes, and where the carriage and trolley were as it began: it runs
+   * along its rails from there.
+   */
+  legs: number[];
+  ticks: number;
+  startX: number;
+  startZ: number;
 }
 
 interface CraneParts {
@@ -1157,6 +1169,8 @@ export class Structures {
       lifted?: number;
       slots?: number[];
       workYard?: number;
+      workLegs?: number[];
+      workTicks?: number;
     }[],
   ): void {
     for (const y of yards) {
@@ -1170,6 +1184,8 @@ export class Structures {
         if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
         const was = g.work;
         const truck = g.truck;
+        g.legs = y.workLegs ?? NO_RUN;
+        g.ticks = y.workTicks ?? YARD_GANTRY_TICKS;
         g.work = y.working ?? null;
         g.laneAt = y.workAt ?? 0;
         g.truck = y.workTruck;
@@ -1181,11 +1197,13 @@ export class Structures {
           g.phase = Math.abs(off) > 0.15 ? y.workPhase : (g.phase + off * 0.5 + 1) % 1;
         }
         const same = y.workLook === g.look && y.working === was;
+        // A new lift runs along the rails from wherever it stands now.
+        if (!same) this.liftFrom(g);
         if (y.workLook !== undefined) g.look = y.workLook;
         g.yard = y.tiles[0];
         // Seen first part way through a lift, as at speed, the container
         // may be lifted already: it was there as the lift began.
-        const taken = (y.workPhase ?? 0) >= 0.125 ? 1 : 0;
+        const taken = (y.workPhase ?? 0) >= liftMarks(y.workLegs).taken ? 1 : 0;
         if (!same) g.base = this.kept(g.yard, g.look) + (y.working === 'load' ? taken : 0);
         if (!same || g.truck !== truck) {
           g.held = this.shownOn(g.truck) + (y.working === 'unload' ? taken : 0);
@@ -1325,13 +1343,15 @@ export class Structures {
   }
 
   private runYardGantry(g: YardGantryParts, dt: number): void {
-    // One lift a cycle, as long as one takes in the game.
-    const cycle = YARD_GANTRY_TICKS / TICKS_PER_SECOND;
+    // One lift a cycle, as long as this one takes in the game: the further
+    // it runs along its rails, the longer.
+    const cycle = g.ticks / TICKS_PER_SECOND;
     const was = g.phase;
     g.phase = g.work ? (g.phase + (dt * this.speed) / cycle) % 1 : 0;
     if (g.phase < was || !g.work) {
       g.base = this.kept(g.yard ?? -1, g.look);
       g.held = this.shownOn(g.truck);
+      this.liftFrom(g);
     }
     // Idle, it stays where it last worked.
     let x = g.carriage.position.x;
@@ -1366,28 +1386,33 @@ export class Structures {
       // Nor does it lift one off while it still shows where it was, or let
       // go of one before it shows where it is set down: ahead of the game,
       // as it is at speed, the spreader waits on it.
-      if (had && was <= 0.125 && g.phase > 0.125 && !gone()) g.phase = 0.125;
-      if (had && was <= 0.625 && g.phase > 0.625 && !there()) g.phase = 0.625;
+      const { taken, set } = liftMarks(g.legs);
+      if (had && was <= taken && g.phase > taken && !gone()) g.phase = taken;
+      if (had && was <= set && g.phase > set && !there()) g.phase = set;
       const p = g.phase;
-      if (p < 0.25) {
+      // Run along the rails to it, take it up, carry it along, set it down:
+      // and there it stays, for the next.
+      const [run, up, along] = g.legs;
+      const share = (from: number, len: number) => (len > 0 ? clamp01((p - from) / len) : 1);
+      if (p < run) {
+        const t = ease(share(0, run));
+        x = g.startX + (from.x - g.startX) * t;
+        z = g.startZ + (from.z - g.startZ) * t;
+      } else if (p < run + up) {
         x = from.x;
         z = from.z;
-        drop = dip(p / 0.25, from.drop);
-        carry = p > 0.125 || gone();
-      } else if (p < 0.5) {
-        const t = ease((p - 0.25) / 0.25);
+        drop = dip(share(run, up), from.drop);
+        carry = p > taken || gone();
+      } else if (p < run + up + along) {
+        const t = ease(share(run + up, along));
         x = from.x + (to.x - from.x) * t;
         z = from.z + (to.z - from.z) * t;
         carry = true;
-      } else if (p < 0.75) {
+      } else {
         x = to.x;
         z = to.z;
-        drop = dip((p - 0.5) / 0.25, to.drop);
-        carry = p < 0.625 || !there();
-      } else {
-        const t = ease((p - 0.75) / 0.25);
-        x = to.x + (from.x - to.x) * t;
-        z = to.z + (from.z - to.z) * t;
+        drop = dip(share(run + up + along, 1 - run - up - along), to.drop);
+        carry = p < set || !there();
       }
       carry &&= had;
     }
@@ -1399,6 +1424,12 @@ export class Structures {
     g.spreader.position.y = -drop;
     g.load.visible = carry;
     if (carry) paintContainer(g.load, g.look);
+  }
+
+  /** A yard gantry setting off on a lift: from where its carriage and trolley stand now. */
+  private liftFrom(g: YardGantryParts): void {
+    g.startX = g.carriage.position.x;
+    g.startZ = g.trolley.position.z;
   }
 
   setBays(bays: BayView[]): void {
@@ -1559,8 +1590,8 @@ export class Structures {
     if (was && now) {
       now.carriage.position.x = was.carriage.position.x;
       now.trolley.position.z = was.trolley.position.z;
-      const { pick, work, look, phase, base, held } = was;
-      Object.assign(now, { pick, work, look, phase, base, held });
+      const { pick, work, look, phase, base, held, legs, ticks, startX, startZ } = was;
+      Object.assign(now, { pick, work, look, phase, base, held, legs, ticks, startX, startZ });
     }
     const jibNow = this.cranes.get(i);
     if (jibWas?.jib && jibNow?.jib) {
@@ -2079,6 +2110,10 @@ export class Structures {
           work: null,
           look: 0,
           phase: 0,
+          legs: NO_RUN,
+          ticks: YARD_GANTRY_TICKS,
+          startX: 0,
+          startZ: Math.max(0.6, far / 2),
         });
         // Laid out along +z, then turned to face the yard.
         frame.position.set(0.5, 0, 0.5);

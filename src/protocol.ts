@@ -338,6 +338,13 @@ export interface YardView {
   workTruck?: number;
   workSlot?: number;
   workPhase?: number;
+  /**
+   * Its lift's legs, as shares of it: running along its rails to the
+   * container, taking it up, carrying it along, setting it down; and how
+   * many ticks the lift takes in all. See liftMarks.
+   */
+  workLegs?: number[];
+  workTicks?: number;
   /** One container the gantry has taken up (-1) or set down (+1) that the counts do not have yet. */
   lifted: number;
   /** Cleared containers lying under ones still in customs, which the trucks cannot get at. */

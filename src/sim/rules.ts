@@ -380,6 +380,18 @@ export function roundaboutCost(map: GameMap, c: number): number {
   return cost;
 }
 
+/**
+ * How far through a yard gantry's lift, as a share of it, the spreader has
+ * the container up off where it was, and has it set down: half way through
+ * taking it up and setting it down. `legs`: the lift's run along the rails
+ * to it, taking it up, carrying it and setting it down, as shares of it;
+ * without them, a lift with no running along the rails.
+ */
+export function liftMarks(legs?: readonly number[]): { taken: number; set: number } {
+  const [run, up, carry, down] = legs && legs.length === 4 ? legs : [0, 0.5, 0, 0.5];
+  return { taken: run + up / 2, set: run + up + carry + down / 2 };
+}
+
 /** Which way trucks may go through a port gate. */
 export function gateWay(map: GameMap, i: number): 'both' | 'in' | 'out' {
   if (map.build[i] !== Build.Gate) return 'both';
