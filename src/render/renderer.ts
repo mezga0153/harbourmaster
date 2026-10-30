@@ -25,6 +25,7 @@ import { Structures } from './structures';
 import { Trains } from './trains';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
+import { DEFAULT_GRAPHICS, PIXEL_RATIO, SHADOW_SIZE, WATER_LEVEL, type Graphics } from './graphics';
 
 const SUN_DIR = new Vector3(-0.55, 1, 0.35).normalize();
 // Light-space axes, used to snap the shadow camera to whole shadow-map texels.
@@ -69,6 +70,7 @@ export class Renderer {
   private tmp = new Vector3();
   private sunTarget = new Vector3();
   private viewDir = new Vector3();
+  private graphics: Graphics = { ...DEFAULT_GRAPHICS };
 
   constructor(
     private container: HTMLElement,
@@ -108,7 +110,7 @@ export class Renderer {
       this.scene.remove(this.layers.root);
       this.layers.water.dispose();
     }
-    const water = new Water(map, SUN_DIR);
+    const water = new Water(map, SUN_DIR, WATER_LEVEL[this.graphics.water]);
     const structures = new Structures(map);
     const entities = new Entities(map);
     // A yard gantry reaches for the container slot on the truck it works.
@@ -176,7 +178,7 @@ export class Renderer {
     l.scenery.add(l.seabed, l.seabedDetail);
     l.root.remove(l.water.mesh);
     l.water.dispose();
-    l.water = new Water(l.map, SUN_DIR);
+    l.water = new Water(l.map, SUN_DIR, WATER_LEVEL[this.graphics.water]);
     l.root.add(l.water.mesh);
   }
 
@@ -317,6 +319,27 @@ export class Renderer {
     );
     this.raycaster.setFromCamera(ndc, this.cam.camera);
     return this.raycaster.ray.intersectPlane(PICK_PLANE, new Vector3());
+  }
+
+  /**
+   * Draw the game as the player has it: the sea's detail, the sun's
+   * shadows, and how many pixels.
+   */
+  setGraphics(g: Graphics): void {
+    this.graphics = { ...g };
+    this.layers?.water.setQuality(WATER_LEVEL[g.water]);
+    this.sun.castShadow = g.shadows !== 'off';
+    if (g.shadows !== 'off') {
+      const size = SHADOW_SIZE[g.shadows];
+      if (this.sun.shadow.mapSize.x !== size) {
+        this.sun.shadow.mapSize.set(size, size);
+        // Made again at the new size when next drawn.
+        this.sun.shadow.map?.dispose();
+        this.sun.shadow.map = null;
+      }
+    }
+    this.gl.setPixelRatio(Math.min(window.devicePixelRatio, PIXEL_RATIO[g.resolution]));
+    this.resize();
   }
 
   private resize(): void {

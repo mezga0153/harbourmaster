@@ -286,6 +286,17 @@ button:focus-visible {
   gap: 10px;
 }
 
+button.brand {
+  border-radius: 10px;
+  padding: 2px 8px 2px 2px;
+  margin-left: -2px;
+}
+
+button.brand:hover,
+button.brand.on {
+  background: var(--raised);
+}
+
 .brand-mark {
   width: 30px;
   height: 30px;
@@ -2285,4 +2296,25 @@ input:focus {
 
 .stat-chart {
   padding: 4px 0 8px;
+}
+
+/* Settings: one row per graphics setting, its choices to the right. */
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.setting-label {
+  font-weight: 600;
+}
+
+.setting .muted {
+  font-size: 12px;
+}
+
+.settings .segmented {
+  flex-shrink: 0;
 }

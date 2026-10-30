@@ -2,6 +2,7 @@ import { h, render } from 'preact';
 import { Soundscape } from './audio/sound';
 import { Input } from './input';
 import type { Command, WorkerMessage } from './protocol';
+import type { SaveData } from './sim/world';
 import { loadAssets } from './render/assets';
 import { Renderer } from './render/renderer';
 import { isMachineKind } from './sim/machines';
@@ -9,8 +10,9 @@ import { GameMap } from './sim/map';
 import type { Hints } from './render/overlay';
 import * as B from './sim/balance';
 import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from './sim/rules';
-import { Build, isBay } from './sim/types';
+import { Build, isBay, TICKS_PER_DAY } from './sim/types';
 import { App, type Actions } from './ui/App';
+import { graphics } from './ui/prefs';
 import { advise, pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
 
@@ -44,6 +46,9 @@ const sound = new Soundscape(
   },
   () => map,
 );
+
+// Drawn as the player set it, from the start and whenever they change it.
+graphics.subscribe((g) => renderer.setGraphics(g));
 
 const actions: Actions = {
   send,
@@ -149,8 +154,23 @@ worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
   inbox = inbox.then(() => assetsReady).then(() => handle(e.data));
 };
 
+/** Hand the player the game as a file to keep, named for the port and the day. */
+function download(save: SaveData): void {
+  const s = snapshot.peek();
+  const day = s ? Math.floor(s.tick / TICKS_PER_DAY) + 1 : 1;
+  const port = (s?.town?.name ?? `port ${seed.peek()}`).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const url = URL.createObjectURL(new Blob([JSON.stringify(save)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `harbourmaster-${port}-day-${day}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  pushMessage(`Saved to ${a.download}.`, 'good');
+}
+
 function handle(msg: WorkerMessage): void {
   if (msg.type === 'dump') return;
+  if (msg.type === 'exported') return download(msg.save);
   if (msg.type === 'init') {
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;

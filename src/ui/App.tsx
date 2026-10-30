@@ -11,6 +11,7 @@ import { StatsPanel } from './Stats';
 import { Advisor } from './Advisor';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
+import { SettingsPanel } from './Settings';
 import { SoundControl } from './Sound';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
@@ -82,6 +83,8 @@ export function App({ actions }: { actions: Actions }) {
         <PortPanel actions={actions} />
       ) : panel.value === 'handbook' ? (
         <HandbookPanel />
+      ) : panel.value === 'settings' ? (
+        <SettingsPanel actions={actions} />
       ) : (
         <InfoPanel actions={actions} />
       )}
@@ -129,12 +132,17 @@ function TopBar({ actions }: { actions: Actions }) {
   return (
     <header class="topbar panel">
       <div class="topbar-left">
-        <div class="brand">
+        <button
+          class={`brand ${panel.value === 'settings' ? 'on' : ''}`}
+          onClick={() => togglePanel('settings')}
+          title="Settings: graphics, and saving the game to a file"
+          aria-label="Settings"
+        >
           <span class="brand-mark">
             <Icon name="anchor" />
           </span>
           <span class="brand-name">Harbourmaster</span>
-        </div>
+        </button>
         <TimeControl actions={actions} />
         <span class="vr" />
         <button
@@ -184,7 +192,7 @@ function TopBar({ actions }: { actions: Actions }) {
           onClick={() => togglePanel('finance')}
           title="Finance: charts, loans and daily statement (M)"
         >
-          <Icon name="coins" />
+          <Icon name="dollar" />
           <span>Finance</span>
           {s.daysInRed > 0 && <span class="count">!</span>}
         </button>

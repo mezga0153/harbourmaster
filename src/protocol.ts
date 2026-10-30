@@ -43,6 +43,10 @@ export type Command =
   | { type: 'setSpeed'; speed: number }
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
+  /** The game as a save, for the player to keep in a file; answered with `exported`. */
+  | { type: 'exportSave' }
+  /** Carry on from a save the player picked from a file, if it is one this version can read. */
+  | { type: 'importSave'; save: unknown; name: string }
   /** Dev server only: jump ahead for testing. */
   | {
       type: 'debug';
@@ -571,4 +575,6 @@ export type WorkerMessage =
   | { type: 'init'; map: MapData; seed: number }
   | { type: 'frame'; snapshot: Snapshot; tiles: TileChange[]; events: SimEvent[] }
   /** Dev server only: the game as a save, for the debug bridge. */
-  | { type: 'dump'; save: SaveData };
+  | { type: 'dump'; save: SaveData }
+  /** The game as a save, to keep in a file; see exportSave. */
+  | { type: 'exported'; save: SaveData };

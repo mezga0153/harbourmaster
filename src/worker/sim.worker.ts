@@ -44,6 +44,35 @@ function handle(cmd: Command): void {
     save(false);
   } else if (cmd.type === 'save') {
     save(true);
+  } else if (cmd.type === 'exportSave') {
+    ctx.postMessage({ type: 'exported', save: world.toSave() });
+  } else if (cmd.type === 'importSave') {
+    // Only a save this version can read; the game goes on as it was if not.
+    let ok = false;
+    try {
+      ok = World.isValidSave(cmd.save);
+    } catch {
+      // Not shaped like a save at all.
+    }
+    if (!ok) {
+      postFrame([
+        {
+          kind: 'message',
+          text: `${cmd.name} is not a Harbourmaster save this version can read.`,
+          tone: 'bad',
+        },
+      ]);
+      return;
+    }
+    try {
+      start(World.fromSave(cmd.save as Parameters<typeof World.fromSave>[0]));
+    } catch (err) {
+      console.error(err);
+      postFrame([{ kind: 'message', text: `${cmd.name} could not be loaded.`, tone: 'bad' }]);
+      return;
+    }
+    save(false);
+    postFrame([{ kind: 'message', text: `Loaded ${cmd.name}.`, tone: 'good' }]);
   } else if (cmd.type === 'debug') {
     if (import.meta.env.DEV) world.debug(cmd);
   } else if (cmd.type === 'dumpSave') {

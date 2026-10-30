@@ -125,15 +125,22 @@ const fragmentShader = /* glsl */ `
   // tileable normal map at different scales, drifting in different
   // directions (mostly towards the coast, to the west). Together they look
   // like many small irregular waves that never visibly repeat.
+  // At lower quality, fewer layers: two, or one.
   vec3 waterNormal(vec2 p) {
     float t = uTime;
     vec2 uv0 = p / 1.7 + vec2(t / 17.0, t / 53.0);
-    vec2 uv1 = p / 1.9 + vec2(t / 19.0, -t / 41.0);
     vec2 uv2 = p / vec2(14.0, 16.0) + vec2(t / 101.0, t / 97.0);
-    vec2 uv3 = p / vec2(5.5, 6.1) + vec2(t / 109.0, -t / 113.0);
-    vec4 n = texture2D(uNormals, uv0) + texture2D(uNormals, uv1) +
-      texture2D(uNormals, uv2) + texture2D(uNormals, uv3);
-    n = n * 0.5 - 1.0;
+    #if WATER_QUALITY >= 2
+      vec2 uv1 = p / 1.9 + vec2(t / 19.0, -t / 41.0);
+      vec2 uv3 = p / vec2(5.5, 6.1) + vec2(t / 109.0, -t / 113.0);
+      vec4 n = texture2D(uNormals, uv0) + texture2D(uNormals, uv1) +
+        texture2D(uNormals, uv2) + texture2D(uNormals, uv3);
+      n = n * 0.5 - 1.0;
+    #elif WATER_QUALITY == 1
+      vec4 n = texture2D(uNormals, uv0) + texture2D(uNormals, uv2) - 1.0;
+    #else
+      vec4 n = texture2D(uNormals, uv0) * 2.0 - 1.0;
+    #endif
     return normalize(n.xzy * vec3(1.5, 1.0, 1.5));
   }
 
@@ -305,7 +312,7 @@ const fragmentShader = /* glsl */ `
   // waves and a slow swirl, so the edge of a shadow on the sea is soft and
   // wavers as the ripples run through it.
   float waterShade(vec2 p, vec3 n) {
-    #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+    #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0 && WATER_QUALITY >= 1
       if (!receiveShadow) return 1.0;
       DirectionalLightShadow sh = directionalLightShadows[0];
       vec4 c = vDirectionalShadowCoord[0];
@@ -316,6 +323,10 @@ const fragmentShader = /* glsl */ `
       float spin = uTime * 0.7;
       float sum = getShadow(directionalShadowMap[0], sh.shadowMapSize, sh.shadowIntensity,
         sh.shadowBias, sh.shadowRadius, c + vec4(wobble, 0.0, 0.0));
+      // At medium quality, one look rather than a soft ring of them.
+      #if WATER_QUALITY < 2
+        return sum;
+      #endif
       for (int k = 0; k < 6; k++) {
         float a = spin + float(k) * 1.0472;
         vec2 o = wobble + vec2(cos(a), sin(a)) * fuzz;
@@ -338,8 +349,13 @@ const fragmentShader = /* glsl */ `
     col = mix(col, uDeep, smoothstep(0.2, 0.65, depth));
 
     vec3 n = waterNormal(vXZ);
-    vec2 stirred = wake(vXZ, n);
-    stirred = max(stirred, stir(vXZ, n));
+    // Boats' wakes and the water they stir, but at low quality.
+    #if WATER_QUALITY >= 1
+      vec2 stirred = wake(vXZ, n);
+      stirred = max(stirred, stir(vXZ, n));
+    #else
+      vec2 stirred = vec2(0.0);
+    #endif
     // Churned water is full of bubbles, so it goes a paler, milkier blue.
     col = mix(col, uShallow * 1.2 + 0.08, stirred.y * 0.45);
     // In the shade the sea goes darker and the sun's glints go out.
@@ -351,7 +367,12 @@ const fragmentShader = /* glsl */ `
     float sheen = pow(max(dot(reflect(-uSun, n), uView), 0.0), 40.0);
     vec3 mirror = reflect(-uView, vec3(0.0, 1.0, 0.0));
     vec3 glintLight = normalize(mirror + vec3(0.32, 0.0, 0.22));
-    float glint = pow(max(dot(reflect(-glintLight, n), uView), 0.0), 900.0);
+    // With only one layer of ripples, glints scatter into specks: none at low quality.
+    #if WATER_QUALITY >= 1
+      float glint = pow(max(dot(reflect(-glintLight, n), uView), 0.0), 900.0);
+    #else
+      float glint = 0.0;
+    #endif
     float spec = (sheen * 0.18 + glint * 1.6) * lit;
     col += vec3(1.0, 0.97, 0.88) * spec;
 
@@ -397,7 +418,8 @@ export class Water {
     FloatType,
   );
 
-  constructor(map: GameMap, sunDir: Vector3) {
+  /** `quality`: the sea's detail, 0 to 2; see WATER_LEVEL. */
+  constructor(map: GameMap, sunDir: Vector3, quality = 2) {
     const baked = bakeField(map);
     const tex = new DataTexture(
       baked.field,
@@ -416,6 +438,7 @@ export class Water {
 
     this.material = new ShaderMaterial({
       defines: {
+        WATER_QUALITY: quality,
         WAKE_MAX,
         WAKE_POINTS,
         STIR_MAX,
@@ -456,6 +479,13 @@ export class Water {
     this.mesh = new Mesh(geo, this.material);
     this.mesh.receiveShadow = true;
     this.mesh.position.set(map.w / 2, 0, map.h / 2);
+  }
+
+  /** Draw the sea in more detail or less: 0 to 2, as WATER_LEVEL has it. */
+  setQuality(quality: number): void {
+    if (this.material.defines.WATER_QUALITY === quality) return;
+    this.material.defines.WATER_QUALITY = quality;
+    this.material.needsUpdate = true;
   }
 
   /** `view` points from the water towards the camera. */
