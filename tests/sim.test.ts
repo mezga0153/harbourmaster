@@ -54,7 +54,8 @@ function parkingLot(world: World): number[] {
     m.idx(x + 2, r + 2),
     m.idx(x + 2, r + 1),
   ];
-  world.command({ type: 'build', kind: 'road', tiles: loop });
+  world.command({ type: 'build', kind: 'road', tiles: [...loop, ...lot] });
+  // Marked out on the road between the two.
   world.command({ type: 'build', kind: 'parking', tiles: lot });
   return lot;
 }
@@ -1212,18 +1213,28 @@ describe('Buildings', () => {
     world.cash = 100_000;
     const m = world.map;
     const why = () => world.snapshot().parking.map((l) => l.why);
-    // A road along one side only.
+    // Only on a road.
     const at = besideRoad(world);
-    world.command({ type: 'build', kind: 'parking', tiles: [at, at + 1] });
+    world.command({ type: 'build', kind: 'parking', tiles: [at] });
+    expect(m.build[at]).toBe(Build.None);
+    // A road along one side only.
+    const mark = (tiles: number[]) => {
+      world.command({ type: 'build', kind: 'road', tiles });
+      world.command({ type: 'build', kind: 'parking', tiles });
+    };
+    mark([at, at + 1]);
     expect(why()[0]).toMatch(/both its long sides/);
     // Not a straight strip.
-    world.command({ type: 'build', kind: 'parking', tiles: [at + m.w] });
+    mark([at + m.w]);
     expect(why()[0]).toMatch(/straight strip/);
     world.command({ type: 'bulldoze', tiles: [at, at + 1, at + m.w] });
     // A public road one side, a port road the other.
-    world.command({ type: 'build', kind: 'parking', tiles: [at] });
+    mark([at]);
     world.command({ type: 'build', kind: 'portRoad', tiles: [at + m.w] });
     expect(why()[0]).toMatch(/without a gate/);
+    // Unmarked, it is the road it was marked out on.
+    world.command({ type: 'unmark', tiles: [at] });
+    expect(m.build[at]).toBe(Build.Road);
   });
 
   it('lets trucks into the port only through a port gate', () => {

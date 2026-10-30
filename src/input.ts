@@ -61,7 +61,7 @@ type Mode = 'none' | 'select' | 'pan' | 'drag' | 'place';
 /** What the tints shown while placing these mean. */
 const TOOL_NOTES: Partial<Record<string, string>> = {
   parking:
-    'One or two tiles wide, a road all along both long sides: trucks drive in off one and out onto the other. Green works, red does not',
+    'Marked out on a road, one or two tiles wide, with road left along both long sides: trucks drive in off one and out onto the other. Green works, red does not',
   jibCrane: 'Red: machines only. Blue: crate storage here is filled straight from the boats',
   harbourCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
   gantryCrane: 'Red: machines only, no dockhands or hauliers’ trucks',
@@ -537,7 +537,7 @@ export class Input {
   private previewUnmark(map: GameMap, tiles: number[]): void {
     const ok = tiles.map((t) => {
       const what = unmarkable(map, t);
-      return what.store || what.machines || what.road;
+      return what.store || what.machines || what.road || what.parking;
     });
     this.renderer.overlay.setGhosts(map, tiles, ok);
     this.renderer.overlay.setArrow(map, null, 0);

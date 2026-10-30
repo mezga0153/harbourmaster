@@ -131,6 +131,8 @@ import {
   roundaboutCost,
   roundaboutError,
   liftMarks,
+  ON_PORT_ROAD,
+  roadUnderParking,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -1481,8 +1483,14 @@ export class World {
           const quay = this.map.build[t] === Build.Quay ? ON_QUAY : 0;
           // A road over the railway is a level crossing.
           const crossing = def.code === Build.Road && this.map.build[t] === Build.Rail;
+          // Parking is marked out on a road: which kind it was, for when it is unmarked.
+          const under =
+            kind === 'parking' && this.map.build[t] === Build.PortRoad ? ON_PORT_ROAD : 0;
           this.map.build[t] = crossing ? Build.Crossing : def.code;
-          this.map.orient[t] = (ROTATABLE.has(kind) ? partOrient(f, k) : 0) | quay;
+          this.map.orient[t] =
+            (ROTATABLE.has(kind) ? partOrient(f, k) : 0) |
+            (kind === 'parking' ? this.map.orient[t] & ON_QUAY : quay) |
+            under;
           this.map.deco[t] = Deco.None;
           this.dirty.add(t);
         });
@@ -1817,7 +1825,13 @@ export class World {
       }
       if (what.machines) this.map.orient[i] &= ~FORKLIFT_ONLY;
       if (what.road) this.map.orient[i] &= ~(ONE_WAY | LIGHTS);
-      if (what.store || what.machines || what.road) {
+      if (what.parking) {
+        // The road it was marked out on, back as it was.
+        refund += unmarkRefund(this.map, i);
+        this.map.build[i] = roadUnderParking(this.map, i);
+        this.map.orient[i] &= ON_QUAY;
+      }
+      if (what.store || what.machines || what.road || what.parking) {
         this.dirty.add(i);
         any = true;
       }

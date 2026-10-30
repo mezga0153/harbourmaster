@@ -258,13 +258,14 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
         </ul>
         <p>
-          <b>Truck parking</b> is a strip one or two tiles wide with a road all along both its long
-          sides. Trucks drive in off one road, park at an angle across the strip, and drive out onto
-          the other road: always forwards, never backing out. There is a space for each tile along
-          the strip, and the big trucks need a strip two tiles wide. Between public roads it is
-          outside the port: shippers' trucks wait there for their paperwork. Between port roads,
-          behind a gate, it is inside: trucks queue there for a free loading spot instead of going
-          away. Select parking to see whether it works, and why not.
+          <b>Truck parking</b> is marked out on a road you have built: a strip of it one or two
+          tiles wide, with road left all along both its long sides. Trucks drive in off one side,
+          park at an angle across the strip, and drive out the other side: always forwards, never
+          backing out. There is a space for each tile along the strip, and the big trucks need a
+          strip two tiles wide. On public road it is outside the port: shippers' trucks wait there
+          for their paperwork. On port road, behind a gate, it is inside: trucks queue there for a
+          free loading spot instead of going away. Select parking to see whether it works, and why
+          not; unmark it to have the road back.
         </p>
         <p>
           <b>Junctions.</b> Where roads meet, trucks give way to those on the bigger road, and on

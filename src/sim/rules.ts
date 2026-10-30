@@ -139,7 +139,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Parking,
     label: 'Truck parking',
     cost: B.PARKING_COST,
-    hint: 'Drag out a strip one or two tiles wide, with a road all along both its long sides. Trucks drive in off one road, park at an angle across the strip, one to each space along it, and drive out onto the other road: always forwards. Big trucks need two tiles. Between public roads it is outside the port: shippers\u2019 trucks wait there for their paperwork. Between port roads it is inside, behind a port gate: trucks queue there for a free loading spot',
+    hint: 'Marked out on a road you have built: drag over a strip of it one or two tiles wide, with road left all along both its long sides. Trucks drive in off one side, park at an angle across the strip, one to each space along it, and drive out the other side: always forwards. Big trucks need two tiles. On public road it is outside the port: shippers\u2019 trucks wait there for their paperwork. On port road it is inside, behind a port gate: trucks queue there for a free loading spot. Unmark it to have the road back',
     drag: true,
   },
   portGate: {
@@ -282,14 +282,43 @@ export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean
 export function unmarkable(
   map: GameMap,
   i: number,
-): { store: boolean; machines: boolean; road: boolean } {
-  if (!map.buildable(i)) return { store: false, machines: false, road: false };
+): { store: boolean; machines: boolean; road: boolean; parking: boolean } {
+  if (!map.buildable(i)) return { store: false, machines: false, road: false, parking: false };
   return {
     store: map.store[i] !== 0,
     machines: forkliftOnly(map, i) && gantryOver(map, i, true) < 0,
     // One way, or traffic lights: back to a plain road.
     road: canBeOneWay(map.build[i]) && (map.orient[i] & (ONE_WAY | LIGHTS)) !== 0,
+    // Parking marked out on a road: the road again.
+    parking: map.build[i] === Build.Parking,
   };
+}
+
+/** On a parking tile, in `GameMap.orient`: it is marked out on port road, not public road. */
+export const ON_PORT_ROAD = 16;
+
+/**
+ * The road a parking tile is marked out on, which it is again once
+ * unmarked: as it was marked; for parking laid before it was marked out on
+ * roads, port road inside the port, public road outside.
+ */
+export function roadUnderParking(map: GameMap, i: number): BuildCode {
+  if (map.orient[i] & ON_PORT_ROAD) return Build.PortRoad;
+  const near = map.neighbors4(i).map((n) => map.build[n]);
+  const port = near.some((b) => b === Build.PortRoad || b === Build.Quay);
+  return port && !near.some((b) => isPublicRoad(b)) ? Build.PortRoad : Build.Road;
+}
+
+/** Why truck parking cannot be marked out on tile `i`, or null. */
+function parkingError(map: GameMap, i: number): string | null {
+  const b = map.build[i];
+  if (b === Build.Parking) return 'This is marked out for parking already';
+  if (b !== Build.Road && b !== Build.PortRoad)
+    return 'Parking is marked out on a public road or port road: build the road first';
+  if (map.store[i]) return 'Clear the storage marked out here first';
+  if (forkliftOnly(map, i)) return 'Kept for port machines: clear the mark first';
+  if (nearCrane(map, i)) return 'The ground round a crane is kept for port machines';
+  return null;
 }
 
 /** Why tile `i` cannot be made one way, or null. */
@@ -399,6 +428,7 @@ export function gateWay(map: GameMap, i: number): 'both' | 'in' | 'out' {
 }
 
 export function unmarkRefund(map: GameMap, i: number): number {
+  if (map.build[i] === Build.Parking) return Math.floor(B.PARKING_COST * B.BULLDOZE_REFUND);
   const kind = storeKindAt(map, i);
   return kind ? Math.floor(STORE_COST[kind] * B.BULLDOZE_REFUND) : 0;
 }
@@ -610,6 +640,7 @@ export function placementError(
   if (ownedByTown(map, i)) return 'This belongs to the town';
   if (isHighway(map.build[i]))
     return 'The highway runs here: open an exit off it with the exit tool';
+  if (kind === 'parking') return parkingError(map, i);
   // A public road crosses the railway on the level.
   if (map.build[i] === Build.Rail) {
     if (kind !== 'road') return 'The railway is in the way';
