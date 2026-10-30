@@ -58,6 +58,9 @@ interface Entry {
   /** Stackers and tractors: how they stood last frame, and the container they are handing over. */
   pose?: Pose;
   hand?: Hand;
+  /** Boats and crate trucks: the order their crates go on, see slotOf; and where that was worked out. */
+  order?: number[];
+  orderAt?: 'bay' | 'quay';
   /** Dockhands: walking up to a load they handle, or back onto their way. */
   stepping?: boolean;
 }
@@ -498,7 +501,11 @@ export class Entities {
       e.view = v;
       if (v.deck) showDeck(e.model, v.deck, v.looks ?? []);
       else {
-        showLoad(e.model, v.load);
+        this.reorder(e);
+        if (e.order) {
+          const shown = new Set(e.order.slice(0, v.load));
+          e.model.crates.forEach((c, k) => (c.visible = shown.has(k)));
+        } else showLoad(e.model, v.load);
         if (v.looks) paintLoad(e.model, v.looks);
       }
     }
@@ -1390,13 +1397,18 @@ export class Entities {
     const load = e.model.crates[0];
     if (!w?.place || !load?.parent) return;
     load.parent.updateWorldMatrix(true, false);
-    const off = at?.truck !== undefined && this.entries.get(at.truck)?.model.crates[at.slot ?? 0];
+    const off = at?.truck !== undefined && this.slotOf(at.truck, at.slot ?? 0);
     if (w.stage === 'pick' && e.view.handStage === 'pick' && off && e.view.load === 0) {
       // Shown in their hands instead of where it lay, on its way to them.
       off.visible = false;
       load.visible = true;
       w.early = true;
-      const to = w.place.clone().lerp(load.getWorldPosition(new Vector3()), ease(down));
+      // From the moment they reach it and bend to it, flying up over the
+      // side to their hands by the time it is theirs.
+      const walk = w.walk ?? 0;
+      const g = ease(Math.max(0, ((w.at ?? 0) - walk) / Math.max(0.05, 1 - walk)));
+      const to = w.place.clone().lerp(load.getWorldPosition(new Vector3()), g);
+      to.y += Math.sin(Math.PI * g) * 0.12;
       load.position.copy(load.parent.worldToLocal(to));
       return;
     }
@@ -1414,7 +1426,7 @@ export class Entities {
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */
   private handSlot(at: HandAt, out: Vector3): number | null {
     if (at.truck === undefined) return this.containerAt?.(at, out) ?? null;
-    const slot = this.entries.get(at.truck)?.model.crates[at.slot ?? 0];
+    const slot = this.slotOf(at.truck, at.slot ?? 0);
     if (!slot) return null;
     slot.getWorldPosition(out);
     return headingOf(slot);
@@ -1472,24 +1484,91 @@ export class Entities {
 
   /** Whether a truck's, tractor's or ship's container slot `k` shows a container. */
   slotShown(id: number, k: number): boolean {
-    return !!this.entries.get(id)?.model.crates[k]?.visible;
+    return !!this.slotOf(id, k)?.visible;
   }
 
   /** The crate or container in slot `k` of a boat or vehicle, shown or not. */
   slotObject(id: number, k: number): Object3D | undefined {
-    return this.entries.get(id)?.model.crates[k];
+    return this.slotOf(id, k);
   }
 
   /** Where a truck's container slot `k` is in the world, or null. */
   slotPosition(id: number, k: number, out: Vector3): Vector3 | null {
-    const slot = this.entries.get(id)?.model.crates[k];
+    const slot = this.slotOf(id, k);
     return slot ? slot.getWorldPosition(out) : null;
   }
 
   /** Which way a truck's, tractor's or ship's container slot `k` lies, as a turn about y. */
   slotTurn(id: number, k: number): number | null {
-    const slot = this.entries.get(id)?.model.crates[k];
+    const slot = this.slotOf(id, k);
     return slot ? turnOf(slot) : null;
+  }
+
+  /**
+   * Crate `k` of a boat or crate truck, in the order they are loaded: the
+   * far side from those who load it first, so the near side is unloaded
+   * first, the last on being the first off.
+   */
+  private slotOf(id: number, k: number): Object3D | undefined {
+    const e = this.entries.get(id);
+    return e?.model.crates[e.order?.[k] ?? k];
+  }
+
+  /**
+   * Which way round a boat's or crate truck's crates go on (see slotOf):
+   * a truck's from its cab back towards its tail, or from the far side of
+   * where it stands at a truck bay; a boat's from the side away from the
+   * quay it lies at, worked out as it comes to lie still there.
+   */
+  private reorder(e: Entry): void {
+    const v = e.view;
+    if (v.deck || (v.kind !== 'boat' && (v.kind !== 'truck' || v.boxes))) return;
+    const root = e.model.root;
+    const slots = e.model.crates;
+    if (slots.length < 2) return;
+    root.updateMatrixWorld(true);
+    const at = slots.map((c) => c.getWorldPosition(new Vector3()));
+    const far = (from: (p: Vector3) => number) =>
+      slots.map((_, k) => k).sort((a, b) => from(at[b]) - from(at[a]));
+    if (v.kind === 'truck') {
+      const m = this.map;
+      const [tx, tz] = [Math.floor(v.x), Math.floor(v.y)];
+      const bay =
+        !v.moving && m.inBounds(tx, tz) && m.build[m.idx(tx, tz)] === Build.TruckBay
+          ? this.bayFrame(m.idx(tx, tz))
+          : null;
+      if (bay && v.load === 0 && e.orderAt !== 'bay') {
+        // In a truck bay: from where those who load it stand.
+        const [sx, sz] = bay.at(0.8, 0.42);
+        e.order = far((p) => Math.hypot(p.x - sx, p.z - sz));
+        e.orderAt = 'bay';
+      } else if (!e.order) {
+        // Cab first, the cab ahead (+x) of its middle.
+        const local = at.map((p) => root.worldToLocal(p.clone()));
+        e.order = slots.map((_, k) => k).sort((a, b) => local[b].x - local[a].x);
+      }
+      return;
+    }
+    // A boat lying still beside the quay: the side the land is.
+    if (v.moving) {
+      e.orderAt = undefined;
+      return;
+    }
+    if (e.orderAt === 'quay') return;
+    // How far each crate is from the nearest dock or quay, any way round.
+    const ashore = (p: Vector3) => {
+      for (let d = 0.05; d < 1.6; d += 0.05) {
+        for (let a = 0; a < 16; a++) {
+          const t = (a / 16) * Math.PI * 2;
+          if (surfaceY(this.map, p.x + Math.cos(t) * d, p.z + Math.sin(t) * d) > 0) return d;
+        }
+      }
+      return Infinity;
+    };
+    const dist = at.map(ashore);
+    if (dist.every((d) => d === Infinity)) return;
+    e.order = slots.map((_, k) => k).sort((a, b) => dist[b] - dist[a]);
+    e.orderAt = 'quay';
   }
 
   worldPositions(): { view: EntityView; pos: Vector3 }[] {

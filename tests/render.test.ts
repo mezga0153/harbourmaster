@@ -187,6 +187,65 @@ describe('Dockhands handling crates', () => {
     expect(up).toBeGreaterThan(0);
   });
 
+  it('unload the near side of a boat first, and load the far side of a truck first', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    const seen = new Set<string>();
+    const near = { boat: [0, 0], truck: [0, 0] };
+    const p = new Vector3();
+    let now = 0;
+    for (let t = 0; t < 2500; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+      }
+      for (const { view, pos } of entities.worldPositions()) {
+        const at = view.handAt;
+        // Once they stand at it.
+        if (view.kind !== 'dockhand' || at?.truck === undefined || (view.handPhase ?? 0) < 0.75) {
+          continue;
+        }
+        const other = s.entities.find((e) => e.id === at.truck);
+        if (!other) continue;
+        const key = `${view.id}:${at.truck}:${at.slot}:${view.handStage}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // How far each of its places is from the dockhand at it.
+        const d = (k: number) => entities.slotPosition(at.truck!, k, p)!.distanceTo(pos);
+        const slots = [...Array(other.capacity).keys()];
+        const mine = d(at.slot ?? 0);
+        if (other.kind === 'boat' && view.handStage === 'pick') {
+          // Of those still on board, among the nearer half.
+          const on = slots.filter((k) => entities.slotShown(at.truck!, k));
+          near.boat[1]++;
+          if (on.filter((k) => d(k) < mine - 1e-6).length <= on.length / 2) near.boat[0]++;
+        } else if (other.kind === 'truck' && view.handStage === 'drop') {
+          // Of the places still free, among the farther half.
+          const free = slots.filter((k) => !entities.slotShown(at.truck!, k));
+          near.truck[1]++;
+          if (free.filter((k) => d(k) > mine + 1e-6).length <= free.length / 2) near.truck[0]++;
+        }
+      }
+    }
+    expect(near.boat[1]).toBeGreaterThan(10);
+    // The near side first, if not always the very one nearest them along it.
+    expect(near.boat[0] / near.boat[1]).toBeGreaterThan(0.75);
+    expect(near.truck[1]).toBeGreaterThan(5);
+    expect(near.truck[0] / near.truck[1]).toBeGreaterThan(0.9);
+  });
+
   it('keep a step apart when they stand about', () => {
     const world = World.create(7, 96);
     const entities = new Entities(world.map);
