@@ -514,6 +514,10 @@ button.brand.on {
   top: 76px;
   right: 12px;
   width: 280px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
   padding: 14px;
   display: flex;
   flex-direction: column;
