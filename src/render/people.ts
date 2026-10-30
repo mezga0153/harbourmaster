@@ -140,6 +140,7 @@ export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void 
   if (!l || !w.body) return;
   l.legL.rotation.z = l.legR.rotation.z = KNEES;
   l.armL.rotation.z = l.armR.rotation.z = 0.55;
+  l.armL.rotation.x = l.armR.rotation.x = 0;
   const sway = Math.sin(phase * 0.1) * 0.04;
   w.body.rotation.z = -sway;
   w.body.rotation.y = 0;
@@ -147,8 +148,46 @@ export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void 
 }
 
 /** Things a dockhand does standing about with nothing to do. */
-export type Fidget = 'look' | 'stretch' | 'scratch' | 'watch' | 'tap' | 'chat' | 'still';
-const FIDGETS: Fidget[] = ['look', 'stretch', 'scratch', 'watch', 'tap', 'look', 'still', 'tap'];
+export type Fidget =
+  | 'look'
+  | 'stretch'
+  | 'scratch'
+  | 'watch'
+  | 'tap'
+  | 'chat'
+  | 'still'
+  | 'jog'
+  | 'sit'
+  | 'peer'
+  | 'dance'
+  | 'flex'
+  | 'wave'
+  | 'hop'
+  | 'spin'
+  | 'windmill';
+/** Mostly the quiet ones, now and then a daft one. */
+const FIDGETS: Fidget[] = [
+  'look',
+  'stretch',
+  'scratch',
+  'watch',
+  'tap',
+  'look',
+  'still',
+  'sit',
+  'peer',
+  'jog',
+  'tap',
+  'sit',
+  'peer',
+  'wave',
+  'stretch',
+  'dance',
+  'flex',
+  'hop',
+  'spin',
+  'windmill',
+];
 /** Seconds each lasts, and how long they take to go into one and out of it. */
 const FIDGET_TIME = 5;
 const FIDGET_EASE = 0.6;
@@ -213,6 +252,79 @@ export function fidget(
       to(l.armL, 0.3 + Math.sin(t * 2.3 + 1) * 0.2);
       body.rotation.y = Math.sin(t * 1.3) * 0.15 * f;
       break;
+    case 'jog': {
+      // Running on the spot, knees and elbows pumping.
+      const k = Math.sin(t * 14);
+      to(l.legL, k * 0.7);
+      to(l.legR, -k * 0.7);
+      to(l.armL, -k * 0.8 + 0.4);
+      to(l.armR, k * 0.8 + 0.4);
+      body.position.y += Math.abs(Math.cos(t * 14)) * 0.025 * f;
+      break;
+    }
+    case 'sit':
+      // Sat down on the ground, legs out in front, leaning back on their hands.
+      to(l.legL, 1.45);
+      to(l.legR, 1.45);
+      to(l.armL, -0.7);
+      to(l.armR, -0.7);
+      body.position.y += (0.035 - HIP) * f;
+      body.rotation.z += 0.15 * f;
+      break;
+    case 'peer': {
+      // Bent over something on the ground, pointing at it.
+      const bend = 0.9 * f;
+      body.rotation.z -= bend;
+      body.position.x += -HIP * Math.sin(bend);
+      body.position.y += HIP - HIP * Math.cos(bend);
+      to(l.legL, bend);
+      to(l.legR, bend);
+      to(l.armR, bend + 0.9 + Math.sin(t * 5) * 0.08);
+      to(l.armL, bend + 0.2);
+      body.rotation.y = Math.sin(t * 0.7) * 0.2 * f;
+      break;
+    }
+    case 'dance': {
+      // Arms waving up either side, hips swaying, stepping from foot to foot.
+      const k = Math.sin(t * 6);
+      l.armL.rotation.x = (1.6 + k * 0.9) * f;
+      l.armR.rotation.x = -(1.6 - k * 0.9) * f;
+      to(l.legL, Math.max(0, k) * 0.4);
+      to(l.legR, Math.max(0, -k) * 0.4);
+      body.rotation.y = Math.sin(t * 3) * 0.5 * f;
+      body.position.y += Math.abs(k) * 0.02 * f;
+      break;
+    }
+    case 'flex':
+      // Showing off: arms up and out either side, leaning back proudly.
+      l.armL.rotation.x = 1.5 * f;
+      l.armR.rotation.x = -1.5 * f;
+      to(l.armL, 0.6 + Math.sin(t * 8) * 0.15);
+      to(l.armR, 0.6 - Math.sin(t * 8) * 0.15);
+      body.rotation.z += 0.12 * f;
+      break;
+    case 'wave':
+      l.armR.rotation.x = -(2.6 + Math.sin(t * 10) * 0.35) * f;
+      break;
+    case 'hop':
+      // Hopping on the spot, feet tucked up under them.
+      body.position.y += Math.abs(Math.sin(t * 5)) * 0.09 * f;
+      to(l.legL, -0.3);
+      to(l.legR, -0.3);
+      to(l.armL, 0.9);
+      to(l.armR, 0.9);
+      break;
+    case 'spin':
+      // Twirling round one way and back, arms out.
+      body.rotation.y = Math.sin(t * 2.5) * Math.PI * f;
+      l.armL.rotation.x = 1.4 * f;
+      l.armR.rotation.x = -1.4 * f;
+      break;
+    case 'windmill':
+      // Arms whirling up and over like a windmill.
+      to(l.armL, 1.5 + Math.sin(t * 7) * 1.6);
+      to(l.armR, 1.5 - Math.sin(t * 7) * 1.6);
+      break;
     case 'still':
       break;
   }
@@ -248,6 +360,8 @@ export function pose(
   // The legs stay upright as the body bends over them.
   l.legL.rotation.z = swing * (1 - stoop) + bend;
   l.legR.rotation.z = -swing * (1 - stoop) + bend;
+  // Out to the side only standing about, see fidget().
+  l.armL.rotation.x = l.armR.rotation.x = 0;
   // Hands down by the sides of a crate on the ground, out level to one at
   // waist height, up to one above.
   const level = HANDS_DOWN + (HANDS_OUT - HANDS_DOWN) * (1 - low);
