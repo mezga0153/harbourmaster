@@ -36,6 +36,8 @@ interface Entry {
   alert: Object3D | null;
   /** Trucks: how far the body reaches each way from its middle, as it faces +x. */
   size?: Box3;
+  /** Dockhands: the truck they are going round, and along which side of it. */
+  round?: { truck: number; side: number };
   /** Boats: the wake they are laying, how hard they are going and how far they lean. */
   track?: Track;
   way?: number;
@@ -107,10 +109,16 @@ interface Hand {
   goal?: Pose;
   /** Dockhands: how much of it they spend walking up to it. */
   walk?: number;
+  /** A dockhand: where the crate they set down goes, or the one they take up lay. */
+  place?: Vector3;
+  /** Dockhands: corners of a truck they walk round on the way. */
+  via?: { x: number; z: number }[];
 }
 
 /** Furthest a forklift drives up to a pallet, from where it stops for it. */
 const REACH_MOST = 0.8;
+/** Furthest a dockhand walks up to a crate, from where they stop for it. */
+const WALK_MOST = 1.6;
 /** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
 const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
@@ -149,6 +157,50 @@ function walkTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
         ? lerpAngle(from.dir, way, ease(c / 0.3))
         : lerpAngle(way, to.dir, ease((c - 0.7) / 0.3)),
   };
+}
+
+/** How long a way through these points is. */
+function length(points: { x: number; z: number }[]): number {
+  let d = 0;
+  for (let k = 1; k < points.length; k++) {
+    d += Math.hypot(points[k].x - points[k - 1].x, points[k].z - points[k - 1].z);
+  }
+  return d;
+}
+
+/** As walkTo, by way of the points `via`, round whatever is in the way. */
+function walkVia(
+  from: Pose,
+  via: { x: number; z: number }[],
+  to: Pose,
+  a: number,
+): Omit<Pose, 'h'> {
+  if (via.length === 0) return walkTo(from, to, a);
+  const c = Math.min(1, Math.max(0, a));
+  const points = [from, ...via, to];
+  let left = length(points) * ease(c);
+  for (let k = 1; k < points.length; k++) {
+    const p = points[k - 1];
+    const q = points[k];
+    const d = Math.hypot(q.x - p.x, q.z - p.z);
+    if (left > d && k < points.length - 1) {
+      left -= d;
+      continue;
+    }
+    const f = d > 0 ? Math.min(1, left / d) : 1;
+    const way = Math.atan2(q.z - p.z, q.x - p.x);
+    return {
+      x: p.x + (q.x - p.x) * f,
+      z: p.z + (q.z - p.z) * f,
+      dir:
+        c < 0.15
+          ? lerpAngle(from.dir, way, ease(c / 0.15))
+          : c > 0.85
+            ? lerpAngle(way, to.dir, ease((c - 0.85) / 0.15))
+            : way,
+    };
+  }
+  return { x: to.x, z: to.z, dir: to.dir };
 }
 
 /**
@@ -273,6 +325,8 @@ export interface Wake {
 const FORK_KEEP = 0.16;
 /** Fastest a dockhand closes on where they should be, tiles per game second: a brisk walk. */
 const CATCH_UP = WALK_SPEED * TICKS_PER_SECOND * 1.5;
+/** How far apart dockhands standing about keep. */
+const ROOM = 0.36;
 /** How quickly a dockhand turns to the way they step, per game second. */
 const TURN_RATE = 12;
 /** How far in front of a dockhand the crate they pick up or set down is. */
@@ -576,6 +630,8 @@ export class Entities {
           if (e.slip.left <= 0) e.slip = undefined;
         }
         if (cur.kind === 'dockhand') {
+          // Standing about, they keep a step apart rather than stand in each other.
+          if (!cur.moving) [rx, ry] = this.spread(e, rx, ry);
           // Onto the other side of the way as they turn about, at a walk.
           const to = this.catchUp(e, rx, ry, yaw, dt);
           [rx, ry, yaw] = [to.x, to.z, Math.hypot(to.x - rx, to.z - ry) > 0.03 ? to.dir : yaw];
@@ -598,6 +654,7 @@ export class Entities {
         const goal = e.hand?.goal;
         const walking = cur.moving || stepping;
         pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
+        this.toPlace(e, down);
       }
       if (e.alert) {
         e.alert.visible = cur.alert;
@@ -742,7 +799,10 @@ export class Entities {
       // A forklift the game has too far from its pallet to drive up to it
       // works it from where it is. It is shown a snapshot behind the game,
       // so that is measured from where the game has it, not where it shows.
-      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > REACH_MOST;
+      // A dockhand walks further, as to the edge of a jetty off the corner
+      // a boat lies at.
+      const most = v.kind === 'dockhand' ? WALK_MOST : REACH_MOST;
+      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > most;
       if (w.goal && far && (v.kind === 'forklift' || v.kind === 'dockhand')) {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
@@ -751,10 +811,12 @@ export class Entities {
         // Walked up to at their own pace, in what is left of it, before they
         // bend to it.
         const left = Math.max(1, (v.handTicks ?? 1) * (1 - w.start));
-        const d = Math.hypot(goal.x - w.from.x, goal.z - w.from.z);
+        // Round a truck in the way, not through it.
+        w.via ??= this.aroundTrucks(w.from, goal);
+        const d = length([w.from, ...w.via, goal]);
         w.walk ??= Math.min(0.6, Math.max(0.1, d / (WALK_SPEED * left)));
         e.stepping = phase < w.walk;
-        pose = { ...walkTo(w.from, goal, phase / w.walk), h: 0 };
+        pose = { ...walkVia(w.from, w.via, goal, phase / w.walk), h: 0 };
         this.place(e, pose);
         return;
       }
@@ -778,10 +840,12 @@ export class Entities {
       }
       const s = (this.sim - w.done) / HAND_SETTLE;
       if (v.kind === 'dockhand') {
-        // Walks back onto their way, catching up with it.
-        pose = { ...this.catchUp(e, drive.x, drive.z, drive.dir, dt), h: 0 };
+        // Walks back onto their way, catching up with it, or a step clear of
+        // the others there if they stand about.
+        const [gx, gz] = v.moving ? [drive.x, drive.z] : this.spread(e, drive.x, drive.z);
+        pose = { ...this.catchUp(e, gx, gz, drive.dir, dt), h: 0 };
         e.stepping = true;
-        const there = Math.hypot(pose.x - drive.x, pose.z - drive.z) < 0.02;
+        const there = Math.hypot(pose.x - gx, pose.z - gz) < 0.02;
         if (there || s >= 4) e.hand = undefined;
       } else if (s >= 1) e.hand = undefined;
       else {
@@ -796,10 +860,46 @@ export class Entities {
   }
 
   /**
+   * Where a dockhand standing about at x, z stands, a step clear of any
+   * other dockhand nearby, and still on the quay.
+   */
+  private spread(e: Entry, x: number, z: number): [number, number] {
+    let px = 0;
+    let pz = 0;
+    // Measured from where they stand, so two standing as one go apart.
+    const me = e.pose ?? { x, z };
+    for (const o of this.entries.values()) {
+      if (o === e || o.view.kind !== 'dockhand' || !o.pose) continue;
+      const dx = me.x - o.pose.x;
+      const dz = me.z - o.pose.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= ROOM) continue;
+      // Right on top of each other: apart, opposite ways, whichever way their ids say.
+      const pair = Math.min(e.view.id, o.view.id) * 2.39996 + (e.view.id < o.view.id ? 0 : Math.PI);
+      const a = d < 1e-3 ? pair : Math.atan2(dz, dx);
+      px += Math.cos(a) * (ROOM - d);
+      pz += Math.sin(a) * (ROOM - d);
+    }
+    // Off the edge that way: as far round from it as it takes to stay on the quay.
+    for (const turn of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI]) {
+      const c = Math.cos(turn);
+      const s = Math.sin(turn);
+      const nx = x + px * c - pz * s;
+      const nz = z + px * s + pz * c;
+      if (surfaceY(this.map, nx, nz) > 0) return [nx, nz];
+    }
+    return [x, z];
+  }
+
+  /**
    * A dockhand's way onto x, z: no faster than a brisk walk, so they never
    * jump there, facing the way they step and otherwise `dir`.
    */
   private catchUp(e: Entry, x: number, z: number, dir: number, dt: number): Omit<Pose, 'h'> {
+    [x, z] = this.offTrucks(e, x, z);
+    // Round a truck in the way, by its nearer corner.
+    const via = e.pose && this.aroundTrucks(e.pose, { x, z })[0];
+    if (via) [x, z] = [via.x, via.z];
     const at = e.pose;
     const d = at ? Math.hypot(x - at.x, z - at.z) : 0;
     // Just come into view, or a long way on (the tab was in the background).
@@ -934,6 +1034,164 @@ export class Entities {
       h: at.h + surfaceY(this.map, at.x, at.z) - surfaceY(this.map, x, z),
       over,
     };
+  }
+
+  /**
+   * Where a dockhand walking to x, z goes instead, round a truck standing
+   * still rather than through it: to the edge of it on the side they are
+   * on, and along that side, until the way is clear of it.
+   */
+  private offTrucks(e: Entry, x: number, z: number): [number, number] {
+    const me = e.pose;
+    if (!me) return [x, z];
+    for (const truck of this.entries.values()) {
+      if (truck.view.kind !== 'truck' || truck.view.moving) continue;
+      const at = truck.model.root;
+      const dx = x - at.position.x;
+      const dz = z - at.position.z;
+      if (dx * dx + dz * dz > 2.5) continue;
+      const box = (truck.size ??= sizeOf(at));
+      const c = Math.cos(-at.rotation.y);
+      const s = Math.sin(-at.rotation.y);
+      const pad = 0.07;
+      // How far beyond each side of it, back, front, left and right, a point is.
+      const beyond = (px: number, pz: number) => {
+        const along = (px - at.position.x) * c + (pz - at.position.z) * s;
+        const across = -(px - at.position.x) * s + (pz - at.position.z) * c;
+        return [
+          box.min.x - pad - along,
+          along - box.max.x - pad,
+          box.min.z - pad - across,
+          across - box.max.z - pad,
+        ];
+      };
+      const to = beyond(x, z);
+      if (Math.max(...to) >= 0) {
+        if (e.round?.truck === truck.view.id) e.round = undefined;
+        continue;
+      }
+      // Kept to the side they are on, so they go round, never across; at
+      // one loading, to its left, the side its crates are on.
+      const from = beyond(me.x, me.z);
+      const side = /^Loading/.test(truck.view.activity ?? '')
+        ? 2
+        : e.round?.truck === truck.view.id
+          ? e.round.side
+          : from.indexOf(Math.max(...from));
+      e.round = { truck: truck.view.id, side };
+      let a = dx * c + dz * s;
+      let b = -dx * s + dz * c;
+      if (side === 0) a = box.min.x - pad;
+      else if (side === 1) a = box.max.x + pad;
+      else if (side === 2) b = box.min.z - pad;
+      else b = box.max.z + pad;
+      x = at.position.x + a * c - b * s;
+      z = at.position.z + a * s + b * c;
+    }
+    return [x, z];
+  }
+
+  /**
+   * Corners to walk by from one point to another round a truck standing
+   * still in the way, the shorter way round it; none if nothing is in the
+   * way.
+   */
+  private aroundTrucks(
+    from: { x: number; z: number },
+    to: { x: number; z: number },
+  ): { x: number; z: number }[] {
+    for (const truck of this.entries.values()) {
+      if (truck.view.kind !== 'truck' || truck.view.moving) continue;
+      const at = truck.model.root;
+      const mx = (from.x + to.x) / 2 - at.position.x;
+      const mz = (from.z + to.z) / 2 - at.position.z;
+      if (mx * mx + mz * mz > 4) continue;
+      const box = (truck.size ??= sizeOf(at));
+      const c = Math.cos(-at.rotation.y);
+      const s = Math.sin(-at.rotation.y);
+      const local = (p: { x: number; z: number }): [number, number] => {
+        const dx = p.x - at.position.x;
+        const dz = p.z - at.position.z;
+        return [dx * c + dz * s, -dx * s + dz * c];
+      };
+      const [fa, fb] = local(from);
+      const [ta, tb] = local(to);
+      // Whether a way crosses it (Liang-Barsky), kept a body's width off.
+      const pad = 0.06;
+      const crosses = ([fa, fb]: number[], [ta, tb]: number[]) => {
+        let lo = 0;
+        let hi = 1;
+        const clip = (p: number, q: number) => {
+          if (p === 0) return q > 0;
+          const r = q / p;
+          if (p < 0) lo = Math.max(lo, r);
+          else hi = Math.min(hi, r);
+          return lo < hi;
+        };
+        return (
+          clip(-(ta - fa), fa - (box.min.x - pad)) &&
+          clip(ta - fa, box.max.x + pad - fa) &&
+          clip(-(tb - fb), fb - (box.min.z - pad)) &&
+          clip(tb - fb, box.max.z + pad - fb) &&
+          hi - lo > 1e-3
+        );
+      };
+      if (!crosses([fa, fb], [ta, tb])) continue;
+      const out = pad + 0.05;
+      const corners: [number, number][] = [
+        [box.min.x - out, box.min.z - out],
+        [box.max.x + out, box.min.z - out],
+        [box.max.x + out, box.max.z + out],
+        [box.min.x - out, box.max.z + out],
+      ];
+      const near = (a: number, b: number) =>
+        corners.reduce((k, p, i) => {
+          const q = corners[k];
+          return Math.hypot(p[0] - a, p[1] - b) < Math.hypot(q[0] - a, q[1] - b) ? i : k;
+        }, 0);
+      const i = near(fa, fb);
+      const j = near(ta, tb);
+      const ways = [1, 3].map((step) => {
+        const path = [i];
+        while (path[path.length - 1] !== j) path.push((path[path.length - 1] + step) % 4);
+        return path;
+      });
+      const long = (path: number[]) =>
+        length([
+          { x: fa, z: fb },
+          ...path.map((k) => ({ x: corners[k][0], z: corners[k][1] })),
+          { x: ta, z: tb },
+        ]);
+      const best = long(ways[0]) <= long(ways[1]) ? ways[0] : ways[1];
+      // Only the corners it has to go by.
+      while (best.length > 1 && !crosses(corners[best[best.length - 2]], [ta, tb])) best.pop();
+      while (best.length > 1 && !crosses([fa, fb], corners[best[1]])) best.shift();
+      return best.map((k) => {
+        const [a, b] = corners[k];
+        return { x: at.position.x + a * c - b * s, z: at.position.z + a * s + b * c };
+      });
+    }
+    return [];
+  }
+
+  /**
+   * A dockhand sets a crate down in its very place, on a stack, a truck's
+   * bed or a boat's deck: as they bend to it, the crate in their hands goes
+   * the rest of the way there, and lies in it as it changes hands. Picking
+   * one up, they take it from where it lay, and it comes up with their
+   * hands.
+   */
+  private toPlace(e: Entry, down: number): void {
+    const w = e.hand;
+    const at = e.view.handAt;
+    if (w && at && e.view.handStage === w.stage) {
+      if (this.handSlot(at, this.slotAt) !== null) w.place = this.slotAt.clone();
+    }
+    const load = e.model.crates[0];
+    if (!w?.place || !load?.visible || !load.parent || down <= 0) return;
+    load.parent.updateWorldMatrix(true, false);
+    const from = load.getWorldPosition(new Vector3()).lerp(w.place, down);
+    load.position.copy(load.parent.worldToLocal(from));
   }
 
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */

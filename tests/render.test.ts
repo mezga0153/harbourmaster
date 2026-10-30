@@ -144,6 +144,86 @@ describe('Dockhands handling crates', () => {
     }
     expect(handled).toBeGreaterThan(50);
   });
+
+  it('set each crate down in its place, up on a stack or a truck, and take it from there', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    const scene = new Group();
+    scene.add(structures.group, entities.group);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entries = (entities as any).entries as Map<number, any>;
+    const held = new Map<number, { shown: boolean; at: Vector3; place?: Vector3 }>();
+    let drops = 0;
+    let up = 0;
+    let now = 0;
+    for (let t = 0; t < 1500; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+        scene.updateMatrixWorld(true);
+        for (const { view, pos } of entities.worldPositions()) {
+          if (view.kind !== 'dockhand') continue;
+          const e = entries.get(view.id);
+          const shown = entities.slotShown(view.id, 0);
+          const was = held.get(view.id);
+          // Let go of: it was where it goes.
+          if (was?.shown && !shown && was.place) {
+            drops++;
+            if (was.place.y - pos.y > 0.05) up++;
+            expect(was.at.distanceTo(was.place)).toBeLessThan(0.03);
+          }
+          const at = entities.slotPosition(view.id, 0, new Vector3())!;
+          held.set(view.id, { shown, at, place: e.hand?.place?.clone() });
+        }
+      }
+    }
+    expect(drops).toBeGreaterThan(10);
+    // Some onto others, up off the ground.
+    expect(up).toBeGreaterThan(0);
+  });
+
+  it('keep a step apart when they stand about', () => {
+    const world = World.create(7, 96);
+    const entities = new Entities(world.map);
+    const still = new Map<number, number>();
+    let pairs = 0;
+    for (let t = 0, now = 0; t < 1500; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        const crew = entities.worldPositions().filter((w) => w.view.kind === 'dockhand');
+        for (const { view } of crew) {
+          const idle = !view.moving && !view.handStage;
+          still.set(view.id, idle ? (still.get(view.id) ?? 0) + 1 : 0);
+        }
+        // Once they have stood a second.
+        const idle = crew.filter((w) => (still.get(w.view.id) ?? 0) > 60);
+        for (let i = 0; i < idle.length; i++) {
+          for (let j = i + 1; j < idle.length; j++) {
+            pairs++;
+            const [a, b] = [idle[i].pos, idle[j].pos];
+            expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThan(0.18);
+          }
+        }
+      }
+    }
+    expect(pairs).toBeGreaterThan(1000);
+  });
 });
 
 describe('Jib cranes', () => {
@@ -311,4 +391,77 @@ describe('Trucks at a truck bay', () => {
     }
     expect(docked).toBeGreaterThan(20);
   });
+
+  it('are walked round by dockhands, never through, who set each crate down in its place on the bed', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const entities = new Entities(m);
+    const structures = new Structures(m, true);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    const scene = new Group();
+    scene.add(structures.group, entities.group);
+    const entries = (entities as unknown as { entries: Map<number, any> }).entries;
+    // How long each truck has stood where it is, in snapshots.
+    const still = new Map<number, number>();
+    const held = new Map<
+      number,
+      { shown: boolean; at: Vector3; bed?: { truck: number; slot: number } }
+    >();
+    let beside = 0;
+    for (let t = 0, now = 0; t < 2500; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (const v of s.entities) {
+        if (v.kind === 'truck') still.set(v.id, v.moving ? 0 : (still.get(v.id) ?? 0) + 1);
+      }
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+        scene.updateMatrixWorld(true);
+        for (const e of entries.values()) {
+          if (e.view.kind !== 'dockhand') continue;
+          const p = e.model.root.position;
+          for (const truck of entries.values()) {
+            if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
+            const r = truck.model.root;
+            const body = truck.size as Box3 | undefined;
+            if (!body) continue;
+            const dir = -r.rotation.y;
+            const dx = p.x - r.position.x;
+            const dz = p.z - r.position.z;
+            const along = dx * Math.cos(dir) + dz * Math.sin(dir);
+            const across = -dx * Math.sin(dir) + dz * Math.cos(dir);
+            const inside =
+              along > body.min.x &&
+              along < body.max.x &&
+              across > body.min.z &&
+              across < body.max.z;
+            expect(inside).toBe(false);
+            beside++;
+          }
+          // The crate leaves their hands just where it shows on the truck.
+          const load = e.model.crates[0];
+          const was = held.get(e.view.id);
+          if (was?.shown && !load.visible && was.bed) {
+            const slot = entries.get(was.bed.truck)?.model.crates[was.bed.slot];
+            if (slot)
+              expect(slot.getWorldPosition(new Vector3()).distanceTo(was.at)).toBeLessThan(0.03);
+          }
+          held.set(e.view.id, {
+            shown: load.visible,
+            at: load.getWorldPosition(new Vector3()),
+            bed: e.hand?.bed,
+          });
+        }
+      }
+    }
+    expect(beside).toBeGreaterThan(100);
+  }, 60_000);
 });
