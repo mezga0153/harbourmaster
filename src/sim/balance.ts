@@ -126,6 +126,8 @@ export const REROUTE_AFTER = 18; // ticks blocked before looking for a way aroun
 export const SQUEEZE_AFTER = 60; // ticks blocked before squeezing past anyway
 export const WORKERS_PER_SPOT = 2; // sent to the same loading spot at once
 export const TRUCK_SPEED = 0.7;
+/** How fast a truck backs into a truck bay, tiles per tick. */
+export const TRUCK_BACK_SPEED = 0.18;
 /** Trucks drive this far right of the middle of the road, in tiles. */
 export const TRUCK_LANE = 0.18;
 /** Room a truck keeps behind the one ahead of it, bumper to bumper, in tiles. */

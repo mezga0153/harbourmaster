@@ -1,4 +1,4 @@
-import { Group, Vector3, type Object3D } from 'three';
+import { Box3, Group, Vector3, type Object3D } from 'three';
 import { VESSELS, WALK_SPEED } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
 import type { GameMap } from '../sim/map';
@@ -34,6 +34,8 @@ interface Entry {
   view: EntityView;
   model: Model;
   alert: Object3D | null;
+  /** Trucks: how far the body reaches each way from its middle, as it faces +x. */
+  size?: Box3;
   /** Boats: the wake they are laying, how hard they are going and how far they lean. */
   track?: Track;
   way?: number;
@@ -736,7 +738,7 @@ export class Entities {
       // Seen part way through, at speed, it does the rest in what is left.
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
-      w.goal ??= this.workPose(v, w, drive) ?? undefined;
+      w.goal ??= this.clearOfTruck(v, this.workPose(v, w, drive)) ?? undefined;
       // A forklift the game has too far from its pallet to drive up to it
       // works it from where it is. It is shown a snapshot behind the game,
       // so that is measured from where the game has it, not where it shows.
@@ -878,6 +880,62 @@ export class Entities {
     return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
   }
 
+  /**
+   * A dockhand or forklift loading a truck stands clear of it, as far back
+   * from the crate's place on its bed as it takes: a dockhand reaches the
+   * rest of the way, leaning over to it, and a forklift's forks reach in
+   * over the side.
+   */
+  private clearOfTruck(v: EntityView, at: Pose | null): Pose | null {
+    const id = v.handAt?.truck;
+    const truck = id === undefined ? undefined : this.entries.get(id);
+    if (!at || !truck || truck.view.kind !== 'truck') return at;
+    if (v.kind !== 'dockhand' && v.kind !== 'forklift') return at;
+    const box = (truck.size ??= sizeOf(truck.model.root));
+    const root = truck.model.root;
+    const c = Math.cos(-root.rotation.y);
+    const s = Math.sin(-root.rotation.y);
+    // Points of the body that must keep off it, ahead of and to the right of its middle.
+    const body: [number, number][] =
+      v.kind === 'forklift'
+        ? [
+            [0.18, -0.16],
+            [0.18, 0.16],
+            [-0.26, -0.16],
+            [-0.26, 0.16],
+          ]
+        : [[0, 0]];
+    const pad = v.kind === 'forklift' ? 0.02 : 0.07;
+    const inside = (x: number, z: number) =>
+      body.some(([f, r]) => {
+        const px = x + Math.cos(at.dir) * f - Math.sin(at.dir) * r - root.position.x;
+        const pz = z + Math.sin(at.dir) * f + Math.cos(at.dir) * r - root.position.z;
+        const along = px * c + pz * s;
+        const across = -px * s + pz * c;
+        return (
+          along > box.min.x - pad &&
+          along < box.max.x + pad &&
+          across > box.min.z - pad &&
+          across < box.max.z + pad
+        );
+      });
+    let back = 0;
+    while (back < 0.6 && inside(at.x - Math.cos(at.dir) * back, at.z - Math.sin(at.dir) * back)) {
+      back += 0.02;
+    }
+    if (back === 0) return at;
+    const x = at.x - Math.cos(at.dir) * back;
+    const z = at.z - Math.sin(at.dir) * back;
+    const over = v.kind === 'dockhand' ? Math.min(LEAN_MOST, (at.over ?? 0) + back) : at.over;
+    return {
+      ...at,
+      x,
+      z,
+      h: at.h + surfaceY(this.map, at.x, at.z) - surfaceY(this.map, x, z),
+      over,
+    };
+  }
+
   /** Where a container to hand over lies, as containerAt; on a truck, its slot there. */
   private handSlot(at: HandAt, out: Vector3): number | null {
     if (at.truck === undefined) return this.containerAt?.(at, out) ?? null;
@@ -962,6 +1020,20 @@ export class Entities {
   worldPositions(): { view: EntityView; pos: Vector3 }[] {
     return [...this.entries.values()].map((e) => ({ view: e.view, pos: e.model.root.position }));
   }
+}
+
+/** How far a model reaches each way from its middle, unturned. */
+function sizeOf(root: Object3D): Box3 {
+  const at = root.position.clone();
+  const turn = root.rotation.y;
+  root.position.set(0, 0, 0);
+  root.rotation.y = 0;
+  root.updateMatrixWorld(true);
+  const box = new Box3().setFromObject(root);
+  root.position.copy(at);
+  root.rotation.y = turn;
+  root.updateMatrixWorld(true);
+  return box;
 }
 
 /** Where a forklift turning about is, at a point of the way, and which way it faces. */

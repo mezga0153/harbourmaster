@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Group, Vector3, type Object3D } from 'three';
+import { Box3, Group, Vector3, type Object3D } from 'three';
 import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN } from '../src/sim/balance';
-import { placementError } from '../src/sim/rules';
+import { FACING, placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { Entities, turnAbout } from '../src/render/entities';
@@ -71,7 +71,7 @@ describe('Dockhands handling crates', () => {
     const world = World.create(7, 96);
     const entities = new Entities(world.map);
     const crate = new Vector3();
-    const held = new Map<number, { shown: boolean; y: number }>();
+    const held = new Map<number, { shown: boolean; y: number; truck: boolean }>();
     let handed = 0;
     for (let t = 0, now = 0; t < 800; t++) {
       world.step();
@@ -85,11 +85,13 @@ describe('Dockhands handling crates', () => {
           const shown = entities.slotShown(view.id, 0);
           const y = entities.slotPosition(view.id, 0, crate)!.y - pos.y;
           const was = held.get(view.id);
-          if (was && was.shown !== shown) {
+          // Onto a truck, it goes up onto the bed; see the trucks below.
+          if (was && was.shown !== shown && !was.truck) {
             handed++;
             expect(Math.min(y, was.y)).toBeLessThan(0.01);
           }
-          held.set(view.id, { shown, y });
+          const truck = s.entities.some((e) => e.id === view.handAt?.truck && e.kind === 'truck');
+          held.set(view.id, { shown, y, truck });
         }
       }
     }
@@ -233,5 +235,80 @@ describe('Jib cranes', () => {
       }
     }
     expect(lifts).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('Trucks at a truck bay', () => {
+  it('back in to stand away from the crates, and are loaded from beside them, never through them', () => {
+    const world = World.create(7, 96);
+    const m = world.map;
+    const entities = new Entities(world.map);
+    const bodies = new Map<number, Box3>();
+    const dropping = new Map<number, { x: number; z: number; truck: number }>();
+    let docked = 0;
+    for (let t = 0, now = 0; t < 3000; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      for (const v of s.entities) {
+        if (v.kind !== 'truck' || !/^Loading/.test(v.activity ?? '')) continue;
+        const bay = s.bays.find(
+          (b) => Math.floor(v.x) === m.xOf(b.idx) && Math.floor(v.y) === m.yOf(b.idx),
+        );
+        if (!bay) continue;
+        // Facing out of the entrance, on the side away from the crates.
+        const [fx, fy] = FACING[m.orient[bay.idx] & 3];
+        expect(Math.cos(v.dir - Math.atan2(fy, fx))).toBeGreaterThan(0.99);
+        const [cx, cy] = [fy, -fx];
+        expect((v.x - m.xOf(bay.idx) - 0.5) * cx + (v.y - m.yOf(bay.idx) - 0.5) * cy).toBeLessThan(
+          -0.1,
+        );
+        docked++;
+      }
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        const shown = new Map(entities.worldPositions().map((p) => [p.view.id, p]));
+        for (const { view, pos } of shown.values()) {
+          if (view.kind !== 'dockhand') continue;
+          const to = view.handStage === 'drop' ? shown.get(view.handAt?.truck ?? -1) : undefined;
+          if (to?.view.kind === 'truck') {
+            dropping.set(view.id, { x: pos.x, z: pos.z, truck: to.view.id });
+            continue;
+          }
+          const was = dropping.get(view.id);
+          dropping.delete(view.id);
+          const truck = was && shown.get(was.truck);
+          if (!was || !truck) continue;
+          // As the crate went onto the truck, they stood clear of it.
+          const root = entities.group.children.find((c) => c.position === truck.pos)!;
+          let body = bodies.get(truck.view.id);
+          if (!body) {
+            const turn = root.rotation.y;
+            const at = root.position.clone();
+            root.position.set(0, 0, 0);
+            root.rotation.y = 0;
+            root.updateMatrixWorld(true);
+            body = new Box3().setFromObject(root);
+            root.position.copy(at);
+            root.rotation.y = turn;
+            root.updateMatrixWorld(true);
+            bodies.set(truck.view.id, body);
+          }
+          const dir = -root.rotation.y;
+          const px = was.x - truck.pos.x;
+          const pz = was.z - truck.pos.z;
+          const along = px * Math.cos(dir) + pz * Math.sin(dir);
+          const across = -px * Math.sin(dir) + pz * Math.cos(dir);
+          const outside =
+            along < body.min.x - 0.05 ||
+            along > body.max.x + 0.05 ||
+            across < body.min.z - 0.05 ||
+            across > body.max.z + 0.05;
+          expect(outside).toBe(true);
+        }
+      }
+    }
+    expect(docked).toBeGreaterThan(20);
   });
 });

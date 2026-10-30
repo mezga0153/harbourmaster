@@ -510,6 +510,12 @@ interface Truck extends Agent {
   parkFrom?: number;
   /** The tiles of the space it is driving into, parked in or leaving. */
   lot?: number[];
+  /**
+   * Backing into its truck bay: where it set off into the bay from, facing
+   * along the road, how far through the turn it is, in tiles, and how fast
+   * it is going.
+   */
+  backing?: { x: number; y: number; dir: number; k: number; v: number };
   /** A business in town it is delivering part of its load to, and how much. */
   drop?: number;
   /** Off the map: the highway round to the town's road, as x, y pairs still to drive. */
@@ -693,6 +699,9 @@ export interface SaveData {
 const FINANCE_DAYS = 60;
 /** Ticks between cargo counts kept for the statistics charts, and how many are kept: a week's. */
 const CARGO_EVERY = TICKS_PER_DAY / 10;
+/** How far a truck backing into a truck bay goes, in tiles, and the share of it spent pulling on past the entrance. */
+const BACK_TURN = 2.2;
+const BACK_PULL = 0.35;
 const CARGO_SAMPLES = 70;
 
 function emptyLedger(): Ledger {
@@ -11733,6 +11742,10 @@ export class World {
       }
       case 'toBay': {
         if (!bay) return t.exports ? this.headOut(t) : this.truckLeave(t);
+        if (t.backing) {
+          if (this.backIn(t, bay)) t.state = 'loading';
+          return;
+        }
         if (bay.tiles && (this.tick + t.id) % 10 === 0) this.goDeeper(t, bay);
         const cost = this.truckCost(t.bayIdx, -1, t);
         const r = this.move(
@@ -11748,6 +11761,7 @@ export class World {
           return this.removeTruck(t);
         }
         if (r === 'arrived') t.state = t.exports ? 'delivering' : 'loading';
+        else if (r === 'moving') this.startBacking(t, bay);
         return;
       }
       case 'delivering': {
@@ -12709,6 +12723,109 @@ export class World {
     return r.length === 0;
   }
 
+  /**
+   * A truck turning off the road into a truck bay goes on past the
+   * entrance and backs in, to stand facing out on the side of the bay away
+   * from its crates, its bed to them; coming at the bay straight on, it
+   * swings its nose round across the entrance and backs in from there.
+   */
+  private startBacking(t: Truck, bay: Bay): void {
+    if (bay.tiles || t.exports || t.path.length !== 1 || t.path[0] !== bay.idx) return;
+    const from = t.trail?.[1];
+    if (from === undefined || from < 0 || from === bay.idx) return;
+    const m = this.map;
+    const [fx, fy] = [m.xOf(from) + 0.5, m.yOf(from) + 0.5];
+    const before = t.trail?.[0] ?? -1;
+    const road =
+      before >= 0 ? Math.atan2(fy - m.yOf(before) - 0.5, fx - m.xOf(before) - 0.5) : t.dir;
+    t.backing = { x: fx, y: fy, dir: road, k: 0, v: Math.min(t.v ?? 0, 0.2) };
+  }
+
+  /** Backs a truck on into its bay; true once it stands there, facing out. */
+  private backIn(t: Truck, bay: Bay): boolean {
+    const b = t.backing!;
+    // Slowing from the speed it came at.
+    b.v = Math.max(B.TRUCK_BACK_SPEED, b.v * 0.8);
+    b.k = Math.min(BACK_TURN, b.k + b.v);
+    const cx = this.map.xOf(bay.idx) + 0.5;
+    const cy = this.map.yOf(bay.idx) + 0.5;
+    const f = b.k / BACK_TURN;
+    // Where the game has it, for the trucks round it: on its way in.
+    t.x = b.x + (cx - b.x) * f;
+    t.y = b.y + (cy - b.y) * f;
+    t.v = 0;
+    if (f < 1) return false;
+    t.dir = Math.atan2(b.y - cy, b.x - cx);
+    t.path = [];
+    t.backing = undefined;
+    return true;
+  }
+
+  /**
+   * Where a truck backing into its bay shows, and which way it faces: on
+   * past the entrance, swinging its nose away from the bay, then backing
+   * round into it, as backIn has it so far through.
+   */
+  private backingPose(t: Truck): { x: number; y: number; dir: number } {
+    const b = t.backing!;
+    const bay = t.bayIdx;
+    const m = this.map;
+    const lane = B.TRUCK_LANE;
+    const rx = Math.cos(b.dir);
+    const ry = Math.sin(b.dir);
+    const into = Math.atan2(m.yOf(bay) + 0.5 - b.y, m.xOf(bay) + 0.5 - b.x);
+    const ix = Math.cos(into);
+    const iy = Math.sin(into);
+    // Set off from its lane, facing along the road...
+    const p0 = { x: b.x - ry * lane, y: b.y + rx * lane };
+    // ...on past the entrance, turning its nose away from the bay; or,
+    // coming at it straight on, round to the left across the entrance...
+    const ahead = Math.cos(b.dir - into) > 0.5;
+    const nx = ahead ? ry : rx - ix * 0.7;
+    const ny = ahead ? -rx : ry - iy * 0.7;
+    const ql = Math.hypot(nx, ny);
+    const qx = nx / ql;
+    const qy = ny / ql;
+    const q = ahead
+      ? { x: b.x + ix * 0.3 + qx * 0.4, y: b.y + iy * 0.3 + qy * 0.4 }
+      : { x: p0.x + rx * 0.65 - ix * 0.1, y: p0.y + ry * 0.65 - iy * 0.1 };
+    // ...and back into the bay, to stand facing out on the right of it.
+    const e = { x: b.x + ix + iy * lane, y: b.y + iy - ix * lane };
+    const f = b.k / BACK_TURN;
+    const bez = (
+      a: { x: number; y: number },
+      c1: { x: number; y: number },
+      c2: { x: number; y: number },
+      d: { x: number; y: number },
+      u: number,
+    ) => {
+      const v = 1 - u;
+      const at = (k: 'x' | 'y') =>
+        v * v * v * a[k] + 3 * v * v * u * c1[k] + 3 * v * u * u * c2[k] + u * u * u * d[k];
+      const to = (k: 'x' | 'y') =>
+        3 * v * v * (c1[k] - a[k]) + 6 * v * u * (c2[k] - c1[k]) + 3 * u * u * (d[k] - c2[k]);
+      return { x: at('x'), y: at('y'), tx: to('x'), ty: to('y') };
+    };
+    if (f < BACK_PULL) {
+      const p = bez(
+        p0,
+        { x: p0.x + rx * 0.3, y: p0.y + ry * 0.3 },
+        { x: q.x - qx * 0.3, y: q.y - qy * 0.3 },
+        q,
+        f / BACK_PULL,
+      );
+      return { x: p.x, y: p.y, dir: Math.atan2(p.ty, p.tx) };
+    }
+    const p = bez(
+      q,
+      { x: q.x - qx * 0.4, y: q.y - qy * 0.4 },
+      { x: e.x - ix * 0.55, y: e.y - iy * 0.55 },
+      e,
+      (f - BACK_PULL) / (1 - BACK_PULL),
+    );
+    return { x: p.x, y: p.y, dir: Math.atan2(-p.ty, -p.tx) };
+  }
+
   /** Off to the highway and away: from town, by the town's own road. */
   private headOut(t: Truck): void {
     const m = this.map;
@@ -13488,12 +13605,13 @@ export class World {
       });
     }
     for (const t of this.trucks) {
+      const shown = t.backing
+        ? this.backingPose(t)
+        : { x: this.lanePos(t)[0], y: this.lanePos(t)[1], dir: t.dir };
       entities.push({
         id: t.id,
         kind: 'truck',
-        x: this.lanePos(t)[0],
-        y: this.lanePos(t)[1],
-        dir: t.dir,
+        ...shown,
         // A shipper's containers are all alike; the rest as they were loaded.
         ...this.liftedLoad(
           t.cargo,
