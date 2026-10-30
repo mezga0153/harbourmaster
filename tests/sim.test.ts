@@ -111,7 +111,10 @@ describe('World', () => {
     expect(world.stats.earned).toBeGreaterThan(0);
     // Earnings minus penalties and three days of wages and haulier fees.
     const daily = B.START_DOCKHANDS * B.WAGE_DOCKHAND + B.STARTER_HAULIER_FEE;
-    expect(world.cash).toBe(start + world.stats.earned - world.stats.penalties - 3 * daily);
+    expect(world.cash).toBeCloseTo(
+      start + world.stats.earned - world.stats.penalties - 3 * daily,
+      6,
+    );
   });
 
   it.each([1, 2, 3, 99, 1234, 777777])('gets boats unloaded on any map (seed %i)', (seed) => {

@@ -20,6 +20,8 @@ describe('Crate trucks', () => {
       world.people.reduce((n: number, p: Any) => n + p.carrying, 0) +
       world.stats.cratesHandled;
     let helped = 0;
+    let left = 0;
+    let wasLoading = new Set<number>();
     for (const t of world.trucks) if (!t.boxes) onTrucks.set(t.id, t.cargo);
     const start = total();
     for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
@@ -36,6 +38,16 @@ describe('Crate trucks', () => {
         (p: Any) => p.truckId !== undefined && p.kind === 'dockhand',
       );
       if (jobs.some((p: Any) => p.state === 'dropping')) helped++;
+      // A truck goes full, or once there is nothing left for it here.
+      for (const t of world.trucks) {
+        if (wasLoading.has(t.id) && t.state !== 'loading') {
+          expect(t.cargo === t.capacity || bay.crates.length === 0).toBe(true);
+          left++;
+        }
+      }
+      wasLoading = new Set(
+        world.trucks.filter((t: Any) => t.state === 'loading').map((t: Any) => t.id),
+      );
       // And one at a time loads its trucks.
       expect(jobs.filter((p: Any) => p.stockIdx === bay.idx).length).toBeLessThanOrEqual(1);
       // What they are on their way for is promised to them, and the truck
@@ -49,6 +61,7 @@ describe('Crate trucks', () => {
       }
     }
     expect(helped).toBeGreaterThan(0);
+    expect(left).toBeGreaterThan(0);
     // Every crate is still in the bay, on a truck or in someone's hands.
     expect(bay.crates.length).toBe(0);
     expect(total()).toBe(start);

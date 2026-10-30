@@ -5968,10 +5968,10 @@ export class World {
       if (t.state !== 'loading') continue;
       const bay = this.dest(t.bayIdx);
       if (!bay || !this.byHand(t, bay)) continue;
-      // Crates on their way to the bay go straight on first: the stack
-      // only fills what room they leave.
+      // Loaded from the stack till it is full or the stack is gone; crates
+      // brought meanwhile go straight on while there is room on it.
       const avail = Math.min(
-        t.capacity - t.cargo - (t.coming ?? 0) - bay.incoming,
+        t.capacity - t.cargo - (t.coming ?? 0),
         bay.crates.length - (bay.reserved ?? 0),
       );
       if (avail <= 0) continue;
@@ -6000,8 +6000,10 @@ export class World {
   private takeCrateTruckJob(p: Dockhand, src: Source): boolean {
     const t = src.truck!;
     const bay = this.dest(t.bayIdx);
-    if (!bay || this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
-    // One at a time loads a truck bay's trucks.
+    // One at a time loads a truck bay's trucks, however many stand about
+    // there waiting to set crates down.
+    if (!bay) return false;
+    if (bay.tiles && this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
     if (
       !bay.tiles &&
       this.people.some((q) => q !== p && q.truckId !== undefined && q.stockIdx === bay.idx)
@@ -6010,7 +6012,7 @@ export class World {
     }
     if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
     const room = Math.min(
-      t.capacity - t.cargo - (t.coming ?? 0) - bay.incoming,
+      t.capacity - t.cargo - (t.coming ?? 0),
       bay.crates.length - (bay.reserved ?? 0),
     );
     const n = Math.min(p.capacity, src.avail, room);
@@ -8711,7 +8713,7 @@ export class World {
     // A crate truck is loaded by whoever is nearest it, boats or no: one
     // standing at its bay sees it full before going back to the boats.
     const moored = (s: Source) => s.boat?.mooredTicks ?? -1;
-    const near = (s: Source) => s.truck && !s.truck.boxes && this.dist(here, s.tile) <= 2;
+    const near = (s: Source) => !!s.truck && !s.truck.boxes && this.dist(here, s.tile) <= 2;
     const ordered = sources.sort(
       (a, b) =>
         a.rank - b.rank ||
