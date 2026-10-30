@@ -1877,3 +1877,25 @@ input:focus {
     display: none;
   }
 }
+
+/* Sound on or off and the volume, at the top right. */
+.sound-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sound-control .btn.off {
+  color: var(--text-3);
+}
+
+.sound-control input[type='range'] {
+  width: 64px;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 1100px) {
+  .sound-control input[type='range'] {
+    display: none;
+  }
+}

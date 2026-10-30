@@ -1,4 +1,5 @@
 import { h, render } from 'preact';
+import { Soundscape } from './audio/sound';
 import { Input } from './input';
 import type { Command, WorkerMessage } from './protocol';
 import { loadAssets } from './render/assets';
@@ -27,6 +28,22 @@ uiRoot.appendChild(hud);
 const renderer = new Renderer(document.getElementById('game')!, floaters);
 let map: GameMap | null = null;
 const input = new Input(renderer, () => map, send);
+const sound = new Soundscape(
+  () => {
+    const c = renderer.cam;
+    // The camera's right, laid flat on the ground (tile x is world x, tile y world z).
+    const e = c.camera.matrixWorld.elements;
+    const len = Math.hypot(e[0], e[2]) || 1;
+    return {
+      x: c.target.x,
+      y: c.target.z,
+      rightX: e[0] / len,
+      rightY: e[2] / len,
+      viewSize: c.viewSize,
+    };
+  },
+  () => map,
+);
 
 const actions: Actions = {
   send,
@@ -165,6 +182,7 @@ function handle(msg: WorkerMessage): void {
   }
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
+  sound.onSnapshot(msg.snapshot);
   showPlots();
   for (const ev of msg.events) {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
@@ -175,7 +193,9 @@ function handle(msg: WorkerMessage): void {
 
 if (import.meta.env.DEV) {
   // Handle for poking at the game from the console or a test driver.
-  Object.assign(window, { __hm: { renderer, send, map: () => map, snapshot, selection, tool } });
+  Object.assign(window, {
+    __hm: { renderer, send, map: () => map, snapshot, selection, tool, sound },
+  });
   // Mirror the game into .debug/ for tools outside the browser.
   void import('./debug/bridge').then((b) =>
     b.startBridge({ worker, send, renderer, map: () => map }),

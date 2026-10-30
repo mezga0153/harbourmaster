@@ -10,6 +10,7 @@ import { FinancePanel } from './Finance';
 import { Advisor } from './Advisor';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
+import { SoundControl } from './Sound';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from '../sim/tiers';
 import { StaffPanel, StaffDetails } from './Staff';
@@ -211,6 +212,7 @@ function TopBar({ actions }: { actions: Actions }) {
         >
           <Icon name="book" />
         </button>
+        <SoundControl />
         <button class="btn icon" onClick={() => actions.send({ type: 'save' })} title="Save game">
           <Icon name="save" />
         </button>

@@ -269,6 +269,18 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M20 5c-3-1.5-5.5-1.5-8 0v15c2.5-1.5 5-1.5 8 0z" />
     </>
   ),
+  sound: (
+    <>
+      <path d="M4 9h3l5-4v14l-5-4H4z" />
+      <path d="M15.5 9.5a3.5 3.5 0 010 5M18 7a7 7 0 010 10" />
+    </>
+  ),
+  mute: (
+    <>
+      <path d="M4 9h3l5-4v14l-5-4H4z" />
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;
