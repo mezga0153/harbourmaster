@@ -6,6 +6,8 @@ import { railColumn } from '../src/sim/railway';
 import {
   exitRows,
   flowOk,
+  laneLine,
+  waysMeet,
   GATE_IN,
   greenAt,
   HIGHWAY_COLUMNS,
@@ -44,6 +46,27 @@ function watchTrucks(world: World, ticks: number, each?: (from: number, to: numb
 
 function signAll(world: World): void {
   for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
+}
+
+/** The start road's row, and a tile along it with clear land either side, away from the line. */
+function roundaboutSite(world: World): { row: number; x: number } {
+  const m = world.map;
+  const row = m.yOf(m.entry);
+  const rail = railColumn(m);
+  for (let x = HIGHWAY_COLUMNS + 3; x < m.w; x++) {
+    if (Math.abs(x - rail) < 4 || m.build[m.idx(x, row)] !== Build.Road) continue;
+    const clear = [-1, 1].every((dy) =>
+      [-1, 0, 1].every((dx) => {
+        const i = m.idx(x + dx, row + dy);
+        return m.build[i] === Build.None && m.isLand(i) && m.terrain[i] !== Terrain.Rock;
+      }),
+    );
+    const along =
+      [1, 2, 3].every((d) => m.build[m.idx(x + d, row)] === Build.Road) &&
+      m.build[m.idx(x - 1, row)] === Build.Road;
+    if (clear && along) return { row, x };
+  }
+  throw new Error('no room for a junction');
 }
 
 describe('The highway', () => {
@@ -296,5 +319,95 @@ describe('The sea off the coast', () => {
       expect(shelf.every((d) => d - B.TERRAFORM_STEP <= B.MAX_QUAY_DEPTH)).toBe(true);
       expect(depths[79]).toBeGreaterThan(SHELF_DEPTH + 5);
     }
+  });
+});
+
+describe('Giving way at junctions', () => {
+  const L = B.TRUCK_LANE;
+  const E: [number, number] = [1, 0];
+  const W: [number, number] = [-1, 0];
+  const N: [number, number] = [0, -1];
+  const S: [number, number] = [0, 1];
+
+  it('knows which ways across a junction meet and which pass', () => {
+    // Off a roundabout and onto it at the same arm, both turning right.
+    expect(waysMeet(laneLine(N, E, L), laneLine(W, N, L))).toBe(false);
+    // Into a side road turning left as another turns right out of it.
+    expect(waysMeet(laneLine(E, N, L), laneLine(S, W, L))).toBe(false);
+    // Passing each other straight on.
+    expect(waysMeet(laneLine(E, E, L), laneLine(W, W, L))).toBe(false);
+    // Across each other, onto the same lane, and turning left across oncoming traffic.
+    expect(waysMeet(laneLine(E, E, L), laneLine(S, S, L))).toBe(true);
+    expect(waysMeet(laneLine(N, E, L), laneLine(E, E, L))).toBe(true);
+    expect(waysMeet(laneLine(E, N, L), laneLine(W, W, L))).toBe(true);
+  });
+
+  /** A truck like those the game sends, standing at `x, y` heading `dir`, on its way along `path`. */
+  function truckAt(world: World, x: number, y: number, dir: number, path: number[]) {
+    const t = {
+      id: world.nextId++,
+      contractId: -1,
+      company: 'Test',
+      capacity: 6,
+      x: x + 0.5,
+      y: y + 0.5,
+      dir,
+      path,
+      goal: path[path.length - 1],
+      state: 'toBay',
+      bayIdx: -1,
+      cargo: 0,
+      value: 0,
+      boxes: false,
+      idle: 0,
+      timer: 0,
+      variant: 0,
+      held: 0,
+    };
+    world.trucks.push(t as never);
+    return t;
+  }
+
+  it('lets one truck turn off a roundabout while another turns on there, in the other lane', () => {
+    const world = World.create(7, 96);
+    world.debug({ type: 'debug', tier: 2, cash: 100_000 });
+    world.trucks.length = 0;
+    const m = world.map;
+    const { row, x } = roundaboutSite(world);
+    world.command({ type: 'roundabout', tile: m.idx(x, row) });
+    const junction = m.idx(x + 1, row);
+    const leaving = truckAt(world, x + 1, row + 1, -Math.PI / 2, [
+      junction,
+      m.idx(x + 2, row),
+      m.idx(x + 3, row),
+    ]);
+    const entering = truckAt(world, x + 2, row, Math.PI, [junction, m.idx(x + 1, row - 1)]);
+    const may = (t: unknown) => world['mayEnter'](t as never)(junction);
+    expect(may(leaving)).toBe(true);
+    expect(may(entering)).toBe(true);
+    // Nor does either queue behind the other as it drives across.
+    const gap = (t: unknown) => world['gapAhead'](t as never) as number;
+    expect(gap(entering)).toBeGreaterThan(1);
+    expect(gap(leaving)).toBeGreaterThan(1);
+  });
+
+  it('lets one truck turn into a side road while another turns out of it', () => {
+    const world = World.create(7, 96);
+    world.debug({ type: 'debug', tier: 2, cash: 100_000 });
+    world.trucks.length = 0;
+    const m = world.map;
+    const { row, x } = roundaboutSite(world);
+    world.command({ type: 'build', kind: 'road', tiles: [m.idx(x, row - 1), m.idx(x, row - 2)] });
+    const junction = m.idx(x, row);
+    // In from the west along the main road, turning left up the side road.
+    const turningIn = truckAt(world, x - 1, row, 0, [junction, m.idx(x, row - 1)]);
+    // Down the side road, turning right towards the west.
+    const turningOut = truckAt(world, x, row - 1, Math.PI / 2, [junction, m.idx(x - 1, row)]);
+    const may = (t: unknown) => world['mayEnter'](t as never)(junction);
+    expect(may(turningIn)).toBe(true);
+    expect(may(turningOut)).toBe(true);
+    // One turning out left, onto the lane a truck from the west is driving along, gives way to it.
+    turningOut.path = [junction, m.idx(x + 1, row)];
+    expect(may(turningOut)).toBe(false);
   });
 });

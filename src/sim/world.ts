@@ -38,6 +38,9 @@ import { extendMap, generateMap } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
 import {
+  laneLine,
+  waysMeet,
+  wayFrom,
   exitError,
   exitRows,
   GATE_IN,
@@ -2595,6 +2598,7 @@ export class World {
       throw new Error(`Cash became ${this.cash} at tick ${this.tick}`);
     }
     this.tick++;
+    this.noteTiles();
     if (this.tick % TICKS_PER_DAY === 0) this.newDay();
     // The cargo counts, ten times a day for a week, for the statistics charts.
     if (this.tick % CARGO_EVERY === 0) {
@@ -6905,7 +6909,7 @@ export class World {
       ...this.machinesOnRoad(),
     ];
     for (const o of others) {
-      if (o === p || p.passing?.ids.includes(o.id)) continue;
+      if (o === p || p.passing?.ids.includes(o.id) || this.clearAcross(p, o)) continue;
       const along = this.onWay(p, o);
       if (along < 0 || (o.path.length > 0 && o.id > p.id && this.onWay(o, p) >= 0)) continue;
       this.makeWay(o);
@@ -10356,6 +10360,84 @@ export class World {
     return this.onRoad(o) && o.path.length > 0 && (o.held ?? 0) === 0;
   }
 
+  /** Each vehicle's tile, and the one it came onto it from, by id; see noteTiles. Not saved. */
+  private cameFrom = new Map<number, { tile: number; from: number }>();
+
+  /** Note which tile each truck and machine is on, and which it came from onto it. */
+  private noteTiles(): void {
+    const seen = new Set<number>();
+    for (const v of [...this.trucks, ...this.people]) {
+      if (!isTruck(v) && !isBoxy(v)) continue;
+      seen.add(v.id);
+      const tile = this.tileOf(v);
+      const rec = this.cameFrom.get(v.id);
+      if (!rec) this.cameFrom.set(v.id, { tile, from: -1 });
+      else if (rec.tile !== tile) {
+        rec.from = rec.tile;
+        rec.tile = tile;
+      }
+    }
+    if (this.cameFrom.size > seen.size + 64) {
+      for (const id of this.cameFrom.keys()) if (!seen.has(id)) this.cameFrom.delete(id);
+    }
+  }
+
+  /**
+   * The way a truck or machine goes across junction `i`, keeping right,
+   * about the tile's middle (see laneLine): all of it coming up to it, what
+   * is left of it, its tail and all, once on it. Null when not known.
+   */
+  private wayAcross(v: Vehicle, i: number): readonly (readonly [number, number])[] | null {
+    const m = this.map;
+    const here = this.tileOf(v);
+    const lane = isTruck(v) ? B.TRUCK_LANE : B.MACHINE_LANE;
+    let from: number;
+    let to: number | undefined;
+    if (here === i) {
+      // Where it came onto it from; or, not seen coming, the way it faces.
+      const rec = this.cameFrom.get(v.id);
+      const ax = Math.cos(v.dir);
+      const ay = Math.sin(v.dir);
+      const [bx, by] = Math.abs(ax) >= Math.abs(ay) ? [Math.sign(ax), 0] : [0, Math.sign(ay)];
+      const back = m.inBounds(m.xOf(i) - bx, m.yOf(i) - by)
+        ? m.idx(m.xOf(i) - bx, m.yOf(i) - by)
+        : -1;
+      from = rec && rec.tile === i && rec.from >= 0 ? rec.from : back;
+      if (from < 0) return null;
+      to = v.path[0] === i ? v.path[1] : v.path[0];
+    } else {
+      const k = v.path.indexOf(i);
+      if (k < 0 || k > 1) return null;
+      from = k === 0 ? here : v.path[0];
+      to = v.path[k + 1];
+    }
+    const near = m.neighbors4(i);
+    if (!near.includes(from)) return null;
+    const h = this.heading(from, i);
+    const e = to !== undefined && near.includes(to) ? this.heading(i, to) : h;
+    const way = laneLine(h, e, lane);
+    if (here !== i) return way;
+    const x = v.x - Math.sin(v.dir) * lane - (m.xOf(i) + 0.5);
+    const y = v.y + Math.cos(v.dir) * lane - (m.yOf(i) + 0.5);
+    return wayFrom(way, [x, y], this.vehicleLength(v) / 2);
+  }
+
+  /**
+   * Whether `o`, though in front of `t`, is only crossing the junction just
+   * ahead of it on a way that never meets its own, as one turns off a
+   * roundabout where the other comes on: then it is not in its way.
+   */
+  private clearAcross(t: Vehicle, o: Vehicle): boolean {
+    const junctions = this.junctions();
+    const here = this.tileOf(t);
+    const j = junctions[here] ? here : t.path.slice(0, 2).find((i) => junctions[i] === 1);
+    if (j === undefined) return false;
+    if (this.tileOf(o) !== j && o.path[0] !== j) return false;
+    const a = this.wayAcross(t, j);
+    const b = a && this.wayAcross(o, j);
+    return !!a && !!b && !waysMeet(a, b);
+  }
+
   /** Trucks on the road and the port machines driving among them. */
   private traffic(): Vehicle[] {
     return [...this.trucks.filter((o) => this.onRoad(o)), ...this.machinesOnRoad()];
@@ -10515,6 +10597,7 @@ export class World {
       // Out on the highway, off the port's ground, trucks pass through each
       // other rather than ever queue: none holds up another there.
       if (isHighway(this.map.build[this.tileOf(o)])) continue;
+      if (this.clearAcross(t, o)) continue;
       const along = this.docked(o) ? this.onWay(t, o) : this.ahead(t, o);
       // Two caught across each other, as one turns past the other: the newer one waits.
       if (along < 0 || (o.id > t.id && this.ahead(o, t) >= 0)) continue;
@@ -10527,7 +10610,7 @@ export class World {
     }
     // And behind a reach stacker or tractor in its way, as behind a truck.
     for (const o of this.machinesOnRoad()) {
-      if (t.passing?.ids.includes(o.id)) continue;
+      if (t.passing?.ids.includes(o.id) || this.clearAcross(t, o)) continue;
       const along = this.onWay(t, o);
       if (along < 0 || (o.path.length > 0 && o.id > t.id && this.onWay(o, t) >= 0)) continue;
       const gap = along - (this.lengthOf(t) + this.vehicleLength(o)) / 2;
@@ -10874,6 +10957,14 @@ export class World {
       const [hx, hy] = this.heading(here, i);
       const exit = t.path[1];
       const [ex, ey] = exit === undefined ? [hx, hy] : this.heading(i, exit);
+      // Only those whose way across the junction meets ours hold us up:
+      // not one turning off where we turn on, or into a side road as we
+      // turn out of it, in the other lane.
+      const mine = this.wayAcross(t, i);
+      const meets = (o: Vehicle) => {
+        const theirs = mine && this.wayAcross(o, i);
+        return !mine || !theirs || waysMeet(mine, theirs);
+      };
       // Traffic lights: only on green, then minding what is still across it.
       if (hasLights(m, i)) {
         const green = greenAt(i, this.tick);
@@ -10882,7 +10973,7 @@ export class World {
           if (o === t || this.tileOf(o) !== i || !this.rolling(o)) continue;
           const ox = Math.cos(o.dir);
           const oy = Math.sin(o.dir);
-          if (ox * ex + oy * ey > 0.7 || ox * hx + oy * hy < -0.7) continue;
+          if (ox * ex + oy * ey > 0.7 || !meets(o)) continue;
           return false;
         }
         return true;
@@ -10899,9 +10990,9 @@ export class World {
         const there = this.tileOf(o);
         if (there === i) {
           // Driving across it now, other than on our way out of it, or
-          // coming through towards us on the other side of the road.
+          // on a way that never meets ours.
           if (!this.rolling(o)) continue;
-          if (ox * ex + oy * ey > 0.7 || ox * hx + oy * hy < -0.7) continue;
+          if (ox * ex + oy * ey > 0.7 || !meets(o)) continue;
           return false;
         }
         // Coming up to it, from another road.
@@ -10911,8 +11002,8 @@ export class World {
         if (Math.hypot(dx, dy) > 1.8) continue;
         const along = ox * hx + oy * hy;
         // Behind us, our way; or coming the other way, which never holds
-        // us up, even turning across it.
-        if (along > 0.7 || along < -0.7) continue;
+        // us up, even turning across it; or going a way that never meets ours.
+        if (along > 0.7 || along < -0.7 || !meets(o)) continue;
         const theirRank =
           m.build[there] === Build.Parking && m.build[i] !== Build.Parking
             ? 0

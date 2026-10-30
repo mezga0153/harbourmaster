@@ -190,3 +190,109 @@ export function exitError(map: GameMap, y: number): string | null {
     return 'The road off it needs clear land beside the highway';
   return null;
 }
+
+type Point = readonly [number, number];
+
+/** Screen right of heading `h` on the map, keeping right as trucks do. */
+const rightOf = (h: Point): Point => [-h[1], h[0]];
+
+/**
+ * The way a vehicle drives across a junction tile, keeping right `lane`
+ * off the middle of the road: in heading `h`, out heading `e`, as a line
+ * of points about the tile's centre. Straight on along its lane; a turn
+ * by the corner where its lane in meets its lane out; turning about, across
+ * to the other side.
+ */
+export function laneLine(h: Point, e: Point, lane: number): Point[] {
+  const rh = rightOf(h);
+  const re = rightOf(e);
+  const a: Point = [-h[0] * 0.5 + rh[0] * lane, -h[1] * 0.5 + rh[1] * lane];
+  const b: Point = [e[0] * 0.5 + re[0] * lane, e[1] * 0.5 + re[1] * lane];
+  const dot = h[0] * e[0] + h[1] * e[1];
+  if (dot > 0.5) return [a, b];
+  if (dot < -0.5) return [a, [rh[0] * lane, rh[1] * lane], [re[0] * lane, re[1] * lane], b];
+  return [a, [(rh[0] + re[0]) * lane, (rh[1] + re[1]) * lane], b];
+}
+
+/** Whether segments p1–p2 and q1–q2 meet, touching or running along each other included. */
+function segmentsMeet(p1: Point, p2: Point, q1: Point, q2: Point): boolean {
+  const eps = 1e-6;
+  const cross = (o: Point, a: Point, b: Point) =>
+    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const on = (o: Point, a: Point, b: Point) =>
+    Math.min(o[0], a[0]) - eps <= b[0] &&
+    b[0] <= Math.max(o[0], a[0]) + eps &&
+    Math.min(o[1], a[1]) - eps <= b[1] &&
+    b[1] <= Math.max(o[1], a[1]) + eps;
+  const d1 = cross(q1, q2, p1);
+  const d2 = cross(q1, q2, p2);
+  const d3 = cross(p1, p2, q1);
+  const d4 = cross(p1, p2, q2);
+  if (
+    ((d1 > eps && d2 < -eps) || (d1 < -eps && d2 > eps)) &&
+    ((d3 > eps && d4 < -eps) || (d3 < -eps && d4 > eps))
+  )
+    return true;
+  return (
+    (Math.abs(d1) <= eps && on(q1, q2, p1)) ||
+    (Math.abs(d2) <= eps && on(q1, q2, p2)) ||
+    (Math.abs(d3) <= eps && on(p1, p2, q1)) ||
+    (Math.abs(d4) <= eps && on(p1, p2, q2))
+  );
+}
+
+/**
+ * Whether two ways across a junction (see laneLine) meet: crossing, or
+ * coming together onto the same lane out. Two turning off in opposite
+ * lanes, as one leaves a roundabout and another comes onto it there, or
+ * one turns into a side road and another out of it, never do.
+ */
+export function waysMeet(a: readonly Point[], b: readonly Point[]): boolean {
+  for (let i = 0; i + 1 < a.length; i++) {
+    for (let j = 0; j + 1 < b.length; j++) {
+      if (segmentsMeet(a[i], a[i + 1], b[j], b[j + 1])) return true;
+    }
+  }
+  return false;
+}
+
+/** What is left of way `w` (see laneLine) from the point on it nearest `p`, less `back` behind that. */
+export function wayFrom(w: readonly Point[], p: Point, back: number): Point[] {
+  let best = 0;
+  let bestD = Infinity;
+  let s = 0;
+  for (let k = 0; k + 1 < w.length; k++) {
+    const [ax, ay] = w[k];
+    const [bx, by] = w[k + 1];
+    const len = Math.hypot(bx - ax, by - ay);
+    const t =
+      len > 0
+        ? Math.max(
+            0,
+            Math.min(1, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / (len * len)),
+          )
+        : 0;
+    const d = Math.hypot(ax + (bx - ax) * t - p[0], ay + (by - ay) * t - p[1]);
+    if (d < bestD) {
+      bestD = d;
+      best = s + t * len;
+    }
+    s += len;
+  }
+  // Walk to the point `back` short of the nearest one, then keep the rest.
+  const start = Math.max(0, best - back);
+  const out: Point[] = [];
+  s = 0;
+  for (let k = 0; k + 1 < w.length; k++) {
+    const [ax, ay] = w[k];
+    const [bx, by] = w[k + 1];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (out.length === 0 && s + len >= start) {
+      const t = len > 0 ? (start - s) / len : 0;
+      out.push([ax + (bx - ax) * t, ay + (by - ay) * t]);
+    }
+    if (out.length > 0) out.push(w[k + 1]);
+    s += len;
+  }
+  return out.length >= 2 ? out : w.slice(-2);
+}
