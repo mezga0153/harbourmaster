@@ -16,6 +16,8 @@ export interface FisheryTerms {
   cratesMax: number;
   /** Paid per crate when it leaves the port on a truck. */
   fee: number;
+  /** What its boats land: fish unless said otherwise. */
+  catch?: 'fish' | 'lobster';
 }
 
 export interface HaulierTerms {
@@ -46,6 +48,8 @@ export interface ShipperTerms {
   capacity: number;
   /** Paid for each crate or container as it goes on board a ship. */
   fee: number;
+  /** What its crates hold: goods unless said otherwise. */
+  goods?: 'ice' | 'goods';
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms;

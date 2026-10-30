@@ -15,7 +15,6 @@ import {
   person,
   paintLoad,
   reachTo,
-  crateIcon,
   setCrateIcon,
   showDeck,
   showLoad,
@@ -460,8 +459,6 @@ export class Entities {
   containerAt?: (at: HandAt, out: Vector3) => number | null;
   /** Which way the camera is from what it looks at, as a heading on the ground: who dockhands wave to. */
   viewer?: number;
-  /** The crate at a place a dockhand works on the quay, in a bay or storage, as Structures.crateObject. */
-  crateObject?: (at: HandAt) => Object3D | undefined;
   private slotAt = new Vector3();
 
   constructor(private map: GameMap) {}
@@ -513,6 +510,8 @@ export class Entities {
           e.model.crates.forEach((c, k) => (c.visible = shown.has(k)));
         } else showLoad(e.model, v.load);
         if (v.looks) paintLoad(e.model, v.looks);
+        // Each crate painted with what it holds, in the order they go on.
+        v.cargo?.forEach((c, k) => setCrateIcon(e.model.crates[e.order?.[k] ?? k], c));
       }
     }
     for (const [id, e] of this.entries) {
@@ -1419,14 +1418,6 @@ export class Entities {
       if (this.handSlot(at, this.slotAt) !== null) w.place = this.slotAt.clone();
     }
     const load = e.model.crates[0];
-    // The crate in their hands is the one they took up, and goes down as it
-    // is: painted with what it holds.
-    if (w && at && e.view.handStage === w.stage) {
-      const there =
-        at.truck !== undefined ? this.slotOf(at.truck, at.slot ?? 0) : this.crateObject?.(at);
-      if (w.stage === 'pick') setCrateIcon(load, crateIcon(there));
-      else setCrateIcon(there, crateIcon(load));
-    }
     if (!w?.place || !load?.parent) return;
     load.parent.updateWorldMatrix(true, false);
     const off = at?.truck !== undefined && this.slotOf(at.truck, at.slot ?? 0);

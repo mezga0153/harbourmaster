@@ -1,5 +1,6 @@
 // Messages between the main thread and the sim worker. See plan.md §11, Threads.
 
+import type { Cargo } from './sim/cargo';
 import type { Terms } from './sim/contracts';
 import type { MapData } from './sim/map';
 import type { Train } from './sim/railway';
@@ -86,6 +87,8 @@ export interface EntityView {
    * The load leaves where it was, or shows where it goes, as it ends.
    */
   handling?: number;
+  /** Crates: what each holds, in the order they are loaded, as far as it is known. */
+  cargo?: Cargo[];
   /** Dockhands on a break: sat on the bench outside the break hut. */
   sitting?: boolean;
   name: string;
@@ -349,6 +352,8 @@ export interface BayView {
   noAccess: boolean;
   /** Why trucks cannot reach it, when they cannot. */
   noAccessWhy?: string;
+  /** What each crate holds: those in it, then its exports. */
+  cargo?: Cargo[];
 }
 
 export interface YardView {
@@ -424,6 +429,8 @@ export interface PileView {
   pallets: boolean;
   /** Exports left by a ship, to go on board. */
   out: boolean;
+  /** What each crate holds. */
+  cargo?: Cargo[];
 }
 
 export interface Stats {

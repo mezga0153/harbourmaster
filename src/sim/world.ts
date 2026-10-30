@@ -1,3 +1,4 @@
+import { cargoOf, withCargo, type Cargo } from './cargo';
 import type {
   BayView,
   Capacity,
@@ -406,6 +407,8 @@ interface Boat extends Agent {
   out?: number;
   outIncoming?: number;
   loadIdle?: number;
+  /** Crates taken on board to go out, each as its fee; see cargo.ts. */
+  outFees?: number[];
   /** Feeders: how each export taken on board looks, and the deck slot it is in. */
   outLooks?: number[];
   outSlots?: number[];
@@ -563,6 +566,8 @@ interface Truck extends Agent {
   coming?: number;
   /** Container trucks: how each container on board looks, in load order. */
   looks?: number[];
+  /** Crate trucks: each crate on board, as its fee, in load order; see cargo.ts. */
+  fees?: number[];
   /** How the container a yard gantry is lifting onto it looks, from when it took it up. */
   lifting?: number;
   taking?: number;
@@ -3081,7 +3086,8 @@ export class World {
           : terms.vessel === 'coaster'
             ? B.COASTER_DRAFT
             : B.BOAT_DRAFT,
-      fee: terms.fee,
+      // Containers are all alike; a crate holds the catch.
+      fee: terms.vessel === 'feeder' ? terms.fee : withCargo(terms.fee, terms.catch ?? 'fish'),
       anchorTicks: 0,
       mooredTicks: 0,
       grace: 0,
@@ -6059,6 +6065,7 @@ export class World {
     if (live && t) {
       t.cargo += p.carrying;
       t.value += p.cargoFees.reduce((n, f) => n + f, 0);
+      (t.fees ??= []).push(...p.cargoFees);
       t.idle = 0;
     } else if (bay) bay.crates.push(...p.cargoFees);
   }
@@ -8478,6 +8485,7 @@ export class World {
         if (onto) {
           onto.cargo += p.carrying;
           onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
+          (onto.fees ??= []).push(...p.cargoFees);
           onto.idle = 0;
         } else (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
         if (boxy) this.tip('customs');
@@ -9205,11 +9213,20 @@ export class World {
     return `Ready to sail${out > 0 ? ` with ${out} exports` : ''}${b.holdUp ? why[b.holdUp] : ''}`;
   }
 
+  /** What each crate on a crate truck holds, in load order. */
+  private truckCargo(t: Truck): Cargo[] {
+    // A shipper's are all alike.
+    if (t.exports) return Array<Cargo>(t.cargo).fill(cargoOf(t.value, 'goods'));
+    const fees = t.fees ?? [];
+    return Array.from({ length: t.cargo }, (_, k) => (k < fees.length ? cargoOf(fees[k]) : 'fish'));
+  }
+
   /** Exports go on board: the shipper pays for each as it does. */
   private shipOut(b: Boat, fees: number[]): void {
     if (fees.length === 0) return;
     const total = fees.reduce((n, f) => n + f, 0);
     b.out = (b.out ?? 0) + fees.length;
+    (b.outFees ??= []).push(...fees);
     b.loadIdle = 0;
     this.book('exports', total);
     this.stats.earned += total;
@@ -9316,7 +9333,10 @@ export class World {
         state: 'toPark',
         bayIdx: -1,
         cargo: c.terms.capacity,
-        value: c.terms.fee,
+        value:
+          c.terms.cargo === 'container'
+            ? c.terms.fee
+            : withCargo(c.terms.fee, c.terms.goods ?? 'goods'),
         boxes: c.terms.cargo === 'container',
         exports: true,
         idle: 0,
@@ -12285,6 +12305,7 @@ export class World {
           if (t.boxes && bay.yard) (t.looks ??= []).push(this.boxLooks(bay).splice(at, 1)[0]);
           const fee = stock.splice(at, 1)[0];
           t.value += fee;
+          if (!t.boxes) (t.fees ??= []).push(fee);
           t.cargo++;
           t.idle = 0;
         } else {
@@ -13963,6 +13984,9 @@ export class World {
           ),
         ),
         moving: p.path.length > 0,
+        cargo: isBoxy(p)
+          ? undefined
+          : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),
         handling: this.handlingPhase(p),
         sitting:
           p.state === 'resting' && p.hutIdx >= 0 && this.map.build[p.hutIdx] === Build.BreakHut,
@@ -14017,7 +14041,14 @@ export class World {
         dir: b.dir,
         ...(b.vessel === 'feeder'
           ? this.deckView(b)
-          : { load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken }),
+          : {
+              load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken,
+              // Its catch, then what it has taken on board to go out.
+              cargo: [
+                ...Array<Cargo>(b.crates).fill(cargoOf(b.fee)),
+                ...(b.outFees ?? []).map((f) => cargoOf(f, 'goods')),
+              ],
+            }),
         moving: b.path.length > 0,
         name: b.company,
         activity:
@@ -14098,6 +14129,7 @@ export class World {
             : undefined,
           lifts.get(t.id),
         ),
+        cargo: t.boxes ? undefined : this.truckCargo(t),
         moving: t.path.length > 0,
         name: t.company,
         activity:
@@ -14146,6 +14178,10 @@ export class World {
       tiles: b.tiles && [...b.tiles],
       noAccess: b.noAccess,
       noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
+      cargo: [
+        ...b.crates.map((f) => cargoOf(f)),
+        ...(b.exports ?? []).map((f) => cargoOf(f, 'goods')),
+      ],
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({
       id: c.id,
@@ -14223,6 +14259,7 @@ export class World {
         crates: p.crates.length - moved(p).taken,
         pallets: !!p.pallets,
         out: !!p.out,
+        cargo: p.crates.map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
       })),
       contracts,
       capacity: this.capacity(),

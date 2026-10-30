@@ -10,6 +10,7 @@ import {
   Vector3,
 } from 'three';
 import type { BayView, CraneView, HandAt, PileView, TileChange } from '../protocol';
+import type { Cargo } from '../sim/cargo';
 import type { GameMap } from '../sim/map';
 import {
   EXTENSION,
@@ -58,7 +59,15 @@ import {
 } from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
 import { turnOf } from './entities';
-import { container, crate, headingOf, paintContainer, PALLET_CRATE } from './models';
+import {
+  container,
+  crate,
+  headingOf,
+  paintCargo,
+  paintContainer,
+  PALLET_CRATE,
+  setCrateIcon,
+} from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { bake, pavements, townBuilding } from './town';
@@ -1367,11 +1376,6 @@ export class Structures {
     return headingOf(slot);
   }
 
-  /** The crate in a crate's place a dockhand works, as crateAt, if there is one. */
-  crateObject(at: HandAt): Object3D | undefined {
-    return this.crateAt(at) ?? undefined;
-  }
-
   /**
    * A crate's place a forklift or dockhand works, by its slot: on the quay,
    * at a truck bay, in crate storage or on a jib crane's landing stack; null
@@ -1504,13 +1508,14 @@ export class Structures {
     for (const b of bays) {
       if (b.tiles) {
         this.areas.set(b.idx, b.tiles);
-        if (b.places) this.palletise(b.tiles, b.stock + b.exports, b.places);
-        else this.fill(b.tiles, b.stock + b.exports, false);
+        if (b.places) this.palletise(b.tiles, b.stock + b.exports, b.places, b.cargo);
+        else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo);
         continue;
       }
       const stack = this.stacks.get(b.idx);
       if (!stack) continue;
       stack.crates.forEach((c, k) => (c.visible = k < b.stock));
+      paintCargo(stack.crates, b.cargo);
       stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
     }
   }
@@ -1531,6 +1536,7 @@ export class Structures {
         this.group.add(pile.group);
       }
       pile.crates.forEach((c, k) => (c.visible = k < v.crates));
+      paintCargo(pile.crates, v.cargo);
     }
     for (const [i, pile] of this.piles) {
       if (seen.has(i)) continue;
@@ -1569,7 +1575,13 @@ export class Structures {
   }
 
   /** Show a storage area's goods, a tile's worth at a time from its first tile. */
-  private fill(tiles: number[], count: number, boxes: boolean, looks?: number[]): void {
+  private fill(
+    tiles: number[],
+    count: number,
+    boxes: boolean,
+    looks?: number[],
+    cargo?: Cargo[],
+  ): void {
     let left = count;
     let at = 0;
     // Each container as it looks, staying in its slot as others come and go.
@@ -1581,6 +1593,7 @@ export class Structures {
       items.forEach((o, k) => {
         o.visible = k < left;
         if (order && o.visible && at + k < order.length) paintContainer(o, order[at + k]);
+        if (!boxes && cargo && at + k < cargo.length) setCrateIcon(o, cargo[at + k]);
       });
       at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
@@ -1588,13 +1601,18 @@ export class Structures {
   }
 
   /** Crate storage's crates, `count` of them, four to each pallet, the pallets in `places`. */
-  private palletise(tiles: number[], count: number, places: number[]): void {
+  private palletise(tiles: number[], count: number, places: number[], cargo?: Cargo[]): void {
     const per = CRATES_PER_STORE_TILE / PALLET;
     const on = new Map<number, number>();
     places.forEach((k, j) => on.set(k, Math.min(PALLET, Math.max(0, count - j * PALLET))));
     tiles.forEach((t, n) => {
       this.stacks.get(t)?.crates.forEach((o, k) => {
-        o.visible = k % PALLET < (on.get(n * per + Math.floor(k / PALLET)) ?? 0);
+        const place = n * per + Math.floor(k / PALLET);
+        o.visible = k % PALLET < (on.get(place) ?? 0);
+        // The crates of the pallet in this place, in the order they went on it.
+        const j = places.indexOf(place);
+        const c = j >= 0 ? cargo?.[j * PALLET + (k % PALLET)] : undefined;
+        if (c) setCrateIcon(o, c);
       });
     });
   }

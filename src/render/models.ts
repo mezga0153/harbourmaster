@@ -1,3 +1,4 @@
+import type { Cargo } from '../sim/cargo';
 import {
   BoxGeometry,
   CanvasTexture,
@@ -192,32 +193,33 @@ export function paintLoad(model: Model, looks: number[]): void {
 }
 
 /**
- * What a crate holds, as painted on its sides: for now all of it fish off
- * the boats; goods and the like to come, each with its own picture.
+ * What a crate holds, as painted on its sides; goods as yet a plain crate,
+ * each kind to have its own picture.
  */
-export const CRATE_ICONS = ['fish'] as const;
+const CRATE_ICONS: Cargo[] = ['fish', 'ice', 'lobster'];
 /** Per picture, the materials of a box's six faces: on the four sides, none top and bottom. */
-let iconMats: Material[][] | null | undefined;
+let iconMats: Partial<Record<Cargo, Material[]>> | null | undefined;
 const iconBand = new BoxGeometry(1, 1, 1);
 const none = new MeshBasicMaterial({ visible: false });
 
 /** A little picture of each, drawn once; none where there is nothing to draw on, as in tests. */
-function iconMaterials(): Material[][] | null {
+function iconMaterials(): Partial<Record<Cargo, Material[]>> | null {
   if (iconMats !== undefined) return iconMats;
   if (typeof document === 'undefined') return (iconMats = null);
-  iconMats = CRATE_ICONS.map((name) => {
+  iconMats = {};
+  for (const name of CRATE_ICONS) {
     const cv = document.createElement('canvas');
     cv.width = cv.height = 64;
     drawIcon(cv.getContext('2d')!, name);
     const tex = new CanvasTexture(cv);
     tex.colorSpace = SRGBColorSpace;
     const side = new MeshLambertMaterial({ map: tex, transparent: true, alphaTest: 0.4 });
-    return [side, side, none, none, side, side];
-  });
+    iconMats[name] = [side, side, none, none, side, side];
+  }
   return iconMats;
 }
 
-function drawIcon(g: CanvasRenderingContext2D, name: (typeof CRATE_ICONS)[number]): void {
+function drawIcon(g: CanvasRenderingContext2D, name: Cargo): void {
   g.lineJoin = 'round';
   g.lineCap = 'round';
   switch (name) {
@@ -281,21 +283,146 @@ function drawIcon(g: CanvasRenderingContext2D, name: (typeof CRATE_ICONS)[number
       g.fill();
       break;
     }
+    case 'ice': {
+      // Two chunky ice cubes, one leaning on the other, with a shine and a
+      // little happy face on the front one.
+      const ink = '#1d3557';
+      const cube = (x: number, y: number, w: number, turn: number) => {
+        g.save();
+        g.translate(x, y);
+        g.rotate(turn);
+        g.fillStyle = '#dff4ff';
+        g.strokeStyle = ink;
+        g.lineWidth = 4;
+        g.beginPath();
+        g.roundRect(-w / 2, -w / 2, w, w, 6);
+        g.fill();
+        g.stroke();
+        g.fillStyle = '#9fd8f5';
+        g.beginPath();
+        g.roundRect(-w / 2 + 4, w / 2 - 12, w - 8, 8, 3);
+        g.fill();
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.roundRect(-w / 2 + 5, -w / 2 + 5, 6, 12, 3);
+        g.fill();
+        g.restore();
+      };
+      cube(22, 26, 24, -0.25);
+      cube(40, 38, 30, 0.12);
+      // Its face.
+      g.fillStyle = ink;
+      for (const x of [35, 46]) {
+        g.beginPath();
+        g.arc(x, 35, 2.4, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.strokeStyle = ink;
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(40.5, 39, 4, Math.PI * 0.15, Math.PI * 0.85);
+      g.stroke();
+      g.fillStyle = '#f7a1b5';
+      for (const x of [31, 50]) {
+        g.beginPath();
+        g.arc(x, 40, 2.2, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
+    case 'lobster': {
+      // A plump red lobster seen from above: two big claws up front,
+      // feelers, a segmented tail fanning out behind, and big eyes.
+      const ink = '#5a1414';
+      g.strokeStyle = ink;
+      g.lineWidth = 3;
+      // Feelers.
+      g.beginPath();
+      g.moveTo(28, 20);
+      g.quadraticCurveTo(20, 6, 8, 6);
+      g.moveTo(36, 20);
+      g.quadraticCurveTo(44, 6, 56, 6);
+      g.stroke();
+      g.fillStyle = '#e63946';
+      g.lineWidth = 3.5;
+      // Claws.
+      for (const s of [-1, 1]) {
+        g.beginPath();
+        g.ellipse(32 + s * 17, 22, 8, 10, s * 0.4, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+        // The pincer's notch.
+        g.beginPath();
+        g.moveTo(32 + s * 17, 13);
+        g.lineTo(32 + s * 17, 20);
+        g.stroke();
+      }
+      // Tail, three segments and a fan.
+      g.beginPath();
+      g.moveTo(24, 56);
+      g.lineTo(40, 56);
+      g.lineTo(36, 50);
+      g.lineTo(28, 50);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      for (const [y, w] of [
+        [44, 12],
+        [38, 14],
+      ]) {
+        g.beginPath();
+        g.roundRect(32 - w / 2, y, w, 7, 3);
+        g.fill();
+        g.stroke();
+      }
+      // Body.
+      g.beginPath();
+      g.ellipse(32, 30, 10, 11, 0, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      // Eyes.
+      for (const x of [28, 36]) {
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.arc(x, 26, 3.6, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#222';
+        g.beginPath();
+        g.arc(x + 0.6, 26.5, 1.9, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.strokeStyle = ink;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(32, 31, 3, Math.PI * 0.15, Math.PI * 0.85);
+      g.stroke();
+      break;
+    }
+    case 'goods':
+      break;
   }
 }
 
-/** What crate `c` shows it holds, by its place in CRATE_ICONS; undefined for no crate. */
-export function crateIcon(c: Object3D | undefined): number | undefined {
-  return c?.userData.icon as number | undefined;
-}
-
-/** Paint crate `c` as holding CRATE_ICONS[k]. */
-export function setCrateIcon(c: Object3D | undefined, k: number | undefined): void {
+/** Paint crate `c` as holding `k`: its picture on its sides, or none. */
+export function setCrateIcon(c: Object3D | undefined, k: Cargo | undefined): void {
   if (!c || k === undefined || c.userData.icon === k) return;
   c.userData.icon = k;
   const mats = iconMaterials();
   if (!mats) return;
-  for (const d of c.children) if (d.userData.decal) (d as Mesh).material = mats[k];
+  for (const d of c.children) {
+    if (!d.userData.decal) continue;
+    const m = mats[k];
+    d.visible = !!m;
+    if (m) (d as Mesh).material = m;
+  }
+}
+
+/** Paint each of `crates` as holding what `cargo` says, in order, as far as it says. */
+export function paintCargo(crates: Object3D[], cargo: Cargo[] | undefined): void {
+  if (!cargo) return;
+  crates.forEach((c, k) => {
+    if (k < cargo.length) setCrateIcon(c, cargo[k]);
+  });
 }
 
 export function crate(size: number, x = 0, y = 0, z = 0): Group {
@@ -303,12 +430,12 @@ export function crate(size: number, x = 0, y = 0, z = 0): Group {
   // Body and lid are stacked, not overlapping, so no faces share a plane.
   g.add(box(size, size * 0.82, size, C.crate));
   g.add(box(size * 1.04, size * 0.18, size * 1.04, C.crateLid, 0, size * 0.82));
-  // What it holds, painted on its four sides: fish, for now.
-  const k = 0;
+  // What it holds, painted on its four sides: fish until told otherwise.
+  const k: Cargo = 'fish';
   g.userData.icon = k;
   const mats = iconMaterials();
   if (mats) {
-    const d = new Mesh(iconBand, mats[k]);
+    const d = new Mesh(iconBand, mats[k]!);
     d.userData.decal = true;
     d.scale.set(size + 0.004, size * 0.62, size + 0.004);
     d.position.y = size * 0.41;
