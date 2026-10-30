@@ -316,6 +316,17 @@ export const TRACTOR_SPEED = 0.45;
 export const TRACTOR_WAIT_TICKS = 100_000;
 /** Ticks a tractor waits under a crane working a ship for one straight off it before it gives up. */
 export const TRACTOR_GIVE_UP = 300;
+/** Ticks before a crane lifts a container off a ship that a tractor called for it means to be there. */
+export const TRACTOR_EARLY = 25;
+/**
+ * Ticks between one tractor and the next under a container crane, as one
+ * pulls out loaded and the next pulls in: the crane lifts quicker than that.
+ */
+export const TRACTOR_TURN = 32;
+/** Most tractors called ahead to one container crane for what is still to come off a ship. */
+export const TRACTORS_CALLED = 8;
+/** About how long a ship takes to make fast once it is at its berth, in ticks. */
+export const ALONGSIDE_TICKS = 10;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers

@@ -2714,6 +2714,67 @@ describe('Container Port tier', () => {
     expect(world.stats.containers).toBeGreaterThan(0);
   });
 
+  it('calls tractors ahead to a gantry crane a ship is coming in to, and sets containers straight onto those pulling in', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const m = world.map;
+    const { at } = placeGantry(world, gantryPier(world, t.crane));
+    const yard = world.yards.get(t.yard)!;
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    for (let k = world.people.length - 1; k >= 0; k--) {
+      if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
+    }
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    for (let k = 0; k < 4; k++) world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 16,
+        cratesMax: 16,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    const crane = world.cranes.get(at)!;
+    let stacked = 0;
+    const push = crane.stack.push.bind(crane.stack);
+    crane.stack.push = (...v: number[]) => {
+      stacked += v.length;
+      return push(...v);
+    };
+    let calledAhead = false;
+    let lifted = 0;
+    const left = new Map<number, number>();
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      const ship = world.boats.find(
+        (b) => b.vessel === 'feeder' && world['craneReaches'](crane, b),
+      );
+      const coming = world.people.some(
+        (p) => p.kind === 'tractor' && p.state === 'toPickup' && p.craneIdx === at,
+      );
+      if (ship?.state === 'arriving' && coming) calledAhead = true;
+      for (const b of world.boats) {
+        const was = left.get(b.id);
+        if (b.vessel === 'feeder' && was !== undefined && b.crates < was) lifted += was - b.crates;
+        left.set(b.id, b.crates);
+      }
+    }
+    // Sent before the ship is alongside, to be there as the first comes off.
+    expect(calledAhead).toBe(true);
+    expect(lifted).toBeGreaterThan(10);
+    // A good share straight off the ship onto a tractor, not onto the
+    // crane's stack: it lifts quicker than one tractor follows another.
+    expect(lifted - stacked).toBeGreaterThanOrEqual(lifted / 3);
+  });
+
   it('keeps machines off a gantry crane’s stack row, and has tractors pull in under it lined up', () => {
     const world = World.create(7, 96);
     world.tier = 2;

@@ -293,7 +293,11 @@ interface Crane {
    */
   liftBoat?: number;
   liftSlot?: number;
-  /** The tractor waiting under it, as it began a lift off the ship, it sets that one straight on. */
+  /**
+   * The tractor waiting under it as it began a lift off the ship, or called
+   * to it and pulling in by the time it has it: it sets the container
+   * straight onto that one, if it is there for it.
+   */
   handTo?: number;
   /**
    * A gantry crane: the terminal tractor under it it is lifting a container
@@ -9097,8 +9101,9 @@ export class World {
       c.liftBoat = boat.id;
       c.liftSlot = this.deckSlot(c, boat, false);
       if (c.liftSlot < 0) return;
-      // Straight onto a tractor already waiting for one as it starts.
-      c.handTo = this.directTo(c)?.id;
+      // Straight onto a tractor already waiting for one as it starts, or
+      // one called to it pulling in by the time it has it over the bay.
+      c.handTo = (this.directTo(c) ?? this.pullingIn(c))?.id;
     }
     c.busy = true;
     if (!boxes) this.jibJobs.set(c, { boat, load: false, store });
@@ -9143,6 +9148,28 @@ export class World {
     return i >= 0 ? i : this.craneTop(c, false);
   }
 
+  /**
+   * A terminal tractor called to container crane `c`, empty and on its way
+   * there, that will pull in under it by the time it has a container off
+   * the ship over the bay: the nearest such. It does not wait for it,
+   * though: a ship kept longer at its berth waits longer for customs.
+   */
+  private pullingIn(c: Crane): Dockhand | undefined {
+    const spot = this.pickTile(c);
+    const soon = craneTicks(c) * B.CRANE_LIFT_SET;
+    let best: Dockhand | undefined;
+    let bestD = Infinity;
+    for (const p of this.people) {
+      if (p.kind !== 'tractor' || p.state !== 'toPickup' || p.craneIdx !== c.idx) continue;
+      if (p.carrying > 0 || p.handed) continue;
+      const d = this.dist(this.tileOf(p), spot);
+      if ((d * 1.25) / B.TRACTOR_SPEED > soon || d >= bestD) continue;
+      best = p;
+      bestD = d;
+    }
+    return best;
+  }
+
   /** The tractor a crane is lifting one off the ship straight onto, if it is still waiting. */
   private handingTo(c: Crane): Dockhand | undefined {
     const p = c.handTo === undefined ? undefined : this.people.find((q) => q.id === c.handTo);
@@ -9185,17 +9212,30 @@ export class World {
    * at `tile`: a container waits on its stack for it, or one will come off
    * a ship for it about as it gets there, a little before rather than
    * after, so the crane sets it straight on. Sent no sooner, so tractors
-   * come one after another as the crane lifts, rather than all at once to
-   * wait about in each other's way.
+   * come one after another as fast as the crane can serve them, one
+   * pulling in under it as the last pulls out, rather than all at once to
+   * queue in each other's way.
    */
   private dueAt(p: Dockhand, c: Crane, tile: number): boolean {
-    // Lifts off the ship before one is this tractor's, after those coming already.
-    const k = c.reserved + 1 - c.stack.length;
-    if (k <= 0) return true;
-    if (k > B.TRACTORS_CALLED) return false;
-    const ship = this.shipFor(c);
-    if (!ship || k > ship.left) return false;
-    const ready = ship.start + (k - 1) * craneTicks(c);
+    // Its place among the tractors called to the crane: each served in turn.
+    const coming = this.people.filter(
+      (q) =>
+        q !== p &&
+        q.kind === 'tractor' &&
+        q.craneIdx === c.idx &&
+        (q.state === 'toPickup' || q.state === 'picking'),
+    ).length;
+    if (coming >= B.TRACTORS_CALLED) return false;
+    const turn = Math.max(craneTicks(c), B.TRACTOR_TURN);
+    let ready = coming * turn;
+    // Past what waits on the stack, one still to come off a ship for it.
+    const off = coming + 1 - c.stack.length;
+    if (off > 0) {
+      const ship = this.shipFor(c);
+      if (!ship || off > ship.left) return false;
+      ready = Math.max(ready, ship.start + (off - 1) * craneTicks(c));
+    }
+    if (ready <= 0) return true;
     // Its drive there: round the corners a little longer than straight.
     const drive = (this.dist(this.tileOf(p), tile) * 1.25) / B.TRACTOR_SPEED;
     return drive + B.TRACTOR_EARLY >= ready;
