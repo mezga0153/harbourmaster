@@ -411,6 +411,12 @@ export interface CargoStats {
   containerExports: CargoOut;
 }
 
+/** The cargo counts at one moment, for the statistics charts. */
+export interface CargoSample {
+  tick: number;
+  cargo: CargoStats;
+}
+
 export interface TownView {
   name: string;
   /** Index into TOWN_STAGES. */
@@ -471,6 +477,8 @@ export interface Snapshot {
   stats: Stats;
   /** Every crate and container in the port, by where it is. */
   cargo: CargoStats;
+  /** The same, every so often over the last days, oldest first. */
+  cargoLog: CargoSample[];
   entities: EntityView[];
   bays: BayView[];
   /** Container yards, how many containers each holds, and whether trucks can reach it. */

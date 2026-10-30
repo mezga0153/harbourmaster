@@ -1,6 +1,7 @@
 import type {
   BayView,
   Capacity,
+  CargoSample,
   CargoStats,
   Command,
   ContractView,
@@ -570,6 +571,8 @@ export interface SaveData {
   yesterday: Ledger | null;
   /** Older saves have none. */
   history?: FinanceDay[];
+  /** Older saves have none. */
+  cargoLog?: CargoSample[];
   daysInRed: number;
   bankrupt: boolean;
   map: MapData;
@@ -594,6 +597,9 @@ export interface SaveData {
 
 /** Days gone by kept for the finance charts. */
 const FINANCE_DAYS = 60;
+/** Ticks between cargo counts kept for the statistics charts, and how many are kept: a week's. */
+const CARGO_EVERY = TICKS_PER_DAY / 10;
+const CARGO_SAMPLES = 70;
 
 function emptyLedger(): Ledger {
   return {
@@ -936,6 +942,8 @@ export class World {
   yesterday: Ledger | null = null;
   /** The last days gone by, for the finance charts, oldest first. */
   history: FinanceDay[] = [];
+  /** The cargo counts every so often, for the statistics charts, oldest first. */
+  cargoLog: CargoSample[] = [];
   /** Consecutive days that ended with negative cash. */
   daysInRed = 0;
   bankrupt = false;
@@ -1154,6 +1162,7 @@ export class World {
       ...d,
       ledger: { ...emptyLedger(), ...d.ledger },
     }));
+    world.cargoLog = s.cargoLog ?? [];
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
     world.people = s.people.map((p) => ({
@@ -1265,6 +1274,7 @@ export class World {
       today: this.today,
       yesterday: this.yesterday,
       history: this.history,
+      cargoLog: this.cargoLog,
       daysInRed: this.daysInRed,
       bankrupt: this.bankrupt,
       map: this.map.toData(),
@@ -2316,6 +2326,11 @@ export class World {
     }
     this.tick++;
     if (this.tick % TICKS_PER_DAY === 0) this.newDay();
+    // The cargo counts, ten times a day for a week, for the statistics charts.
+    if (this.tick % CARGO_EVERY === 0) {
+      this.cargoLog.push({ tick: this.tick, cargo: this.cargoStats() });
+      if (this.cargoLog.length > CARGO_SAMPLES) this.cargoLog.shift();
+    }
     this.spawnBoats();
     for (const b of [...this.boats]) this.updateBoat(b);
     this.updateTugs();
@@ -11440,6 +11455,7 @@ export class World {
       bankrupt: this.bankrupt,
       stats: { ...this.stats },
       cargo: this.cargoStats(),
+      cargoLog: this.cargoLog,
       entities,
       bays,
       yards: [...this.yards.values()].map((y) => ({

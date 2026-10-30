@@ -2,6 +2,7 @@ import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
 import { Fragment } from 'preact';
 import { useState } from 'preact/hooks';
+import { LineSeries, PAD, shortDate, ticks, Tip, useHover, W } from './charts';
 import type { FinanceDay, Ledger, LedgerCategory } from '../protocol';
 import * as B from '../sim/balance';
 import type { Actions } from './App';
@@ -60,22 +61,6 @@ function compact(n: number): string {
   return `${sign}$${short.replace(/\.0(?=[KM])/, '')}`;
 }
 
-/** A date without the year, for an axis. */
-function shortDate(tick: number): string {
-  return formatDate(tick - 1).replace(/ \d+$/, '');
-}
-
-/** Clean axis ticks taking in a to b, about `n` steps of them. */
-function ticks(a: number, b: number, n: number): number[] {
-  const span = Math.max(1, b - a);
-  const raw = span / n;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= raw) ?? raw;
-  const out: number[] = [];
-  for (let v = Math.floor(a / step) * step; v < b + step - 1e-9; v += step) out.push(v);
-  return out;
-}
-
 function Amount({ value }: { value: number }) {
   if (value === 0) return <span class="muted">—</span>;
   return <span class={value > 0 ? 'pos' : 'neg'}>{money(value)}</span>;
@@ -102,100 +87,20 @@ function Tile({
   );
 }
 
-// The charts: drawn to a fixed width and scaled to the panel.
-const W = 392;
-const PAD = { left: 44, right: 10, top: 10, bottom: 20 };
-
-/** Where the pointer is over a chart, as a day's index, and the tip to show. */
-function useHover() {
-  const [at, setAt] = useState<number | null>(null);
-  return { at, setAt };
-}
-
-/** Which day a pointer over the plot is nearest. */
-function dayAt(e: MouseEvent, n: number): number {
-  const svg = e.currentTarget as SVGSVGElement;
-  const box = svg.getBoundingClientRect();
-  const x = ((e.clientX - box.left) / box.width) * W;
-  const plot = W - PAD.left - PAD.right;
-  return Math.max(0, Math.min(n - 1, Math.round(((x - PAD.left) / plot) * (n - 1))));
-}
-
-function Tip({ x, children }: { x: number; children: ComponentChildren }) {
-  // Kept inside the chart: on the left of the pointer past the middle.
-  const left = x / W > 0.55;
-  return (
-    <div
-      class="viz-tip"
-      style={left ? { right: `${(1 - x / W) * 100 + 2}%` } : { left: `${(x / W) * 100 + 2}%` }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/** Cash at the end of each day: a line over a light wash, the latest marked. */
+/** Cash at the end of each day. */
 function CashChart({ days }: { days: FinanceDay[] }) {
-  const { at, setAt } = useHover();
-  const H = 132;
-  const cash = days.map((d) => d.cash);
-  // Scaled to how far it moved, not from nothing: $0 shows only if it went near it.
-  const lo = Math.min(...cash);
-  const hi = Math.max(...cash, lo + 1);
-  const axis = ticks(lo, hi, 3);
-  const y0 = Math.min(lo, axis[0] ?? lo);
-  const y1 = Math.max(hi, axis[axis.length - 1] ?? hi);
-  const plotW = W - PAD.left - PAD.right;
-  const plotH = H - PAD.top - PAD.bottom;
-  const x = (k: number) => PAD.left + (days.length === 1 ? plotW : (k / (days.length - 1)) * plotW);
-  const y = (v: number) => PAD.top + (1 - (v - y0) / (y1 - y0)) * plotH;
-  const line = cash.map((v, k) => `${k ? 'L' : 'M'}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join('');
-  const area = `${line}L${x(days.length - 1)},${y(y0)}L${x(0)},${y(y0)}Z`;
-  const last = days.length - 1;
-  const hover = at === null ? null : days[at];
   return (
-    <div class="viz">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        role="img"
-        aria-label={`Cash at the end of each day, latest ${money(cash[last])}`}
-        onMouseMove={(e) => setAt(dayAt(e, days.length))}
-        onMouseLeave={() => setAt(null)}
-      >
-        {axis.map((v) => (
-          <g key={v}>
-            <line
-              class={v === 0 ? 'viz-zero' : 'viz-grid'}
-              x1={PAD.left}
-              x2={W - PAD.right}
-              y1={y(v)}
-              y2={y(v)}
-            />
-            <text class="viz-axis" x={PAD.left - 6} y={y(v) + 3.5} text-anchor="end">
-              {compact(v)}
-            </text>
-          </g>
-        ))}
-        <path class="viz-area" d={area} />
-        <path class="viz-line" d={line} />
-        <text class="viz-axis" x={PAD.left} y={H - 4}>
-          {shortDate(days[0].tick)}
-        </text>
-        <text class="viz-axis" x={W - PAD.right} y={H - 4} text-anchor="end">
-          {shortDate(days[last].tick)}
-        </text>
-        {hover && at !== null && (
-          <line class="viz-cross" x1={x(at)} x2={x(at)} y1={PAD.top} y2={H - PAD.bottom} />
-        )}
-        <circle class="viz-dot" cx={x(at ?? last)} cy={y(cash[at ?? last])} r={4} />
-      </svg>
-      {hover && at !== null && (
-        <Tip x={x(at)}>
-          <div class="viz-tip-head">{formatDate(hover.tick - 1)}</div>
-          <div>{money(hover.cash)}</div>
-        </Tip>
+    <LineSeries
+      points={days.map((d) => ({ tick: d.tick - 1, value: d.cash }))}
+      format={compact}
+      label="Cash at the end of each day"
+      tip={(p) => (
+        <>
+          <div class="viz-tip-head">{formatDate(p.tick)}</div>
+          <div>{money(p.value)}</div>
+        </>
       )}
-    </div>
+    />
   );
 }
 
@@ -287,10 +192,10 @@ function DayColumns({
           <path key={k} class={v >= 0 ? 'viz-gain' : 'viz-loss'} d={column(k, v)} />
         ))}
         <text class="viz-axis" x={PAD.left} y={H - 4}>
-          {shortDate(days[0].tick)}
+          {shortDate(days[0].tick - 1)}
         </text>
         <text class="viz-axis" x={W - PAD.right} y={H - 4} text-anchor="end">
-          {shortDate(days[days.length - 1].tick)}
+          {shortDate(days[days.length - 1].tick - 1)}
         </text>
       </svg>
       {hover && at !== null && (

@@ -2260,3 +2260,29 @@ input:focus {
 .stat-totals {
   grid-template-columns: 1fr 1fr;
 }
+
+.stat-bar {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 6px;
+}
+
+.stat-bar:hover,
+.stat-bar.on {
+  background: var(--raised);
+}
+
+.stat-bar.none:hover,
+.stat-bar.none.on {
+  opacity: 0.8;
+}
+
+.stat-bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.stat-chart {
+  padding: 4px 0 8px;
+}
