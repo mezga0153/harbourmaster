@@ -2294,6 +2294,20 @@ describe('Container Port tier', () => {
    * A tug berth beside the docks, as far from the feeder berth at the crane
    * as there is room for, and a tug lying in it.
    */
+  /**
+   * A yard gantry for terminal tractors on the terminal's yard: along its
+   * far side from the gate, where its lane runs from the port road to the
+   * depot, open at both ends. Tractors never turn about in a gantry's lane,
+   * so they drive in at one end and out at the other.
+   */
+  function tractorGantry(world: World, yard: { tiles?: number[] }): number {
+    const m = world.map;
+    const top = yard.tiles!.filter((t) => !yard.tiles!.includes(t - m.w)).map((t) => t - m.w);
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [top[0]] });
+    expect(m.build[top[0]]).toBe(Build.YardGantry);
+    return top[0];
+  }
+
   function withTug(world: World, crane: number): void {
     const m = world.map;
     const far = (i: number) =>
@@ -2929,8 +2943,7 @@ describe('Container Port tier', () => {
     const world = feederPort(true);
     const m = world.map;
     const yard = [...world.yards.values()][0];
-    const spot: number = world['storeSpots'](yard)[0];
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    const spot = tractorGantry(world, yard);
     expect(m.build[spot]).toBe(Build.YardGantry);
     // The stackers go, and a tractor takes their place.
     for (let k = world.people.length - 1; k >= 0; k--) {
@@ -2969,8 +2982,7 @@ describe('Container Port tier', () => {
     const m = world.map;
     const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
-    const spot: number = world['storeSpots'](yard)[0];
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    const spot = tractorGantry(world, yard);
     expect(m.build[spot]).toBe(Build.YardGantry);
     for (let k = world.people.length - 1; k >= 0; k--) {
       if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
@@ -3012,6 +3024,34 @@ describe('Container Port tier', () => {
     expect(world.stats.containers).toBeGreaterThan(0);
   }, 30_000);
 
+  it('never has a tractor or reach stacker drive across a gantry crane’s rails, only along them', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const m = world.map;
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
+    const rails = gantryRails(m, at, f);
+    const crane = world.cranes.get(at)!;
+    const a = world['quayHeading'](crane);
+    const [ax, ay] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+    const drive = (from: number, to: number) => world['driveCost'](to, from) as number;
+    // Behind the stack, the row tractors line up in: along it, yes.
+    const row = rails.filter((r, k) => k % 2 === 1 && r >= 0);
+    const along = row.find((r) => row.includes(r + ax + ay * m.w))!;
+    expect(drive(along, along + ax + ay * m.w)).toBeLessThan(Infinity);
+    // Onto it, or off it, from the side: never, whatever is there.
+    for (const r of row) {
+      for (const side of [r + ay - ax * m.w, r - ay + ax * m.w]) {
+        if (rails.includes(side)) continue;
+        expect(drive(side, r)).toBe(Infinity);
+        expect(drive(r, side)).toBe(Infinity);
+      }
+    }
+    // Under it, a tractor may turn about; anywhere along it.
+    expect(row.every((r) => world['roomToTurn'](r))).toBe(true);
+  });
+
   it('never has a tractor turn about on a road, only at a depot or under a crane or gantry', () => {
     const world = World.create(7, 96);
     world.tier = 2;
@@ -3020,17 +3060,17 @@ describe('Container Port tier', () => {
     const m = world.map;
     const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    tractorGantry(world, yard);
     const depot = m.build.findIndex((b) => b === Build.Depot);
     const turn = (i: number) => world['roomToTurn'](i) as boolean;
     expect(turn(depot)).toBe(true);
-    // Under the gantry crane, along its rails behind the stack, and in the yard gantry's lane.
+    // Under the gantry crane, along its rails behind the stack; never in a yard gantry's lane.
     expect(
       gantryRails(m, at, f)
         .filter((_, k) => k % 2 === 1)
         .some(turn),
     ).toBe(true);
-    expect([...world['gantryLane'](yard)!.keys()].every(turn)).toBe(true);
+    expect([...world['gantryLane'](yard)!.keys()].some(turn)).toBe(false);
     // Nowhere on the roads, however wide or wherever they meet.
     const lane = new Set<number>(world['lineUpCache']!.keys());
     const roads = m.build
@@ -3060,7 +3100,7 @@ describe('Container Port tier', () => {
     const m = world.map;
     const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    tractorGantry(world, yard);
     for (let k = world.people.length - 1; k >= 0; k--) {
       if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
     }
@@ -3150,7 +3190,7 @@ describe('Container Port tier', () => {
     const m = world.map;
     const { at } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    tractorGantry(world, yard);
     for (let k = world.people.length - 1; k >= 0; k--) {
       if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
     }
@@ -3211,7 +3251,7 @@ describe('Container Port tier', () => {
     const m = world.map;
     const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const yard = world.yards.get(t.yard)!;
-    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    tractorGantry(world, yard);
     const depot = m.build.findIndex((b) => b === Build.Depot);
     world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
     world['addContract'](

@@ -118,8 +118,11 @@ function feederPort(): World {
 function tractorPort(): World {
   const world = feederPort();
   const yard = [...world.yards.values()][0];
-  const spot: number = world['storeSpots'](yard)[0];
-  world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+  // Along the yard's far side from the gate, where its lane runs from the
+  // port road to the depot: tractors never turn about in it.
+  const m = world.map;
+  const top = yard.tiles!.filter((t) => !yard.tiles!.includes(t - m.w)).map((t) => t - m.w);
+  world.command({ type: 'build', kind: 'yardGantry', tiles: [top[0]] });
   for (let k = world.people.length - 1; k >= 0; k--) {
     if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
   }

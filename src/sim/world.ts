@@ -1093,6 +1093,8 @@ export class World {
   private railCache: Map<number, [number, number]> | null = null;
   /** The yard each tile of a yard gantry's lane is beside, by its first tile; with railCache. */
   private railYard = new Map<number, number>();
+  /** Every tile of the lanes under the yard gantries; see yardLaneTiles. */
+  private yardLaneCache: Set<number> | null = null;
   /** How far the roads run across from each tile, for keeping right; see laneRuns. */
   private runsCache: Uint8Array | null = null;
   /** Each yard's gantry lane, by the yard; see gantryLane. */
@@ -1443,6 +1445,7 @@ export class World {
     this.laneCache = null;
     this.railCache = null;
     this.laneOfCache.clear();
+    this.yardLaneCache = null;
     this.gantryCache = null;
     this.reachCache = null;
     this.lotsCache = null;
@@ -1982,6 +1985,7 @@ export class World {
     this.laneCache = null;
     this.railCache = null;
     this.laneOfCache.clear();
+    this.yardLaneCache = null;
     this.gantryCache = null;
     this.storeOf.fill(-1);
     for (let i = 0; i < m.store.length; i++) {
@@ -7568,14 +7572,49 @@ export class World {
 
   /**
    * Where a tractor may turn about: never on a road, a tractor and its
-   * trailer being too long to come round on one, but at a depot, and under
-   * a crane or a yard gantry, where it pulls in to be lifted onto or off and
-   * has room to manoeuvre. Anywhere else it goes on round the roads.
+   * trailer being too long to come round on one, nor in the lane under a
+   * yard gantry, but at a depot, and under a crane, where it pulls in to be
+   * lifted onto or off and has room to manoeuvre: anywhere along a gantry
+   * crane's rails, which it may only drive along. Anywhere else it goes on
+   * round the roads.
    */
   private roomToTurn(i: number): boolean {
     const m = this.map;
     if (m.build[i] === Build.Depot || isCrane(m.build[i])) return true;
-    return this.lineUpAt(i) !== null;
+    if (this.yardLaneTiles().has(i)) return false;
+    return this.lineUpAt(i) !== null || this.gantryRailWays().has(i);
+  }
+
+  /** Every tile of the lanes under the yard gantries. Cleared when the port changes. */
+  private yardLaneTiles(): Set<number> {
+    if (this.yardLaneCache) return this.yardLaneCache;
+    const out = new Set<number>();
+    for (const y of this.yards.values())
+      for (const t of this.gantryLane(y)?.keys() ?? []) out.add(t);
+    return (this.yardLaneCache = out);
+  }
+
+  /**
+   * Whether a tractor can work a yard gantry's lane: never turning about
+   * in it, it drives in at one end and out at the other, so the lane must
+   * lead on onto the machines' ground at both.
+   */
+  private laneThrough(y: Bay): boolean {
+    const lane = this.gantryLane(y);
+    const a = this.laneHeading(y);
+    if (!lane || lane.size === 0 || a === undefined) return false;
+    const m = this.map;
+    const dx = Math.round(Math.cos(a));
+    const dy = Math.round(Math.sin(a));
+    const along = (t: number) => m.xOf(t) * dx + m.yOf(t) * dy;
+    const tiles = [...lane.keys()].sort((p, q) => along(p) - along(q));
+    const ground = this.machineGround();
+    const beyond = (t: number, s: number) => {
+      const x = m.xOf(t) + dx * s;
+      const yy = m.yOf(t) + dy * s;
+      return m.inBounds(x, yy) && ground.has(m.idx(x, yy));
+    };
+    return beyond(tiles[0], -1) && beyond(tiles[tiles.length - 1], 1);
   }
 
   private updateDockhand(p: Dockhand): void {
@@ -7833,7 +7872,11 @@ export class World {
     const dests = [...(boxy ? this.yards : this.bays).values()].filter((d) =>
       this.servesYard(p, d),
     );
-    if (p.kind === 'tractor' && dests.length === 0) {
+    const gantried = [...this.yards.values()].some((y) => this.yardGantry(y));
+    if (p.kind === 'tractor' && dests.length === 0 && gantried) {
+      stuck =
+        "Can't work the yard gantries: tractors cannot turn about in a gantry's lane, so it needs a way on at both ends";
+    } else if (p.kind === 'tractor' && dests.length === 0) {
       stuck = 'No container yard with a yard gantry to lift containers off and on';
     } else if (!dests.some((d) => this.dropAt(p, d, here) >= 0)) {
       stuck = boxy
@@ -8777,7 +8820,7 @@ export class World {
    * cannot lift a container, so only where a yard gantry lifts it off and on.
    */
   private servesYard(p: Dockhand, yard: Bay): boolean {
-    return p.kind !== 'tractor' || this.yardGantry(yard);
+    return p.kind !== 'tractor' || (this.yardGantry(yard) && this.laneThrough(yard));
   }
 
   private nearestWithRoom(
@@ -10845,9 +10888,9 @@ export class World {
   }
 
   /**
-   * The tiles of each yard gantry's lane, under it along the yard, with the
-   * way its rails run along them: trucks and machines drive along it, never
-   * across.
+   * The tiles of each yard gantry's lane, under it along the yard, and of
+   * each gantry crane's rails along the quay, with the way the rails run
+   * along them: trucks and machines drive along them, never across.
    */
   private gantryRailWays(): Map<number, [number, number]> {
     if (this.railCache) return this.railCache;
@@ -10867,6 +10910,18 @@ export class World {
       for (const t of lane.keys()) {
         out.set(t, [iy, -ix]);
         this.railYard.set(t, y.idx);
+      }
+    }
+    // And a gantry crane's: its two rows along the quay, the stack's and
+    // the one behind it where tractors line up and stackers work, the
+    // length of its rails. Along them, never across.
+    for (const c of this.cranes.values()) {
+      if (c.kind !== 'gantry') continue;
+      const a = this.quayHeading(c);
+      const way: [number, number] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
+      if (Math.abs(way[0]) + Math.abs(way[1]) !== 1) continue;
+      for (const t of gantryRails(m, c.idx, m.orient[c.idx] & 3)) {
+        if (t >= 0 && !out.has(t)) out.set(t, way);
       }
     }
     return (this.railCache = out);
