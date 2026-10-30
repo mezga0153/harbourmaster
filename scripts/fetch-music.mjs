@@ -115,6 +115,16 @@ function peakOf(wav, trim) {
   return m ? Number(m[1]) : 0;
 }
 
+/** How long a sound file plays, in seconds; 0 if it is not one. */
+function durationOf(file) {
+  const r = spawnSync(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file],
+    { encoding: 'utf8' },
+  );
+  return Number(r.stdout.trim()) || 0;
+}
+
 const tree = await (
   await fetch(`https://api.github.com/repos/${REPO}/git/trees/${BRANCH}?recursive=1`)
 ).json();
@@ -156,25 +166,31 @@ for (const inst of INSTRUMENTS) {
     const wav = join(tmp, `${inst.id}-${name}.wav`);
     writeFileSync(wav, Buffer.from(await (await fetch(url)).arrayBuffer()));
     const fade = Math.min(0.5, inst.seconds / 3);
-    // From the strike, not the silence before it; faded out at the end.
-    const trim = `silenceremove=start_periods=1:start_threshold=-45dB,atrim=0:${inst.seconds},afade=t=out:st=${inst.seconds - fade}:d=${fade}`;
-    // Every note peaking at -3 dB, so the game sets each instrument's level.
-    execFileSync('ffmpeg', [
-      '-y',
-      '-loglevel',
-      'error',
-      '-i',
-      wav,
-      '-af',
-      `${trim},volume=${-3 - peakOf(wav, trim)}dB`,
-      '-ac',
-      '1',
-      '-ar',
-      '44100',
-      '-b:a',
-      '80k',
-      join(OUT, inst.id, `${name}.mp3`),
-    ]);
+    const out = join(OUT, inst.id, `${name}.mp3`);
+    // From the strike, not the silence before it, unless the whole of a
+    // quiet one would go with it; faded out at the end.
+    const fadeOut = `atrim=0:${inst.seconds},afade=t=out:st=${inst.seconds - fade}:d=${fade}`;
+    for (const start of ['silenceremove=start_periods=1:start_threshold=-50dB,', '']) {
+      const trim = start + fadeOut;
+      // Every note peaking at -3 dB, so the game sets each instrument's level.
+      execFileSync('ffmpeg', [
+        '-y',
+        '-loglevel',
+        'error',
+        '-i',
+        wav,
+        '-af',
+        `${trim},volume=${-3 - peakOf(wav, trim)}dB`,
+        '-ac',
+        '1',
+        '-ar',
+        '44100',
+        '-b:a',
+        '80k',
+        out,
+      ]);
+      if (durationOf(out) > 0.1) break;
+    }
     notes.push(f.midi ?? name);
     console.log(`${inst.id} ${name}`);
   }

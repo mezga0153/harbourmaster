@@ -6,10 +6,17 @@ import { BANDS } from '../src/audio/score';
 /** The notes each part plays, as the composer writes them. */
 const RANGE: Record<string, [number, number]> = { keys: [52, 76], lead: [64, 84] };
 
-/** The recordings shipped with the game, by path. */
-const FILES = new Set(
-  Object.keys(import.meta.glob('../public/music/**/*.mp3')).map((p) => p.replace('../', '')),
+/** The recordings shipped with the game, by path: how many bytes each. */
+const SIZES = new Map(
+  Object.entries(
+    import.meta.glob<string>('../public/music/**/*.mp3', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }),
+  ).map(([p, raw]) => [p.replace('../', ''), raw.length]),
 );
+const FILES = new Set(SIZES.keys());
 
 describe('The recorded instruments', () => {
   it('are all there, for every band that plays them, and nothing else', () => {
@@ -19,6 +26,8 @@ describe('The recorded instruments', () => {
       for (const key of keys) {
         const file = `public/music/${inst}/${key}.mp3`;
         expect(FILES.has(file), file).toBe(true);
+        // A sound, not an empty file from a recording trimmed away.
+        expect(SIZES.get(file), file).toBeGreaterThan(1500);
         count++;
       }
     }
