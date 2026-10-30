@@ -111,8 +111,9 @@ export class Synth {
   /** The beds, under the effects. */
   readonly ambience: GainNode;
   readonly effects: GainNode;
-  /** Into the hall: sounds far off, or over water. */
+  /** Into the hall: sounds far off, or over water; from the beds, and from the effects. */
   private readonly wet: GainNode;
+  private readonly wetAmbience: GainNode;
   private readonly buffers: Record<'white' | 'pink' | 'brown', AudioBuffer>;
 
   /** Plays live, or into `into` (an OfflineAudioContext, say, to measure the sounds). */
@@ -139,6 +140,8 @@ export class Synth {
     verb.connect(verbOut).connect(this.master);
     this.wet = ctx.createGain();
     this.wet.connect(verb);
+    this.wetAmbience = ctx.createGain();
+    this.wetAmbience.connect(verb);
     this.buffers = {
       white: noiseBuffer(ctx, 'white'),
       pink: noiseBuffer(ctx, 'pink'),
@@ -194,8 +197,21 @@ export class Synth {
     const gain = this.gainNode(0);
     const pan = this.ctx.createStereoPanner();
     gain.connect(pan).connect(bus);
-    if (send > 0) pan.connect(this.gainNode(send)).connect(this.wet);
+    const wet = bus === this.ambience ? this.wetAmbience : this.wet;
+    if (send > 0) pan.connect(this.gainNode(send)).connect(wet);
     return { gain, pan };
+  }
+
+  /**
+   * How loud the beds (sea, wind, the hum) and the effects (the work, the
+   * ships) are, 0 to 1 each, echo and all.
+   */
+  setLevels(ambience: number, effects: number): void {
+    const t = this.now;
+    this.ambience.gain.setTargetAtTime(ambience, t, 0.08);
+    this.wetAmbience.gain.setTargetAtTime(ambience, t, 0.08);
+    this.effects.gain.setTargetAtTime(effects, t, 0.08);
+    this.wet.gain.setTargetAtTime(effects, t, 0.08);
   }
 
   // ── Beds ────────────────────────────────────────────────

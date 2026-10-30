@@ -2410,6 +2410,26 @@ button.drawer-stat:active {
   color: var(--text-2);
 }
 
+/* A sound level in settings: a slider and its value. */
+.level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.level input[type='range'] {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.level-value {
+  width: 36px;
+  text-align: right;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
 /* Sound on or off and the volume, at the top right. */
 .sound-control {
   display: flex;

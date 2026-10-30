@@ -203,7 +203,7 @@ function TopBar({ actions }: { actions: Actions }) {
         <button
           class={`brand ${panel.value === 'settings' ? 'on' : ''}`}
           onClick={() => togglePanel('settings')}
-          title="Settings: graphics, and saving the game to a file"
+          title="Settings: graphics, sound, and saving the game to a file"
           aria-label="Settings"
         >
           <span class="brand-mark">

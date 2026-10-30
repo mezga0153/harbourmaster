@@ -32,20 +32,33 @@ export interface SoundSettings {
   on: boolean;
   /** 0 to 1. */
   volume: number;
+  /** The sea, the wind and the port's hum from afar, 0 to 1 of the volume. */
+  ambience: number;
+  /** The work: engines, cranes, containers and crates, horns, 0 to 1 of the volume. */
+  effects: number;
 }
+
+const DEFAULTS: SoundSettings = { on: true, volume: 0.6, ambience: 1, effects: 1 };
+const share = (v: unknown, or: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : or;
 
 const KEY = 'harbourmaster.sound';
 
 function loadSettings(): SoundSettings {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (s && typeof s.on === 'boolean' && typeof s.volume === 'number') {
-      return { on: s.on, volume: Math.min(1, Math.max(0, s.volume)) };
+    if (s && typeof s.on === 'boolean') {
+      return {
+        on: s.on,
+        volume: share(s.volume, DEFAULTS.volume),
+        ambience: share(s.ambience, DEFAULTS.ambience),
+        effects: share(s.effects, DEFAULTS.effects),
+      };
     }
   } catch {
     // No storage here: the defaults.
   }
-  return { on: true, volume: 0.6 };
+  return { ...DEFAULTS };
 }
 
 export const soundSettings = signal<SoundSettings>(loadSettings());
@@ -175,8 +188,9 @@ export class Soundscape {
     const s = this.synth;
     if (!s) return;
     const on = soundSettings.value.on && !document.hidden;
-    const v = soundSettings.value.volume;
+    const { volume: v, ambience, effects } = soundSettings.value;
     s.master.gain.setTargetAtTime(on ? v * v : 0, s.now, 0.08);
+    s.setLevels(ambience * ambience, effects * effects);
     if (on && s.ctx.state === 'suspended') void s.ctx.resume();
     if (!on && s.ctx.state === 'running') {
       setTimeout(() => {

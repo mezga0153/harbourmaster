@@ -1,4 +1,5 @@
 import { useRef } from 'preact/hooks';
+import { soundSettings, type SoundSettings } from '../audio/sound';
 import type { Graphics } from '../render/graphics';
 import type { Actions } from './App';
 import { Icon } from './icons';
@@ -41,7 +42,48 @@ function Choice<K extends keyof Graphics>({
   );
 }
 
-/** Settings, from the harbour mark at the top left: how the game is drawn, and saving to a file. */
+/** One sound level: what it is, and a slider from silent to full. */
+function Level({
+  name,
+  label,
+  hint,
+}: {
+  name: 'volume' | 'ambience' | 'effects';
+  label: string;
+  hint: string;
+}) {
+  const s = soundSettings.value;
+  return (
+    <div class="setting">
+      <div>
+        <div class="setting-label">{label}</div>
+        <div class="muted">{hint}</div>
+      </div>
+      <div class="level">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(s[name] * 100)}
+          disabled={!s.on}
+          aria-label={label}
+          onInput={(e) =>
+            (soundSettings.value = {
+              ...s,
+              [name]: Number(e.currentTarget.value) / 100,
+            } as SoundSettings)
+          }
+        />
+        <span class="level-value">{Math.round(s[name] * 100)}%</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Settings, from the harbour mark at the top left: how the game is drawn,
+ * how it sounds, and saving to a file.
+ */
 export function SettingsPanel({ actions }: { actions: Actions }) {
   const picker = useRef<HTMLInputElement>(null);
 
@@ -102,6 +144,40 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
       <p class="muted">
         Lower settings run more smoothly on a slow computer. They are kept in this browser.
       </p>
+
+      <div class="section-title">
+        <span>Sound</span>
+      </div>
+      <div class="setting">
+        <div>
+          <div class="setting-label">Sound</div>
+          <div class="muted">Every sound in the game, made as you play</div>
+        </div>
+        <div class="segmented" role="group" aria-label="Sound">
+          {[true, false].map((on) => (
+            <button
+              key={String(on)}
+              class={soundSettings.value.on === on ? 'on' : ''}
+              aria-pressed={soundSettings.value.on === on}
+              onClick={() => (soundSettings.value = { ...soundSettings.value, on })}
+            >
+              {on ? 'On' : 'Off'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Level name="volume" label="Volume" hint="Everything together" />
+      <Level
+        name="effects"
+        label="The work"
+        hint="Engines, cranes, containers and crates landing, ships' horns"
+      />
+      <Level
+        name="ambience"
+        label="Sea and wind"
+        hint="Waves, the wind, the port's hum from afar"
+      />
+      <p class="muted">Kept in this browser. Zoom in to hear the work, out to hear the port.</p>
 
       <div class="section-title">
         <span>Your game</span>
