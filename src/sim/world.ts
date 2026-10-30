@@ -3475,7 +3475,7 @@ export class World {
           // Lying in the way of a ship coming in, it takes on what is on its
           // way to it, and no more.
           if (this.waitingFor(b)) {
-            b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + (b.outIncoming ?? 0));
+            b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + this.exportsComing(b));
           }
           b.timer = 0;
           return;
@@ -7344,9 +7344,16 @@ export class World {
     if (isBoxy(p)) {
       for (const c of this.cranes.values()) {
         if (c.kind === 'jib') continue;
-        const room = this.exportRoom(c);
+        // No more than a ship it reaches still takes, less those already
+        // set down for it or on their way, so none are left behind.
+        const want = Math.max(
+          0,
+          ...this.boats
+            .filter((b) => this.wantsLoad(b) && this.craneReaches(c, b))
+            .map((b) => (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - this.exportsComing(b)),
+        );
+        const room = Math.min(this.exportRoom(c), want);
         if (room <= 0) continue;
-        if (!this.boats.some((b) => this.wantsLoad(b) && this.craneReaches(c, b))) continue;
         if (this.pathFor(p, from, this.craneSpot(p, c, true))) return { crane: c, room };
       }
       return null;
@@ -7477,6 +7484,21 @@ export class World {
   }
 
   /**
+   * Exports on their way on board a ship: carried to it, or set down at a
+   * container crane over it, or on their way there.
+   */
+  private exportsComing(b: Boat): number {
+    let n = b.outIncoming ?? 0;
+    if (b.vessel !== 'feeder') return n;
+    for (const c of this.cranes.values()) {
+      if (c.kind !== 'jib' && this.craneReaches(c, b)) {
+        n += (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
+      }
+    }
+    return n;
+  }
+
+  /**
    * A ship unloaded stays to take exports on board while any are waiting and
    * being brought to it, until it is full or nothing has come for a while.
    */
@@ -7484,6 +7506,8 @@ export class World {
     if (outCap(b) === 0) return false;
     if ((b.outIncoming ?? 0) > 0) return true;
     if ((b.out ?? 0) >= outCap(b)) return false;
+    // Those already at its cranes, or on their way there, it takes anyway.
+    const coming = this.exportsComing(b) - (b.outIncoming ?? 0);
     // It takes what is in the port when it is ready to go, never waiting for
     // more to come in, nor to fill up.
     if (b.loadQuota === undefined) {
@@ -7492,7 +7516,7 @@ export class World {
         .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
         .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
       const room = outCap(b) - (b.out ?? 0);
-      const take = clamp(this.exportsFor(b) - claimed, 0, room);
+      const take = clamp(Math.max(coming, this.exportsFor(b) - claimed), 0, room);
       b.loadQuota = (b.out ?? 0) + take;
       // The line allows time to load as well as to unload.
       b.grace += take * B.MOORED_TICKS_PER_CRATE;
@@ -7506,11 +7530,12 @@ export class World {
         (n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0) - (o.outIncoming ?? 0)),
         0,
       );
-    if (this.exportsFor(b) - theirs <= 0) return false;
-    // Its own cargo still being cleared off the crane comes first.
-    const busy = [...this.cranes.values()].some(
-      (c) => c.stack.length > 0 && this.craneReaches(c, b),
-    );
+    if (Math.max(coming, this.exportsFor(b) - theirs) <= 0) return false;
+    // Its own cargo still being cleared off the crane comes first; and those
+    // at its cranes, or on their way there, are coming.
+    const busy =
+      coming > 0 ||
+      [...this.cranes.values()].some((c) => c.stack.length > 0 && this.craneReaches(c, b));
     b.loadIdle = busy ? 0 : (b.loadIdle ?? 0) + 1;
     return b.loadIdle < B.LOAD_WAIT;
   }
