@@ -15,6 +15,7 @@ import { App, type Actions } from './ui/App';
 import { graphics } from './ui/prefs';
 import { advise, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
+import { applyView, readView, trackView } from './view-url';
 
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
 const send = (cmd: Command) => worker.postMessage(cmd);
@@ -45,6 +46,15 @@ const sound = new Soundscape(
     };
   },
   () => map,
+);
+
+// Where the player was looking, from the address: the first port shown, if
+// it is the same port, opens there. A new game or another save starts afresh.
+let urlView = readView();
+trackView(
+  renderer.cam,
+  () => seed.peek(),
+  () => map !== null,
 );
 
 // Drawn as the player set it, from the start and whenever they change it.
@@ -183,6 +193,8 @@ function handle(msg: WorkerMessage): void {
     seed.value = msg.seed;
     selection.value = null;
     renderer.setMap(map);
+    if (urlView?.seed === msg.seed) applyView(renderer.cam, urlView);
+    urlView = null;
     return;
   }
   if (!map) return;

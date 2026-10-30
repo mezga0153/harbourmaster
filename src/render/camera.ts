@@ -27,6 +27,28 @@ export class IsoCamera {
     this.yawStep += dir;
   }
 
+  /** Quarter turns of the view from where it starts, 0 to 3. */
+  get turns(): number {
+    return ((this.yawStep % 4) + 4) % 4;
+  }
+
+  /** Turned this many quarter turns from the start, straight away. */
+  setTurns(turns: number): void {
+    this.yawStep = turns;
+    this.yaw = Math.PI / 4 + (turns * Math.PI) / 2;
+  }
+
+  /** Looking at x, z on the ground, held within the map. */
+  lookAt(x: number, z: number): void {
+    const b = this.bounds;
+    this.target.set(MathUtils.clamp(x, b.minX, b.maxX), 0, MathUtils.clamp(z, b.minZ, b.maxZ));
+  }
+
+  /** As zoomed as this, within the limits. */
+  setViewSize(size: number): void {
+    this.viewSize = MathUtils.clamp(size, MIN_VIEW, MAX_VIEW);
+  }
+
   zoom(factor: number): void {
     this.viewSize = MathUtils.clamp(this.viewSize * factor, MIN_VIEW, MAX_VIEW);
   }
