@@ -90,8 +90,8 @@ describe('A yard gantry’s lane', () => {
     expect(cost(tiles[0], tiles[1])).toBe(Infinity);
     expect(cost(tiles[6], south)).toBe(Infinity);
     expect(cost(north, tiles[0])).toBe(Infinity);
-    // Off it sideways is fine, where there is a road.
-    expect(cost(m.idx(X - 1, Y0 + 3), tiles[3])).toBe(1);
+    // Never off it sideways, across the gantry's rails, even where there is a road.
+    expect(cost(m.idx(X - 1, Y0 + 3), tiles[3])).toBe(Infinity);
     // With no `from`, as a path search starts, the base cost stands.
     expect(cost(tiles[0])).toBe(1);
   });

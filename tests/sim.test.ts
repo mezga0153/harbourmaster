@@ -2615,6 +2615,41 @@ describe('Container Port tier', () => {
     expect(yards.size).toBeGreaterThan(2);
   });
 
+  it('never has a truck or port machine drive across a yard gantry’s rails, only along its lane', () => {
+    const world = feederPort(true);
+    const m = world.map;
+    const yard = [...world.yards.values()][0];
+    const spot: number = world['storeSpots'](yard)[0];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    const rails: Map<number, [number, number]> = world['gantryRailWays']();
+    expect(rails.get(spot)).toBeDefined();
+    const [ax, ay] = rails.get(spot)!;
+    const at = (dx: number, dy: number) => m.idx(m.xOf(spot) + dx, m.yOf(spot) + dy);
+    // A port road off the side of the lane, away from the yard, to drive across from.
+    const side = [at(-ay, ax), at(ay, -ax)].find((t) => !world.yards.has(t) && !m.store[t])!;
+    m.build[side] = Build.PortRoad;
+    world['railCache'] = null;
+    world['laneCache'] = null;
+    const truck = world['truckCost'](-1);
+    const drive = world['driveCost'];
+    // Onto the lane from the side, or off it that way: no; along it: yes.
+    for (const cost of [truck, drive]) {
+      expect(cost(spot, side)).toBe(Infinity);
+      expect(cost(side, spot)).toBe(Infinity);
+    }
+    // Along it, from the lane tile either end, the way the rails run.
+    const ends = [at(ax, ay), at(-ax, -ay)].filter((t) => rails.has(t));
+    expect(ends.length).toBeGreaterThan(0);
+    for (const end of ends) {
+      expect(world['crossesRails'](end, spot)).toBe(false);
+      expect(world['crossesRails'](spot, end)).toBe(false);
+    }
+    expect(world['crossesRails'](side, spot)).toBe(true);
+    // A stacker cutting a corner onto it is across them too.
+    const corner = at(ax - ay, ay + ax);
+    if (m.inBounds(m.xOf(corner), m.yOf(corner))) expect(drive(spot, corner)).toBe(Infinity);
+  });
+
   it('lets trucks drive in under a yard gantry to load', () => {
     const world = feederPort(true);
     const m = world.map;

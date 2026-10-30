@@ -1044,6 +1044,8 @@ export class World {
   private spotCache = new Map<number, number[]>();
   /** Each tile of a yard gantry's lane with the way trucks drive along it; see laneWays. */
   private laneCache: Map<number, [number, number]> | null = null;
+  /** Each tile of a yard gantry's lane with the way its rails run; see gantryRailWays. */
+  private railCache: Map<number, [number, number]> | null = null;
   /** Each yard's gantry lane, by the yard; see gantryLane. */
   private laneOfCache = new Map<number, Map<number, number> | null>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
@@ -1386,6 +1388,7 @@ export class World {
     this.frontCache = null;
     this.spotCache.clear();
     this.laneCache = null;
+    this.railCache = null;
     this.laneOfCache.clear();
     this.reachCache = null;
     this.lotsCache = null;
@@ -1905,6 +1908,7 @@ export class World {
     }
     this.spotCache.clear();
     this.laneCache = null;
+    this.railCache = null;
     this.laneOfCache.clear();
     this.storeOf.fill(-1);
     for (let i = 0; i < m.store.length; i++) {
@@ -6890,8 +6894,11 @@ export class World {
    * along the quay only where there is no other way at all, as on a pier
    * too narrow for anything else.
    */
-  private driveCost: CostFn = (i) =>
-    this.groundCost(i) + (this.craneStackTiles().has(i) ? B.CRANE_STACK_DETOUR : 0);
+  private driveCost: CostFn = (i, from) => {
+    // Never across a yard gantry's rails, as trucks never do.
+    if (from !== undefined && from >= 0 && this.crossesRails(from, i)) return Infinity;
+    return this.groundCost(i) + (this.craneStackTiles().has(i) ? B.CRANE_STACK_DETOUR : 0);
+  };
 
   /**
    * The quay with containers on it that a gantry crane has set down: on the
@@ -10490,18 +10497,64 @@ export class World {
   /** How trucks drive by `base`, and only one way along a yard gantry's lane. */
   private laneCost(base: CostFn): CostFn {
     const lanes = this.laneWays();
-    if (lanes.size === 0) return base;
+    const rails = this.gantryRailWays();
+    if (lanes.size === 0 && rails.size === 0) return base;
     const m = this.map;
     return (i, from) => {
       if (from !== undefined && from >= 0) {
+        const dx = m.xOf(i) - m.xOf(from);
+        const dy = m.yOf(i) - m.yOf(from);
+        // Never across a yard gantry's rails: into its lane and out again
+        // only at the ends, along it.
+        if (this.crossesRails(from, i)) return Infinity;
         const way = lanes.get(i) ?? lanes.get(from);
-        if (way) {
-          const along = (m.xOf(i) - m.xOf(from)) * way[0] + (m.yOf(i) - m.yOf(from)) * way[1];
-          if (along < 0) return Infinity;
-        }
+        if (way && dx * way[0] + dy * way[1] < 0) return Infinity;
       }
       return base(i, from);
     };
+  }
+
+  /**
+   * Whether a step from tile `a` to its neighbour `b`, straight or across a
+   * corner, crosses a yard gantry's rails: onto or off its lane other than
+   * along it.
+   */
+  private crossesRails(a: number, b: number): boolean {
+    const rails = this.railCache ?? this.gantryRailWays();
+    if (rails.size === 0) return false;
+    const ra = rails.get(a);
+    const rb = rails.get(b);
+    if (!ra && !rb) return false;
+    const m = this.map;
+    const dx = m.xOf(b) - m.xOf(a);
+    const dy = m.yOf(b) - m.yOf(a);
+    const across = (r: [number, number] | undefined) => !!r && dx * r[1] - dy * r[0] !== 0;
+    return across(ra) || across(rb);
+  }
+
+  /**
+   * The tiles of each yard gantry's lane, under it along the yard, with the
+   * way its rails run along them: trucks and machines drive along it, never
+   * across.
+   */
+  private gantryRailWays(): Map<number, [number, number]> {
+    if (this.railCache) return this.railCache;
+    const m = this.map;
+    const out = new Map<number, [number, number]>();
+    for (const y of this.yards.values()) {
+      const lane = this.gantryLane(y);
+      if (!lane) continue;
+      const g = [...lane].find(([, k]) => k === 0)?.[0];
+      if (g === undefined) continue;
+      const area = new Set(y.tiles ?? [y.idx]);
+      const into = m.neighbors4(g).find((n) => area.has(n));
+      if (into === undefined) continue;
+      // The rails run square to the way the gantry reaches into the yard.
+      const ix = m.xOf(into) - m.xOf(g);
+      const iy = m.yOf(into) - m.yOf(g);
+      for (const t of lane.keys()) out.set(t, [iy, -ix]);
+    }
+    return (this.railCache = out);
   }
 
   /**
