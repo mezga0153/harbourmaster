@@ -386,6 +386,15 @@ function InfoPanel({ actions }: { actions: Actions }) {
           )}
         </dl>
         <Meter value={bay.stock / bay.capacity} />
+        {bay.tiles && (
+          <ShutToggle
+            shut={bay.shut}
+            what="crates"
+            empty={bay.stock + bay.exports === 0}
+            outgoing={bay.outgoing}
+            onToggle={(shut) => actions.send({ type: 'shutStore', idx: bay.idx, shut })}
+          />
+        )}
         {bay.noAccess && (
           <p class="note bad">
             {bay.noAccessWhy && !bay.tiles
@@ -572,6 +581,13 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
         </dl>
         <Meter value={yard.boxes / yard.capacity} />
+        <ShutToggle
+          shut={yard.shut}
+          what="containers"
+          empty={yard.boxes + yard.exports === 0}
+          outgoing={yard.outgoing}
+          onToggle={(shut) => actions.send({ type: 'shutStore', idx: yard.idx, shut })}
+        />
         {yard.noAccess && (
           <p class="note bad">
             {yard.noAccessWhy ??
@@ -638,6 +654,41 @@ const CRANE_NOTE = {
   gantry:
     'Ship-to-shore crane: runs along the ship lifting containers off quickly, and sets them down at the shipside along its rails, with exports brought for it to put on board. Reach stackers collect from there, from the quay behind, and it lifts them onto terminal tractors waiting under it; never the hauliers’ trucks. The ground round it is for port machines only.',
 };
+
+/**
+ * Stop a storage area taking any more cargo, so it empties out, or open it
+ * again; with what it is doing meanwhile.
+ */
+function ShutToggle({
+  shut,
+  what,
+  empty,
+  outgoing,
+  onToggle,
+}: {
+  shut: boolean;
+  what: 'crates' | 'containers';
+  empty: boolean;
+  outgoing: boolean;
+  onToggle: (shut: boolean) => void;
+}) {
+  return (
+    <>
+      {shut && (
+        <p class="note">
+          {empty
+            ? `Empty, and taking no more ${what}. Open it again to use it.`
+            : `Taking no more ${what}, emptying out: ${outgoing ? 'those in it still go on to the ships' : 'the trucks still take those in it'}.`}
+        </p>
+      )}
+      <div class="actions">
+        <button class={shut ? 'btn primary' : 'btn'} onClick={() => onToggle(!shut)}>
+          {shut ? `Take ${what} again` : `Stop taking ${what}`}
+        </button>
+      </div>
+    </>
+  );
+}
 
 function PreviewTip() {
   const p = preview.value;

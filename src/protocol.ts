@@ -16,6 +16,8 @@ export type Command =
   | { type: 'unmark'; tiles: number[] }
   /** Mark port road and quay tiles out as storage, or clear them. */
   | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }
+  /** Stop a storage area (by its first tile) taking any more cargo, so it empties out, or open it again. */
+  | { type: 'shutStore'; idx: number; shut: boolean }
   /** Open an exit off the highway at row `row`, with a road off it. */
   | { type: 'exit'; row: number }
   /** Make road tiles one way, the way the drag ran along them; or (`on` false) two way again. */
@@ -299,6 +301,8 @@ export interface BayView {
   places?: number[];
   /** Storage for cargo going out; by a crane, either way, one at a time. */
   outgoing: boolean;
+  /** Storage taking no more cargo, emptying out. */
+  shut: boolean;
   byCrane: boolean;
   tiles?: number[];
   noAccess: boolean;
@@ -320,6 +324,8 @@ export interface YardView {
   /** Containers waiting here to go out on a ship. */
   exports: number;
   outgoing: boolean;
+  /** Taking no more containers, emptying out. */
+  shut: boolean;
   byCrane: boolean;
   /** A yard gantry beside it loads the trucks; else the reach stackers do. */
   gantry: boolean;

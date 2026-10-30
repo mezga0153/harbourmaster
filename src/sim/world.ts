@@ -548,6 +548,11 @@ interface Bay {
   /** Storage for cargo going out on the ships, not coming in. */
   outgoing?: boolean;
   /**
+   * Storage stopped from taking any more, so it empties out: what is in it
+   * still goes on to the trucks or the ships, but nothing new is brought.
+   */
+  shut?: boolean;
+  /**
    * Cargo dockhands have lifted off a boat and set down on the quay beside
    * it, for the forklifts to take on; on pallets, or not.
    */
@@ -1408,6 +1413,8 @@ export class World {
         return this.unmark(cmd.tiles);
       case 'store':
         return this.markStore(cmd.tiles, cmd.kind, cmd.on);
+      case 'shutStore':
+        return this.shutStore(cmd.idx, cmd.shut);
       case 'terraform':
         return this.terraform(cmd.tiles, cmd.raise);
       case 'hire':
@@ -1943,6 +1950,8 @@ export class World {
       if (area) {
         area.nextTruckTick = Math.max(area.nextTruckTick, a.nextTruckTick);
         area.noAccess ||= a.noAccess;
+        // Joined with one shut, it stays shut.
+        if (a.shut) area.shut = true;
       }
     }
     for (const p of this.people) {
@@ -2496,7 +2505,7 @@ export class World {
       if (c.kind !== 'jib' || !this.dockInUse(c.idx)) continue;
       const rate = (TICKS_PER_DAY / B.CRANE_TICKS) * 0.3;
       lifting += rate;
-      if (this.jibStores(c).length > 0) stowing += rate;
+      if (this.jibStows(c)) stowing += rate;
     }
     // Off the boats and on to the bays: with forklifts about, dockhands land
     // the cargo and the forklifts take it on; without, dockhands carry it all
@@ -3530,7 +3539,7 @@ export class World {
         // storage it can swing it into: dockhands keep away from cranes.
         // Lying square under the jib crane, centred on it.
         const jib = this.cranes.get(j);
-        const craned = !!jib && jib.kind === 'jib' && (forks || this.jibStores(jib).length > 0);
+        const craned = !!jib && jib.kind === 'jib' && (forks || this.jibStows(jib));
         cranes ||= craned;
         // Nobody could unload it by hand next to a crane, or off machines-only quay.
         if (!needCrane && !craned && !walkableAt(m, j)) continue;
@@ -8569,12 +8578,39 @@ export class World {
    * for cargo coming in, by a crane or not.
    */
   private takesImports(b: Bay): boolean {
-    return !b.tiles || !b.outgoing;
+    return !b.tiles || (!b.outgoing && !b.shut);
   }
 
-  /** Whether exports may go here: only storage marked out for cargo going out. */
+  /** Whether exports may go here: only storage marked out for cargo going out, and not shut. */
   private takesExports(b: Bay): boolean {
-    return !!b.tiles && !!b.outgoing;
+    return !!b.tiles && !!b.outgoing && !b.shut;
+  }
+
+  /**
+   * Stop storage taking any more cargo, so it empties out, or open it to
+   * cargo again.
+   */
+  private shutStore(idx: number, shut: boolean): void {
+    const b = this.dest(idx);
+    if (!b?.tiles || !!b.shut === shut) return;
+    b.shut = shut || undefined;
+    const what = b.yard ? 'container yard' : 'crate storage';
+    if (!shut) return;
+    // Say so when that leaves nowhere for the cargo to go.
+    const kind = [...(b.yard ? this.yards : this.bays).values()].filter(
+      (a) => a.tiles && !!a.outgoing === !!b.outgoing,
+    );
+    if (kind.every((a) => a.shut)) {
+      this.message(
+        `Every ${b.outgoing ? 'outgoing ' : ''}${what} has stopped taking ${b.yard ? 'containers' : 'crates'}: ${b.outgoing ? "shippers' trucks will wait" : b.yard ? 'the cranes will stop once their stacks fill' : 'forklifts will take crates to the truck bays'}.`,
+        'bad',
+      );
+    }
+  }
+
+  /** Crate storage a jib crane can swing crates off a boat into: in reach and taking them. */
+  private jibStows(c: Crane): boolean {
+    return this.jibStores(c).some((a) => this.takesImports(a));
   }
 
   /** Trucks can get to this bay or storage area to load. */
@@ -12136,10 +12172,10 @@ export class World {
         ? 'Dockhands cannot get to it: it lies by machines-only ground. Forklifts cannot unload boats.'
         : 'Nobody to unload it: forklifts cannot unload boats. Hire dockhands, or berth boats under a jib crane.';
     }
-    if (jib && jib.stack.length >= B.CRANE_STACK && this.jibStores(jib).length === 0) {
+    if (jib && jib.stack.length >= B.CRANE_STACK && !this.jibStows(jib)) {
       return "The crane's landing stack is full: a forklift must take it away. Crate storage within reach would take crates straight in.";
     }
-    if (b.vessel === 'coaster' && !this.forklifts() && !(jib && this.jibStores(jib).length > 0)) {
+    if (b.vessel === 'coaster' && !this.forklifts() && !(jib && this.jibStows(jib))) {
       return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
     }
     return undefined;
@@ -12231,7 +12267,7 @@ export class World {
     if (c.kind === 'jib') {
       const stores = this.jibStores(c);
       if (c.busy) {
-        return stores.some((a) => bayRoom(a, false) > 0)
+        return stores.some((a) => bayRoom(a, false) > 0 && this.takesImports(a))
           ? 'Swinging crates straight into crate storage.'
           : 'Lifting crates onto its landing stack.';
       }
@@ -12242,6 +12278,11 @@ export class World {
       return this.berthTrouble(c) ? 'No boat can come alongside it.' : 'No boat lying under it.';
     }
     if (c.busy) return 'Lifting containers off the ship.';
+    // Nowhere for them to go: every yard with room has stopped taking them.
+    const yards = [...this.yards.values()].filter((y) => !y.outgoing && bayRoom(y, true) > 0);
+    if (c.stack.length > 0 && yards.length > 0 && yards.every((y) => y.shut)) {
+      return 'Every container yard with room has stopped taking containers: open one to them again, or mark out another.';
+    }
     if (full) {
       return c.kind === 'gantry'
         ? 'The bay between its legs is full: waiting for reach stackers.'
@@ -12620,6 +12661,7 @@ export class World {
       exports: (b.exports?.length ?? 0) - moved(b).taken,
       places: b.tiles && this.palletPlaces(b, heldIn(b) + moved(b).set),
       outgoing: !!b.outgoing,
+      shut: !!b.shut,
       byCrane: this.byCrane(b),
       tiles: b.tiles && [...b.tiles],
       noAccess: b.noAccess,
@@ -12672,6 +12714,7 @@ export class World {
         exports: y.exports?.length ?? 0,
         ...this.yardLooks(y, lifts),
         outgoing: !!y.outgoing,
+        shut: !!y.shut,
         byCrane: this.byCrane(y),
         gantry: this.yardGantry(y),
         cleared: this.cleared(y),

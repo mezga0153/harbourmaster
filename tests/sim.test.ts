@@ -2329,6 +2329,79 @@ describe('Container Port tier', () => {
     expect(world.stats.earned - earned).toBeGreaterThan(150 * 3);
   });
 
+  it('lets a yard stop taking containers, so the trucks empty it, and take them again', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    withTug(world, t.crane);
+    const add = world['addContract'].bind(world);
+    add(
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 12,
+        cratesMax: 12,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    const yard = world.yards.get(t.yard)!;
+    // Some in it, then shut it.
+    for (let k = 0; k < TICKS_PER_DAY * 4 && yard.boxes.length < 4; k++) world.step();
+    expect(yard.boxes.length).toBeGreaterThan(0);
+    world.command({ type: 'shutStore', idx: yard.idx, shut: true });
+    expect(world.snapshot().yards.find((y) => y.idx === yard.idx)!.shut).toBe(true);
+    // Those already on their way still come; nothing more is sent.
+    const most = yard.boxes.length + yard.boxIncoming;
+    add(
+      {
+        kind: 'haulier',
+        name: 'Test Box Haul',
+        color: 0,
+        fleet: 2,
+        capacity: B.CONTAINER_TRUCK_CAPACITY,
+        dailyFee: 0,
+        cargo: 'container',
+      },
+      0,
+      0,
+    );
+    let waiting = false;
+    for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
+      world.step();
+      expect(yard.boxes.length).toBeLessThanOrEqual(most);
+      if (
+        k % 20 === 0 &&
+        world['craneWhy'](world.cranes.get(t.crane)!).startsWith(
+          'Every container yard with room has stopped',
+        )
+      ) {
+        waiting = true;
+      }
+    }
+    // The trucks take what is in it; the crane says why it stacks them up.
+    expect(yard.boxes.length).toBeLessThan(most);
+    expect(waiting).toBe(true);
+    // It stays shut through a save, and when the area is made bigger.
+    const again = World.fromSave(world.toSave());
+    expect(again.yards.get(yard.idx)!.shut).toBe(true);
+    const m = world.map;
+    world.command({ type: 'store', tiles: [yard.idx - m.w], kind: 'boxes', on: true });
+    expect(m.store[yard.idx - m.w]).toBe(m.store[yard.idx]);
+    const grown = world.yards.get(world['storeOf'][yard.idx])!;
+    expect(grown.shut).toBe(true);
+    // Open again, it takes them in once more.
+    world.command({ type: 'shutStore', idx: grown.idx, shut: false });
+    const before = world.stats.containers;
+    for (let k = 0; k < TICKS_PER_DAY * 2; k++) world.step();
+    expect(world.stats.containers).toBeGreaterThan(before);
+  }, 60_000);
+
   /**
    * A container port with feeders and container trucks calling, and a yard
    * gantry beside the yard or not. Counts containers that went onto trucks

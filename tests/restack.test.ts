@@ -109,3 +109,21 @@ describe('A reach stacker with time on its hands', () => {
     expect(yard.boxes.length).toBe(17);
   });
 });
+
+describe('Storage stopped from taking cargo', () => {
+  it('takes no more coming in or going out, but its own still leaves', () => {
+    const world: Any = World.create(7, 96);
+    const store: Any = { idx: 1, tiles: [1], crates: [5], boxes: [], incoming: 0, boxIncoming: 0 };
+    const out: Any = { ...store, idx: 2, tiles: [2], outgoing: true, exports: [7] };
+    expect(world.takesImports(store)).toBe(true);
+    expect(world.takesExports(out)).toBe(true);
+    store.shut = true;
+    out.shut = true;
+    expect(world.takesImports(store)).toBe(false);
+    expect(world.takesExports(out)).toBe(false);
+    // Truck bays have no such switch.
+    expect(world.takesImports({ ...store, tiles: undefined })).toBe(true);
+    // What is in it is still there for the trucks.
+    expect(world.collectable(store)).toBe(1);
+  });
+});

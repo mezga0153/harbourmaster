@@ -218,6 +218,11 @@ export const TOPICS: Record<TopicId, Topic> = {
           full, shippers' trucks wait in parking until there is room.
         </p>
         <p>
+          Select storage and press <b>Stop taking</b> to let it empty out: nothing new is brought to
+          it, while the trucks, or the ships for an outgoing area, go on taking what is in it. Use
+          it before moving or rebuilding an area, so nothing is lost with it.
+        </p>
+        <p>
           Storage beside a jib crane fills straight from the boats. Where trucks cannot reach it,
           forklifts take its crates on.
         </p>
