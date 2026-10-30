@@ -30,6 +30,12 @@ import {
   lightsError,
   oneWayError,
   ROUNDABOUT_RING,
+  FACING,
+  flowFor,
+  nextParkWay,
+  PARK_FLIP,
+  PARK_MIRROR,
+  parkingLots,
   roundaboutCost,
   roundaboutError,
 } from './sim/rules';
@@ -461,10 +467,24 @@ export class Input {
     let note: string | undefined;
     let arrow: { at: number; facing: number } | null = null;
     if (t === 'oneWay' && map.build[i] === Build.Parking) {
-      // Truck parking: its lot turned round, free.
-      shown = [i];
-      ok = [true];
-      note = 'Click to turn this parking round, for trucks to drive through it the other way';
+      // Truck parking: its lot turned the next way round, free; the arrow
+      // shows which way trucks will come in across it.
+      const lot = parkingLots(map).find((l) => l.tiles.includes(i));
+      shown = lot ? lot.tiles : [i];
+      ok = shown.map(() => !!lot?.flow);
+      if (lot?.flow) {
+        const next = nextParkWay(map, lot.tiles);
+        const acrossY = lot.flow.across[1] !== 0;
+        const flow = flowFor(acrossY, (next & PARK_FLIP) !== 0, (next & PARK_MIRROR) !== 0);
+        const facing = FACING.findIndex(([x, y]) => x === flow.across[0] && y === flow.across[1]);
+        arrow = { at: i, facing };
+        const mirrored =
+          (next & PARK_MIRROR) !==
+          (lot.tiles.some((k) => map.orient[k] & PARK_MIRROR) ? PARK_MIRROR : 0);
+        note = mirrored
+          ? `Click to have its spaces lean the other way: trucks will turn in ${next & PARK_MIRROR ? 'left, across the traffic' : 'right, keeping right'}`
+          : 'Click to turn it round: trucks will come in off the other road';
+      } else error = lot?.why ?? 'Not a lot trucks can park in yet';
     } else if (t === 'oneWay') {
       shown = tiles;
       ok = tiles.map((k) => !oneWayError(map, k));

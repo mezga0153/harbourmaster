@@ -1231,6 +1231,12 @@ export interface ParkingFlow {
 
 /** On a parking tile, in `GameMap.orient`: its lot runs the other way round from the usual. */
 export const PARK_FLIP = 32;
+/**
+ * On a parking tile, in `GameMap.orient`: its spaces lean the other way,
+ * so trucks turn in off the road with the lot on their left, across the
+ * traffic coming the other way, rather than on their right.
+ */
+export const PARK_MIRROR = 1;
 
 /** A run of truck parking, and why it is no use, if it is not. */
 export interface ParkingLot {
@@ -1369,12 +1375,41 @@ export function parkingLots(map: GameMap): ParkingLot[] {
  */
 export function parkingFlow(map: GameMap, tiles: number[], acrossY: boolean): ParkingFlow {
   const flipped = tiles.some((t) => map.orient[t] & PARK_FLIP);
+  const mirrored = tiles.some((t) => map.orient[t] & PARK_MIRROR);
+  return flowFor(acrossY, flipped, mirrored);
+}
+
+/**
+ * The next way round for a lot of parking, as the one-way tool turns it,
+ * a step at a time: turned round, then leaning the other way, then turned
+ * round again, then back as it was. Its PARK_FLIP and PARK_MIRROR bits.
+ */
+export function nextParkWay(map: GameMap, tiles: number[]): number {
+  const flip = tiles.some((t) => map.orient[t] & PARK_FLIP);
+  const mirror = tiles.some((t) => map.orient[t] & PARK_MIRROR);
+  const [f, mi] = !mirror
+    ? flip
+      ? [true, true]
+      : [true, false]
+    : flip
+      ? [false, true]
+      : [false, false];
+  return (f ? PARK_FLIP : 0) | (mi ? PARK_MIRROR : 0);
+}
+
+/**
+ * Which way trucks go through a lot of parking across `acrossY` (or
+ * across x): in off the low side road, or (`flipped`) the high one;
+ * turning in with the lot on their right, or (`mirrored`) on their left.
+ */
+export function flowFor(acrossY: boolean, flipped: boolean, mirrored: boolean): ParkingFlow {
   const k: 0 | 1 = flipped ? 1 : 0;
   // From the side road on `ends[0]` (the low side) into the lot, or back.
   const base: [number, number] = acrossY ? [0, 1] : [1, 0];
   const across: [number, number] = k === 0 ? base : [-base[0], -base[1]];
-  // Driving `along` the road, the lot is on the right: the way whose right is `across`.
-  const along: [number, number] = [across[1], -across[0]];
+  // Driving `along` the road, the lot is on the right: the way whose right
+  // is `across`; mirrored, on the left, the other way.
+  const along: [number, number] = mirrored ? [-across[1], across[0]] : [across[1], -across[0]];
   return { in: k, along, across };
 }
 

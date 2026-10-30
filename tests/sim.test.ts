@@ -1248,11 +1248,28 @@ describe('Buildings', () => {
     expect(way[k + 1]).not.toBe(
       m.idx(m.xOf(outEnd) - flow.along[0], m.yOf(outEnd) - flow.along[1]),
     );
+    // However its way is found, as when held up on the way: into its space
+    // only off the in side, out of it only onto the other.
+    const going = { ...t, state: 'toPark', x: m.xOf(inEnd) + 0.5, y: m.yOf(inEnd) + 0.5 };
+    const own = world['truckCost'](-1, -1, going as never);
+    expect(own(space.tiles[0], outEnd)).toBe(Infinity);
+    expect(Number.isFinite(own(space.tiles[0], inEnd))).toBe(true);
     // Turned round with the one-way tool, in off the other side.
     world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
     const [again] = parkingLots(m);
     expect(again.flow!.in).toBe(1 - flow.in);
     expect(world['intoSpace'](m.idx(x0 - 1, row), again.spaces[0], -1)?.via).toBe(outEnd);
+    // Again, and its spaces lean the other way: in turning left, across the traffic.
+    const lean = (f: typeof flow) => [f.along[0] + f.across[0], f.along[1] + f.across[1]];
+    world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
+    const [mirrored] = parkingLots(m);
+    const [ax, ay] = lean(again.flow!);
+    const [bx, by] = lean(mirrored.flow!);
+    expect(ax * bx + ay * by).toBe(0);
+    // Twice more, and it is back as it was.
+    world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
+    world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
+    expect(parkingLots(m)[0].flow).toEqual(flow);
   });
 
   it('says why parking laid out wrong is no use', () => {

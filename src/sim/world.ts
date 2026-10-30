@@ -135,6 +135,8 @@ import {
   ON_PORT_ROAD,
   roadUnderParking,
   PARK_FLIP,
+  PARK_MIRROR,
+  nextParkWay,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -1665,8 +1667,9 @@ export class World {
     );
     for (const lot of lots) {
       if (!lot) continue;
+      const next = nextParkWay(m, lot.tiles);
       for (const t of lot.tiles) {
-        m.orient[t] ^= PARK_FLIP;
+        m.orient[t] = (m.orient[t] & ~(PARK_FLIP | PARK_MIRROR)) | next;
         this.dirty.add(t);
       }
     }
@@ -10518,9 +10521,48 @@ export class World {
   /** How trucks drive; through only the parking space `t` is in, or going into or out of. */
   private truckCost(target: number, home = -1, t?: Truck): CostFn {
     this.runsCache ??= laneRuns(this.map);
-    return this.laneCost(
-      truckCost(this.map, target, home, t?.lot && new Set(t.lot), this.runsCache),
+    return this.parkCost(
+      t,
+      this.laneCost(truckCost(this.map, target, home, t?.lot && new Set(t.lot), this.runsCache)),
     );
+  }
+
+  /**
+   * How a truck with a parking space of its own drives by `base`: into it
+   * only off the road on its lot's in side, coming the way the lot runs or
+   * straight at it, never round a hairpin; out of it only onto the road on
+   * the far side, going on that way. However it finds its way, the first
+   * time or held up on the way.
+   */
+  private parkCost(t: Truck | undefined, base: CostFn): CostFn {
+    const lot = t?.lot;
+    if (!lot) return base;
+    const space = this.spaceAt(lot[0]);
+    const flow = space && this.lotOf(lot[0])?.flow;
+    if (!space || !flow) return base;
+    const m = this.map;
+    const own = new Set(space.tiles);
+    const inEnd = space.ends[flow.in];
+    const outEnd = space.ends[1 - flow.in];
+    const step = (i: number, s: number) =>
+      m.idx(m.xOf(i) + flow.along[0] * s, m.yOf(i) + flow.along[1] * s);
+    const hairpinIn = step(inEnd, 1);
+    const hairpinOut = step(outEnd, -1);
+    // On its way in, the way in; in the space or just out of it, the way out.
+    const goingIn = t!.state === 'toPark';
+    const here = this.tileOf(t!);
+    const goingOut = own.has(here) || here === outEnd;
+    // Gone on its way, it keeps out of the space it had, as of any other.
+    if (!goingIn && !goingOut) return (i, from) => (own.has(i) ? Infinity : base(i, from));
+    return (i, from) => {
+      if (from !== undefined && from >= 0) {
+        if (goingIn && own.has(i) && !own.has(from) && from !== inEnd) return Infinity;
+        if (goingIn && i === inEnd && from === hairpinIn) return Infinity;
+        if (goingOut && own.has(from) && !own.has(i) && i !== outEnd) return Infinity;
+        if (goingOut && from === outEnd && i === hairpinOut) return Infinity;
+      }
+      return base(i, from);
+    };
   }
 
   /** How trucks drive by `base`, and only one way along a yard gantry's lane. */
