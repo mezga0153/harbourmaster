@@ -5195,6 +5195,16 @@ export class World {
         : this.cranePlaces(c).stack[this.craneTop(c, false)];
       return place === undefined || place < 0 ? this.pickTile(c) : this.besideStack(c, place);
     }
+    // A tractor at a gantry crane lines up along its rails behind the
+    // stack, beside the containers: the free place nearest the bay
+    // between its legs.
+    if (p.kind === 'tractor' && c.kind === 'gantry') {
+      const lane = this.craneLane(c);
+      const stack = this.craneStackTiles();
+      return (
+        lane.find((t) => !this.spotTaken(t, p) && !stack.has(t)) ?? lane[0] ?? this.pickTile(c)
+      );
+    }
     if (p.kind !== 'tractor' || c.kind !== 'harbour') return this.pickTile(c);
     const m = this.map;
     const a = this.quayHeading(c);
@@ -5209,6 +5219,21 @@ export class World {
     }
     // The side no other tractor has, if one is free.
     return sides.find((t) => !this.spotTaken(t, p)) ?? sides[0] ?? this.pickTile(c);
+  }
+
+  /**
+   * The row a gantry crane's rails run along behind its stack, on the
+   * landward side of the containers it sets down: where tractors line up
+   * along the quay for it to lift onto or off, the length of its rails. The
+   * machines' ground only, nearest the bay between its legs first.
+   */
+  private craneLane(c: Crane): number[] {
+    const m = this.map;
+    const pick = this.pickTile(c);
+    const ground = this.machineGround();
+    return gantryRails(m, c.idx, m.orient[c.idx] & 3)
+      .filter((t, k) => k % 2 === 1 && t >= 0 && ground.has(t))
+      .sort((a, b) => this.dist(pick, a) - this.dist(pick, b));
   }
 
   /** Which way the lane under a yard's gantry runs, as a heading; see gantryLane. */
@@ -7279,7 +7304,7 @@ export class World {
         for (const t of tiles) if (!out.has(t)) out.set(t, step);
       };
       for (const c of this.cranes.values()) {
-        if (c.kind === 'gantry') put([this.pickTile(c)], this.quayHeading(c));
+        if (c.kind === 'gantry') put(this.craneLane(c), this.quayHeading(c));
         else if (c.kind === 'harbour') {
           const x = m.xOf(c.idx);
           const y = m.yOf(c.idx);
@@ -9275,14 +9300,13 @@ export class World {
    * though: a ship kept longer at its berth waits longer for customs.
    */
   private pullingIn(c: Crane): Dockhand | undefined {
-    const spot = this.pickTile(c);
     const soon = craneTicks(c) * B.CRANE_LIFT_SET;
     let best: Dockhand | undefined;
     let bestD = Infinity;
     for (const p of this.people) {
       if (p.kind !== 'tractor' || p.state !== 'toPickup' || p.craneIdx !== c.idx) continue;
       if (p.carrying > 0 || p.handed) continue;
-      const d = this.dist(this.tileOf(p), spot);
+      const d = this.dist(this.tileOf(p), p.goal);
       if ((d * 1.25) / B.TRACTOR_SPEED > soon || d >= bestD) continue;
       best = p;
       bestD = d;

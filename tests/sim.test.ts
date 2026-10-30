@@ -2714,6 +2714,74 @@ describe('Container Port tier', () => {
     expect(world.stats.containers).toBeGreaterThan(0);
   });
 
+  it('has tractors line up along a gantry crane’s rails, beside its stack, for it to lift onto', () => {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 1_000_000;
+    const t = terminal(world)!;
+    const m = world.map;
+    const { at, f } = placeGantry(world, gantryPier(world, t.crane));
+    const yard = world.yards.get(t.yard)!;
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [world['storeSpots'](yard)[0]] });
+    for (let k = world.people.length - 1; k >= 0; k--) {
+      if (world.people[k].kind === 'stacker') world.people.splice(k, 1);
+    }
+    const depot = m.build.findIndex((b) => b === Build.Depot);
+    // Three to a depot: a second for six of them.
+    const second = m.build.findIndex((_, i) => !placementError(m, 'depot', i));
+    world.command({ type: 'build', kind: 'depot', tiles: [second] });
+    for (const d of [depot, depot, depot, second, second, second]) {
+      world.command({ type: 'buyMachine', kind: 'tractor', tile: d });
+    }
+    expect(world.people.filter((p) => p.kind === 'tractor').length).toBe(6);
+    world['addContract'](
+      {
+        kind: 'fishery',
+        vessel: 'feeder',
+        name: 'Test Feeders',
+        color: 0,
+        boatEvery: 1,
+        cratesMin: 24,
+        cratesMax: 24,
+        fee: 150,
+      },
+      world.tick + 10,
+      0,
+    );
+    const crane = world.cranes.get(at)!;
+    // The row behind the stack, the length of its rails.
+    const lane = new Set(gantryRails(m, at, f).filter((_, k) => k % 2 === 1));
+    const pick = footprint(m, 'gantryCrane', at, f)[2];
+    const quay = world['quayHeading'](crane);
+    let together = 0;
+    let offBay = 0;
+    for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
+      world.step();
+      const waiting = world.people.filter(
+        (p) => p.kind === 'tractor' && world['underGantry'](p) === crane,
+      );
+      for (const p of waiting) {
+        const tile = world['tileOf'](p);
+        // In the row behind the stack, lined up along the quay, each on its own tile.
+        expect(lane.has(tile)).toBe(true);
+        expect(world['craneStackTiles']().has(tile)).toBe(false);
+        expect(Math.abs(Math.cos(p.dir - quay))).toBeGreaterThan(0.9);
+      }
+      const tiles = new Set(waiting.map((p) => world['tileOf'](p)));
+      expect(tiles.size).toBe(waiting.length);
+      if (waiting.length >= 2) together++;
+      // And the crane lifts onto one standing along from its legs.
+      const v = world.snapshot().cranes.find((c) => c.idx === at)!;
+      const to = world.people.find((q) => q.id === v.workTruck);
+      if (to && (v.working === 'give' || v.working === 'unload') && world['tileOf'](to) !== pick) {
+        offBay++;
+      }
+    }
+    expect(together).toBeGreaterThan(0);
+    expect(offBay).toBeGreaterThan(0);
+    expect(world.stats.containers).toBeGreaterThan(0);
+  });
+
   it('calls tractors ahead to a gantry crane a ship is coming in to, and sets containers straight onto those pulling in', () => {
     const world = World.create(7, 96);
     world.tier = 2;
