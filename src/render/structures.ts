@@ -13,6 +13,7 @@ import type { GameMap } from '../sim/map';
 import {
   EXTENSION,
   FACING,
+  gantryYard,
   liftMarks,
   machinesOnly,
   ON_QUAY,
@@ -226,6 +227,11 @@ interface YardGantryParts {
   ticks: number;
   startX: number;
   startZ: number;
+  /** How far along its rails it can run, either way, as laid out along its yard. */
+  railFrom: number;
+  railTo: number;
+  /** The tile of the yard it works beside it (see gantryYard), or -1. */
+  works: number;
   /** The tick the game began the lift it is at; see YardView.workStart. */
   liftStart?: number;
   /**
@@ -1217,8 +1223,9 @@ export class Structures {
       // Its gantry, at work or not, and where in the yard the container
       // it is moving lies, or for one coming off a truck, where it goes.
       const tiles = new Set(y.tiles);
-      for (const [i, g] of this.yardGantries) {
-        if (!this.map.neighbors4(i).some((n) => tiles.has(n))) continue;
+      for (const g of this.yardGantries.values()) {
+        // Only the yard it works, though it may stand beside another too.
+        if (!tiles.has(g.works)) continue;
         const was = g.work;
         const truck = g.truck;
         // A lift it has not been at yet: by when the game began it.
@@ -1642,7 +1649,11 @@ export class Structures {
     let obj = this.make(i);
     const now = this.yardGantries.get(i);
     if (was && now) {
-      now.carriage.position.x = was.carriage.position.x;
+      // On its rails as they are now, the yard made shorter or split.
+      now.carriage.position.x = Math.min(
+        now.railTo,
+        Math.max(now.railFrom, was.carriage.position.x),
+      );
       now.trolley.position.z = was.trolley.position.z;
       const { pick, work, look, phase, base, held, legs, ticks, startX, startZ } = was;
       Object.assign(now, { pick, work, look, phase, base, held, legs, ticks, startX, startZ });
@@ -2106,7 +2117,12 @@ export class Structures {
         const m = this.map;
         const y = QUAY_Y;
         paving();
-        const yard = m.neighbors4(i).find((n) => storesBoxes(m.store[n]));
+        // The one yard it works, as the game has it: never into another
+        // beside it, nor across a gap where a yard has been split in two.
+        const own = gantryYard(m, i);
+        const yard = own?.into;
+        const inYard = (x: number, z: number) =>
+          m.inBounds(x, z) && !!own && own.area.has(m.idx(x, z));
         const [dx, dy] =
           yard === undefined ? [0, 1] : [m.xOf(yard) - m.xOf(i), m.yOf(yard) - m.yOf(i)];
         // Across as many yard tiles as there are, up to three.
@@ -2114,7 +2130,7 @@ export class Structures {
         while (span < 3) {
           const x = m.xOf(i) + dx * (span + 1);
           const z = m.yOf(i) + dy * (span + 1);
-          if (!m.inBounds(x, z) || !storesBoxes(m.store[m.idx(x, z)])) break;
+          if (!inYard(x, z)) break;
           span++;
         }
         // Along the yard, either way, as far as its first row runs: the
@@ -2124,7 +2140,7 @@ export class Structures {
           while (k < GANTRY_RUN) {
             const x = m.xOf(i) + dx + dy * sign * (k + 1);
             const z = m.yOf(i) + dy - dx * sign * (k + 1);
-            if (!m.inBounds(x, z) || !storesBoxes(m.store[m.idx(x, z)])) break;
+            if (!inYard(x, z)) break;
             k++;
           }
           return k * sign;
@@ -2182,6 +2198,9 @@ export class Structures {
           phase: 0,
           legs: NO_RUN,
           ticks: YARD_GANTRY_TICKS,
+          railFrom: from,
+          railTo: to,
+          works: yard ?? -1,
           startX: 0,
           startZ: Math.max(0.6, far / 2),
         });

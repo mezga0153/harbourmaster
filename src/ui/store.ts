@@ -49,6 +49,7 @@ export type Selection =
   | { type: 'crane'; idx: number }
   | { type: 'office'; idx: number }
   | { type: 'parking'; idx: number }
+  | { type: 'yardGantry'; idx: number }
   | { type: 'town' }
   | { type: 'railway' };
 

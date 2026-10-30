@@ -421,6 +421,38 @@ export function liftMarks(legs?: readonly number[]): { taken: number; set: numbe
   return { taken: run + up / 2, set: run + up + carry + down / 2 };
 }
 
+/** The tiles of the storage area tile `i` is in: those marked out the same that it touches, and so on. */
+export function storeArea(map: GameMap, i: number): Set<number> {
+  const kind = map.store[i];
+  const out = new Set<number>();
+  if (!kind) return out;
+  const stack = [i];
+  out.add(i);
+  while (stack.length > 0) {
+    for (const n of map.neighbors4(stack.pop()!)) {
+      if (map.store[n] !== kind || out.has(n)) continue;
+      out.add(n);
+      stack.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * The container yard a yard gantry at `g` spans: one, the biggest beside
+ * it where it stands between two, then the first; by the tile of it beside
+ * the gantry, which it reaches into, and all its tiles. Null with none.
+ */
+export function gantryYard(map: GameMap, g: number): { into: number; area: Set<number> } | null {
+  let best: { into: number; area: Set<number> } | null = null;
+  for (const n of map.neighbors4(g)) {
+    if (!storesBoxes(map.store[n]) || best?.area.has(n)) continue;
+    const area = storeArea(map, n);
+    if (!best || area.size > best.area.size) best = { into: n, area };
+  }
+  return best;
+}
+
 /** Which way trucks may go through a port gate. */
 export function gateWay(map: GameMap, i: number): 'both' | 'in' | 'out' {
   if (map.build[i] !== Build.Gate) return 'both';

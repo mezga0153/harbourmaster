@@ -309,6 +309,8 @@ export const YARD_GANTRY_COST = 12000;
 export const YARD_GANTRY_RUNNING_COST = 90;
 /** Ticks a yard gantry takes to take a container up and set it down, besides running along its rails. */
 export const YARD_GANTRY_TICKS = 10;
+/** Tiles further a truck would sooner go round than drive under a yard gantry not loading it. */
+export const GANTRY_LANE_DETOUR = 12;
 /** How fast a yard gantry runs along its rails, in tiles a tick. */
 export const YARD_GANTRY_SPEED = 2;
 export const STACKER_PRICE = 6000;

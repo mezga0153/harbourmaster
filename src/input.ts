@@ -282,6 +282,8 @@ export class Input {
       selection.value = { type: 'office', idx: i };
     } else if (i !== null && map?.build[i] === Build.Parking) {
       selection.value = { type: 'parking', idx: i };
+    } else if (i !== null && map?.build[i] === Build.YardGantry) {
+      selection.value = { type: 'yardGantry', idx: i };
     } else if (i !== null && snapshot.value?.yards.some((y) => y.idx === i)) {
       selection.value = { type: 'yard', idx: i };
     } else if (i !== null && map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) {

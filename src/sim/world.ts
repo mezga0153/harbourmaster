@@ -137,6 +137,7 @@ import {
   PARK_FLIP,
   PARK_MIRROR,
   nextParkWay,
+  gantryYard,
 } from './rules';
 import { MACHINES } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
@@ -1090,10 +1091,14 @@ export class World {
   private laneCache: Map<number, [number, number]> | null = null;
   /** Each tile of a yard gantry's lane with the way its rails run; see gantryRailWays. */
   private railCache: Map<number, [number, number]> | null = null;
+  /** The yard each tile of a yard gantry's lane is beside, by its first tile; with railCache. */
+  private railYard = new Map<number, number>();
   /** How far the roads run across from each tile, for keeping right; see laneRuns. */
   private runsCache: Uint8Array | null = null;
   /** Each yard's gantry lane, by the yard; see gantryLane. */
   private laneOfCache = new Map<number, Map<number, number> | null>();
+  /** Which yard each yard gantry works; see gantries. */
+  private gantryCache: { byYard: Map<number, number>; idle: Map<number, string> } | null = null;
   /** How far by road trucks have to each tile they can reach; see truckReach. */
   private reachCache: Int32Array | null = null;
   /** Junctions trucks give way at; see junctions. */
@@ -1438,6 +1443,7 @@ export class World {
     this.laneCache = null;
     this.railCache = null;
     this.laneOfCache.clear();
+    this.gantryCache = null;
     this.reachCache = null;
     this.lotsCache = null;
     this.junctionCache = null;
@@ -1976,6 +1982,7 @@ export class World {
     this.laneCache = null;
     this.railCache = null;
     this.laneOfCache.clear();
+    this.gantryCache = null;
     this.storeOf.fill(-1);
     for (let i = 0; i < m.store.length; i++) {
       const kind = m.store[i];
@@ -4807,10 +4814,45 @@ export class World {
 
   /** A yard gantry stands beside this container yard, to load its trucks. */
   private yardGantry(yard: Bay): boolean {
+    return this.gantryOf(yard) >= 0;
+  }
+
+  /**
+   * The yard gantry that works this container yard, by its tile, or -1:
+   * one that spans it (see gantryYard), the first where two stand by it;
+   * never one beside it that spans another yard.
+   */
+  private gantryOf(yard: Bay): number {
+    return this.gantries().byYard.get(yard.idx) ?? -1;
+  }
+
+  /**
+   * Every yard gantry and the yard it works, by the yard's first tile;
+   * and those that work none: beside no yard, or a second by one. Cleared
+   * when the map changes.
+   */
+  private gantries(): { byYard: Map<number, number>; idle: Map<number, string> } {
+    if (this.gantryCache) return this.gantryCache;
     const m = this.map;
-    return (yard.tiles ?? [yard.idx]).some((i) =>
-      m.neighbors4(i).some((n) => m.build[n] === Build.YardGantry),
-    );
+    const byYard = new Map<number, number>();
+    const idle = new Map<number, string>();
+    for (let g = 0; g < m.build.length; g++) {
+      if (m.build[g] !== Build.YardGantry) continue;
+      const own = gantryYard(m, g);
+      const yard = own ? this.yards.get(this.storeOf[own.into]) : undefined;
+      if (!yard) {
+        idle.set(
+          g,
+          'A yard gantry spans the container yard beside it, and there is none beside this one: mark one out beside it, or take it down',
+        );
+      } else if (byYard.has(yard.idx)) {
+        idle.set(
+          g,
+          'Another yard gantry works the yard beside this one already: a yard is worked by one gantry',
+        );
+      } else byYard.set(yard.idx, g);
+    }
+    return (this.gantryCache = { byYard, idle });
   }
 
   /**
@@ -10347,11 +10389,10 @@ export class World {
   private findGantryLane(a: Bay): Map<number, number> | null {
     const m = this.map;
     const area = new Set(a.tiles ?? [a.idx]);
-    const g = m.build.findIndex(
-      (b, i) => b === Build.YardGantry && m.neighbors4(i).some((n) => area.has(n)),
-    );
+    const g = this.gantryOf(a);
     if (g < 0) return null;
-    const into = m.neighbors4(g).find((n) => area.has(n))!;
+    const into = gantryYard(m, g)?.into;
+    if (into === undefined || !area.has(into)) return null;
     const dx = m.xOf(into) - m.xOf(g);
     const dy = m.yOf(into) - m.yOf(g);
     const lane = new Map<number, number>([[g, 0]]);
@@ -10719,7 +10760,11 @@ export class World {
     this.runsCache ??= laneRuns(this.map);
     return this.parkCost(
       t,
-      this.laneCost(truckCost(this.map, target, home, t?.lot && new Set(t.lot), this.runsCache)),
+      this.throughCost(
+        this.laneCost(truckCost(this.map, target, home, t?.lot && new Set(t.lot), this.runsCache)),
+        target,
+        home,
+      ),
     );
   }
 
@@ -10819,7 +10864,10 @@ export class World {
       // The rails run square to the way the gantry reaches into the yard.
       const ix = m.xOf(into) - m.xOf(g);
       const iy = m.yOf(into) - m.yOf(g);
-      for (const t of lane.keys()) out.set(t, [iy, -ix]);
+      for (const t of lane.keys()) {
+        out.set(t, [iy, -ix]);
+        this.railYard.set(t, y.idx);
+      }
     }
     return (this.railCache = out);
   }
@@ -10837,6 +10885,7 @@ export class World {
     const m = this.map;
     const base = truckCost(m);
     const out = new Map<number, [number, number]>();
+    this.railYard.clear();
     for (const y of this.yards.values()) {
       const lane = this.gantryLane(y);
       if (!lane || lane.size < 2) continue;
@@ -10878,6 +10927,23 @@ export class World {
   /** The lot of parking tile `i` is in, if any. */
   private lotOf(i: number): ParkingLot | undefined {
     return this.parkingLots().find((l) => l.tiles.includes(i));
+  }
+
+  /**
+   * How trucks drive by `base`, keeping out from under a yard gantry
+   * unless it is the yard they are bound for or leaving: the long way
+   * round, if it is not much longer, rather than through its lane, where
+   * the trucks it loads queue and it lifts over them.
+   */
+  private throughCost(base: CostFn, target: number, home: number): CostFn {
+    const rails = this.gantryRailWays();
+    if (rails.size === 0) return base;
+    return (i, from) => {
+      const c = base(i, from);
+      const yard = this.railYard.get(i);
+      if (yard === undefined || !Number.isFinite(c) || yard === target || yard === home) return c;
+      return c + B.GANTRY_LANE_DETOUR;
+    };
   }
 
   /**
@@ -12796,6 +12862,10 @@ export class World {
       const text = this.berthTrouble(c);
       const h = c.kind === 'jib' ? 1.7 : c.kind === 'gantry' ? 2.9 : 2.3;
       if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
+    }
+    // Yard gantries working no yard: beside none, or a second by one.
+    for (const [g, text] of this.gantries().idle) {
+      out.push({ ...middle([g]), h: 1.6, text, type: 'yardGantry', idx: g });
     }
     for (const b of [...this.bays.values(), ...this.yards.values()]) {
       // Crate storage the trucks cannot reach is still a buffer the forklifts empty.

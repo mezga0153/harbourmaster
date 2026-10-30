@@ -476,7 +476,7 @@ export interface ProblemView {
   h: number;
   text: string;
   /** What picking it selects. */
-  type: 'crane' | 'bay' | 'yard' | 'parking';
+  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry';
   idx: number;
 }
 

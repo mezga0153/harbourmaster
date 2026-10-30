@@ -2715,6 +2715,26 @@ describe('Container Port tier', () => {
     if (m.inBounds(m.xOf(corner), m.yOf(corner))) expect(drive(spot, corner)).toBe(Infinity);
   });
 
+  it('has a yard gantry work one yard, say when it works none, and keep other trucks out from under it', () => {
+    const world = feederPort(true);
+    const yard = [...world.yards.values()][0];
+    const spot: number = world['storeSpots'](yard)[0];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
+    const byYard = (): Map<number, number> => world['gantries']().byYard;
+    expect(byYard().get(yard.idx)).toBe(spot);
+    // Trucks bound for the yard, or leaving it, drive under it as they
+    // always did; others pay to, and go round where they can.
+    const flat = () => 1;
+    expect(world['throughCost'](flat, yard.idx, -1)(spot)).toBe(1);
+    expect(world['throughCost'](flat, -1, yard.idx)(spot)).toBe(1);
+    expect(world['throughCost'](flat, -1, -1)(spot)).toBe(1 + B.GANTRY_LANE_DETOUR);
+    // The yard beside it unmarked: it works none, and its red mark says so.
+    world.command({ type: 'unmark', tiles: [...yard.tiles!] });
+    expect([...byYard().values()]).not.toContain(spot);
+    const mark = world.snapshot().problems.find((p) => p.type === 'yardGantry' && p.idx === spot);
+    expect(mark?.text).toMatch(/none beside this one/);
+  });
+
   it('lets trucks drive in under a yard gantry to load', () => {
     const world = feederPort(true);
     const m = world.map;

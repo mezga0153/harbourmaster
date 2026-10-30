@@ -408,6 +408,28 @@ function InfoPanel({ actions }: { actions: Actions }) {
     );
   }
 
+  if (sel.type === 'yardGantry') {
+    const trouble = s.problems.find((p) => p.type === 'yardGantry' && p.idx === sel.idx);
+    return (
+      <aside class="side panel">
+        <InfoHeader kicker="Crane" title="Yard gantry" onClose={close} />
+        <p class="muted">
+          Spans the container yard beside it and lifts containers on and off the trucks and terminal
+          tractors in the lane under it, running along its rails to each. Other traffic keeps out
+          from under it where it can. <More topic="containers" />
+        </p>
+        {trouble ? (
+          <Why topic="containers">Not working: {trouble.text}.</Why>
+        ) : (
+          <p class="status">
+            <span class="dot live" />
+            Working the yard beside it
+          </p>
+        )}
+      </aside>
+    );
+  }
+
   if (sel.type === 'parking') {
     const lot = s.parking.find((l) => l.tiles.includes(sel.idx));
     if (!lot) return null;
