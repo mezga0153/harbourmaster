@@ -26,11 +26,25 @@ function start(w: World): void {
   w.drainTileChanges();
 }
 
+/** Tell the page something went wrong here, for the play log. */
+function fault(kind: 'sim' | 'save' | 'autosave', err: unknown): void {
+  const e = err as { message?: unknown; stack?: unknown } | null;
+  ctx.postMessage({
+    type: 'fault',
+    kind,
+    message: String((e && e.message) || err).slice(0, 500),
+    stack: e && e.stack ? String(e.stack).slice(0, 2000) : undefined,
+  });
+}
+
 function save(manual: boolean): void {
   if (!world) return;
   writeSave(world.toSave()).then(
     () => manual && world && postFrame([{ kind: 'message', text: 'Game saved.', tone: 'good' }]),
-    (err) => console.error('Save failed', err),
+    (err) => {
+      console.error('Save failed', err);
+      fault('save', err);
+    },
   );
 }
 
@@ -68,6 +82,7 @@ function handle(cmd: Command): void {
       start(World.fromSave(cmd.save as Parameters<typeof World.fromSave>[0]));
     } catch (err) {
       console.error(err);
+      fault('sim', err);
       postFrame([{ kind: 'message', text: `${cmd.name} could not be loaded.`, tone: 'bad' }]);
       return;
     }
@@ -104,6 +119,7 @@ function loop(): void {
     for (let i = 0; i < world.speed; i++) world.step();
   } catch (err) {
     console.error(err);
+    fault('sim', err);
     world.speed = 0;
     postFrame([
       { kind: 'message', text: 'Something went wrong and the game was paused.', tone: 'bad' },
@@ -121,9 +137,13 @@ async function boot(): Promise<void> {
   try {
     const data = await loadSave();
     if (data && World.isValidSave(data)) restored = World.fromSave(data);
-    else if (data) console.warn('Ignoring an autosave from an older or broken version');
+    else if (data) {
+      console.warn('Ignoring an autosave from an older or broken version');
+      fault('autosave', 'an autosave this version cannot read was set aside');
+    }
   } catch (err) {
     console.warn('Could not load the autosave, starting a new game', err);
+    fault('autosave', err);
   }
   start(restored ?? World.create(randomSeed()));
   for (const cmd of queued.splice(0)) handle(cmd);

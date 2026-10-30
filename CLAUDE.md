@@ -24,6 +24,31 @@ loads `save.json` into the sim, runs it on and prints the report.
 Automated browsers don't mirror (so tests can't overwrite the player's files)
 unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
 
+## Players' games: the play log
+
+The published game (only the built one, never `npm run dev`, an automated
+browser or `?nolog`) tells how players get on, with nothing about who they
+are (random ids, no IP): `src/log/` sends each page load (`visit.ts`), each
+day of each game as it ends (`days.ts`: money, tier, town, what the player
+did, the red marks on the map, the messages in red, the advisor's tips, real
+time paused or sped up, frames a second) and what goes wrong (`errors.ts`:
+uncaught errors, the sim throwing, saves failing, an autosave set aside, the
+3D view lost). `server/` (the Worker beside the game's files, see
+`wrangler.jsonc`) keeps them in D1 (`harbourmaster-log`, tables in
+`migrations/`; `deploy.sh` applies new ones).
+
+- `./stats.sh` prints it all as tables, `./stats.sh problems bad` some
+  sections, `./stats.sh visits` the visitors, `./stats.sh sql "SELECT ..."`
+  your own; the questions are in `stats/queries.mjs`
+- `./stats.sh gui` is the stats page (http://127.0.0.1:8798): games by day,
+  how far they get, tiers, money, what holds ports back, problems, errors,
+  devices, and any game day by day
+- `--local` reads the copy `wrangler dev` keeps instead: `npm run build`,
+  then `wrangler dev` serves the built game with the log at
+  http://localhost:8787
+- `tests/play-log.test.ts` checks the game sends what the server takes; a
+  new column goes in a new migration, `server/api/`, `src/log/` and there
+
 ## Running simulations
 
 Run the game's simulation in a Node process (vitest, as above, or a script

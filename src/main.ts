@@ -1,6 +1,9 @@
 import { h, render } from 'preact';
 import { Soundscape } from './audio/sound';
 import { Input } from './input';
+import { logCommand, logFrame, logInit, logPanel } from './log/days';
+import { gpu, report, watchErrors } from './log/errors';
+import { visitOpen } from './log/visit';
 import type { Command, WorkerMessage } from './protocol';
 import type { SaveData } from './sim/world';
 import { loadAssets } from './render/assets';
@@ -18,7 +21,10 @@ import './ui/style.css';
 import { applyView, readView, trackView } from './view-url';
 
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
-const send = (cmd: Command) => worker.postMessage(cmd);
+const send = (cmd: Command) => {
+  logCommand(cmd);
+  worker.postMessage(cmd);
+};
 
 const uiRoot = document.getElementById('ui')!;
 const floaters = document.createElement('div');
@@ -29,6 +35,7 @@ hud.className = 'hud';
 uiRoot.appendChild(hud);
 
 const renderer = new Renderer(document.getElementById('game')!, floaters);
+watchErrors(worker, renderer.canvas);
 let map: GameMap | null = null;
 const input = new Input(renderer, () => map, send);
 const sound = new Soundscape(
@@ -70,8 +77,13 @@ const actions: Actions = {
   rotateBuilding: () => input.rotate(),
 };
 render(h(App, { actions }), hud);
+{
+  const g = graphics.peek();
+  visitOpen(`${g.water}/${g.shadows}/${g.resolution}`, gpu());
+}
 // Found the finance or statistics screen: the advisor need not point it out.
 panel.subscribe((p) => {
+  logPanel(p);
   if (p === 'finance' || p === 'stats') send({ type: 'learnt', tip: 'screens' });
 });
 /** Where the view was before it flew over to the town, to fly back to. */
@@ -242,9 +254,11 @@ function download(save: SaveData): void {
 function handle(msg: WorkerMessage): void {
   if (msg.type === 'dump') return;
   if (msg.type === 'exported') return download(msg.save);
+  if (msg.type === 'fault') return report(msg.kind, msg.message, msg.stack);
   if (msg.type === 'init') {
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;
+    logInit();
     selection.value = null;
     renderer.setMap(map);
     if (urlView?.seed === msg.seed) applyView(renderer.cam, urlView);
@@ -276,6 +290,7 @@ function handle(msg: WorkerMessage): void {
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
   sound.onSnapshot(msg.snapshot);
+  logFrame(msg.snapshot, msg.events);
   showPlots();
   for (const ev of msg.events) {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);

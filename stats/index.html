@@ -1,0 +1,1467 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harbourmaster play log</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 20h24l-4 6H8z' fill='%23217a9e'/%3E%3Crect x='14' y='6' width='3' height='14' fill='%23217a9e'/%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        --bg: #f4f3ef;
+        --card: #ffffff;
+        --ink: #111111;
+        --muted: #6f6f69;
+        --line: rgba(0, 0, 0, 0.09);
+        --sea: #217a9e;
+        --red: #d64933;
+        --blue: #3d7fd9;
+        --green: #3fa66b;
+        --gold: #d9a21b;
+        --violet: #8a63d2;
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111110;
+          --card: #1a1a19;
+          --ink: #ecebe6;
+          --muted: #8d8c86;
+          --line: rgba(255, 255, 255, 0.09);
+          --sea: #4fb3d9;
+          --red: #f06a52;
+          --blue: #6aa3f0;
+          --green: #5cc487;
+          --gold: #e8b93a;
+          --violet: #a888e6;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.45 system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        align-items: center;
+        padding: 12px 20px;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+      }
+      header h1 {
+        margin: 0 8px 0 0;
+        font: 600 16px var(--mono);
+        letter-spacing: 0.08em;
+      }
+      header h1 span {
+        color: var(--sea);
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .seg button {
+        border: 0;
+        background: none;
+        color: var(--muted);
+        font: 13px var(--mono);
+        padding: 5px 11px;
+        cursor: pointer;
+      }
+      .seg button.on {
+        background: var(--ink);
+        color: var(--bg);
+      }
+      button.plain {
+        border: 1px solid var(--line);
+        background: none;
+        color: var(--ink);
+        font: 13px var(--mono);
+        padding: 5px 11px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #status {
+        margin-left: auto;
+        color: var(--muted);
+        font: 12px var(--mono);
+      }
+      main {
+        padding: 18px 20px 60px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      .banner {
+        padding: 12px 16px;
+        border-radius: 10px;
+        background: rgba(214, 73, 51, 0.12);
+        color: var(--ink);
+        margin-bottom: 16px;
+      }
+      .banner b {
+        color: var(--red);
+      }
+      .kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .kpi {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px 14px;
+      }
+      .kpi .v {
+        font: 600 24px var(--mono);
+      }
+      .kpi .k {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .kpi .s {
+        color: var(--muted);
+        font: 11px var(--mono);
+        margin-top: 2px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px 16px;
+        min-width: 0;
+      }
+      .card.wide {
+        grid-column: 1 / -1;
+      }
+      .card h2 {
+        margin: 0 0 2px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .card .why {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .empty {
+        color: var(--muted);
+        font: 12px var(--mono);
+        padding: 18px 0;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font: 12px var(--mono);
+      }
+      th,
+      td {
+        padding: 4px 8px;
+        text-align: right;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+        position: sticky;
+        top: 0;
+        background: var(--card);
+      }
+      th:first-child,
+      td:first-child,
+      td.t,
+      th.t {
+        text-align: left;
+      }
+      tr.pick {
+        cursor: pointer;
+      }
+      tr.pick:hover td {
+        background: rgba(127, 127, 127, 0.08);
+      }
+      tr.sel td {
+        background: rgba(33, 122, 158, 0.12);
+      }
+      .meter {
+        display: inline-block;
+        height: 7px;
+        border-radius: 4px;
+        background: var(--green);
+        vertical-align: middle;
+        margin-left: 6px;
+      }
+      svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        overflow: visible;
+      }
+      svg text {
+        font: 10px var(--mono);
+        fill: var(--muted);
+      }
+      svg .axis {
+        stroke: var(--line);
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        font: 11px var(--mono);
+        color: var(--muted);
+        margin-top: 6px;
+      }
+      .legend i {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 5px;
+        vertical-align: -1px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 96px;
+        font: 12px var(--mono);
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        color: var(--ink);
+        resize: vertical;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 8px 0 10px;
+        flex-wrap: wrap;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .err {
+        color: var(--red);
+        font: 12px var(--mono);
+      }
+      @media (max-width: 520px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        header {
+          padding: 10px 14px;
+        }
+        main {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>HARBOURMASTER <span>·</span> play log</h1>
+      <div class="seg" id="tabSeg">
+        <button data-tab="play">games</button><button data-tab="visitors">visitors</button>
+      </div>
+      <div class="seg" id="dbSeg">
+        <button data-db="live">live</button><button data-db="local">local</button>
+      </div>
+      <div class="seg" id="winSeg">
+        <button data-win="1">24 h</button><button data-win="7">7 days</button
+        ><button data-win="30">30 days</button><button data-win="0">all</button>
+      </div>
+      <button class="plain" id="refresh">refresh</button>
+      <div id="status"></div>
+    </header>
+    <main>
+      <div id="banner"></div>
+      <div class="kpis" id="kpis"></div>
+      <div class="grid" id="grid"></div>
+    </main>
+    <script>
+      // ---- state ----
+      const saved = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('hmStats') || '{}');
+        } catch {
+          return {};
+        }
+      })();
+      const st = {
+        db: saved.db || '__FIRST_DB__',
+        win: saved.win ?? 7,
+        tab: saved.tab === 'visitors' ? 'visitors' : 'play',
+        data: null,
+        vdata: null,
+        game: null,
+        sql:
+          saved.sql ||
+          'SELECT day, COUNT(*) AS games, ROUND(AVG(cash)) AS cash, ROUND(AVG(tier), 2) AS tier\nFROM d WHERE done\nGROUP BY day ORDER BY day LIMIT 30',
+      };
+      const keep = () => {
+        try {
+          localStorage.setItem(
+            'hmStats',
+            JSON.stringify({ db: st.db, win: st.win, tab: st.tab, sql: st.sql }),
+          );
+        } catch {}
+      };
+      const since = () => (st.win ? Date.now() - st.win * 864e5 : 0);
+      const $ = (s) => document.querySelector(s);
+      const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+      // ---- numbers ----
+      const fmt = (n) => {
+        if (n == null || n === '') return '-';
+        if (typeof n !== 'number') return String(n);
+        const a = Math.abs(n);
+        if (a >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+        if (a >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (a >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (a >= 1e4) return (n / 1e3).toFixed(1) + 'k';
+        return Number.isInteger(n) ? n.toLocaleString('en') : n.toFixed(Math.abs(n) < 10 ? 2 : 1);
+      };
+      const when = (ms) => {
+        const d = new Date(ms);
+        return (
+          d.toLocaleDateString('en', { month: 'short', day: 'numeric' }) +
+          ' ' +
+          d.toTimeString().slice(0, 5)
+        );
+      };
+      const el = (tag, attrs = {}, ...kids) => {
+        const e = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs))
+          if (k === 'class') e.className = v;
+          else if (k.startsWith('on')) e[k] = v;
+          else e.setAttribute(k, v);
+        for (const k of kids.flat())
+          if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
+        return e;
+      };
+
+      // ---- charts: plain SVG ----
+      const NS = 'http://www.w3.org/2000/svg';
+      const sv = (tag, attrs = {}, text) => {
+        const e = document.createElementNS(NS, tag);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        if (text != null) e.textContent = text;
+        return e;
+      };
+      // how wide a chart is on the page: a card in the two-column grid, or one across it
+      let FULL = 600,
+        HALF = 600;
+      function measure() {
+        const main =
+          Math.min(1400, document.documentElement.clientWidth) - (innerWidth <= 520 ? 28 : 40);
+        FULL = Math.max(280, main - 34);
+        HALF = main >= 2 * 460 + 16 ? Math.max(280, (main - 16) / 2 - 34) : FULL;
+      }
+      function niceMax(v) {
+        if (v <= 0) return 1;
+        const p = 10 ** Math.floor(Math.log10(v));
+        return (Math.ceil((v / p) * 2) / 2) * p;
+      }
+      // round steps for an axis from lo to hi: 1, 2, 2.5 or 5 times a power of ten
+      function niceTicks(lo, hi, n = 4) {
+        if (hi <= lo) hi = lo + 1;
+        const raw = (hi - lo) / n,
+          p = 10 ** Math.floor(Math.log10(raw)),
+          step = [1, 2, 2.5, 5, 10].map((k) => k * p).find((k) => k >= raw);
+        const a = Math.floor(lo / step) * step,
+          b = Math.ceil(hi / step) * step,
+          out = [];
+        for (let v = a; v <= b + step / 2; v += step) out.push(Math.round(v / step) * step);
+        return out;
+      }
+
+      // Bars, one per row (or a group per row for several series), with a value axis.
+      function bars(
+        rows,
+        { x, series, h = 180, fmtX = String, labelEvery = 1, zero = true, W = HALF },
+      ) {
+        const pad = { l: 44, r: 8, t: 10, b: 26 },
+          iw = W - pad.l - pad.r,
+          ih = h - pad.t - pad.b;
+        const vals = rows.flatMap((r) => series.map((s) => +r[s.key] || 0));
+        const tk = niceTicks(zero ? Math.min(0, ...vals) : 0, Math.max(0, ...vals)),
+          lo2 = tk[0],
+          hi = tk[tk.length - 1];
+        const Y = (v) => pad.t + ih * (1 - (v - lo2) / (hi - lo2));
+        const svg = sv('svg', { viewBox: `0 0 ${W} ${h}` });
+        for (const v of tk) {
+          const y = Y(v);
+          svg.append(sv('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, class: 'axis' }));
+          svg.append(sv('text', { x: pad.l - 6, y: y + 3, 'text-anchor': 'end' }, fmt(v)));
+        }
+        const bw = iw / rows.length,
+          gw = Math.min(bw * 0.8, 46),
+          sw = gw / series.length;
+        rows.forEach((r, i) => {
+          const cx = pad.l + bw * (i + 0.5);
+          series.forEach((s, j) => {
+            const v = +r[s.key] || 0,
+              y0 = Y(0),
+              y1 = Y(v);
+            const rect = sv('rect', {
+              x: cx - gw / 2 + j * sw,
+              y: Math.min(y0, y1),
+              width: Math.max(1, sw - 1),
+              height: Math.max(1, Math.abs(y1 - y0)),
+              rx: 2,
+              fill: s.color,
+            });
+            rect.append(sv('title', {}, `${fmtX(r[x])}: ${s.label} ${fmt(v)}`));
+            svg.append(rect);
+          });
+          if (i % labelEvery === 0)
+            svg.append(sv('text', { x: cx, y: h - 8, 'text-anchor': 'middle' }, fmtX(r[x])));
+        });
+        return svg;
+      }
+
+      // Lines over a numeric x, several series, on a linear or log value axis.
+      function lines(rows, { x, series, h = 190, log = false, fmtX = String, W = HALF }) {
+        const pad = { l: 48, r: 10, t: 10, b: 26 },
+          iw = W - pad.l - pad.r,
+          ih = h - pad.t - pad.b;
+        const xs = rows.map((r) => +r[x]),
+          x0 = Math.min(...xs),
+          x1 = Math.max(...xs, x0 + 1);
+        const vals = rows
+          .flatMap((r) => series.map((s) => +r[s.key]))
+          .filter((v) => Number.isFinite(v) && (!log || v > 0));
+        const svg = sv('svg', { viewBox: `0 0 ${W} ${h}` });
+        if (!vals.length) return svg;
+        let lo, hi, lin;
+        if (log) {
+          lo = Math.floor(Math.log10(Math.min(...vals)));
+          hi = Math.max(lo + 1, Math.ceil(Math.log10(Math.max(...vals))));
+        } else {
+          lin = niceTicks(Math.min(0, ...vals), Math.max(...vals));
+          lo = lin[0];
+          hi = lin[lin.length - 1];
+        }
+        const X = (v) => pad.l + (iw * (v - x0)) / (x1 - x0),
+          Y = (v) => pad.t + ih * (1 - ((log ? Math.log10(v) : v) - lo) / (hi - lo));
+        const ticks = log ? Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i)) : lin;
+        for (const v of ticks) {
+          const y = Y(v);
+          svg.append(sv('line', { x1: pad.l, x2: W - pad.r, y1: y, y2: y, class: 'axis' }));
+          svg.append(sv('text', { x: pad.l - 6, y: y + 3, 'text-anchor': 'end' }, fmt(v)));
+        }
+        const step = Math.max(1, Math.ceil(rows.length / Math.max(4, W / 60)));
+        rows.forEach((r, i) => {
+          if (i % step === 0)
+            svg.append(sv('text', { x: X(+r[x]), y: h - 8, 'text-anchor': 'middle' }, fmtX(r[x])));
+        });
+        for (const s of series) {
+          const pts = rows.filter((r) => Number.isFinite(+r[s.key]) && (!log || +r[s.key] > 0));
+          if (!pts.length) continue;
+          svg.append(
+            sv('polyline', {
+              points: pts.map((r) => `${X(+r[x])},${Y(+r[s.key])}`).join(' '),
+              fill: 'none',
+              stroke: s.color,
+              'stroke-width': 2,
+              'stroke-linejoin': 'round',
+            }),
+          );
+          for (const r of pts) {
+            const c = sv('circle', {
+              cx: X(+r[x]),
+              cy: Y(+r[s.key]),
+              r: pts.length > 40 ? 1.5 : 3,
+              fill: s.color,
+            });
+            c.append(sv('title', {}, `${fmtX(r[x])}: ${s.label} ${fmt(+r[s.key])}`));
+            svg.append(c);
+          }
+        }
+        return svg;
+      }
+      const legend = (series) =>
+        el(
+          'div',
+          { class: 'legend' },
+          series.map((s) => el('span', {}, el('i', { style: `background:${s.color}` }), s.label)),
+        );
+
+      // A table of rows: numbers right-aligned and shortened, a meter for any *_pct.
+      function table(rows, { pick, pickable = () => true, selected, hide = [] } = {}) {
+        if (!rows || !rows.length) return el('div', { class: 'empty' }, 'nothing yet');
+        const keys = Object.keys(rows[0]).filter((k) => !hide.includes(k));
+        const text = keys.map((k) => rows.some((r) => r[k] != null && typeof r[k] !== 'number'));
+        return el(
+          'div',
+          { class: 'scroll' },
+          el(
+            'table',
+            {},
+            el(
+              'thead',
+              {},
+              el(
+                'tr',
+                {},
+                keys.map((k, i) => el('th', { class: text[i] ? 't' : '' }, k.replace(/_/g, ' '))),
+              ),
+            ),
+            el(
+              'tbody',
+              {},
+              rows.map((r) =>
+                el(
+                  'tr',
+                  {
+                    class:
+                      (pick && pickable(r) ? 'pick' : '') + (selected && selected(r) ? ' sel' : ''),
+                    onclick: pick && pickable(r) ? () => pick(r) : null,
+                  },
+                  keys.map((k, i) => {
+                    const v = r[k],
+                      td = el(
+                        'td',
+                        { class: text[i] ? 't' : '' },
+                        k === 'last' || k === 'first' || k === 'created_at' ? when(v) : fmt(v),
+                      );
+                    if (/_pct$/.test(k) && typeof v === 'number')
+                      td.append(
+                        el('span', { class: 'meter', style: `width:${Math.max(1, v * 0.5)}px` }),
+                      );
+                    return td;
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ---- the cards ----
+      const card = (title, why, ...body) =>
+        el(
+          'section',
+          { class: 'card' },
+          el('h2', {}, title),
+          why ? el('p', { class: 'why' }, why) : null,
+          ...body,
+        );
+      const wide = (c) => {
+        c.classList.add('wide');
+        return c;
+      };
+      const none = (rows) => !rows || !rows.length;
+
+      const TIERS = ['Fishing Jetty', 'Coastal Wharf', 'Container Port', 'Bulk Terminal'];
+      const tierName = (t) => TIERS[t] ?? 'tier ' + t;
+      const colors = () => ({
+        sea: css('--sea'),
+        blue: css('--blue'),
+        green: css('--green'),
+        gold: css('--gold'),
+        violet: css('--violet'),
+        red: css('--red'),
+        muted: css('--muted'),
+      });
+      const kpi = (v, k, s) =>
+        el(
+          'div',
+          { class: 'kpi' },
+          el('div', { class: 'v' }, v),
+          el('div', { class: 'k' }, k),
+          s ? el('div', { class: 's' }, s) : null,
+        );
+
+      function render() {
+        measure();
+        if (st.tab === 'visitors') return renderVisitors();
+        const a = st.data.answers,
+          C = colors();
+        // the headline numbers
+        const o = (a.overview || [])[0] || {},
+          m = (a.money || [])[0] || {};
+        $('#kpis').replaceChildren(
+          kpi(fmt(o.games || 0), 'games', `${fmt(o.new_games || 0)} started afresh`),
+          kpi(fmt(o.days || 0), 'days played', 'game days that ended'),
+          kpi(
+            fmt(o.hours || 0),
+            'hours of play',
+            o.paused_pct != null ? `${o.paused_pct}% of it paused, ${o.fast_pct}% sped up` : null,
+          ),
+          kpi(
+            fmt(o.tier1_games || 0),
+            `reached the ${TIERS[1]}`,
+            o.games ? Math.round(((o.tier1_games || 0) / o.games) * 100) + '% of games' : null,
+          ),
+          kpi(fmt(m.ever_in_red || 0), 'games in the red', `${fmt(m.bankrupt || 0)} went bankrupt`),
+          kpi(o.fps != null ? fmt(o.fps) : '-', 'frames a second', 'on average, while in view'),
+          kpi(
+            fmt((a.errors || []).reduce((s, r) => s + r.times, 0)),
+            'errors',
+            'all of them, whenever',
+          ),
+        );
+
+        const cards = [];
+        // games by day
+        const days = (key, label, color, h) =>
+          bars(a.daily, {
+            x: 'date',
+            series: [{ key, label, color }],
+            h,
+            fmtX: (v) => v.slice(5),
+            labelEvery: Math.max(1, Math.ceil(a.daily.length / (FULL / 70))),
+            W: FULL,
+          });
+        cards.push(
+          wide(
+            card(
+              'Games by day',
+              'games played each day, and the game days and hours they played',
+              none(a.daily)
+                ? table([])
+                : [
+                    days('games', 'games', C.sea, 110),
+                    days('days', 'game days', C.blue, 90),
+                    days('hours', 'hours', C.gold, 80),
+                    legend([
+                      { label: 'games', color: C.sea },
+                      { label: 'game days', color: C.blue },
+                      { label: 'hours', color: C.gold },
+                    ]),
+                  ],
+            ),
+          ),
+        );
+        // how far games get
+        cards.push(
+          card(
+            'How far games get',
+            'the furthest day of each game: where most games stop is where players lose interest',
+            none(a.reach)
+              ? table([])
+              : [
+                  bars(a.reach, {
+                    x: 'furthest_day',
+                    series: [{ key: 'games', label: 'games', color: C.violet }],
+                    h: 150,
+                  }),
+                ],
+          ),
+        );
+        cards.push(
+          card(
+            'Games still going on each day',
+            'where the line drops, players stop',
+            none(a.retention)
+              ? table([])
+              : [
+                  lines(a.retention, {
+                    x: 'day',
+                    series: [{ key: 'games', label: 'games', color: C.green }],
+                    h: 170,
+                  }),
+                ],
+          ),
+        );
+        // progress
+        cards.push(
+          card(
+            'Reaching each tier',
+            'the day a game first got there, and the hours of play before it',
+            table((a.tiers || []).map((r) => ({ ...r, tier: `${r.tier} ${tierName(r.tier)}` }))),
+          ),
+        );
+        cards.push(
+          card(
+            'Money trouble',
+            'games that ended a day in the red, took a loan or went bankrupt, and on what day on average',
+            table(a.money),
+          ),
+        );
+        cards.push(
+          wide(
+            card(
+              'The port as games go on',
+              'averages over the games that got to each day: money (cash, and the day’s income and spending), then the tier, staff, contracts and the town',
+              none(a.curve)
+                ? table([])
+                : [
+                    lines(a.curve, {
+                      x: 'from_day',
+                      series: [
+                        { key: 'cash', label: 'cash', color: C.green },
+                        { key: 'income', label: 'income', color: C.gold },
+                        { key: 'spend', label: 'spending', color: C.red },
+                      ],
+                      h: 170,
+                      W: FULL,
+                    }),
+                    lines(a.curve, {
+                      x: 'from_day',
+                      series: [
+                        { key: 'staff', label: 'staff', color: C.blue },
+                        { key: 'contracts', label: 'contracts', color: C.violet },
+                        { key: 'in_red_pct', label: '% in the red', color: C.red },
+                      ],
+                      h: 140,
+                      W: FULL,
+                    }),
+                    legend([
+                      { label: 'cash', color: C.green },
+                      { label: 'income', color: C.gold },
+                      { label: 'spending / % in the red', color: C.red },
+                      { label: 'staff', color: C.blue },
+                      { label: 'contracts', color: C.violet },
+                    ]),
+                    table(a.curve),
+                  ],
+            ),
+          ),
+        );
+        // trouble
+        cards.push(
+          card(
+            'What holds ports back',
+            'as each day ends, by tier: no cargo coming, the boats unloaded too slowly, or the trucks too slow to take it away',
+            table((a.limits || []).map((r) => ({ ...r, tier: `${r.tier} ${tierName(r.tier)}` }))),
+          ),
+        );
+        cards.push(
+          card(
+            'Red marks on the map',
+            'what cannot work as built, as days end: in how many games, on how many days',
+            none(a.problems)
+              ? table([])
+              : [hbars(a.problems.slice(0, 12), 'problem', 'games', C.red), table(a.problems)],
+          ),
+        );
+        cards.push(
+          wide(
+            card(
+              'Bad news and refusals',
+              'the messages in red, with names and numbers taken out: in how many games, how often',
+              table(a.bad),
+            ),
+          ),
+        );
+        cards.push(
+          wide(
+            card(
+              'Errors',
+              'what went wrong in players’ browsers, most often first (all of them: the time span does not apply)',
+              table(a.errors),
+            ),
+          ),
+        );
+        cards.push(
+          wide(
+            card(
+              'The latest errors',
+              'each with its game and day, the device (window, memory, cores, graphics card) and the stack',
+              table(
+                (a.errorlog || []).map((r) => ({
+                  ...r,
+                  stack: r.stack ? r.stack.split('\n').slice(0, 3).join(' · ') : null,
+                })),
+              ),
+            ),
+          ),
+        );
+        // what players do
+        cards.push(
+          card(
+            'What players do',
+            'things built (build:…), bought, hired, signed, the speed set, the screens opened (open:…)',
+            none(a.actions)
+              ? table([])
+              : [hbars(a.actions.slice(0, 15), 'action', 'games', C.blue), table(a.actions)],
+          ),
+        );
+        cards.push(
+          card(
+            'The first day',
+            'what new players do on day 1, in how many games',
+            none(a.firstday)
+              ? table([])
+              : [hbars(a.firstday.slice(0, 12), 'action', 'games', C.sea), table(a.firstday)],
+          ),
+        );
+        cards.push(
+          card('The advisor’s tips', 'the day each came up, in how many games', table(a.tips)),
+        );
+        cards.push(
+          card(
+            'How it is played',
+            'by tier: real minutes a game day takes, and how much of it is paused or sped up',
+            table((a.pace || []).map((r) => ({ ...r, tier: `${r.tier} ${tierName(r.tier)}` }))),
+          ),
+        );
+        cards.push(
+          wide(
+            card(
+              'Slow devices',
+              'frames drawn a second while in view, by device, graphics card and settings; the slowest first',
+              table(a.slow),
+            ),
+          ),
+        );
+        // the latest games, and one of them day by day
+        cards.push(
+          wide(
+            card(
+              'Latest games',
+              'pick one to see it day by day',
+              table(withWhere(a.games, a.gamewhere), {
+                pick: (r) => openGame(r.game),
+                selected: (r) => r.game === st.game,
+              }),
+            ),
+          ),
+        );
+        if (st.game) cards.push(wide(gameCard()));
+        cards.push(wide(sqlCard()));
+        $('#grid').replaceChildren(...cards);
+      }
+
+      // horizontal bars for long labels
+      function hbars(rows, label, key, color, W = HALF) {
+        const rowH = 18,
+          pad = { l: Math.min(300, W * 0.55), r: 40 },
+          h = rows.length * rowH + 6,
+          hi = niceMax(Math.max(0, ...rows.map((r) => +r[key] || 0)));
+        const svg = sv('svg', { viewBox: `0 0 ${W} ${h}` });
+        rows.forEach((r, i) => {
+          const y = i * rowH + 3,
+            w = ((W - pad.l - pad.r) * Math.max(0, +r[key] || 0)) / hi;
+          const name = String(r[label]),
+            max = Math.floor(pad.l / 6.2);
+          svg.append(
+            sv(
+              'text',
+              { x: pad.l - 8, y: y + 11, 'text-anchor': 'end' },
+              name.length > max ? name.slice(0, max - 1) + '…' : name,
+            ),
+          );
+          const rect = sv('rect', {
+            x: pad.l,
+            y,
+            width: Math.max(1, w),
+            height: rowH - 5,
+            rx: 2,
+            fill: color,
+          });
+          rect.append(sv('title', {}, `${name}: ${fmt(r[key])}`));
+          svg.append(rect);
+          svg.append(sv('text', { x: pad.l + w + 5, y: y + 11 }, fmt(r[key])));
+        });
+        return svg;
+      }
+
+      // ---- where, as the server worked it out: a device's name, a city and a country ----
+      const regionName = (() => {
+        try {
+          const dn = new Intl.DisplayNames(['en'], { type: 'region' });
+          return (c) => {
+            try {
+              return c === 'XX' ? null : c === 'T1' ? 'Tor' : dn.of(c);
+            } catch {
+              return c;
+            }
+          };
+        } catch {
+          return (c) => c;
+        }
+      })();
+      const place = (city, country) =>
+        [city, country ? regionName(country) : null].filter(Boolean).join(', ') || null;
+      const dur = (s) =>
+        s == null
+          ? null
+          : s < 60
+            ? Math.round(s) + 's'
+            : s < 3600
+              ? Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's'
+              : (s / 3600).toFixed(1) + 'h';
+      // the latest games, each with the device and the place it was played on
+      const withWhere = (games, where) =>
+        (games || []).map((r) => {
+          const w = (where || []).find((x) => x.game === r.game) || {};
+          return {
+            ...r,
+            tier: r.tier == null ? null : tierName(r.tier),
+            device: w.device ?? null,
+            place: place(w.city, w.country),
+          };
+        });
+
+      // ---- one game, day by day ----
+      // A click asks for the game once: a second one on the same game (a double
+      // click) asks nothing more, and an answer for a game no longer picked is let go.
+      let gameOut = null,
+        gameAsk = 0;
+      const GAME_COLS = [
+        'day',
+        'done',
+        'tier',
+        'cash',
+        'loan',
+        'income',
+        'spend',
+        'in_red',
+        'earned',
+        'crates',
+        'containers',
+        'boats',
+        'trucks',
+        'staff',
+        'machines',
+        'contracts',
+        'town_pop',
+        'problems',
+        'bad',
+        'actions',
+        'tips',
+        'seconds',
+        'paused',
+        'fast',
+        'fps',
+        'created_at',
+      ];
+      const toGame = () => {
+        const c = document.getElementById('gameCard');
+        if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      async function openGame(id) {
+        if (id === st.game && !(gameOut && gameOut.error)) {
+          if (st.tab !== 'play') {
+            st.tab = 'play';
+            keep();
+            if (st.data) render();
+            load();
+          }
+          return toGame();
+        }
+        const n = ++gameAsk;
+        st.game = id;
+        gameOut = null;
+        if (st.tab !== 'play') {
+          st.tab = 'play';
+          keep();
+          load();
+        } else render();
+        let out;
+        try {
+          const res = await fetch(`/api/game?db=${st.db}&id=${encodeURIComponent(id)}`);
+          out = await res
+            .json()
+            .catch(() => ({
+              error: `the stats server answered ${res.status} ${res.statusText}, not with the game`,
+            }));
+          if (out.error) throw new Error(out.error);
+        } catch (e) {
+          out = {
+            error: /^(Failed to fetch|Load failed|NetworkError)/.test(e.message)
+              ? 'the stats server did not answer: is ./stats.sh gui still running?'
+              : e.message,
+          };
+        }
+        if (n !== gameAsk) return;
+        gameOut = out;
+        if (st.data) render();
+        toGame();
+      }
+      // {what: n} as "what n · what n", the most first
+      const tallyText = (s) => {
+        try {
+          return (
+            Object.entries(JSON.parse(s) || {})
+              .sort((a, b) => b[1] - a[1])
+              .map(([k, v]) => (v > 1 ? `${k} ×${v}` : k))
+              .join(' · ') || null
+          );
+        } catch {
+          return s;
+        }
+      };
+      function gameCard() {
+        const C = colors();
+        const rows = gameOut && !gameOut.error ? gameOut.rows || [] : null;
+        const visits = gameOut && !gameOut.error ? gameOut.visits || [] : [];
+        const wheres = [
+          ...new Set(
+            visits
+              .map((v) => [v.device, place(v.city, v.country)].filter(Boolean).join(' · '))
+              .filter(Boolean),
+          ),
+        ];
+        const shown =
+          rows &&
+          rows.map((r) =>
+            Object.fromEntries(
+              GAME_COLS.filter((k) => k in r).map((k) => [
+                k,
+                k === 'tier'
+                  ? tierName(r.tier)
+                  : k === 'tips'
+                    ? JSON.parse(r.tips || '[]').join(' ') || null
+                    : ['machines', 'problems', 'bad', 'actions'].includes(k)
+                      ? tallyText(r[k])
+                      : k === 'done'
+                        ? r.done
+                          ? ''
+                          : 'under way'
+                        : r[k],
+              ]),
+            ),
+          );
+        const body = !gameOut
+          ? el('div', { class: 'empty' }, 'loading…')
+          : gameOut.error
+            ? el('div', { class: 'err' }, gameOut.error)
+            : [
+                rows.length
+                  ? lines(rows, {
+                      x: 'day',
+                      series: [
+                        { key: 'cash', label: 'cash', color: C.green },
+                        { key: 'income', label: 'income', color: C.gold },
+                        { key: 'spend', label: 'spending', color: C.red },
+                      ],
+                      h: 160,
+                      W: FULL,
+                    })
+                  : null,
+                rows.length
+                  ? legend([
+                      { label: 'cash', color: C.green },
+                      { label: 'income', color: C.gold },
+                      { label: 'spending', color: C.red },
+                    ])
+                  : null,
+                table(shown),
+                (gameOut.errors || []).length
+                  ? [
+                      el('h2', { style: 'margin-top:14px' }, 'Errors it hit'),
+                      table(
+                        gameOut.errors.map((e) => ({
+                          created_at: e.created_at,
+                          day: e.day,
+                          kind: e.kind,
+                          message: e.message,
+                          place: place(e.city, e.country),
+                        })),
+                      ),
+                    ]
+                  : null,
+                visits.length
+                  ? [
+                      el('h2', { style: 'margin-top:14px' }, 'The visits that played it'),
+                      table(
+                        visits.map((v) => ({
+                          created_at: v.created_at,
+                          came_from: v.referrer,
+                          device: v.device,
+                          place: place(v.city, v.country),
+                          lang: v.lang,
+                          from_day: v.day0,
+                          to_day: v.day,
+                          actions: v.actions,
+                          stayed: dur(v.seconds),
+                        })),
+                      ),
+                    ]
+                  : null,
+              ].flat();
+        const seed = rows && rows[0] ? rows[0].seed : visits[0] ? visits[0].seed : null;
+        const why =
+          'every day of it, in order' +
+          (seed != null ? ` · seed ${seed}` : '') +
+          (wheres.length ? ' · played on ' + wheres.join('; ') : '');
+        const c = card(
+          `Game ${st.game}`,
+          why,
+          el(
+            'div',
+            { class: 'row' },
+            el(
+              'button',
+              {
+                class: 'plain',
+                onclick: () => {
+                  st.game = null;
+                  gameAsk++;
+                  render();
+                },
+              },
+              'close',
+            ),
+          ),
+          body,
+        );
+        c.id = 'gameCard';
+        return c;
+      }
+
+      // ---- the visitors: the Visitors tab ----
+      function renderVisitors() {
+        const d = st.vdata;
+        if (!d) return;
+        const a = d.answers,
+          C = colors();
+        const o = (a.visitors || [])[0] || {},
+          people = (o.visits || 0) - (o.bots || 0),
+          pct = (n) => (people ? Math.round(((n || 0) / people) * 100) + '%' : '-');
+        $('#kpis').replaceChildren(
+          kpi(
+            fmt(people),
+            'visits',
+            `page loads of the game${o.bots ? ` · ${fmt(o.bots)} by bots, left out` : ''}`,
+          ),
+          kpi(
+            pct(o.played),
+            'did something',
+            `${fmt(o.played || 0)} visits built, hired or signed`,
+          ),
+          kpi(fmt(o.new_games || 0), 'new games', 'started on day 1'),
+          kpi(dur(o.avg_secs) || '-', 'on the page, on average', 'while it was in view'),
+          kpi(pct(o.on_touch), 'on a touch screen', 'a phone or tablet'),
+          kpi(fmt(o.from_elsewhere || 0), 'from other sites', 'a referrer that isn’t the game'),
+          kpi(fmt(o.countries || 0), 'countries'),
+        );
+
+        const cards = [];
+        const daySeries = [
+          { key: 'visits', label: 'visits', color: C.blue },
+          { key: 'started', label: 'a game on', color: C.gold },
+          { key: 'played', label: 'did something', color: C.green },
+        ];
+        cards.push(
+          wide(
+            card(
+              'Visits by day',
+              'page loads of the game, how many got a game going, and how many did something in it',
+              none(a.vdaily)
+                ? table([])
+                : [
+                    bars(a.vdaily, {
+                      x: 'date',
+                      series: daySeries,
+                      h: 170,
+                      fmtX: (v) => v.slice(5),
+                      labelEvery: Math.max(1, Math.ceil(a.vdaily.length / (FULL / 70))),
+                      W: FULL,
+                    }),
+                    legend(daySeries),
+                  ],
+            ),
+          ),
+        );
+        const f = (a.funnel || [])[0];
+        const steps =
+          f && f.visits
+            ? [
+                ['visits', f.visits],
+                ['game on', f.game_on],
+                ['did something', f.did_something],
+                ['20+ actions', f.twenty_actions],
+                ['a day ended', f.saw_a_day_end],
+                ['5+ days', f.five_days],
+              ].map(([step, n]) => ({ step, visits: n || 0 }))
+            : [];
+        cards.push(
+          card(
+            'How far visits get',
+            'from the page opening to doing something and seeing days end; and how long the page was in view',
+            none(steps)
+              ? table([])
+              : [
+                  bars(steps, {
+                    x: 'step',
+                    series: [{ key: 'visits', label: 'visits', color: C.green }],
+                    h: 150,
+                  }),
+                  bars(a.stays || [], {
+                    x: 'stayed',
+                    series: [
+                      { key: 'visits', label: 'visits', color: C.violet },
+                      { key: 'played', label: 'did something', color: C.green },
+                    ],
+                    h: 130,
+                  }),
+                  legend([
+                    { label: 'visits, by how long they stayed', color: C.violet },
+                    { label: 'of them did something', color: C.green },
+                  ]),
+                ],
+          ),
+        );
+        cards.push(
+          card(
+            'Coming back',
+            'visits that opened a new game, and those that carried on one from before',
+            table(a.returning),
+          ),
+        );
+        cards.push(
+          card(
+            'Where they come from',
+            'the referring site; most browsers send only its address, not the page',
+            none(a.referrers)
+              ? table([])
+              : [
+                  hbars(a.referrers.slice(0, 12), 'came_from', 'visits', C.blue),
+                  table(a.referrers),
+                ],
+          ),
+        );
+        cards.push(
+          card(
+            'The pages they come from, and where they land',
+            'a referrer’s path when the browser sent it; the address they opened, with any utm tags',
+            table(a.refpages),
+            el('div', { style: 'height:12px' }),
+            table(a.landings),
+          ),
+        );
+        const named = (rows) =>
+          (rows || []).map((r) => ({
+            ...r,
+            country: r.country === '?' ? '?' : regionName(r.country) || r.country,
+          }));
+        const countries = named(a.countries);
+        cards.push(
+          card(
+            'Where they are: countries',
+            'as Cloudflare places the request',
+            none(countries)
+              ? table([])
+              : [hbars(countries.slice(0, 12), 'country', 'visits', C.gold), table(countries)],
+          ),
+        );
+        cards.push(
+          card(
+            'Where they are: cities',
+            'as Cloudflare places the request (often a nearby city, sometimes none)',
+            table(named(a.cities)),
+          ),
+        );
+        cards.push(
+          card(
+            'On what',
+            'the device, its system and browser, from the user agent (and Chrome’s client hints); then the screens',
+            none(a.devices)
+              ? table([])
+              : [
+                  hbars(a.devices.slice(0, 12), 'device', 'visits', C.violet),
+                  table(a.devices),
+                  el('div', { style: 'height:12px' }),
+                  table(a.screens),
+                ],
+          ),
+        );
+        cards.push(
+          card(
+            'Graphics and languages',
+            'the graphics settings as the page opened, and the card; the browser’s language',
+            table(a.graphics),
+            el('div', { style: 'height:12px' }),
+            table(a.languages),
+          ),
+        );
+        const latest = (a.vlatest || []).map((r) => ({
+          created_at: r.created_at,
+          came_from: r.came_from,
+          page: r.page,
+          device: r.device,
+          place: place(r.city, r.country),
+          lang: r.lang,
+          touch: r.touch ? 'yes' : '',
+          from_day: r.day0,
+          to_day: r.day,
+          actions: r.actions,
+          stayed: dur(r.seconds),
+          game: r.game ? r.game + ' ›' : null,
+          _game: r.game,
+        }));
+        cards.push(
+          wide(
+            card(
+              'Latest visits',
+              'each page load, bots included; one with a game leads to its card',
+              table(latest, {
+                pick: (r) => openGame(r._game),
+                pickable: (r) => !!r._game,
+                hide: ['_game'],
+              }),
+            ),
+          ),
+        );
+        cards.push(wide(sqlCard()));
+        $('#grid').replaceChildren(...cards);
+      }
+
+      // ---- your own question ----
+      let sqlOut = null;
+      function sqlCard() {
+        const ta = el('textarea', { spellcheck: 'false' });
+        ta.value = st.sql;
+        ta.oninput = () => {
+          st.sql = ta.value;
+          keep();
+        };
+        ta.onkeydown = (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') runSql();
+        };
+        const out = !sqlOut
+          ? null
+          : sqlOut.error
+            ? el('div', { class: 'err' }, sqlOut.error)
+            : table(sqlOut.rows);
+        return card(
+          'Ask your own',
+          'one SELECT; in the chosen stretch of time, d is the days of games (days is all of them), v the visits (visits), g the games (game seed far first last visits); errors is every error. Cmd/Ctrl-Enter runs it.',
+          ta,
+          el(
+            'div',
+            { class: 'row' },
+            el('button', { class: 'plain', onclick: runSql }, 'run'),
+            el(
+              'span',
+              { class: 'hint' },
+              'days: game visit seed day done tier cash loan income spend ledger in_red bankrupt earned crates containers boats trucks exported penalties staff machines contracts town_pop town_stage capacity problems bad actions tips seconds paused fast fps created_at',
+            ),
+          ),
+          out,
+        );
+      }
+      async function runSql() {
+        sqlOut = { rows: [] };
+        try {
+          const r = await (
+            await fetch(`/api/sql?db=${st.db}&since=${since()}`, {
+              method: 'POST',
+              body: JSON.stringify({ sql: st.sql }),
+            })
+          ).json();
+          sqlOut = r.error ? { error: r.error } : { rows: r.rows };
+        } catch (e) {
+          sqlOut = { error: e.message };
+        }
+        render();
+      }
+
+      // ---- loading ----
+      // the tab's answers: the play log's (st.data) or the visitors' (st.vdata); a tab left before its answer came lets it go
+      const current = () => (st.tab === 'visitors' ? st.vdata : st.data);
+      async function load(fresh) {
+        const tab = st.tab;
+        $('#status').textContent = 'asking the ' + st.db + ' database…';
+        for (const b of document.querySelectorAll('#tabSeg button'))
+          b.classList.toggle('on', b.dataset.tab === st.tab);
+        for (const b of document.querySelectorAll('#dbSeg button'))
+          b.classList.toggle('on', b.dataset.db === st.db);
+        for (const b of document.querySelectorAll('#winSeg button'))
+          b.classList.toggle('on', +b.dataset.win === st.win);
+        try {
+          const res = await fetch(
+            `/api/all?db=${st.db}&since=${since()}&tab=${tab}${fresh ? '&fresh' : ''}`,
+          );
+          const r = await res
+            .json()
+            .catch(() => ({ error: `the stats server answered ${res.status} ${res.statusText}` }));
+          if (r.error) throw new Error(r.error);
+          if (tab !== st.tab) return;
+          if (tab === 'visitors') st.vdata = r;
+          else st.data = r;
+          $('#banner').replaceChildren();
+          $('#status').textContent =
+            `${st.db} · updated ${new Date(r.at).toTimeString().slice(0, 8)} · ${(r.took / 1000).toFixed(1)} s`;
+          render();
+        } catch (e) {
+          if (tab !== st.tab) return;
+          const noTable = /no such table/i.test(e.message);
+          $('#banner').replaceChildren(
+            el(
+              'div',
+              { class: 'banner' },
+              el('b', {}, noTable ? 'No play log here yet. ' : 'Could not ask the database. '),
+              noTable
+                ? st.db === 'live'
+                  ? 'The live database gets its tables on the next deploy (./deploy.sh applies migrations/).'
+                  : 'Run wrangler d1 migrations apply harbourmaster-log --local once to set up the local database.'
+                : e.message,
+            ),
+          );
+          $('#status').textContent = st.db + ' · failed';
+          $('#kpis').replaceChildren();
+          $('#grid').replaceChildren(sqlCard());
+        }
+      }
+      $('#tabSeg').onclick = (e) => {
+        const b = e.target.closest('button');
+        if (!b || b.dataset.tab === st.tab) return;
+        st.tab = b.dataset.tab;
+        keep();
+        if (current()) render();
+        load();
+      };
+      $('#dbSeg').onclick = (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        st.db = b.dataset.db;
+        st.game = null;
+        gameAsk++;
+        st.data = st.vdata = null;
+        keep();
+        load();
+      };
+      $('#winSeg').onclick = (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        st.win = +b.dataset.win;
+        keep();
+        load();
+      };
+      $('#refresh').onclick = () => load(true);
+      matchMedia('(prefers-color-scheme: dark)').addEventListener(
+        'change',
+        () => current() && render(),
+      );
+      let resized;
+      addEventListener('resize', () => {
+        clearTimeout(resized);
+        resized = setTimeout(() => current() && render(), 150);
+      });
+      load();
+    </script>
+  </body>
+</html>

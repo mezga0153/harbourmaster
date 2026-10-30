@@ -1,0 +1,5 @@
+# Chrome keeps the phone's model and its system's version out of the user
+# agent; this asks for them with the page's later requests, for the device's
+# name in the play log (server/where.js).
+/*
+  Accept-CH: Sec-CH-UA-Model, Sec-CH-UA-Platform-Version

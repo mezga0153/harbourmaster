@@ -1,7 +1,8 @@
 #!/bin/sh
-# Publish the game to harbourmaster.tinetov.net (a static-assets Worker, see
-# wrangler.jsonc). Builds what is committed, in a copy of HEAD, so work in
-# progress in the working tree never goes out.
+# Publish the game to harbourmaster.tinetov.net (a Worker serving the built
+# game, with the play log's addresses beside it, see wrangler.jsonc). Builds
+# what is committed, in a copy of HEAD, so work in progress in the working
+# tree never goes out, and brings the play log's database up to date first.
 set -e
 cd "$(dirname "$0")"
 # the personal account tinetov.net lives in; pinned so a work login fails
@@ -15,4 +16,5 @@ ln -s "$here/node_modules" "$build/node_modules"
 (cd "$build" && npm run build)
 rm -rf "$here/dist"
 cp -R "$build/dist" "$here/dist"
+wrangler d1 migrations apply harbourmaster-log --remote # nothing to do when up to date
 wrangler deploy

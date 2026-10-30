@@ -1,8 +1,19 @@
 {
-  // Static-assets Worker "harbourmaster", served at harbourmaster.tinetov.net.
-  // deploy.sh builds the committed game into dist/, so only that is published.
+  // Worker "harbourmaster", served at harbourmaster.tinetov.net. deploy.sh
+  // builds the committed game into dist/, served as it is; what is not a file
+  // there goes to server/index.js: the play log's addresses, kept in D1 (see
+  // migrations/, and stats.sh for reading it).
   "name": "harbourmaster",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./dist" },
+  "main": "server/index.js",
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "harbourmaster-log",
+      "database_id": "56e5631c-76f9-4276-8da5-464e62c17e4e",
+      "migrations_dir": "./migrations",
+    },
+  ],
   "routes": [{ "pattern": "harbourmaster.tinetov.net", "custom_domain": true }],
 }

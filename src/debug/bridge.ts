@@ -48,6 +48,7 @@ export function startBridge({ worker, send, renderer, map }: Hooks): void {
   worker.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
     const msg = e.data;
     if (msg.type === 'dump') hot.send('hm:save', msg.save);
+    if (msg.type === 'fault') note(`[${msg.kind} fault] ${msg.message}`);
     if (msg.type !== 'frame') return;
     for (const ev of msg.events) if (ev.kind === 'message') note(`[${ev.tone}] ${ev.text}`);
   });

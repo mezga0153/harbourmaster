@@ -1,0 +1,152 @@
+// The days of players' games, at /api/days: one row per day of a game, sent
+// by src/log/days.ts (see migrations/0001_log.sql for each field).
+//   POST { days: [ { game, visit?, seed, day, done, tier, cash, loan, income, spend, ledger,
+//                    inRed, bankrupt, earned, crates, containers, boats, trucks, exported,
+//                    penalties, staff, machines, contracts, townPop?, townStage?, capacity,
+//                    problems, bad, actions, tips, seconds, paused, fast, fps? } ] }  -> 204
+// A day under way (done false: the page put away) is replaced when it is sent
+// again, finished or not; a finished day is never replaced by one under way.
+
+import { counts, id, int, json, num, numbers, object } from '../check.js';
+
+const MAX_BODY = 32 * 1024; // bytes
+const MAX_DAYS = 10; // rows a request
+const MONEY = 1e13;
+
+const COLUMNS = [
+  'game',
+  'visit',
+  'seed',
+  'day',
+  'done',
+  'tier',
+  'cash',
+  'loan',
+  'income',
+  'spend',
+  'ledger',
+  'in_red',
+  'bankrupt',
+  'earned',
+  'crates',
+  'containers',
+  'boats',
+  'trucks',
+  'exported',
+  'penalties',
+  'staff',
+  'machines',
+  'contracts',
+  'town_pop',
+  'town_stage',
+  'capacity',
+  'problems',
+  'bad',
+  'actions',
+  'tips',
+  'seconds',
+  'paused',
+  'fast',
+  'fps',
+  'created_at',
+];
+
+/** A row ready to insert, in COLUMNS' order, or null if anything about it is off. */
+export function row(d, now) {
+  if (!object(d) || !id(d.game) || (d.visit != null && !id(d.visit))) return null;
+  if (
+    !int(d.seed, 0, 1e9) ||
+    !int(d.day, 1, 1e6) ||
+    typeof d.done !== 'boolean' ||
+    !int(d.tier, 0, 50)
+  )
+    return null;
+  if (
+    !int(d.cash, -MONEY, MONEY) ||
+    !int(d.loan, 0, MONEY) ||
+    !int(d.income, 0, MONEY) ||
+    !int(d.spend, 0, MONEY)
+  )
+    return null;
+  if (!int(d.inRed, 0, 1e6) || typeof d.bankrupt !== 'boolean') return null;
+  for (const k of ['earned', 'penalties']) if (!int(d[k], -MONEY, MONEY)) return null;
+  for (const k of ['crates', 'containers', 'boats', 'trucks', 'exported', 'staff', 'contracts'])
+    if (!int(d[k], 0, 1e9)) return null;
+  if (d.townPop != null && !int(d.townPop, 0, 1e7)) return null;
+  if (d.townStage != null && !int(d.townStage, 0, 50)) return null;
+  const json = {
+    ledger: numbers(d.ledger),
+    machines: counts(d.machines, 10, 20),
+    capacity: numbers(d.capacity),
+    problems: counts(d.problems),
+    bad: counts(d.bad),
+    actions: counts(d.actions, 120, 60),
+  };
+  if (Object.values(json).some((v) => v === undefined)) return null;
+  if (
+    !Array.isArray(d.tips) ||
+    d.tips.length > 40 ||
+    !d.tips.every((t) => typeof t === 'string' && /^[\w-]{1,40}$/.test(t))
+  )
+    return null;
+  if (!num(d.seconds, 0, 7 * 86400) || !num(d.paused, 0, 7 * 86400) || !num(d.fast, 0, 7 * 86400))
+    return null;
+  if (d.fps != null && !num(d.fps, 0, 1000)) return null;
+  const tenth = (v) => Math.round(v * 10) / 10;
+  return [
+    d.game,
+    d.visit ?? null,
+    d.seed,
+    d.day,
+    d.done ? 1 : 0,
+    d.tier,
+    d.cash,
+    d.loan,
+    d.income,
+    d.spend,
+    json.ledger,
+    d.inRed,
+    d.bankrupt ? 1 : 0,
+    d.earned,
+    d.crates,
+    d.containers,
+    d.boats,
+    d.trucks,
+    d.exported,
+    d.penalties,
+    d.staff,
+    json.machines,
+    d.contracts,
+    d.townPop ?? null,
+    d.townStage ?? null,
+    json.capacity,
+    json.problems,
+    json.bad,
+    json.actions,
+    JSON.stringify(d.tips),
+    tenth(d.seconds),
+    tenth(d.paused),
+    tenth(d.fast),
+    d.fps == null ? null : tenth(d.fps),
+    now,
+  ];
+}
+
+export async function take(request, env) {
+  const got = await json(request, MAX_BODY);
+  if (got instanceof Response) return got;
+  const list = got.body && Array.isArray(got.body.days) ? got.body.days : null;
+  if (!list || !list.length || list.length > MAX_DAYS)
+    return new Response(`expected 1 to ${MAX_DAYS} days`, { status: 400 });
+  const now = Date.now();
+  const rows = list.map((d) => row(d, now));
+  if (rows.some((r) => !r)) return new Response('malformed day', { status: 400 });
+  const kept = COLUMNS.filter((c) => c !== 'game' && c !== 'day');
+  const insert = env.DB.prepare(
+    `INSERT INTO days (${COLUMNS.join(', ')}) VALUES (${COLUMNS.map(() => '?').join(', ')}) ` +
+      `ON CONFLICT (game, day) DO UPDATE SET ${kept.map((c) => `${c} = excluded.${c}`).join(', ')} ` +
+      'WHERE excluded.done >= days.done',
+  );
+  await env.DB.batch(rows.map((r) => insert.bind(...r)));
+  return new Response(null, { status: 204 });
+}

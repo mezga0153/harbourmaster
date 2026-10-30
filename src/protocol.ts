@@ -625,4 +625,6 @@ export type WorkerMessage =
   /** Dev server only: the game as a save, for the debug bridge. */
   | { type: 'dump'; save: SaveData }
   /** The game as a save, to keep in a file; see exportSave. */
-  | { type: 'exported'; save: SaveData };
+  | { type: 'exported'; save: SaveData }
+  /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */
+  | { type: 'fault'; kind: 'sim' | 'save' | 'autosave'; message: string; stack?: string };
