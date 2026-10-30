@@ -1588,6 +1588,11 @@ export class Structures {
     if (this.map.orient[i] & EXTENSION) return null;
     const g = new Group();
     const top = landTop(this.map.terrain[i]);
+    // Paving of its own, flush with the quays; not where it stands on a
+    // quay, which is drawn under it already (see build), or the two fight.
+    const paving = () => {
+      if (!(this.map.orient[i] & ON_QUAY)) g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
+    };
 
     switch (code) {
       case Build.Road: {
@@ -1652,7 +1657,7 @@ export class Structures {
       }
       case Build.PortRoad: {
         // Same paving as the quays and flush with them, with a dashed white centre line.
-        g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
+        paving();
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
         if (this.map.store[i]) {
           this.storage(g, i, QUAY_Y);
@@ -1702,7 +1707,7 @@ export class Structures {
       case Build.Gate: {
         // Port paving with a gatehouse to one side and a striped barrier
         // across the lane, the public road in front (+z).
-        g.add(box(1, QUAY_Y - top, 1, C.quayTop, 0.5, top, 0.5));
+        paving();
         const y = QUAY_Y;
         g.add(box(0.6, 0.006, 0.04, C.marking, 0.42, y, 0.8));
         g.add(box(0.2, 0.26, 0.3, C.cabin, 0.88, y, 0.42));
@@ -1944,7 +1949,7 @@ export class Structures {
         // along the rails to whichever row of the yard it is working.
         const m = this.map;
         const y = QUAY_Y;
-        g.add(box(1, y - top, 1, C.quayTop, 0.5, top, 0.5));
+        paving();
         const yard = m.neighbors4(i).find((n) => storesBoxes(m.store[n]));
         const [dx, dy] =
           yard === undefined ? [0, 1] : [m.xOf(yard) - m.xOf(i), m.yOf(yard) - m.yOf(i)];
