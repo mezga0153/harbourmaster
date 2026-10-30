@@ -121,6 +121,7 @@ import {
   STORE_TIER,
   loadingSpots,
   truckCost,
+  laneRuns,
   truckReach,
   walkableAt,
   gateWay,
@@ -1048,6 +1049,8 @@ export class World {
   private laneCache: Map<number, [number, number]> | null = null;
   /** Each tile of a yard gantry's lane with the way its rails run; see gantryRailWays. */
   private railCache: Map<number, [number, number]> | null = null;
+  /** How far the roads run across from each tile, for keeping right; see laneRuns. */
+  private runsCache: Uint8Array | null = null;
   /** Each yard's gantry lane, by the yard; see gantryLane. */
   private laneOfCache = new Map<number, Map<number, number> | null>();
   /** How far by road trucks have to each tile they can reach; see truckReach. */
@@ -1396,6 +1399,7 @@ export class World {
     this.lotsCache = null;
     this.junctionCache = null;
     this.turnCache = null;
+    this.runsCache = null;
     this.machineCache = null;
     this.craneStackCache = null;
     this.lineUpCache = null;
@@ -10495,7 +10499,10 @@ export class World {
    */
   /** How trucks drive; through only the parking space `t` is in, or going into or out of. */
   private truckCost(target: number, home = -1, t?: Truck): CostFn {
-    return this.laneCost(truckCost(this.map, target, home, t?.lot && new Set(t.lot)));
+    this.runsCache ??= laneRuns(this.map);
+    return this.laneCost(
+      truckCost(this.map, target, home, t?.lot && new Set(t.lot), this.runsCache),
+    );
   }
 
   /** How trucks drive by `base`, and only one way along a yard gantry's lane. */

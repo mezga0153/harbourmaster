@@ -18,7 +18,7 @@ import {
   oneWay,
   SOUTH,
 } from '../src/sim/roads';
-import { lightsError, truckCost } from '../src/sim/rules';
+import { laneRuns, lightsError, truckCost } from '../src/sim/rules';
 import { Build, isPublicRoad, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 
@@ -520,5 +520,49 @@ describe('Round a bend', () => {
       closest = Math.min(closest, Math.hypot(lead.x - next.x, lead.y - next.y));
     }
     expect(closest).toBeGreaterThan(world['lengthOf'](lead as never) * 0.75);
+  });
+});
+
+describe('Keeping right', () => {
+  /** Public road `wide` tiles across, along x, on an otherwise empty map 8 long. */
+  function road(wide: number): GameMap {
+    const m = new GameMap(8, wide + 2);
+    for (let i = 0; i < m.build.length; i++) m.terrain[i] = Terrain.Grass;
+    for (let y = 1; y <= wide; y++) for (let x = 0; x < 8; x++) m.build[m.idx(x, y)] = Build.Road;
+    return m;
+  }
+  /** What a tile in row `y` costs going +x along it (whose right is +y), and going -x. */
+  const costs = (m: GameMap, y: number, runs?: Uint8Array) => {
+    const cost = truckCost(m, -1, -1, undefined, runs);
+    return [cost(m.idx(4, y), m.idx(3, y)), cost(m.idx(3, y), m.idx(4, y))];
+  };
+
+  it('keeps to the right-hand lane of a road two wide', () => {
+    const m = road(2);
+    // Going +x the right is +y: row 2 is its lane, row 1 the oncoming one.
+    expect(costs(m, 2)[0]).toBe(1);
+    expect(costs(m, 1)[0]).toBeGreaterThan(1);
+    expect(costs(m, 1)[1]).toBe(1);
+    expect(costs(m, 2)[1]).toBeGreaterThan(1);
+  });
+
+  it('on a road wider than two, keeps only off the far half of it, not to the very edge', () => {
+    const m = road(5);
+    const going = [1, 2, 3, 4, 5].map((y) => costs(m, y)[0]);
+    // The left two rows are the oncoming half; the middle and right are its own.
+    expect(going.map((c) => c > 1)).toEqual([true, true, false, false, false]);
+    const back = [1, 2, 3, 4, 5].map((y) => costs(m, y)[1]);
+    expect(back.map((c) => c > 1)).toEqual([false, false, false, true, true]);
+    // The same worked out ahead for the whole map, as the game does.
+    const runs = laneRuns(m);
+    expect([1, 2, 3, 4, 5].map((y) => costs(m, y, runs)[0])).toEqual(going);
+    expect([1, 2, 3, 4, 5].map((y) => costs(m, y, runs)[1])).toEqual(back);
+  });
+
+  it('has no lane to keep to on a one-way road', () => {
+    const m = road(2);
+    for (let x = 0; x < 8; x++) for (const y of [1, 2]) m.orient[m.idx(x, y)] = ONE_WAY | 0;
+    expect(costs(m, 1)[0]).toBe(1);
+    expect(costs(m, 2)[0]).toBe(1);
   });
 });
