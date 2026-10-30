@@ -69,6 +69,9 @@ const TOOL_NOTES: Partial<Record<string, string>> = {
 
 const SPEED_KEYS: Record<string, number> = { '1': 1, '2': 2, '3': 4, '4': 8 };
 
+/** Tools that drag out a rectangle rather than a line (storage tools do too). */
+const AREA_TOOLS: ReadonlySet<string> = new Set(['parking', 'unmark', 'bulldoze', 'portRoad']);
+
 /** Mouse and keyboard → camera moves, previews and sim commands. */
 export class Input {
   private mode: Mode = 'none';
@@ -288,7 +291,8 @@ export class Input {
 
   /**
    * Tiles covered by the current drag (an L-shaped line, or a rectangle for
-   * storage areas and parking) or the hovered tile.
+   * storage areas, parking, port roads, bulldozing and unmarking) or the
+   * hovered tile.
    */
   private tilesFor(end: number | null): number[] {
     const map = this.getMap();
@@ -300,7 +304,7 @@ export class Input {
     const ex = map.xOf(end);
     const ey = map.yOf(end);
     const out: number[] = [];
-    if (isStoreTool(tool.value) || tool.value === 'parking' || tool.value === 'unmark') {
+    if (AREA_TOOLS.has(tool.value) || isStoreTool(tool.value)) {
       for (let y = Math.min(sy, ey); y <= Math.max(sy, ey); y++) {
         for (let x = Math.min(sx, ex); x <= Math.max(sx, ex); x++) out.push(map.idx(x, y));
       }
