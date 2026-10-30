@@ -386,6 +386,19 @@ export const DOCK_FRONT_RANGE = 5;
 export const DOCK_FRONT_COST = 3;
 /** What sailing over a buoy's tile costs a route, against 1 for open water. */
 export const BUOY_DETOUR = 8;
+/**
+ * Boats round the corner of a jetty or quay in a wider circle than their
+ * hulls need: water nearer the corner than CORNER_NEAR
+ * tiles, centre to centre, costs routes this much more than open water,
+ * and nearer than CORNER_CLOSE this much.
+ */
+export const CORNER_NEAR = 1.5;
+export const CORNER_NEAR_COST = 3;
+export const CORNER_CLOSE = 2.3;
+export const CORNER_CLOSE_COST = 1;
+/** And they keep this much further again off a boat lying at its berth, at this much more. */
+export const MOORED_CLEAR = 1.3;
+export const MOORED_CLEAR_COST = 3;
 
 // The town that grows up around the port. See town.ts.
 export const TOWN_START = 40; // people in the fishing village when the port opens

@@ -18,6 +18,8 @@ export type Command =
   | { type: 'store'; tiles: number[]; kind: StoreKind; on: boolean }
   /** Stop a storage area (by its first tile) taking any more cargo, so it empties out, or open it again. */
   | { type: 'shutStore'; idx: number; shut: boolean }
+  /** A ship taking exports on board sails now with those it has. */
+  | { type: 'sailNow'; id: number }
   /** Open an exit off the highway at row `row`, with a road off it. */
   | { type: 'exit'; row: number }
   /** Make road tiles one way, the way the drag ran along them; or (`on` false) two way again. */
@@ -104,6 +106,8 @@ export interface EntityView {
   givingWayTo?: number;
   /** Why it is held up, when it is, and what would help. */
   why?: string;
+  /** Ships: how their visit is going. */
+  visit?: BoatVisit;
   /**
    * Reach stackers and terminal tractors at work: taking a container off
    * where it is ('pick') or setting one down ('drop'), how far through
@@ -122,6 +126,32 @@ export interface EntityView {
  * the container by how it looks, or with no look the next free place.
  * `along`: at a yard gantry, which way the lane under it runs, as a heading.
  */
+/** A ship's visit so far, for its panel; times in ticks, -1 for not known or not begun. */
+export interface BoatVisit {
+  /** Since it came in from sea. */
+  inPort: number;
+  /** Waiting at anchor for a berth. */
+  anchored: number;
+  /** Unloading: how long it has been at it, or took. */
+  unloading: number;
+  unloaded: boolean;
+  /** Taking exports on board, likewise; `loads` false if it takes none. */
+  loading: number;
+  loaded: boolean;
+  loads: boolean;
+  /** Exports on board, and how many it takes this visit once that is known. */
+  out: number;
+  quota?: number;
+  /** Time alongside the line allows this visit, and how much has counted against it. */
+  allowed: number;
+  worked: number;
+  /** The line's goodwill, 0 to 100, and how this visit would move it if the ship sailed now. */
+  mood?: number;
+  moodChange: number;
+  /** It is taking exports on board, and can be sent off with those it has. */
+  canSail: boolean;
+}
+
 export interface HandAt {
   crane?: number;
   yard?: number;

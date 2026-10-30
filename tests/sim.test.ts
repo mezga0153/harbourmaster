@@ -3918,6 +3918,71 @@ describe('Container Port tier', () => {
     expect(words(1001)).toMatch(/^Ready to sail/);
   });
 
+  it('sends a ship off with the exports it has on the order, and shows how its visit is going', () => {
+    const world = World.create(7, 96);
+    const template = world.boats[0];
+    world.boats.length = 0;
+    const t = world.tick;
+    const a = {
+      ...template,
+      id: 1000,
+      vessel: 'coaster' as const,
+      state: 'moored' as const,
+      crates: 0,
+      reserved: 0,
+      out: 1,
+      loadQuota: undefined,
+      timer: 0,
+      anchorTicks: 0,
+      mooredTicks: 200,
+      grace: 150,
+      came: t - 300,
+      mooredAt: t - 200,
+      unloadedAt: t - 50,
+    };
+    world.boats.push(a);
+    world['exportsFor'] = () => 4;
+    const visit = () =>
+      world.snapshot().entities.find((e) => e.kind === 'boat' && e.id === 1000)!.visit!;
+    const v = visit();
+    expect(v.inPort).toBe(300);
+    expect(v.unloading).toBe(150);
+    expect(v.unloaded).toBe(true);
+    expect(v.loading).toBe(50);
+    expect(v.loaded).toBe(false);
+    // Past the time allowed alongside, the line stands to like it less.
+    expect(v.moodChange).toBeCloseTo(B.SATISFACTION_PER_BOAT - 50 / B.MOORED_PENALTY_TICKS, 1);
+    expect(v.mood).toBeGreaterThan(0);
+    expect(world['stillLoading'](a)).toBe(true);
+    expect(visit().canSail).toBe(true);
+    // Sent off: it takes on nothing more, and gets ready to sail.
+    world.command({ type: 'sailNow', id: 1000 });
+    expect(a.loadQuota).toBe(1);
+    expect(world['stillLoading'](a)).toBe(false);
+  });
+
+  it('rounds the end of a jetty wide, not shaving its corner', () => {
+    const world = World.create(7, 96);
+    world.boats.length = 0;
+    const m = world.map;
+    // The starter jetty, out along the row the road comes in on.
+    const r = m.yOf(m.entry);
+    const jetty = [...m.build.keys()].filter((i) => m.yOf(i) === r && m.build[i] === Build.Jetty);
+    const tip = jetty[jetty.length - 1];
+    const tx = m.xOf(tip);
+    const ring = world['cornerRing']();
+    // Off its end, not along its sides.
+    expect(ring[m.idx(tx + 1, r)]).toBe(B.CORNER_NEAR_COST);
+    expect(ring[m.idx(tx - 2, r - 1)]).toBe(0);
+    // From one side of it round to the other.
+    const from = m.idx(tx, r - 3);
+    const to = m.idx(tx, r + 3);
+    const path = findPath(m.w, m.h, from, to, world['seaWayFor'](B.BOAT_DRAFT, to, null), true)!;
+    expect(path).not.toBeNull();
+    const nearest = Math.min(...path.map((i) => Math.hypot(m.xOf(i) - tx, m.yOf(i) - r)));
+    expect(nearest).toBeGreaterThanOrEqual(B.CORNER_CLOSE);
+  });
+
   it('has a ship ready to sail wait its turn only behind one free to go', () => {
     const world = World.create(7, 96);
     const template = world.boats[0];
@@ -4134,7 +4199,7 @@ describe('Container Port tier', () => {
     // Boats already in the water when it was claimed, which may sail out of it.
     const inside = new Map<number, Set<number>>();
     let intrusions = 0;
-    for (let k = 0; k < TICKS_PER_DAY * 6; k++) {
+    for (let k = 0; k < TICKS_PER_DAY * 8; k++) {
       world.step();
       for (const b of world.boats) {
         if (!b.room) {

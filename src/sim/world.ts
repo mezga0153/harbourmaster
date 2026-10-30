@@ -7,6 +7,7 @@ import type {
   ContractView,
   CraneView,
   ProblemView,
+  BoatVisit,
   EntityView,
   FinanceDay,
   HandAt,
@@ -485,6 +486,11 @@ interface Boat extends Agent {
   room?: { spots: [number, number, number][]; until: number; turning?: boolean };
   /** Has turned for sea after pulling out, and given its room back. */
   turned?: boolean;
+  /** The ticks it came in from sea, moored, was unloaded, and done loading. */
+  came?: number;
+  mooredAt?: number;
+  unloadedAt?: number;
+  loadedAt?: number;
 }
 
 interface Truck extends Agent {
@@ -1157,6 +1163,8 @@ export class World {
   private jibJobs = new WeakMap<Crane, JibJob>();
   private buoyCache: Uint8Array | null = null;
   private frontCache: Int32Array | null = null;
+  /** What routes pay to pass close to a jetty, quay or the shore; see shoreRing. */
+  private ringCache: Float32Array | null = null;
   private coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
   private dockKey = new Map<number, number>();
@@ -1441,6 +1449,7 @@ export class World {
     this.buoyCache = null;
     this.anchorageTile = -1;
     this.frontCache = null;
+    this.ringCache = null;
     this.spotCache.clear();
     this.laneCache = null;
     this.railCache = null;
@@ -1478,6 +1487,8 @@ export class World {
         return this.markStore(cmd.tiles, cmd.kind, cmd.on);
       case 'shutStore':
         return this.shutStore(cmd.idx, cmd.shut);
+      case 'sailNow':
+        return this.sailNow(cmd.id);
       case 'terraform':
         return this.terraform(cmd.tiles, cmd.raise);
       case 'hire':
@@ -2485,6 +2496,63 @@ export class World {
     this.moneyAt(-amount, at);
   }
 
+  /**
+   * How a boat's visit moves its line's goodwill, were it to sail now: up
+   * for coming and going, down for each while it waited at anchor or took
+   * longer alongside than the line allows.
+   */
+  private visitMood(b: Boat): number {
+    const slowTicks = Math.max(0, b.mooredTicks - b.grace);
+    return (
+      B.SATISFACTION_PER_BOAT -
+      b.anchorTicks / B.ANCHOR_PENALTY_TICKS -
+      slowTicks / B.MOORED_PENALTY_TICKS
+    );
+  }
+
+  /** A ship taking exports on board, unloaded, sent off now with those it has. */
+  private canSail(b: Boat): boolean {
+    return (
+      b.state === 'moored' &&
+      b.crates === 0 &&
+      b.reserved === 0 &&
+      outCap(b) > 0 &&
+      b.loadedAt === undefined
+    );
+  }
+
+  /**
+   * Send a ship taking exports on board off with those it has: what the
+   * cranes are lifting on board goes on, the rest waits for the next ship.
+   */
+  private sailNow(id: number): void {
+    const b = this.boats.find((q) => q.id === id);
+    if (!b || !this.canSail(b)) return;
+    b.loadQuota = b.out ?? 0;
+  }
+
+  /** How a ship's visit is going, for its panel. */
+  private visitView(b: Boat): BoatVisit {
+    const t = this.tick;
+    const c = this.contracts.find((x) => x.id === b.contractId);
+    return {
+      inPort: b.came !== undefined ? t - b.came : -1,
+      anchored: b.anchorTicks,
+      unloading: b.mooredAt !== undefined ? (b.unloadedAt ?? t) - b.mooredAt : -1,
+      unloaded: b.unloadedAt !== undefined,
+      loading: b.unloadedAt !== undefined ? (b.loadedAt ?? t) - b.unloadedAt : -1,
+      loaded: b.loadedAt !== undefined,
+      loads: outCap(b) > 0,
+      out: b.out ?? 0,
+      quota: b.loadQuota,
+      allowed: Math.round(b.grace),
+      worked: b.mooredTicks,
+      mood: c && Math.round(c.satisfaction),
+      moodChange: Math.round(this.visitMood(b) * 10) / 10,
+      canSail: this.canSail(b),
+    };
+  }
+
   private judgeVisit(b: Boat, gaveUp: boolean): void {
     const slowTicks = Math.max(0, b.mooredTicks - b.grace);
     const demurrage = Math.round(
@@ -2506,9 +2574,7 @@ export class World {
 
     const c = this.contracts.find((x) => x.id === b.contractId);
     if (!c) return;
-    const anchored = b.anchorTicks / B.ANCHOR_PENALTY_TICKS;
-    const slow = slowTicks / B.MOORED_PENALTY_TICKS;
-    const delta = B.SATISFACTION_PER_BOAT - anchored - slow - (gaveUp ? B.GAVE_UP_PENALTY : 0);
+    const delta = this.visitMood(b) - (gaveUp ? B.GAVE_UP_PENALTY : 0);
     // Good visits lift it to 100 at most; above that (set so by hand) it
     // only comes down.
     c.satisfaction = Math.max(0, Math.min(Math.max(100, c.satisfaction), c.satisfaction + delta));
@@ -2969,6 +3035,7 @@ export class World {
       jetty: -1,
       timer: 0,
       variant: terms.color,
+      came: this.tick,
     };
     boat.grace = B.MOORED_GRACE_TICKS + boat.crates * B.MOORED_TICKS_PER_CRATE;
     this.boats.push(boat);
@@ -3927,6 +3994,7 @@ export class World {
           b.held = 0;
           b.lineup = b.lineEnd = b.berthing = undefined;
           b.timer = 0;
+          b.mooredAt = this.tick;
           const what =
             b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
           const cargo =
@@ -3951,6 +4019,7 @@ export class World {
         return;
       }
       case 'moored': {
+        if (b.crates === 0 && b.reserved === 0) b.unloadedAt ??= this.tick;
         // Unloaded, a coaster or feeder takes exports on board before it goes.
         const loading = b.crates === 0 && b.reserved === 0 && this.stillLoading(b);
         // Unloading and loading count against us; waiting for the fairway does not.
@@ -3969,6 +4038,7 @@ export class World {
         if (b.crates === 0 && b.reserved === 0) {
           // Done loading for this visit: it takes on nothing more while it waits to sail.
           b.loadQuota = b.out ?? 0;
+          b.loadedAt ??= this.tick;
           if (++b.timer <= 30) return;
           b.holdUp = this.boxedIn(b)
             ? 'room'
@@ -4165,7 +4235,17 @@ export class World {
     // the ones before it are as good as passed.
     // Clear water means clear of other boats lying still, too.
     const avoid = this.seaWay(b);
-    const clear: CostFn = (i) => (avoid(i) === 1 ? 1 : Infinity);
+    // And no nearer a pier's corner, or a boat lying at its berth, than
+    // where it is or where it aims for: it keeps the wide circle round them
+    // that it planned.
+    const wide = this.wideOf(b);
+    const here = wide(this.tileOf(b));
+    const clearTo =
+      (cap: number): CostFn =>
+      (i) => {
+        const w = i === goal ? 0 : wide(i);
+        return avoid(i) - w === 1 && w <= cap ? 1 : Infinity;
+      };
     // A boat has moored across the route since it was planned: find a way
     // round it, rather than brush past its bow or stern.
     const across = b.path.slice(0, 3).some((i) => i !== goal && !Number.isFinite(avoid(i)));
@@ -4182,6 +4262,7 @@ export class World {
       // A buoy is passed, and the line between a pair crossed, not cut past.
       const at = b.path[k - 1];
       if (isBuoy(this.map.build[at]) || this.gateLines(b.state === 'leaving').has(at)) break;
+      const clear = clearTo(Math.max(here, wide(b.path[k])));
       if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear, v.beam / 2 + 0.05)) {
         break;
       }
@@ -6795,6 +6876,7 @@ export class World {
     const still = this.boats
       .filter((o) => o !== self && (strict || o.state === 'moored' || o.state === 'anchored'))
       .map((o) => this.hullOf(o));
+    const wide = this.wideOf(self);
     return (i) => {
       const c = base(i);
       if (!Number.isFinite(c)) return c;
@@ -6807,8 +6889,76 @@ export class World {
         const side = Math.abs(-rx * h.hy + ry * h.hx);
         if (fwd < h.half + 0.6 && side < h.beam + 0.8) return i === goal ? c + 25 : Infinity;
       }
-      return c;
+      return i === goal ? c : c + wide(i);
     };
+  }
+
+  /**
+   * What a route pays over open water to pass this close to the corner of
+   * a pier, quay or the shore, or to a boat lying at its berth (other than
+   * `self`): boats come round them in a wide circle, wider still where a
+   * boat lies off the corner, rather than shave them.
+   */
+  private wideOf(self: Boat | null): CostFn {
+    const ring = this.cornerRing();
+    const moored = this.boats
+      .filter((o) => o !== self && o.state === 'moored')
+      .map((o) => this.hullOf(o));
+    const w = this.map.w;
+    return (i) => {
+      const x = (i % w) + 0.5;
+      const y = Math.floor(i / w) + 0.5;
+      for (const h of moored) {
+        const rx = x - h.x;
+        const ry = y - h.y;
+        const fwd = Math.abs(rx * h.hx + ry * h.hy);
+        const side = Math.abs(-rx * h.hy + ry * h.hx);
+        if (fwd < h.half + 0.6 + B.MOORED_CLEAR && side < h.beam + 0.8 + B.MOORED_CLEAR) {
+          return ring[i] + B.MOORED_CLEAR_COST;
+        }
+      }
+      return ring[i];
+    };
+  }
+
+  /**
+   * For each tile of water, what a route pays over open water for passing
+   * this close to the corner of a jetty or quay: its end, say, with water
+   * on two sides of it that meet. Not the water along a dock, nor in a
+   * corner between two, nor off the bare shore. Derived from the map, so
+   * not saved.
+   */
+  private cornerRing(): Float32Array {
+    if (this.ringCache) return this.ringCache;
+    const m = this.map;
+    const out = new Float32Array(m.build.length);
+    const hard = (x: number, y: number) => {
+      if (!m.inBounds(x, y)) return false;
+      const i = m.idx(x, y);
+      return m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i]));
+    };
+    const water = (x: number, y: number) => m.inBounds(x, y) && m.ocean[m.idx(x, y)] && !hard(x, y);
+    const r = Math.ceil(B.CORNER_CLOSE);
+    for (let y = 0; y < m.h; y++) {
+      for (let x = 0; x < m.w; x++) {
+        const b = m.build[m.idx(x, y)];
+        if (b === Build.None || isBuoy(b)) continue;
+        const wx = water(x - 1, y) || water(x + 1, y);
+        const wy = water(x, y - 1) || water(x, y + 1);
+        if (!wx || !wy) continue;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (!water(x + dx, y + dy)) continue;
+            const d = Math.hypot(dx, dy);
+            const c =
+              d < B.CORNER_NEAR ? B.CORNER_NEAR_COST : d < B.CORNER_CLOSE ? B.CORNER_CLOSE_COST : 0;
+            const j = m.idx(x + dx, y + dy);
+            out[j] = Math.max(out[j], c);
+          }
+        }
+      }
+    }
+    return (this.ringCache = out);
   }
 
   /**
@@ -10896,6 +11046,7 @@ export class World {
     if (this.railCache) return this.railCache;
     const m = this.map;
     const out = new Map<number, [number, number]>();
+    this.railYard.clear();
     for (const y of this.yards.values()) {
       const lane = this.gantryLane(y);
       if (!lane) continue;
@@ -10928,6 +11079,23 @@ export class World {
   }
 
   /**
+   * How trucks drive by `base`, keeping out from under a yard gantry
+   * unless it is the yard they are bound for or leaving: the long way
+   * round, if it is not much longer, rather than through its lane, where
+   * the trucks it loads queue and it lifts over them.
+   */
+  private throughCost(base: CostFn, target: number, home: number): CostFn {
+    const rails = this.gantryRailWays();
+    if (rails.size === 0) return base;
+    return (i, from) => {
+      const c = base(i, from);
+      const yard = this.railYard.get(i);
+      if (yard === undefined || !Number.isFinite(c) || yard === target || yard === home) return c;
+      return c + B.GANTRY_LANE_DETOUR;
+    };
+  }
+
+  /**
    * The lane along a yard gantry's rails is one way for trucks, where a
    * truck can drive off either end of it and away to the highway: in at the
    * end the shorter way from the highway, out at the other, so that those
@@ -10940,7 +11108,6 @@ export class World {
     const m = this.map;
     const base = truckCost(m);
     const out = new Map<number, [number, number]>();
-    this.railYard.clear();
     for (const y of this.yards.values()) {
       const lane = this.gantryLane(y);
       if (!lane || lane.size < 2) continue;
@@ -10982,23 +11149,6 @@ export class World {
   /** The lot of parking tile `i` is in, if any. */
   private lotOf(i: number): ParkingLot | undefined {
     return this.parkingLots().find((l) => l.tiles.includes(i));
-  }
-
-  /**
-   * How trucks drive by `base`, keeping out from under a yard gantry
-   * unless it is the yard they are bound for or leaving: the long way
-   * round, if it is not much longer, rather than through its lane, where
-   * the trucks it loads queue and it lifts over them.
-   */
-  private throughCost(base: CostFn, target: number, home: number): CostFn {
-    const rails = this.gantryRailWays();
-    if (rails.size === 0) return base;
-    return (i, from) => {
-      const c = base(i, from);
-      const yard = this.railYard.get(i);
-      if (yard === undefined || !Number.isFinite(c) || yard === target || yard === home) return c;
-      return c + B.GANTRY_LANE_DETOUR;
-    };
   }
 
   /**
@@ -13137,6 +13287,7 @@ export class World {
         why: this.boatWhy(b),
         vessel: b.vessel,
         boxes: b.vessel === 'feeder',
+        visit: this.visitView(b),
       });
     }
     for (const t of this.tugs) {

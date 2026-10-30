@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import type { Command } from '../protocol';
+import type { BoatVisit, Command } from '../protocol';
 import * as B from '../sim/balance';
 import { BUILDABLES } from '../sim/rules';
 import { Terrain, type BuildKind, type MachineKind } from '../sim/types';
@@ -650,6 +650,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
           </dd>
         </dl>
       )}
+      {e.visit && (
+        <VisitDetails visit={e.visit} onSail={() => actions.send({ type: 'sailNow', id: e.id })} />
+      )}
       {e.kind === 'truck' && (
         <>
           <dl class="props">
@@ -662,6 +665,87 @@ function InfoPanel({ actions }: { actions: Actions }) {
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * How a ship's visit is going: how long it has been in, waited, unloaded
+ * and loaded, against the time its line allows alongside, and how its line
+ * stands to take it; with the order to sail now while it is loading.
+ */
+function VisitDetails({ visit: v, onSail }: { visit: BoatVisit; onSail: () => void }) {
+  const over = v.worked - v.allowed;
+  const took = (ticks: number, done: boolean) =>
+    ticks < 0 ? 'not yet' : done ? duration(ticks) : `${duration(ticks)} so far`;
+  const sign = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
+  return (
+    <>
+      <dl class="props">
+        {v.inPort >= 0 && (
+          <>
+            <dt>In port</dt>
+            <dd>{duration(v.inPort)}</dd>
+          </>
+        )}
+        {v.anchored > 0 && (
+          <>
+            <dt>At anchor</dt>
+            <dd>{duration(v.anchored)}</dd>
+          </>
+        )}
+        <dt>Unloading</dt>
+        <dd>{took(v.unloading, v.unloaded)}</dd>
+        {v.loads && (
+          <>
+            <dt>Loading</dt>
+            <dd>
+              {took(v.loading, v.loaded)}
+              {v.unloaded && (
+                <span class="muted">
+                  {' '}
+                  · {v.out}
+                  {v.quota !== undefined && v.quota > v.out ? ` of ${v.quota}` : ''} exports on
+                  board
+                </span>
+              )}
+            </dd>
+          </>
+        )}
+        <dt>Time alongside</dt>
+        <dd>
+          {duration(v.worked)} of {duration(v.allowed)} allowed
+          {over > 0 && <span class="neg"> · over by {duration(over)}</span>}
+        </dd>
+        {v.mood !== undefined && (
+          <>
+            <dt>Owner’s goodwill</dt>
+            <dd>
+              {v.mood} / 100
+              <span class={v.moodChange < 0 ? 'neg' : 'muted'}>
+                {' '}
+                · {sign(Math.round(v.moodChange))} for this visit, if it sailed now
+              </span>
+            </dd>
+          </>
+        )}
+      </dl>
+      {v.mood !== undefined && (
+        <Meter value={Math.min(1, v.mood / 100)} tone={v.mood < 25 ? 'bad' : undefined} />
+      )}
+      {v.canSail && (
+        <>
+          <p class="muted">
+            Waiting on exports to fill up? Send it off with the {v.out} it has on board: the cranes
+            finish the lifts they are in, and the rest wait in the port for the next ship.
+          </p>
+          <div class="actions">
+            <button class="btn" onClick={onSail}>
+              Sail now
+            </button>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
