@@ -11023,14 +11023,19 @@ export class World {
    * bend just ahead of it on a way that never meets its own, as one turns
    * off a roundabout where the other comes on, or two going opposite ways
    * round a corner keep to their own sides of it: then it is not in its way.
+   * Not only the first such ahead: one still rounding the corner of a
+   * roundabout before the arm it turns off at is not held up by one that
+   * has come on there.
    */
   private clearAcross(t: Vehicle, o: Vehicle): boolean {
     const junctions = this.junctions();
     const j = [this.tileOf(t), t.path[0], t.path[1]].find(
-      (i) => i !== undefined && (junctions[i] === 1 || (this.wayAcross(t, i)?.length ?? 0) >= 3),
+      (i) =>
+        i !== undefined &&
+        (this.tileOf(o) === i || o.path[0] === i) &&
+        (junctions[i] === 1 || (this.wayAcross(t, i)?.length ?? 0) >= 3),
     );
     if (j === undefined) return false;
-    if (this.tileOf(o) !== j && o.path[0] !== j) return false;
     const a = this.wayAcross(t, j);
     const b = a && this.wayAcross(o, j);
     return !!a && !!b && !waysMeet(a, b);

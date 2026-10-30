@@ -391,6 +391,34 @@ describe('Giving way at junctions', () => {
     expect(gap(leaving)).toBeGreaterThan(1);
   });
 
+  it('lets one still rounding the corner before the arm it turns off at by one come on there', () => {
+    const world = World.create(7, 96);
+    world.debug({ type: 'debug', tier: 2, cash: 100_000 });
+    world.trucks.length = 0;
+    const m = world.map;
+    const { row, x } = roundaboutSite(world);
+    world.command({ type: 'roundabout', tile: m.idx(x, row) });
+    const corner = m.idx(x + 1, row + 1);
+    const junction = m.idx(x + 1, row);
+    // Into the corner heading east, turning north for the arm off to the east.
+    const leaving = truckAt(world, x + 1, row + 1, -1.2, [
+      junction,
+      m.idx(x + 2, row),
+      m.idx(x + 3, row),
+    ]);
+    leaving.x -= 0.28;
+    leaving.y -= 0.28;
+    // On from the east, turned north already, past where the other turns off.
+    const entering = truckAt(world, x + 1, row, -1.9, [m.idx(x + 1, row - 1)]);
+    entering.x += 0.22;
+    entering.y -= 0.32;
+    const came = world['cameFrom'] as Map<number, { tile: number; from: number }>;
+    came.set(leaving.id, { tile: corner, from: m.idx(x, row + 1) });
+    came.set(entering.id, { tile: junction, from: m.idx(x + 2, row) });
+    world['gapAhead'](leaving as never);
+    expect((leaving as { blocker?: number }).blocker).not.toBe(entering.id);
+  });
+
   it('lets one truck turn into a side road while another turns out of it', () => {
     const world = World.create(7, 96);
     world.debug({ type: 'debug', tier: 2, cash: 100_000 });
