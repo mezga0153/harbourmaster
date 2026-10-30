@@ -879,7 +879,7 @@ export class Entities {
         // the others there if they stand about.
         const [bx, bz] = this.byBack(drive.x, drive.z);
         const [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
-        pose = { ...this.catchUp(e, gx, gz, drive.dir, dt), h: 0 };
+        pose = { ...this.catchUp(e, gx, gz, drive.dir, dt, v.moving), h: 0 };
         e.stepping = true;
         const there = Math.hypot(pose.x - gx, pose.z - gz) < 0.02;
         if (there || s >= 4) e.hand = undefined;
@@ -959,15 +959,28 @@ export class Entities {
    * A dockhand's way onto x, z: no faster than a brisk walk, so they never
    * jump there, facing the way they step and otherwise `dir`.
    */
-  private catchUp(e: Entry, x: number, z: number, dir: number, dt: number): Omit<Pose, 'h'> {
+  private catchUp(
+    e: Entry,
+    x: number,
+    z: number,
+    dir: number,
+    dt: number,
+    leaving = false,
+  ): Omit<Pose, 'h'> {
+    // Just come into view, or a long way on (the tab was in the background).
+    if (!e.pose || Math.hypot(x - e.pose.x, z - e.pose.z) > 2) return { x, z, dir };
+    // Going on from a truck they loaded, where the game has them walk
+    // through it: they make for where they come out the other side, round it.
+    for (let k = 0; leaving && k < 30 && this.inTruck(x, z); k++) {
+      x += Math.cos(dir) * 0.05;
+      z += Math.sin(dir) * 0.05;
+    }
     [x, z] = this.offTrucks(e, x, z);
     // Round a truck in the way, by its nearer corner.
     const via = e.pose && this.aroundTrucks(e.pose, { x, z })[0];
     if (via) [x, z] = [via.x, via.z];
     const at = e.pose;
-    const d = at ? Math.hypot(x - at.x, z - at.z) : 0;
-    // Just come into view, or a long way on (the tab was in the background).
-    if (!at || d > 2) return { x, z, dir };
+    const d = Math.hypot(x - at.x, z - at.z);
     const step = Math.min(d, CATCH_UP * dt);
     const nx = d > 0 ? at.x + ((x - at.x) / d) * step : x;
     const nz = d > 0 ? at.z + ((z - at.z) / d) * step : z;
