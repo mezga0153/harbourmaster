@@ -2095,7 +2095,7 @@ button.drawer-stat:active {
 
   .topbar .brand,
   .topbar .vr,
-  .topbar .stat-button:not(.cash),
+  .topbar .stat-button:not(.cash):not(.town),
   .topbar-left > .stat,
   .topbar-right {
     display: none;
@@ -2103,6 +2103,25 @@ button.drawer-stat:active {
 
   .topbar .stat-button.cash {
     margin-left: auto;
+  }
+
+  /* The town's size beside the cash, its name left out for room. */
+  .topbar .stat-button.town {
+    padding: 2px 4px;
+    margin: 0;
+    flex: none;
+  }
+
+  .topbar .stat-button.cash {
+    flex: none;
+  }
+
+  .topbar .stat-button.town .stat-label {
+    display: none;
+  }
+
+  .topbar .stat-button.town .stat-value {
+    font-size: 13px;
   }
 
   .topbar .stat-button.cash .stat {
@@ -2147,6 +2166,29 @@ button.drawer-stat:active {
 
   .topbar .stat-button.cash .stat-value {
     font-size: 13px;
+  }
+}
+
+/* A phone held upright: the clock, the speeds, the cash and the town all
+   squeezed in. */
+@media (max-width: 520px) {
+  .topbar,
+  .topbar-left,
+  .topbar .time {
+    gap: 4px;
+  }
+
+  .topbar .clock-date {
+    font-size: 11px;
+  }
+
+  .topbar .time .segmented button {
+    padding: 0 4px;
+    font-size: 12px;
+  }
+
+  .topbar .stat-button.town .icon {
+    display: none;
   }
 }
 
