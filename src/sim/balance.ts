@@ -197,6 +197,8 @@ export const LINE_UP_LENGTH = 4;
 export const BOAT_REROUTE_AFTER = 50;
 /** Ticks without getting closer before a boat squeezes past others, so traffic never locks up. */
 export const BOAT_WEDGED_AFTER = 150;
+/** Ticks a ship stands held up by a boat lying still ahead before it swings round or backs off instead. */
+export const HELD_STILL_TICKS = 20;
 
 export const PICK_TICKS = 8;
 export const DROP_TICKS = 5;

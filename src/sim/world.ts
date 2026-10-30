@@ -473,6 +473,8 @@ interface Boat extends Agent {
   undock?: number;
   /** Ticks left squeezing past other boats after being wedged in. */
   squeeze?: number;
+  /** Ticks a boat lying still has kept it from going ahead, however it swings meanwhile. */
+  stillFor?: number;
   /**
    * Ticks it has been beside the clear water off a moored boat's bow or
    * stern, and the tick that was last counted; see giveWay.
@@ -4321,6 +4323,7 @@ export class World {
       }
     }
     const way = this.giveWay(b);
+    b.stillFor = way.still ? (b.stillFor ?? 0) + 1 : 0;
     // The rules of the road, out on open water: look ahead for boats on a
     // collision course.
     const road = free && !b.squeeze ? this.rulesOfTheRoad(b) : { bias: 0, slow: 1 };
@@ -4481,8 +4484,19 @@ export class World {
         ay = cy(b.lineup);
         adir = Math.atan2(ay - b.y, ax - b.x);
       }
+      // Held up by a boat lying still in its way, it does not go on at it:
+      // it swings round where it lies, or backs off, towards the next turn
+      // of its way rather than a ship's length along it, which may lie on
+      // past that boat.
+      const heldStill = way.still && (b.stillFor ?? 0) > B.HELD_STILL_TICKS;
+      if (heldStill && b.path[0] !== undefined) {
+        ax = cx(b.path[0]);
+        ay = cy(b.path[0]);
+        adir = Math.atan2(ay - b.y, ax - b.x);
+      }
       // The best whose very first step is clear too.
       const best = this.manoeuvre(b, ax, ay, adir, speed, ships, now, reach).find((o) => {
+        if (heldStill && !o.pivot && !o.astern) return false;
         const n = step(o);
         return fits(n.x, n.y, n.d);
       });
@@ -4497,7 +4511,15 @@ export class World {
       // The run looked clear but this step is not: think again next tick.
       b.plan = undefined;
       speed = 0;
-    } else if (plan && next && (way.speed > 0.05 || (plan.out && this.clearAstern(b)))) {
+    } else if (
+      plan &&
+      next &&
+      // Ahead only as the way ahead lets it; but swinging round where it
+      // lies, or backing off, takes it no nearer what it waits for, so it
+      // may: else, held by a boat lying still off its bow, a long ship
+      // that cannot turn without way on would wait there for good.
+      (way.speed > 0.05 || plan.pivot || (plan.astern && this.clearAstern(b)))
+    ) {
       b.dir = next.d;
       b.x = next.x;
       b.y = next.y;
