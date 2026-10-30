@@ -93,6 +93,25 @@ const FISHERIES = [
   'Deepwater Catch Co.',
 ];
 
+/** Ice works, selling ice to the fishing boats. */
+const ICE_WORKS = [
+  'Harbour Ice Works',
+  'Polar Ice Co.',
+  'Frost & Sons Ice',
+  'Glacier Cold Store',
+  'Northern Ice House',
+];
+
+/** Lobstermen: a few small boats, their pots and creels, and a fine price. */
+const LOBSTERMEN = [
+  'Redclaw Lobsters',
+  'Creel & Pot Co.',
+  'Rocky Point Lobstermen',
+  'Pinch & Daughters',
+  'Harbour Pot Fishers',
+  'Old Shell Creels',
+];
+
 const SHIPPING_LINES = [
   'Baltic Coasters',
   'North Sea Shipping',
@@ -308,6 +327,27 @@ export function makeOffer(
     return { id, terms, signingFee, expires };
   }
 
+  // A lobsterman now and then, from the same roll so the offers otherwise
+  // come as they did: a small catch at a fine price.
+  const lobster = kind === 'fishery' && (roll * 7) % 1 < B.LOBSTER_SHARE;
+  if (lobster) {
+    const free = LOBSTERMEN.filter((n) => !takenNames.has(n));
+    const cratesMin = rng.int(3, 5);
+    const terms: FisheryTerms = {
+      kind,
+      vessel: 'smack',
+      name: free.length > 0 ? free[Math.floor(((roll * 13) % 1) * free.length)] : name,
+      color: rng.int(0, 3),
+      boatEvery: Math.round(rng.range(1, 2) * 20) / 20,
+      cratesMin,
+      cratesMax: cratesMin + rng.int(1, 3),
+      fee: rng.int(40, 60),
+      catch: 'lobster',
+    };
+    const signingFee = Math.round((fisheryDailyValue(terms) * 1.5) / 50) * 50;
+    return { id, terms, signingFee, expires };
+  }
+
   if (kind === 'fishery') {
     const cratesMin = rng.int(6, 12);
     const terms: FisheryTerms = {
@@ -337,6 +377,37 @@ export function makeOffer(
     dailyFee: fleet * perTruck + rng.int(0, 2) * 5,
   };
   return { id, terms, signingFee: fleet * 150, expires };
+}
+
+/**
+ * An ice works' offer: a truck of ice for the fishing boats now and then,
+ * at a few dollars a crate as it goes on board. On offer from the start.
+ */
+export function makeIceOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+): Offer | null {
+  const free = ICE_WORKS.filter((n) => !takenNames.has(n));
+  if (free.length === 0) return null;
+  const terms: ShipperTerms = {
+    kind: 'shipper',
+    name: rng.pick(free),
+    color: rng.int(0, 4),
+    perDay: rng.int(3, 6),
+    capacity: B.TRUCK_CAPACITY,
+    fee: rng.int(6, 10),
+    goods: 'ice',
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 25) * 25;
+  return { id, terms, signingFee, expires };
+}
+
+/** An ice works, rather than a shipper of goods. */
+export function isIce(t: Terms): boolean {
+  return t.kind === 'shipper' && t.goods === 'ice';
 }
 
 /** Whether a contract's or offer's fee is per container. */

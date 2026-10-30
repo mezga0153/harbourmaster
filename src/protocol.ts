@@ -89,6 +89,8 @@ export interface EntityView {
   handling?: number;
   /** Crates: what each holds, in the order they are loaded, as far as it is known. */
   cargo?: Cargo[];
+  /** Fishing boats: what they bring in, which is the kind of boat they are. */
+  catch?: Cargo;
   /** Dockhands on a break: sat on the bench outside the break hut. */
   sitting?: boolean;
   name: string;

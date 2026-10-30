@@ -484,7 +484,7 @@ export class Entities {
                 : v.kind === 'tractor'
                   ? tractor()
                   : v.kind === 'boat'
-                    ? boat(v.variant, v.vessel, v.id)
+                    ? boat(v.variant, v.vessel, v.id, v.catch === 'lobster')
                     : truck(v.variant, v.capacity, v.boxes, v.id);
         this.group.add(model.root);
         // Only machines show a warning marker; boats at anchor are normal.

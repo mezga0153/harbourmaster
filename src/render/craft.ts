@@ -293,6 +293,81 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Craft 
   return { root, slots };
 }
 
+/** Lobster boats: white or pale hulls, a band of bright colour. */
+const LOBSTER_HULLS = [0xf4f4f0, 0xe3e1d8, 0xdfe9ef, 0x1f6f78];
+/** The yellow, orange and red of wire lobster pots, and the buoys' stripes. */
+const POTS = [0xf2c230, 0xe8892f, 0xd6453d];
+const BUOYS = [0xd6453d, 0xf2c230, 0x3fa34d, 0x2f6fd0, 0xf4f4f0];
+
+/**
+ * A lobster boat, the length of a fishing boat but low and open: its little
+ * wheelhouse well forward, a hauler for the pot lines at its side, lobster
+ * pots stacked on the open deck aft, and its painted buoys hung along the
+ * wheelhouse; the catch in crates amidships.
+ */
+export function lobsterBoat(seed: number, company: number, crate: Crate): Craft {
+  const rng = new Rng(seed * 6007 + 29);
+  const root = new Group();
+  const paint = rng.pick(LOBSTER_HULLS);
+  const accent = COMPANY[company % COMPANY.length];
+  const length = 1.9;
+  const beam = rng.range(0.56, 0.62);
+  const deck = hull(root, {
+    length,
+    beam,
+    height: rng.range(0.28, 0.32),
+    draft: 0.14,
+    bow: rng.range(0.3, 0.36),
+    stern: rng.range(0.82, 0.9),
+    paint,
+    bottom: rng.pick(ANTIFOUL),
+    stripe: accent === paint ? C.funnel : accent,
+    deck: rng.pick(DECK),
+  });
+  // Wheelhouse forward, with an open back.
+  const white = rng.pick(SUPERSTRUCTURE);
+  cabin(root, 0.42, deck, 0.3, beam * 0.7, 0.26, white, accent);
+  root.add(cyl(0.012, 0.22, C.chassis, 0.38, deck + 0.28));
+  // Buoys hung along both sides of the wheelhouse, each in two colours.
+  const buoys = rng.pick(BUOYS);
+  const band = rng.pick(BUOYS.filter((c) => c !== buoys));
+  for (const z of [-1, 1]) {
+    for (const x of [0.34, 0.46]) {
+      const y = deck + 0.1;
+      const zz = z * (beam * 0.35 + 0.025);
+      root.add(cyl(0.022, 0.06, buoys, x, y, zz, 6));
+      root.add(cyl(0.023, 0.02, band, x, y + 0.06, zz, 6));
+    }
+  }
+  // The pot hauler at the starboard rail, by the wheelhouse.
+  root.add(cyl(0.035, 0.05, C.chassis, 0.18, deck + 0.14, beam * 0.36, 8));
+  root.add(box(0.03, 0.14, 0.03, accent, 0.18, deck, beam * 0.36));
+  // Lobster pots stacked on the open deck aft: wire boxes with a frame.
+  const pot = rng.pick(POTS);
+  for (const [x, z, y] of [
+    [-0.7, -0.14, 0],
+    [-0.7, 0.14, 0],
+    [-0.52, -0.14, 0],
+    [-0.52, 0.14, 0],
+    [-0.7, 0, 0.1],
+    [-0.52, 0, 0.1],
+  ]) {
+    root.add(box(0.16, 0.1, 0.13, pot, x, deck + y, z));
+    root.add(box(0.165, 0.012, 0.135, C.chassis, x, deck + y + 0.05, z));
+  }
+  // The catch in crates amidships.
+  const slots = slotGrid(
+    root,
+    (x, y, z) => crate(0.14, x, y, z),
+    [-0.3, -0.14, 0.02, 0.18],
+    [-0.09, 0.09],
+    deck,
+    2,
+    0.14,
+  );
+  return { root, slots };
+}
+
 /**
  * A coaster about 2.7 tiles long with crates on pallets in its hold. The
  * bridge is aft; some carry one or two deck cranes, some a derrick mast.

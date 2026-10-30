@@ -15,7 +15,7 @@ import {
 } from 'three';
 import { hash01 } from '../sim/noise';
 import { BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
-import { coasterShip, feederShip, fishingBoat, tugBoat } from './craft';
+import { coasterShip, feederShip, fishingBoat, lobsterBoat, tugBoat } from './craft';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { worker, type Limbs } from './people';
@@ -452,7 +452,7 @@ export function person(id = 0): Model {
 }
 
 /** A boat or ship of the given kind, in its company's colours, unique to its id. */
-export function boat(variant: number, vessel = 'smack', id = 0): Model {
+export function boat(variant: number, vessel = 'smack', id = 0, lobster = false): Model {
   const c =
     vessel === 'tug'
       ? tugBoat(id)
@@ -460,7 +460,9 @@ export function boat(variant: number, vessel = 'smack', id = 0): Model {
         ? feederShip(id, variant, (k, x, y, z) => container(k, x, y, z))
         : vessel === 'coaster'
           ? coasterShip(id, variant, crate)
-          : fishingBoat(id, variant, crate);
+          : lobster
+            ? lobsterBoat(id, variant, crate)
+            : fishingBoat(id, variant, crate);
   return { root: c.root, crates: c.slots };
 }
 

@@ -36,12 +36,20 @@ function mood(satisfaction: number): { label: string; tone: string } {
 
 function kindLabel(t: Terms): string {
   if (t.kind === 'haulier') return t.cargo === 'container' ? 'Container haulier' : 'Haulier';
-  if (t.kind === 'shipper') return t.cargo === 'container' ? 'Container shipper' : 'Shipper';
+  if (t.kind === 'shipper') {
+    return t.cargo === 'container'
+      ? 'Container shipper'
+      : t.goods === 'ice'
+        ? 'Ice works'
+        : 'Shipper';
+  }
   return t.vessel === 'feeder'
     ? 'Container line'
     : t.vessel === 'coaster'
       ? 'Shipping line'
-      : 'Fishery';
+      : t.catch === 'lobster'
+        ? 'Lobstermen'
+        : 'Fishery';
 }
 
 function unit(t: Terms): string {
@@ -118,11 +126,11 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   if (t.kind === 'shipper') {
     return [
       ['A truck', `every ${span(t.capacity / t.perDay)}`],
-      ['Load', `${t.capacity} ${unit(t)}`],
+      ['Load', `${t.capacity} ${unit(t)}${t.goods === 'ice' ? ' of ice' : ''}`],
       ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)} on board`],
       [
         'Needs',
-        `Parking outside the port, ${t.cargo ? 'container yards and feeders' : 'crate storage and coasters'}`,
+        `Parking outside the port, ${t.cargo ? 'container yards and feeders' : t.goods === 'ice' ? 'truck bays and fishing boats' : 'crate storage and coasters'}`,
       ],
     ];
   }
@@ -142,10 +150,19 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   }
   return [
     [
-      t.vessel === 'feeder' ? 'A feeder' : t.vessel === 'coaster' ? 'A coaster' : 'A boat',
+      t.vessel === 'feeder'
+        ? 'A feeder'
+        : t.vessel === 'coaster'
+          ? 'A coaster'
+          : t.catch === 'lobster'
+            ? 'A lobster boat'
+            : 'A boat',
       `every ${span(t.boatEvery)}`,
     ],
-    ['Load', `${t.cratesMin}–${t.cratesMax} ${unit(t)}`],
+    [
+      'Load',
+      `${t.cratesMin}–${t.cratesMax} ${unit(t)}${t.catch === 'lobster' ? ' of lobster' : ''}`,
+    ],
     ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)}`],
     [
       'Needs',

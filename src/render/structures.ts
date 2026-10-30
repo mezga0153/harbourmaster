@@ -1514,7 +1514,8 @@ export class Structures {
       }
       const stack = this.stacks.get(b.idx);
       if (!stack) continue;
-      stack.crates.forEach((c, k) => (c.visible = k < b.stock));
+      // Its crates, and on top any ice waiting for the fishing boats.
+      stack.crates.forEach((c, k) => (c.visible = k < b.stock + b.exports));
       paintCargo(stack.crates, b.cargo);
       stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
     }

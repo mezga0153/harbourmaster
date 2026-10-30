@@ -41,6 +41,8 @@ export const PART_LOAD_WAIT = 300;
 export const TRUCK_GIVE_UP = 600; // ticks an empty truck waits before leaving
 export const TRUCK_WAITING_PULL = 12; // tiles further a dockhand carries crates to set them straight on a waiting truck
 export const WANDER_CHANCE = 0.012; // per tick, a dockhand with nothing to do strolls somewhere nearby
+export const LOBSTER_SHARE = 0.3; // of fishing boat offers, from lobstermen
+export const SMACK_ICE_LOAD = 4; // crates of ice a fishing boat takes out
 export const IDLE_ROOM = 1.2; // tiles a dockhand with nothing to do keeps from the others
 /** Ticks a shipper's truck spends parked outside the port on its paperwork before it may come in: a day. */
 export const PAPERWORK_TICKS = TICKS_PER_DAY;

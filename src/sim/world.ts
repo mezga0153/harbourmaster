@@ -24,6 +24,8 @@ import type {
 import * as B from './balance';
 import {
   fisheryDailyCrates,
+  isIce,
+  makeIceOffer,
   makeOffer,
   paysPerContainer,
   STARTER_FISHERY,
@@ -901,13 +903,20 @@ function outHeld(b: Bay): number {
   return (b.exports?.length ?? 0) + (b.exportIncoming ?? 0);
 }
 
-/** How many crates or containers a ship takes out. Fishing boats take none. */
+/** How many crates or containers a ship takes out. Fishing boats take ice. */
 function outCap(b: { vessel: string }): number {
   return b.vessel === 'feeder'
     ? B.FEEDER_MAX_LOAD
     : b.vessel === 'coaster'
       ? B.COASTER_MAX_LOAD
-      : 0;
+      : b.vessel === 'smack'
+        ? B.SMACK_ICE_LOAD
+        : 0;
+}
+
+/** A truck bay: no storage marked out, no yard, not crates landed on the quay. */
+function truckBay(b: Bay): boolean {
+  return !b.tiles && !b.yard && !b.pile;
 }
 
 function bayIncoming(b: Bay, boxes: boolean, delta: number): void {
@@ -2491,9 +2500,17 @@ export class World {
     if (expired.length > 0 && this.offers.length === 0) {
       this.message('Some contract offers have expired.', 'info');
     }
-    if (this.offers.length < B.MAX_OFFERS && this.rng.next() < 0.7) {
+    // An ice works offering its ice for the fishing boats, while none has a
+    // contract: besides the other offers, drawn apart so they come as ever.
+    const others = this.offers.filter((o) => !isIce(o.terms));
+    if (!this.offers.some((o) => isIce(o.terms)) && !this.contracts.some((c) => isIce(c.terms))) {
+      const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
+      const offer = makeIceOffer(new Rng(this.tick * 7919 + 17), -1 - this.tick, this.tick, taken);
+      if (offer) this.offers.push(offer);
+    }
+    if (others.length < B.MAX_OFFERS && this.rng.next() < 0.7) {
       // Keep at least one offer of each kind on the board.
-      const has = (k: Terms['kind']) => this.offers.some((o) => o.terms.kind === k);
+      const has = (k: Terms['kind']) => others.some((o) => o.terms.kind === k);
       // Shippers come with the Coastal Wharf: before it, the same draws as ever.
       const pick = (): Terms['kind'] => {
         const roll = this.rng.next();
@@ -5533,8 +5550,9 @@ export class World {
       if (pile) return { pile: pile.idx, slot: pile.crates.length - 1 };
       const bay = this.bays.get(p.stockIdx);
       if (!bay) return undefined;
-      // Off a truck bay's stack, as onto a truck there.
-      return bay.tiles ? store(bay) : { bay: bay.idx, slot: last(bay.crates.length) };
+      // Off a truck bay's stack, as onto a truck there; its ice, on top, for a boat.
+      if (bay.tiles) return store(bay);
+      return { bay: bay.idx, slot: last(p.outbound ? heldIn(bay) : bay.crates.length) };
     }
     // Onto a truck it is loading.
     const truck = p.truckId !== undefined && this.trucks.find((q) => q.id === p.truckId);
@@ -8957,6 +8975,17 @@ export class World {
       }
     }
     const boxy = isBoxy(p);
+    // Ice in the truck bays, for dockhands to carry on board the fishing boats.
+    if (
+      p.kind === 'dockhand' &&
+      this.boats.some((b) => b.vessel === 'smack' && this.wantsLoad(b))
+    ) {
+      for (const bay of this.bays.values()) {
+        const avail = (bay.exports?.length ?? 0) - (bay.outReserved ?? 0);
+        const tile = avail > 0 && truckBay(bay) ? this.dropAt(p, bay, here) : -1;
+        if (tile >= 0) sources.push({ tile, avail, pile: bay, out: true, rank: 1 });
+      }
+    }
     if (!this.boats.some((b) => this.wantsLoad(b) && (b.vessel === 'feeder') === boxy)) return;
     const stores = boxy ? this.yards.values() : this.bays.values();
     for (const store of stores) {
@@ -9044,6 +9073,15 @@ export class World {
       }
       return null;
     }
+    // Ice from a truck bay goes on board a fishing boat.
+    if (source && truckBay(source)) {
+      for (const b of this.boats) {
+        if (b.vessel !== 'smack' || !this.wantsLoad(b) || p.kind !== 'dockhand') continue;
+        const room = (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - (b.outIncoming ?? 0);
+        if (room > 0 && this.loadSpot(p, b, from) >= 0) return { boat: b, room };
+      }
+      return null;
+    }
     for (const b of this.boats) {
       if (b.vessel !== 'coaster' || !this.wantsLoad(b)) continue;
       let room = outCap(b) - (b.out ?? 0) - (b.outIncoming ?? 0);
@@ -9112,8 +9150,10 @@ export class World {
     p: Dockhand,
     from: number,
   ): { boat?: Boat; crane?: Crane; pile?: Bay; store?: Bay; room: number } | null {
+    // Ice goes back into a truck bay.
+    const ice = p.cargoFees.some((f) => cargoOf(f, 'goods') === 'ice');
     const stores = [...this.bays.values()]
-      .filter((b) => this.takesExports(b) && bayRoom(b, false) > 0)
+      .filter((b) => (ice ? truckBay(b) : this.takesExports(b)) && bayRoom(b, false) > 0)
       .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
     const store = stores.find((b) => this.dropAt(p, b, from) >= 0);
     return store ? { store, room: bayRoom(store, false) } : null;
@@ -9156,7 +9196,11 @@ export class World {
   private exportsFor(b: Boat): number {
     const boxes = b.vessel === 'feeder';
     let n = 0;
-    for (const s of boxes ? this.yards.values() : this.bays.values()) n += s.exports?.length ?? 0;
+    // Fishing boats take the ice in the truck bays, coasters what is in storage.
+    for (const s of boxes ? this.yards.values() : this.bays.values()) {
+      if (boxes || truckBay(s) === (b.vessel === 'smack')) n += s.exports?.length ?? 0;
+    }
+    if (b.vessel === 'smack') return n;
     if (boxes) {
       for (const c of this.cranes.values()) {
         if (this.craneReaches(c, b)) n += c.outStack?.length ?? 0;
@@ -9197,9 +9241,8 @@ export class World {
     // It takes what is in the port when it is ready to go, never waiting for
     // more to come in, nor to fill up.
     if (b.loadQuota === undefined) {
-      const boxes = b.vessel === 'feeder';
       const claimed = this.boats
-        .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
+        .filter((o) => o !== b && o.state === 'moored' && o.vessel === b.vessel)
         .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
       const room = outCap(b) - (b.out ?? 0);
       const take = clamp(Math.max(coming, this.exportsFor(b) - claimed), 0, room);
@@ -9209,9 +9252,8 @@ export class World {
     }
     if ((b.out ?? 0) >= b.loadQuota) return false;
     // Nothing left in the port that other ships alongside are not taking.
-    const boxes = b.vessel === 'feeder';
     const theirs = this.boats
-      .filter((o) => o !== b && o.state === 'moored' && (o.vessel === 'feeder') === boxes)
+      .filter((o) => o !== b && o.state === 'moored' && o.vessel === b.vessel)
       .reduce(
         (n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0) - (o.outIncoming ?? 0)),
         0,
@@ -9381,7 +9423,7 @@ export class World {
   private exportStore(t: Truck): { store: Bay; dock: number; path: number[] } | null {
     const from = this.tileOf(t);
     const stores = [...(t.boxes ? this.yards : this.bays).values()]
-      .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
+      .filter((b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo)
       .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
     for (const store of stores) {
       const to = this.dockFor(
@@ -9397,7 +9439,7 @@ export class World {
   /** Some outgoing storage of its kind has room for a shipper's truck's load. */
   private outgoingRoom(t: Truck): boolean {
     return [...(t.boxes ? this.yards : this.bays).values()].some(
-      (b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo,
+      (b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo,
     );
   }
 
@@ -9658,6 +9700,19 @@ export class World {
   /** Whether exports may go here: only storage marked out for cargo going out, and not shut. */
   private takesExports(b: Bay): boolean {
     return !!b.tiles && !!b.outgoing && !b.shut;
+  }
+
+  /**
+   * Where shipper's truck `t` unloads: ice into a truck bay, for the
+   * fishing boats; the rest into outgoing storage.
+   */
+  private takesFrom(b: Bay, t: Truck): boolean {
+    return this.iceTruck(t) ? truckBay(b) && !b.large : this.takesExports(b);
+  }
+
+  /** A shipper's truck bringing ice. */
+  private iceTruck(t: Truck): boolean {
+    return !!t.exports && !t.boxes && cargoOf(t.value, 'goods') === 'ice';
   }
 
   /**
@@ -11927,7 +11982,7 @@ export class World {
   ): { store: Bay; space: ParkingSpace; into: { path: number[]; via: number } } | null {
     const here = this.tileOf(t);
     const stores = [...(t.boxes ? this.yards : this.bays).values()]
-      .filter((b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo)
+      .filter((b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo)
       .sort((a, b) => this.distTo(here, a) - this.distTo(here, b));
     const wide = needsWideSpace(t.capacity, t.boxes);
     for (const store of stores) {
@@ -13724,7 +13779,7 @@ export class World {
       const store = t.boxes ? 'container yard' : 'crate storage';
       if (!this.outgoingRoom(t)) return `No outgoing ${store} has room for its load.`;
       const stores = [...(t.boxes ? this.yards : this.bays).values()].filter(
-        (b) => this.takesExports(b) && bayRoom(b, t.boxes) >= t.cargo,
+        (b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo,
       );
       // Those parked nearer, inside the port, take the spots first.
       const nearer =
@@ -14071,6 +14126,7 @@ export class World {
           ? this.deckView(b)
           : {
               load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken,
+              catch: cargoOf(b.fee),
               // Its catch, then what it has taken on board to go out.
               cargo: [
                 ...Array<Cargo>(b.crates).fill(cargoOf(b.fee)),
