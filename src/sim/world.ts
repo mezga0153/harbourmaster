@@ -5843,6 +5843,20 @@ export class World {
     );
   }
 
+  /**
+   * Whether someone else is at work at this truck bay, setting crates down
+   * on its stack or loading the truck in it: only one at a time works one.
+   */
+  private bayTaken(p: Dockhand, bay: Bay): boolean {
+    if (bay.tiles || bay.yard || bay.pile) return false;
+    return this.people.some(
+      (q) =>
+        q !== p &&
+        ((q.state === 'dropping' && q.bayIdx === bay.idx) ||
+          (q.truckId !== undefined && q.stockIdx === bay.idx && q.state === 'picking')),
+    );
+  }
+
   /** Crate trucks waiting to be loaded, for dockhands and forklifts. */
   private crateTruckSources(sources: Source[]): void {
     for (const t of this.trucks) {
@@ -5917,7 +5931,7 @@ export class World {
         }
         const r = this.walk(p);
         if (r === 'blocked') this.cancelJob(p);
-        else if (r === 'arrived') {
+        else if (r === 'arrived' && !this.bayTaken(p, bay)) {
           p.state = 'picking';
           p.timer = this.handlingTicks(p, B.PICK_TICKS);
         }
@@ -8244,6 +8258,9 @@ export class World {
           // The place its pallet goes in crate storage may have moved on
           // while it came: it goes on to it.
           if (this.toPallet(p, this.bays.get(p.bayIdx), false)) return;
+          // One at a time at a truck bay: it waits its turn.
+          const bay = this.bays.get(p.bayIdx);
+          if (bay && this.bayTaken(p, bay)) return;
           p.state = 'dropping';
           p.timer = this.handlingTicks(p, B.DROP_TICKS);
         }
@@ -13731,6 +13748,8 @@ export class World {
         ),
         moving: p.path.length > 0,
         handling: this.handlingPhase(p),
+        sitting:
+          p.state === 'resting' && p.hutIdx >= 0 && this.map.build[p.hutIdx] === Build.BreakHut,
         name: p.name,
         activity:
           p.blocked > 3

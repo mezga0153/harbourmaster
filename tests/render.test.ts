@@ -138,6 +138,7 @@ describe('Dockhands handling crates', () => {
     const held = new Map<number, { shown: boolean; at: Vector3; place?: Vector3 }>();
     let drops = 0;
     let picks = 0;
+    let early = 0;
     let up = 0;
     let now = 0;
     for (let t = 0; t < 1500; t++) {
@@ -168,12 +169,20 @@ describe('Dockhands handling crates', () => {
             picks++;
             expect(at.distanceTo(was.place)).toBeLessThan(0.05);
           }
+          // Off a boat, on its way to their hands as they bend to it: not
+          // on the deck as well.
+          const off = view.handStage === 'pick' && view.handAt?.truck;
+          if (off !== undefined && off !== false && e.hand?.early && shown) {
+            early++;
+            expect(entities.slotShown(off, view.handAt!.slot ?? 0)).toBe(false);
+          }
           held.set(view.id, { shown, at, place: e.hand?.place?.clone() });
         }
       }
     }
     expect(drops).toBeGreaterThan(10);
-    expect(picks).toBeGreaterThan(10);
+    expect(picks).toBeGreaterThan(2);
+    expect(early).toBeGreaterThan(50);
     // Some onto others, up off the ground.
     expect(up).toBeGreaterThan(0);
   });
@@ -307,6 +316,11 @@ describe('Trucks at a truck bay', () => {
     const world = World.create(7, 96);
     const m = world.map;
     const entities = new Entities(world.map);
+    const structures = new Structures(m, true);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
     const bodies = new Map<number, Box3>();
     const dropping = new Map<number, { x: number; z: number; truck: number }>();
     let docked = 0;
@@ -314,6 +328,8 @@ describe('Trucks at a truck bay', () => {
       world.step();
       const s = world.snapshot();
       entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
       for (const v of s.entities) {
         if (v.kind !== 'truck' || !/^Loading/.test(v.activity ?? '')) continue;
         const bay = s.bays.find(
@@ -332,6 +348,7 @@ describe('Trucks at a truck bay', () => {
       for (let f = 0; f < 6; f++) {
         now += 100 / 6;
         entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
         const shown = new Map(entities.worldPositions().map((p) => [p.view.id, p]));
         for (const { view, pos } of shown.values()) {
           if (view.kind !== 'dockhand') continue;

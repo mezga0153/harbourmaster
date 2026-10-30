@@ -3,7 +3,7 @@ import { VESSELS, WALK_SPEED } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { isMachineKind } from '../sim/machines';
-import { TICKS_PER_SECOND } from '../sim/types';
+import { Build, TICKS_PER_SECOND } from '../sim/types';
 import {
   alertMarker,
   boat,
@@ -24,7 +24,7 @@ import {
   truck,
   type Model,
 } from './models';
-import { pose } from './people';
+import { pose, sit } from './people';
 import { surfaceY } from './terrain';
 import type { Trailer } from './vehicles';
 
@@ -88,6 +88,8 @@ interface Pose {
    * boat: how much further on it is than they reach standing.
    */
   over?: number;
+  /** Stood where it must be, as at a truck bay: not moved clear of the truck. */
+  fixed?: boolean;
 }
 
 /** A reach stacker or tractor taking a container off where it is, or setting one down. */
@@ -115,6 +117,8 @@ interface Hand {
   at?: number;
   /** Setting down a crate just taken up: where it lay. */
   taken?: Vector3;
+  /** Taking a crate off a boat or truck: shown in their hands before it changes hands. */
+  early?: boolean;
   /** Dockhands: corners of a truck they walk round on the way. */
   via?: { x: number; z: number }[];
 }
@@ -339,6 +343,10 @@ const HAND_REACH = 0.16;
 const TOES = 0.05;
 /** Furthest a dockhand leans out over the edge to a crate. */
 const LEAN_MOST = 0.3;
+/** How far in from the back of a truck bay people walk across it, out of the truck's way. */
+const BACK_LANE = 0.18;
+/** How much further back than a dockhand a forklift stands at a truck bay, for its forks. */
+const FORK_BACK = 0.2;
 /** How far ahead of a forklift's middle the pallet on its forks sits. */
 const FORK_REACH = 0.3;
 /** Forklifts turning about: the tighter of the two arcs they go round. */
@@ -608,8 +616,10 @@ export class Entities {
         // this too, and a dockhand walks up to the crate.
         this.handle(e, x, y, dir, t, dt);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
-        // Keep to the right of the tile, so people going opposite ways pass.
-        const keep = cur.kind === 'forklift' ? FORK_KEEP : 0.2;
+        // Keep to the right of the tile, so people going opposite ways pass;
+        // sat on a bench, just where their seat is.
+        const seated = cur.sitting && !cur.moving;
+        const keep = cur.kind === 'forklift' ? FORK_KEEP : seated ? 0 : 0.2;
         const going = e.about && !e.about.done ? e.about : null;
         const about = cur.kind === 'forklift' ? this.turningAbout(e, prev, x, y) : null;
         // Once round, it faces the way it is going, not part way between.
@@ -634,8 +644,10 @@ export class Entities {
           if (e.slip.left <= 0) e.slip = undefined;
         }
         if (cur.kind === 'dockhand') {
+          // Across a truck bay along its back, out of the truck's way.
+          if (!seated) [rx, ry] = this.byBack(rx, ry);
           // Standing about, they keep a step apart rather than stand in each other.
-          if (!cur.moving) [rx, ry] = this.spread(e, rx, ry);
+          if (!cur.moving && !seated) [rx, ry] = this.spread(e, rx, ry);
           // Onto the other side of the way as they turn about, at a walk.
           const to = this.catchUp(e, rx, ry, yaw, dt);
           [rx, ry, yaw] = [to.x, to.z, Math.hypot(to.x - rx, to.z - ry) > 0.03 ? to.dir : yaw];
@@ -657,7 +669,8 @@ export class Entities {
         const down = this.lower(e, prev, t, dt, stepping);
         const goal = e.hand?.goal;
         const walking = cur.moving || stepping;
-        pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
+        if (cur.sitting && !cur.moving) sit(e.model, time * 12 + id);
+        else pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
         this.toPlace(e, down);
       }
       if (e.alert) {
@@ -850,7 +863,8 @@ export class Entities {
       if (v.kind === 'dockhand') {
         // Walks back onto their way, catching up with it, or a step clear of
         // the others there if they stand about.
-        const [gx, gz] = v.moving ? [drive.x, drive.z] : this.spread(e, drive.x, drive.z);
+        const [bx, bz] = this.byBack(drive.x, drive.z);
+        const [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
         pose = { ...this.catchUp(e, gx, gz, drive.dir, dt), h: 0 };
         e.stepping = true;
         const there = Math.hypot(pose.x - gx, pose.z - gz) < 0.02;
@@ -952,6 +966,20 @@ export class Entities {
     const p = this.slotAt;
     const heading = this.handSlot(at, p);
     if (heading === null) return null;
+    // At a truck bay, to its stack or the truck in it, from the back corner
+    // behind the stack, clear of the truck.
+    const corner = (v.kind === 'dockhand' || v.kind === 'forklift') && this.bayStand(v, at);
+    if (corner) {
+      const back = v.kind === 'forklift' ? FORK_BACK : 0;
+      const x = corner.x - corner.ux * back;
+      const z = corner.z - corner.uz * back;
+      const dir = Math.atan2(p.z - z, p.x - x);
+      const over =
+        v.kind === 'dockhand'
+          ? Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - hold))
+          : undefined;
+      return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
+    }
     // A stacker takes a container side on; a tractor's trailer lies along
     // it; a forklift's forks go into a pallet in storage the way it lies,
     // and otherwise it, or a dockhand, comes straight up to the crate.
@@ -997,6 +1025,76 @@ export class Entities {
     return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
   }
 
+  /**
+   * Where a dockhand or forklift stands at the truck bay it is on, to take
+   * a crate off its stack or set one on it, or on the truck in it: the back
+   * corner behind the stack, and the way into the bay towards the stack
+   * from there. Null off a truck bay.
+   */
+  private bayStand(
+    v: EntityView,
+    at: HandAt,
+  ): { x: number; z: number; ux: number; uz: number } | null {
+    const m = this.map;
+    const tile = m.idx(Math.floor(v.x), Math.floor(v.y));
+    if (!m.inBounds(Math.floor(v.x), Math.floor(v.y)) || m.build[tile] !== Build.TruckBay) {
+      return null;
+    }
+    const onTruck = at.truck !== undefined && this.entries.get(at.truck)?.view.kind === 'truck';
+    if (at.bay !== tile && !onTruck) return null;
+    const f = this.bayFrame(tile);
+    if (!f) return null;
+    // Behind the stack, halfway across it.
+    const [x, z] = f.at(0.8, 0.42);
+    return { x, z, ux: f.ux, uz: f.uz };
+  }
+
+  /**
+   * A truck bay's own frame, from where its stack's first places lie: the
+   * way in from its entrance (u) and across it (s), and where a point in
+   * it, or across it to the stack's side and from its back, lies.
+   */
+  private bayFrame(tile: number): {
+    ux: number;
+    uz: number;
+    at: (across: number, back: number) => [number, number];
+    of: (x: number, z: number) => [number, number];
+  } | null {
+    const [a, b, c] = [0, 1, 2].map((slot) => {
+      const out = new Vector3();
+      return this.containerAt?.({ bay: tile, slot }, out) === null ? null : out;
+    });
+    if (!a || !b || !c) return null;
+    const ux = (c.x - a.x) / 0.18;
+    const uz = (c.z - a.z) / 0.18;
+    const sx = (b.x - a.x) / 0.18;
+    const sz = (b.z - a.z) / 0.18;
+    // The first place is 0.71 across and 0.71 back from the bay's corner.
+    return {
+      ux,
+      uz,
+      at: (across, back) => [
+        a.x + sx * (across - 0.71) + ux * (back - 0.71),
+        a.z + sz * (across - 0.71) + uz * (back - 0.71),
+      ],
+      of: (x, z) => [
+        0.71 + (x - a.x) * sx + (z - a.z) * sz,
+        0.71 + (x - a.x) * ux + (z - a.z) * uz,
+      ],
+    };
+  }
+
+  /** On a truck bay, people keep to its back, out of the way of the truck: where x, z goes. */
+  private byBack(x: number, z: number): [number, number] {
+    const m = this.map;
+    const [tx, tz] = [Math.floor(x), Math.floor(z)];
+    if (!m.inBounds(tx, tz) || m.build[m.idx(tx, tz)] !== Build.TruckBay) return [x, z];
+    const f = this.bayFrame(m.idx(tx, tz));
+    if (!f) return [x, z];
+    const [across, back] = f.of(x, z);
+    return back > BACK_LANE ? f.at(across, BACK_LANE) : [x, z];
+  }
+
   /** Whether x, z is where a truck stands still, other than `but`, with a step's room round it. */
   private inTruck(x: number, z: number, but?: number): boolean {
     for (const truck of this.entries.values()) {
@@ -1032,7 +1130,7 @@ export class Entities {
   private clearOfTruck(v: EntityView, at: Pose | null, from: Pose): Pose | null {
     const id = v.handAt?.truck;
     const truck = id === undefined ? undefined : this.entries.get(id);
-    if (!at || !truck || truck.view.kind !== 'truck') return at;
+    if (!at || at.fixed || !truck || truck.view.kind !== 'truck') return at;
     if (v.kind !== 'dockhand' && v.kind !== 'forklift') return at;
     const box = (truck.size ??= sizeOf(truck.model.root));
     const root = truck.model.root;
@@ -1246,7 +1344,8 @@ export class Entities {
    * bed or a boat's deck: as they bend to it, the crate in their hands goes
    * the rest of the way there, and lies in it as it changes hands. Picking
    * one up, they take it from where it lay, and it comes up with their
-   * hands.
+   * hands; off a boat or truck, it comes away to their hands as they bend
+   * to it, before the game has it change hands.
    */
   private toPlace(e: Entry, down: number): void {
     const w = e.hand;
@@ -1255,8 +1354,21 @@ export class Entities {
       if (this.handSlot(at, this.slotAt) !== null) w.place = this.slotAt.clone();
     }
     const load = e.model.crates[0];
-    if (!w?.place || !load?.visible || !load.parent || down <= 0) return;
+    if (!w?.place || !load?.parent) return;
     load.parent.updateWorldMatrix(true, false);
+    const off = at?.truck !== undefined && this.entries.get(at.truck)?.model.crates[at.slot ?? 0];
+    if (w.stage === 'pick' && e.view.handStage === 'pick' && off && e.view.load === 0) {
+      // Shown in their hands instead of where it lay, on its way to them.
+      off.visible = false;
+      load.visible = true;
+      w.early = true;
+      const to = w.place.clone().lerp(load.getWorldPosition(new Vector3()), ease(down));
+      load.position.copy(load.parent.worldToLocal(to));
+      return;
+    }
+    // Already in their hands.
+    if (w.stage === 'pick' && w.early) return;
+    if (!load.visible || down <= 0) return;
     // Setting one down straight after taking it up, as off a stack onto a
     // truck beside it, it goes over from one to the other as they go on.
     const on = w.stage === 'drop' ? ease((w.at ?? 1) / 0.6) : 1;

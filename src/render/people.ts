@@ -127,6 +127,24 @@ export function worker(seed: number, crate: (size: number) => Object3D): Worker 
   return { root, body, limbs: { legL, legR, armL, armR }, load };
 }
 
+/** Hips above the feet sat on the break hut's bench, and the legs out from it. */
+const SEAT = 0.09;
+const KNEES = 0.95;
+
+/**
+ * Sat on the bench outside the break hut: hips down on it, legs out in
+ * front to the ground, hands in the lap, rocking a little as they talk.
+ */
+export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void {
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  l.legL.rotation.z = l.legR.rotation.z = KNEES;
+  l.armL.rotation.z = l.armR.rotation.z = 0.55;
+  const sway = Math.sin(phase * 0.1) * 0.04;
+  w.body.rotation.z = -sway;
+  w.body.position.set(0, SEAT - HIP, 0);
+}
+
 /**
  * Walk cycle: legs and arms swing in opposite pairs. Someone carrying a
  * crate holds both arms out in front instead. Stooping (0 to 1), they go to

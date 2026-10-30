@@ -2442,18 +2442,27 @@ export class Structures {
         roof.position.set(0.5, top + 0.38, 0.38);
         roof.castShadow = roof.receiveShadow = true;
         g.add(roof);
-        g.add(box(0.7, 0.04, 0.12, C.wood, 0.5, top + 0.12, 0.9));
+        // The bench the dockhands sit on, on their break.
+        g.add(box(0.7, 0.03, 0.12, C.wood, 0.5, top + 0.1, 0.8));
+        for (const x of [0.2, 0.8]) g.add(box(0.04, 0.06, 0.1, C.woodDark, x, top + 0.04, 0.8));
         return g;
       }
       case Build.TruckBay: {
-        // Entrance at the front (+z): the truck pulls in, crates line the side.
+        // Entrance at the front (+z): the truck backs in, and the crates
+        // stand two by two in the front corner, out of the way of those
+        // loading it.
         g.add(box(1, 0.06, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.06;
         for (const x of [0.06, 0.94]) g.add(box(0.05, 0.01, 0.9, C.stripe, x, y, 0.5));
         const crates: Object3D[] = [];
         for (let layer = 0; layer < 4; layer++) {
-          for (const z of [0.2, 0.4, 0.6, 0.8]) {
-            const c = crate(0.17, 0.84, y + layer * 0.17, z);
+          for (const [x, z] of [
+            [0.71, 0.71],
+            [0.89, 0.71],
+            [0.71, 0.89],
+            [0.89, 0.89],
+          ]) {
+            const c = crate(0.17, x, y + layer * 0.17, z);
             c.visible = false;
             g.add(c);
             crates.push(c);

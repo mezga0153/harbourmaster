@@ -7,20 +7,31 @@ import { World } from '../src/sim/world';
 type Any = any;
 
 describe('Crate trucks', () => {
-  it('are loaded by dockhands with nothing else to do, besides their own crew, losing no crates', () => {
+  it('are loaded only by dockhands, one at a time at a truck bay, losing no crates', () => {
     const world: Any = World.create(7, 96);
     world.boats.length = 0;
     const bay = [...world.bays.values()][0];
     bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    // Crates on trucks, those gone on to town as last seen.
+    const onTrucks = new Map<number, number>();
     const total = () =>
       bay.crates.length +
-      world.trucks.reduce((n: number, t: Any) => n + (t.boxes ? 0 : t.cargo), 0) +
+      [...onTrucks.values()].reduce((n, c) => n + c, 0) +
       world.people.reduce((n: number, p: Any) => n + p.carrying, 0) +
       world.stats.cratesHandled;
-    const start = total();
     let helped = 0;
+    for (const t of world.trucks) if (!t.boxes) onTrucks.set(t.id, t.cargo);
+    const start = total();
     for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
       world.step();
+      for (const t of world.trucks) if (!t.boxes) onTrucks.set(t.id, t.cargo);
+      // One at a time at the bay.
+      const at = world.people.filter(
+        (p: Any) =>
+          (p.state === 'dropping' && p.bayIdx === bay.idx) ||
+          (p.truckId !== undefined && p.stockIdx === bay.idx && p.state === 'picking'),
+      );
+      expect(at.length).toBeLessThanOrEqual(1);
       const jobs = world.people.filter(
         (p: Any) => p.truckId !== undefined && p.kind === 'dockhand',
       );

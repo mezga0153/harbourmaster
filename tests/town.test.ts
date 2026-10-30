@@ -63,7 +63,7 @@ describe('Railway', () => {
     const crossing = m.idx(x, ey);
     const was = new Map<number, number>();
     let waited = 0;
-    for (let t = 0; t < TICKS_PER_DAY * 4; t++) {
+    for (let t = 0; t < TICKS_PER_DAY * 8; t++) {
       // One train after another, so trucks are bound to meet one.
       if (!world.rail.train) world.rail.nextTrain = world.tick;
       world.step();

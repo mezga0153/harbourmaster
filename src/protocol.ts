@@ -86,6 +86,8 @@ export interface EntityView {
    * The load leaves where it was, or shows where it goes, as it ends.
    */
   handling?: number;
+  /** Dockhands on a break: sat on the bench outside the break hut. */
+  sitting?: boolean;
   name: string;
   activity: string;
   /** Per-entity paint colour index (trucks, boats). */
