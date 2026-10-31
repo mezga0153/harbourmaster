@@ -1,4 +1,4 @@
-import { soundSettings } from '../audio/sound';
+import { soundSettings } from './prefs';
 import { Icon } from './icons';
 
 /** Sound on or off, and how loud, at the top right. */

@@ -1,0 +1,482 @@
+/* The top bar: brand, clock and speed, the figures, the panel buttons; and
+   on a phone the menu behind the hamburger (TopBar.tsx). */
+
+/* Top bar */
+
+.topbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 10px 8px 12px;
+}
+
+/* The figures on the left take what the buttons on the right leave, and
+   give up their least important ones first as the screen narrows. */
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.topbar-left {
+  flex: 1 1 auto;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.topbar-right {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+button.brand {
+  border-radius: 10px;
+  padding: 2px 8px 2px 2px;
+  margin-left: -2px;
+}
+
+button.brand:hover,
+button.brand.on {
+  background: var(--raised);
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #ffcb5c, #f0a51f);
+  color: var(--accent-ink);
+}
+
+.brand-name {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.vr {
+  width: 1px;
+  height: 28px;
+  background: var(--line);
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.stat > .icon {
+  color: var(--text-3);
+}
+
+.stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  line-height: 1.2;
+}
+
+.stat-value {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.stat.pos .stat-value {
+  color: var(--good);
+}
+
+.stat.neg .stat-value {
+  color: var(--bad);
+}
+
+.stat-button {
+  border-radius: var(--radius-sm);
+  padding: 3px 8px 3px 4px;
+  margin: -3px -8px -3px -4px;
+  border: 1px solid transparent;
+}
+
+.stat-button:hover,
+.stat-button.on {
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.loan-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* Under the town's size in the top bar: how far the port is towards its next landmark. */
+.stat-button.town {
+  position: relative;
+}
+
+.task-bar {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+
+.task-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* The date and game speed, at the top left. */
+.time {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 96px;
+}
+
+.clock-date {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.daybar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--raised-2);
+  overflow: hidden;
+}
+
+.daybar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Narrow screens: drop the least important stats first. */
+
+@media (max-width: 1480px) {
+  .stat[data-priority='3'] {
+    display: none;
+  }
+
+  .topbar-right .btn span:not(.count) {
+    display: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .stat[data-priority='2'],
+  .vr {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .brand-name,
+  .topbar-right .btn span:not(.count) {
+    display: none;
+  }
+}
+
+/* Phones: the menus go behind the hamburger, panels rise from the bottom. */
+
+.menu-button {
+  display: none;
+  position: relative;
+}
+
+.dot-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel-solid);
+}
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 10, 22, 0.45);
+  animation: fade-in 0.15s ease-out;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(320px, 86vw);
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  border-radius: 0 var(--radius) var(--radius) 0;
+  border-width: 0 1px 0 0;
+  background: var(--panel-solid);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  animation: drawer-in 0.18s ease-out;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-head .btn {
+  margin-left: auto;
+}
+
+.drawer .brand-name {
+  display: inline;
+}
+
+.drawer-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.drawer-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.drawer-stat.wide {
+  grid-column: 1 / -1;
+}
+
+button.drawer-stat:active {
+  background: var(--raised-2);
+}
+
+.drawer-stat .stat-value {
+  font-size: 15px;
+}
+
+.drawer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.drawer-item > .icon:first-child {
+  color: var(--text-2);
+}
+
+.drawer-item span:not(.count) {
+  flex: 1;
+}
+
+.drawer-item > .icon:last-child {
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+}
+
+.drawer-item:active,
+.drawer-item.on {
+  background: var(--raised-2);
+}
+
+.drawer-actions {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.drawer-actions .btn.off {
+  color: var(--text-3);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Too narrow for every button: the top bar keeps the clock and the cash,
+   and the rest goes behind the hamburger. */
+@media (max-width: 900px) {
+  .topbar {
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    right: 8px;
+    gap: 8px;
+    padding: 6px;
+  }
+
+  .topbar-left {
+    gap: 8px;
+  }
+
+  .menu-button {
+    display: inline-flex;
+  }
+
+  .topbar .brand,
+  .topbar .vr,
+  .topbar .stat-button:not(.cash):not(.town),
+  .topbar-left > .stat,
+  .topbar-right > :not(.keep) {
+    display: none;
+  }
+
+  .topbar .stat-button.cash {
+    margin-left: auto;
+  }
+
+  /* The town's size beside the cash, its name left out for room. */
+  .topbar .stat-button.town {
+    padding: 2px 4px;
+    margin: 0;
+    flex: none;
+  }
+
+  .topbar .stat-button.cash {
+    flex: none;
+  }
+
+  .topbar .stat-button.town .stat-label {
+    display: none;
+  }
+
+  .topbar .stat-button.town .stat-value {
+    font-size: 13px;
+  }
+
+  .topbar .stat-button.cash .stat {
+    align-items: flex-end;
+  }
+
+  .topbar .stat-button.cash .stat-label {
+    text-align: right;
+  }
+
+  .topbar .loan-tag {
+    display: none;
+  }
+
+  .topbar .time {
+    gap: 6px;
+  }
+
+  .topbar .clock {
+    min-width: 0;
+  }
+
+  .topbar .clock-date {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .topbar .time .segmented {
+    padding: 2px;
+  }
+
+  .topbar .time .segmented button {
+    min-width: 0;
+    height: 28px;
+    padding: 0 6px;
+  }
+
+  .topbar .stat-button.cash {
+    padding: 2px 4px;
+    margin: 0 0 0 auto;
+  }
+
+  .topbar .stat-button.cash .stat-value {
+    font-size: 13px;
+  }
+}
+
+/* A phone held upright: the clock, the speeds, the cash and the town all
+   squeezed in. */
+@media (max-width: 520px) {
+  /* No room left for the contracts and the handbook: they are in the menu. */
+  .topbar-right {
+    display: none;
+  }
+
+  .topbar,
+  .topbar-left,
+  .topbar .time {
+    gap: 4px;
+  }
+
+  .topbar .clock-date {
+    font-size: 11px;
+  }
+
+  .topbar .time .segmented button {
+    padding: 0 4px;
+    font-size: 12px;
+  }
+
+  .topbar .stat-button.town .icon {
+    display: none;
+  }
+}

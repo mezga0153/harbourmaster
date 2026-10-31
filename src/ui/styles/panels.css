@@ -1,0 +1,160 @@
+/* The panels down the side: what is selected, and the management panels'
+   frame, status lines, properties, notes and meters. */
+
+/* Side panels: inspector and contracts */
+
+.side {
+  position: absolute;
+  top: 76px;
+  right: 12px;
+  width: 280px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.side.wide {
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.side.xwide {
+  width: min(420px, calc(100vw - 24px));
+}
+
+.side-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+}
+
+.dot.live {
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.2);
+}
+
+.props {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
+
+.props dt {
+  color: var(--text-2);
+}
+
+.props dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.note {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+
+.note.why {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: #ffe2b0;
+  background: var(--accent-soft);
+  border: 1px solid rgba(245, 184, 61, 0.3);
+}
+
+.note.why svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+.note.bad {
+  color: #ffc9c9;
+  background: var(--bad-soft);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--raised-2);
+  overflow: hidden;
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.25s;
+}
+
+.meter.good > span {
+  background: var(--good);
+}
+
+.meter.ok > span {
+  background: var(--accent);
+}
+
+.meter.warn > span {
+  background: var(--warn);
+}
+
+.meter.bad > span {
+  background: var(--bad);
+}
+
+@media (max-width: 760px) {
+  .side,
+  .side.wide,
+  .side.xwide.finance,
+  .side.xwide.stats {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: calc(var(--bar) + 8px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 62vh;
+    overflow-y: auto;
+  }
+}

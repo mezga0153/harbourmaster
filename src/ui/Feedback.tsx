@@ -1,8 +1,7 @@
 import { signal } from '@preact/signals';
-import { soundSettings } from '../audio/sound';
 import { context, sendFeedback, type FeedbackKind } from '../log/feedback';
 import { Icon } from './icons';
-import { graphics } from './prefs';
+import { graphics, soundSettings } from './prefs';
 import { messages, panel, selection, snapshot } from './store';
 import { InfoHeader } from './widgets';
 

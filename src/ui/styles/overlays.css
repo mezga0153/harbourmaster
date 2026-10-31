@@ -1,0 +1,271 @@
+/* What floats over the map without a panel of its own: the bank's warning,
+   the messages, the tips, the advisor, floating money, touch controls and
+   the labels over plots of land (Overlays.tsx, Advisor.tsx, App.tsx). */
+
+/* Bank warning */
+
+.banner {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(70, 14, 18, 0.88);
+  border: 1px solid rgba(255, 107, 107, 0.5);
+  color: #ffd3d3;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+
+.banner .icon {
+  color: var(--bad);
+}
+
+.banner strong {
+  color: #fff;
+}
+
+/* Toasts */
+
+.messages {
+  position: absolute;
+  top: 76px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(360px, calc(100vw - 24px));
+  pointer-events: none !important;
+}
+
+.message {
+  position: relative;
+  padding: 9px 12px 9px 28px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  border-radius: 10px;
+  animation: toast-in 0.2s ease-out;
+}
+
+.message::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 15px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--info);
+}
+
+.message.good::before {
+  background: var(--good);
+}
+
+.message.bad::before {
+  background: var(--bad);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Tooltips over the map */
+
+.tip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none !important;
+}
+
+.preview.raised {
+  bottom: calc(var(--bar) + var(--tray) + 14px);
+}
+
+.preview {
+  bottom: calc(var(--bar) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.preview.bad {
+  color: #ffc9c9;
+  border-color: rgba(255, 107, 107, 0.45);
+}
+
+.preview.bad .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--bad);
+}
+
+.hovertip {
+  left: 12px;
+  bottom: calc(var(--bar) + 10px);
+}
+
+/* The advisor's card, bottom left, clear of the build bar and the hover tip. */
+.advisor {
+  position: absolute;
+  left: 12px;
+  bottom: calc(var(--bar) + 40px);
+  width: min(340px, calc(100vw - 24px));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  border-left: 3px solid var(--accent);
+}
+
+.advisor p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.advisor-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.advisor-head .kicker {
+  margin: 0;
+  color: var(--accent);
+}
+
+.advisor-head .muted {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+/* Floating money */
+
+.floaters {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.floater {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 22, 34, 0.8);
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.floater.gain {
+  color: var(--good);
+}
+
+.floater.loss {
+  color: var(--bad);
+}
+
+/* Zoom and turn the view by touch, at the bottom right above the bar. */
+.map-controls {
+  position: absolute;
+  right: 12px;
+  bottom: calc(var(--bar) + 12px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.map-controls.raised {
+  bottom: calc(var(--bar) + var(--tray) + 16px + env(safe-area-inset-bottom));
+}
+
+.map-controls > .btn {
+  background: var(--panel);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+
+.map-controls-group {
+  display: flex;
+  flex-direction: column;
+  padding: 3px;
+  gap: 2px;
+}
+
+.map-controls-group .btn.icon {
+  width: 40px;
+  height: 40px;
+}
+
+/* What plots of land cost, pinned over them with the Land tool */
+
+.map-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 22, 34, 0.78);
+  border: 1px solid rgba(255, 210, 63, 0.6);
+  color: #ffd23f;
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-label.hot {
+  background: #ffd23f;
+  color: #10161f;
+}
+
+@media (max-width: 760px) {
+  .messages,
+  .banner {
+    top: calc(max(8px, env(safe-area-inset-top)) + 62px);
+  }
+
+  .messages {
+    left: 8px;
+    width: calc(100vw - 16px);
+  }
+
+  .banner {
+    white-space: normal;
+    width: calc(100vw - 16px);
+    border-radius: var(--radius);
+  }
+
+  .advisor {
+    left: 8px;
+    bottom: calc(var(--bar) + 12px + env(safe-area-inset-bottom));
+    width: calc(100vw - 80px);
+  }
+
+  .hovertip {
+    display: none;
+  }
+}

@@ -1,0 +1,27 @@
+/* The handbook: its topics and pages (Handbook.tsx). */
+
+.handbook-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.handbook-page {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.handbook-page p {
+  margin: 0 0 10px;
+}
+
+.handbook-page ul,
+.handbook-page ol {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.handbook-page b {
+  color: var(--text);
+}

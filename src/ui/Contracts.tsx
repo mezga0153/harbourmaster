@@ -10,7 +10,7 @@ import {
   type Terms,
 } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
-import type { Actions } from './App';
+import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
 import { contractsTab, panel, snapshot, type ContractsTab } from './store';

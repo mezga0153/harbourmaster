@@ -2,10 +2,53 @@ import * as B from '../sim/balance';
 import { isMachineKind } from '../sim/machines';
 import { BUILDABLES } from '../sim/rules';
 import { BUILD_TIER, MACHINE_TIER } from '../sim/tiers';
-import type { BuildKind } from '../sim/types';
+import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
 import type { IconName } from './icons';
 import { money } from './format';
-import type { Tool } from './store';
+
+// The tools the player can pick up: what each is, and the catalogue of them
+// the bar at the bottom shows, by category.
+
+/** Tools that mark port roads and quays out as storage. */
+export const STORE_TOOLS = {
+  crateStore: 'crates',
+  crateOutStore: 'cratesOut',
+  boxStore: 'boxes',
+  boxOutStore: 'boxesOut',
+} as const satisfies Record<string, StoreKind>;
+export type StoreTool = keyof typeof STORE_TOOLS;
+
+export function isStoreTool(t: string): t is StoreTool {
+  return t in STORE_TOOLS;
+}
+
+export type Tool =
+  | 'select'
+  | BuildKind
+  | MachineKind
+  | 'tug'
+  | StoreTool
+  | 'bulldoze'
+  | 'unmark'
+  | 'forkliftOnly'
+  | 'dredge'
+  | 'reclaim'
+  /** Buying plots of land for the port; see land.ts. */
+  | 'land'
+  | RoadTool;
+
+/** Tools for the rules of the road rather than for building. */
+export type RoadTool = 'highwayExit' | 'oneWay' | 'lights' | 'roundabout' | 'gateWay';
+export const ROAD_TOOLS: readonly RoadTool[] = [
+  'highwayExit',
+  'oneWay',
+  'lights',
+  'roundabout',
+  'gateWay',
+];
+export function isRoadTool(t: Tool): t is RoadTool {
+  return (ROAD_TOOLS as readonly string[]).includes(t);
+}
 
 export interface ToolDef {
   tool: Tool;

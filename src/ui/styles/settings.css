@@ -1,0 +1,21 @@
+/* Settings: one row per graphics setting, its choices to the right (Settings.tsx). */
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.setting-label {
+  font-weight: 600;
+}
+
+.setting .muted {
+  font-size: 12px;
+}
+
+.settings .segmented {
+  flex-shrink: 0;
+}
