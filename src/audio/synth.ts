@@ -255,67 +255,123 @@ export class Synth {
   }
 
   /**
-   * Water. The wash of the open sea: a low hiss that is never still, and
-   * over it waves rolling in a few at a time from either side, each
-   * building, breaking in a rush of brighter spray and running out in a
-   * long hiss, the weight of the water swelling under it, no two alike.
-   * And the lap: waves slapping and gurgling at the quay walls up close,
-   * one after another at no fixed beat. Both are planned `ahead` seconds
-   * ahead as they play.
+   * Water. The wash: waves coming in and going out, one after another with
+   * a pause between, a shoreline's worth. Each comes in as a rising rush
+   * that gets brighter as it builds, breaks in a hiss of spray, turns and
+   * draws back out in a gritty, falling hiss as the water runs off the
+   * stones, then dies away until the next, no two alike; a second, smaller
+   * line of waves breaks further off, duller. Under them, faintly, the
+   * sea beyond. And the lap: waves slapping and gurgling at the quay walls
+   * up close, one after another at no fixed beat. Both are planned
+   * `ahead` seconds ahead as they play.
    */
   sea(ahead = 12): { wash: Loop; lap: Loop } {
-    const wash = this.loopOut(this.ambience, 0.25);
-    // The hiss under it all, wide: a different stretch of the noise each side.
-    const sides = this.ctx.createChannelMerger(2);
+    const wash = this.loopOut(this.ambience, 0.12);
+    // The sea beyond, faint and dull, a different stretch of noise each side.
+    const beyond = this.ctx.createChannelMerger(2);
     for (let ch = 0; ch < 2; ch++) {
       const n = this.noise('pink');
-      n.connect(sides, 0, ch);
+      n.connect(beyond, 0, ch);
       n.start(this.now, Math.random() * 3);
     }
-    const bedLp = this.filter('lowpass', 700, 0.5);
-    sides.connect(bedLp).connect(this.gainNode(0.14)).connect(wash.gain);
-    // The weight of the water, swelling with the waves.
-    const under = this.gainNode(0.15);
-    const underSrc = this.noise('brown');
-    underSrc.connect(this.filter('lowpass', 110)).connect(under).connect(wash.gain);
-    underSrc.start(this.now, Math.random() * 3);
-    // Three waves at a time, each from its own side: one envelope steers a
-    // wave's loudness, how bright it is and the weight under it.
-    const FLOOR = 0.02;
-    const voices: { env: ConstantSourceNode; pan: StereoPannerNode; until: number }[] = [];
-    for (let i = 0; i < 3; i++) {
-      const env = this.ctx.createConstantSource();
-      env.offset.value = FLOOR;
-      env.start();
-      const n = this.noise('pink');
-      const hp = this.filter('highpass', 180, 0.5);
-      const lp = this.filter('lowpass', 300, 0.8);
-      const gain = this.gainNode(0);
-      const pan = this.ctx.createStereoPanner();
-      n.connect(hp).connect(lp).connect(gain).connect(pan).connect(wash.gain);
-      env.connect(gain.gain);
-      env.connect(this.gainNode(2600)).connect(lp.frequency);
-      env.connect(this.gainNode(0.25)).connect(under.gain);
-      n.start(this.now, Math.random() * 3);
-      voices.push({ env, pan, until: this.now + i * 2.5 + Math.random() * 3 });
+    beyond
+      .connect(this.filter('lowpass', 400, 0.5))
+      .connect(this.gainNode(0.04))
+      .connect(wash.gain);
+    const FLOOR = 0.015;
+    const constant = (value: number) => {
+      const c = this.ctx.createConstantSource();
+      c.offset.value = value;
+      c.start();
+      return c;
+    };
+    interface Wave {
+      /** The wave's loudness and brightness, in and out. */
+      env: ConstantSourceNode;
+      /** The water drawing back out over the stones. */
+      draw: ConstantSourceNode;
+      /** Spray as it breaks. */
+      spray: ConstantSourceNode;
+      pan: AudioParam;
+      /** How big, how bright and how often. */
+      level: number;
+      pause: [number, number];
+      until: number;
     }
+    const waves: Wave[] = [];
+    const line = (level: number, dull: number, pause: [number, number], from: number) => {
+      const env = constant(FLOOR);
+      const draw = constant(0);
+      const spray = constant(0);
+      const out = this.ctx.createStereoPanner();
+      const sides = this.ctx.createChannelMerger(2);
+      sides
+        .connect(this.filter('lowpass', dull, 0.6))
+        .connect(this.gainNode(level))
+        .connect(out);
+      out.connect(wash.gain);
+      for (let ch = 0; ch < 2; ch++) {
+        // The rush, a band of noise that rises and opens up as the wave comes in.
+        const rush = this.noise('pink');
+        const rbp = this.filter('bandpass', 350, 1.1);
+        env.connect(this.gainNode(1700)).connect(rbp.frequency);
+        const rg = this.gainNode(0);
+        env.connect(rg.gain);
+        rush.connect(rbp).connect(rg).connect(sides, 0, ch);
+        rush.start(this.now, Math.random() * 3);
+        // The draw, a grittier band with a rattle to it, as the water runs back.
+        const back = this.noise('pink');
+        const dbp = this.filter('bandpass', 800, 2);
+        this.lfo(dbp.frequency, 7 + ch * 1.3, 320, 'triangle');
+        const dg = this.gainNode(0);
+        draw.connect(dg.gain);
+        back.connect(dbp).connect(dg).connect(sides, 0, ch);
+        back.start(this.now, Math.random() * 3);
+        // The spray, white and high.
+        const hiss = this.noise('white');
+        const sg = this.gainNode(0);
+        spray.connect(sg.gain);
+        hiss
+          .connect(this.filter('highpass', 2200, 0.5))
+          .connect(sg)
+          .connect(sides, 0, ch);
+        hiss.start(this.now, Math.random() * 3);
+      }
+      waves.push({ env, draw, spray, pan: out.pan, level, pause, until: this.now + from });
+    };
+    line(1, 4000, [1.5, 5], rnd(0.5, 2));
+    line(0.35, 900, [3, 9], rnd(4, 8));
     const roll = () => {
       const limit = this.now + ahead;
-      for (const v of voices) {
-        if (v.until < this.now) v.until = this.now + rnd(0, 2);
-        while (v.until < limit) {
-          const t0 = v.until;
-          const size = rnd(0.3, 1);
-          const build = rnd(1.5, 3.5);
-          const crest = t0 + build;
-          const run = rnd(3, 7) * (0.6 + 0.4 * size);
-          const o = v.env.offset;
-          o.setValueAtTime(FLOOR, t0);
-          o.exponentialRampToValueAtTime(size, crest);
-          o.linearRampToValueAtTime(size * 0.75, crest + 0.7);
-          o.exponentialRampToValueAtTime(FLOOR, crest + 0.7 + run);
-          v.pan.pan.setValueAtTime(rnd(-0.8, 0.8), t0);
-          v.until = crest + 0.7 + run + rnd(1, 7);
+      for (const w of waves) {
+        if (w.until < this.now) w.until = this.now + rnd(0, 2);
+        while (w.until < limit) {
+          const t0 = w.until;
+          const size = rnd(0.4, 1);
+          const crest = t0 + rnd(2, 3.5);
+          const turn = crest + rnd(0.8, 1.4);
+          const run = rnd(3, 5.5);
+          // In: slow at first, then the rush; a moment at the top; out and away.
+          const env = w.env.offset;
+          env.setValueAtTime(FLOOR * 2.5, t0);
+          env.exponentialRampToValueAtTime(size, crest);
+          env.linearRampToValueAtTime(size * 0.5, turn);
+          env.exponentialRampToValueAtTime(FLOOR, turn + run);
+          // The draw comes up as the wave turns and runs out with it.
+          const draw = w.draw.offset;
+          draw.setValueAtTime(0, crest + 0.3);
+          draw.linearRampToValueAtTime(size * 0.8, turn + 0.3);
+          draw.linearRampToValueAtTime(0, turn + run * 0.9);
+          // Spray as it breaks, the bigger the wave the more.
+          const spray = w.spray.offset;
+          spray.setValueAtTime(0, crest - 0.4);
+          spray.linearRampToValueAtTime(size * size * 0.5, crest + 0.1);
+          spray.linearRampToValueAtTime(0, crest + 1.5);
+          // Each wave from somewhere else along the shore, moving a little.
+          const side = rnd(-0.5, 0.5);
+          w.pan.setValueAtTime(side, t0);
+          w.pan.linearRampToValueAtTime(side + rnd(-0.25, 0.25), turn + run);
+          w.until = turn + run + rnd(w.pause[0], w.pause[1]);
         }
       }
     };
