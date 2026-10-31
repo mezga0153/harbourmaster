@@ -176,7 +176,10 @@ export function exportTarget(
       continue;
     }
     // Forklifts cannot put cargo on board: they take it to storage by the
-    // jib crane over the ship for it to lift on.
+    // jib crane over the ship for it to lift on. Not out of storage a jib
+    // crane is already loading a ship from, or forklifts carry it back and
+    // forth between two cranes each loading a ship.
+    if (source && jibLoadsFrom(w, source)) return null;
     const cranes = [...w.cranes.values()].filter(
       (c) => c.kind === 'jib' && near(w, c.idx, b.berth),
     );
@@ -190,6 +193,17 @@ export function exportTarget(
     }
   }
   return null;
+}
+
+/** Whether `store` is beside a jib crane with a ship under it waiting to be loaded. */
+function jibLoadsFrom(w: World, store: Bay): boolean {
+  for (const c of w.cranes.values()) {
+    if (c.kind !== 'jib' || !jibStores(w, c).includes(store)) continue;
+    if (w.boats.some((b) => b.vessel === 'coaster' && wantsLoad(w, b) && near(w, c.idx, b.berth))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Whether a jib crane can swing a crate on board from tile `t`: right beside it. */
