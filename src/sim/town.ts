@@ -22,7 +22,7 @@ export const TOWN = 128;
 export const HIGHWAY_X = -3.5;
 
 /** Towns laid out under older rules are cleared and laid out again when a save loads. */
-export const TOWN_LAYOUT = 3;
+export const TOWN_LAYOUT = 5;
 
 export const TOWN_STAGES = [
   { name: 'Fishing village', from: 0 },
@@ -265,6 +265,11 @@ function reach(map: GameMap, t: Town, i: number): number {
   return Math.hypot(dx, dy) + hash01(t.centre, map.xOf(i), map.yOf(i)) * 1.5;
 }
 
+/** How far from the square a town of `pop` people builds, in tiles. */
+export function townSpread(pop: number): number {
+  return 6 + Math.sqrt(pop) * 0.8;
+}
+
 /** The tallest home allowed this far out: the centre builds up as the town grows. */
 function maxLevel(t: Town, pop: number, r: number): number {
   const core = Math.sqrt(pop) / 5.5;
@@ -352,7 +357,8 @@ function streetPlans(t: Town, map: GameMap): StreetPlan[] {
  * has nowhere left to go.
  */
 export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boolean {
-  const pop = population(t, map);
+  // Built for the people wanting to live here, not only those who do yet.
+  const pop = Math.max(population(t, map), t.demand);
   const plans = streetPlans(t, map);
   const kept = new Set(plans.map((p) => p.tile));
   let up = -1;
@@ -364,7 +370,7 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
   for (let i = 0; i < map.build.length; i++) {
     const b = map.build[i];
     if (b === Build.Park) parks++;
-    if (BUSINESSES[b]) have.set(b, (have.get(b) ?? 0) + 1);
+    if (BUSINESSES[b] || LANDMARKS.some((l) => l.code === b)) have.set(b, (have.get(b) ?? 0) + 1);
     const level = (LEVELS as readonly number[]).indexOf(b);
     if (level >= 0) {
       const r = reach(map, t, i);
@@ -381,11 +387,16 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
     }
   }
   plots.sort((a, b) => a.score - b.score);
-  const plot = plots[0];
-  const street = plans.reduce<StreetPlan | undefined>(
-    (best, p) => (!best || p.score < best.score ? p : best),
-    undefined,
-  );
+  // Kept together round the square, as far out as a town its size spreads:
+  // never strung out along its road to the highway. Past that it builds up.
+  const spread = townSpread(pop);
+  const plot = plots[0] && plots[0].score <= spread ? plots[0] : undefined;
+  const street = plans
+    .filter((p) => p.score <= spread)
+    .reduce<StreetPlan | undefined>(
+      (best, p) => (!best || p.score < best.score ? p : best),
+      undefined,
+    );
 
   const wanted: (readonly [number, number])[] = [
     ...LANDMARKS.slice(0, t.landmarks).map((l) => [l.code, 1] as const),

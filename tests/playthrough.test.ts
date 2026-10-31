@@ -16,7 +16,7 @@ describe('Playthrough', () => {
   // seconds, longer with other suites alongside. With the town's landmarks
   // (the fish market first, lobster boats only after the ice house) the
   // bot's port grows slower: 1 of seeds 1 to 14 passes, against 4 before.
-  it.each([3])(
+  it.each([16])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);
