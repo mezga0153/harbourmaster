@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { Capacity, ContractView, OfferView } from '../protocol';
+import type { Capacity, ContractView, OfferView, Snapshot } from '../protocol';
 import { C } from '../render/palette';
 import * as B from '../sim/balance';
 import {
@@ -13,7 +13,45 @@ import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
-import { contractFocus, contractsTab, panel, snapshot, type ContractsTab } from './store';
+import {
+  CARGO_LABEL,
+  CARGOS,
+  type Cargo,
+  cargoOf,
+  dailyValue,
+  EXPIRING_TICKS,
+  type Health,
+  health,
+  HEALTH_LABEL,
+  KIND_LABEL,
+  type KindGroup,
+  kindGroup,
+  KINDS,
+  OFFER_DEFAULT,
+  OFFER_SORT_LABEL,
+  OFFER_STATUS_LABEL,
+  type OfferFilter,
+  offerFilter,
+  offerIs,
+  offerRows,
+  type OfferSort,
+  type OfferStatus,
+  SIGNED_DEFAULT,
+  SIGNED_SORT_LABEL,
+  type SignedFilter,
+  signedFilter,
+  signedRows,
+  type SignedSort,
+  volume,
+} from './contractList';
+import {
+  contractFocus,
+  contractsTab,
+  openContract,
+  panel,
+  snapshot,
+  type ContractsTab,
+} from './store';
 import { InfoHeader, Meter, More } from './widgets';
 
 function css(hex: number): string {
@@ -74,18 +112,6 @@ function unit(t: Terms): string {
   return (t.kind === 'fishery' ? t.vessel === 'feeder' : t.cargo === 'container')
     ? 'containers'
     : 'crates';
-}
-
-function CardHead({ terms, extra }: { terms: Terms; extra?: ComponentChildren }) {
-  const color = terms.kind === 'fishery' ? C.hulls[terms.color] : C.trucks[terms.color];
-  return (
-    <div class="card-head">
-      <span class="swatch" style={{ background: css(color) }} />
-      <strong>{terms.name}</strong>
-      {extra}
-      <span class={`badge ${terms.kind}`}>{kindLabel(terms)}</span>
-    </div>
-  );
 }
 
 /** The one-line headline: what this contract brings or costs per day. */
@@ -374,9 +400,91 @@ function Summary({ cap }: { cap: Capacity }) {
   );
 }
 
-// ── Active ────────────────────────────────────────────────
+// ── Lists ─────────────────────────────────────────────────
 
-function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
+function Swatch({ terms }: { terms: Terms }) {
+  const color = terms.kind === 'fishery' ? C.hulls[terms.color] : C.trucks[terms.color];
+  return <span class="swatch" style={{ background: css(color) }} />;
+}
+
+/** The money a day, signed: green coming in, red going out. */
+function Value({ terms }: { terms: Terms }) {
+  const v = dailyValue(terms);
+  return (
+    <span class={`crow-value ${v >= 0 ? 'pos' : 'neg'}`}>
+      {v >= 0 ? `≈${money(v)}` : money(v)}
+      <span class="muted">/day</span>
+    </span>
+  );
+}
+
+/**
+ * One contract or offer as a line: what it is, what it pays and how it is
+ * getting on, a reason under it when it is not working, and the full terms
+ * when it is opened.
+ */
+function Row({
+  terms,
+  open,
+  onToggle,
+  tone,
+  right,
+  why,
+  whyTone,
+  offer,
+  children,
+  rowRef,
+}: {
+  terms: Terms;
+  open: boolean;
+  onToggle: () => void;
+  tone?: string;
+  right: ComponentChildren;
+  why?: string | null;
+  whyTone?: string;
+  offer?: boolean;
+  children: ComponentChildren;
+  rowRef?: { current: HTMLDivElement | null };
+}) {
+  return (
+    <div ref={rowRef} class={`crow ${offer ? 'offer' : ''} ${tone ?? ''} ${open ? 'open' : ''}`}>
+      <button class="crow-main" aria-expanded={open} onClick={onToggle}>
+        <Swatch terms={terms} />
+        <span class="crow-what">
+          <span class="crow-name">{terms.name}</span>
+          <span class="crow-sub">
+            <span class={`badge ${terms.kind}`}>{kindLabel(terms)}</span>
+            <span>{CARGO_LABEL[cargoOf(terms)]}</span>
+            <span>{volume(terms)}</span>
+          </span>
+        </span>
+        <span class="crow-right">
+          <Value terms={terms} />
+          {right}
+        </span>
+        <span class="crow-caret" aria-hidden="true" />
+      </button>
+      {why && <p class={`crow-why ${whyTone ?? ''}`}>{why}</p>}
+      {open && <div class="crow-body">{children}</div>}
+    </div>
+  );
+}
+
+function SignedRow({
+  c,
+  state,
+  why,
+  open,
+  onToggle,
+  actions,
+}: {
+  c: ContractView;
+  state: Health;
+  why?: string;
+  open: boolean;
+  onToggle: () => void;
+  actions: Actions;
+}) {
   const [confirming, setConfirming] = useState(false);
   const t = c.terms;
   const m = mood(c.satisfaction);
@@ -407,17 +515,23 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
   }
   // Opened on this one from its red mark on the map: bring it into view.
   const focused = contractFocus.value === c.id;
-  const card = useRef<HTMLDivElement>(null);
+  const row = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (focused) card.current?.scrollIntoView?.({ block: 'nearest' });
+    if (focused) row.current?.scrollIntoView?.({ block: 'nearest' });
   }, [focused]);
-  const alerting = c.waiting > 0 || !!c.trouble?.bad || focused;
+  const tone = state === 'trouble' || focused ? 'bad' : state === 'held' ? 'warn' : '';
   return (
-    <div ref={card} class={`card ${alerting ? 'alerting' : ''}`}>
-      <CardHead terms={t} />
-      <Headline terms={t} />
+    <Row
+      terms={t}
+      open={open}
+      onToggle={onToggle}
+      tone={tone}
+      rowRef={row}
+      why={why}
+      whyTone={state === 'trouble' ? 'bad' : 'warn'}
+      right={<span class={`pill ${state}`}>{HEALTH_LABEL[state]}</span>}
+    >
       <Facts rows={rows} />
-      {c.trouble && <p class={`note ${c.trouble.bad ? 'bad' : 'why'}`}>{c.trouble.text}</p>}
       {t.kind === 'fishery' && (
         <div class="mood" title={`Walks out at 0 and claims ${money(c.breach)}`}>
           <span class="field-label">Relationship</span>
@@ -450,114 +564,90 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
           </button>
         )}
       </div>
-    </div>
+    </Row>
   );
 }
 
 // ── Offers ────────────────────────────────────────────────
 
-function Check({
-  ok,
-  warn,
-  children,
-}: {
+interface CheckView {
   ok: boolean;
   warn?: boolean;
-  children: ComponentChildren;
-}) {
-  const tone = ok ? 'good' : warn ? 'warn' : 'bad';
+  text: string;
+}
+
+function Check({ k }: { k: CheckView }) {
+  const tone = k.ok ? 'good' : k.warn ? 'warn' : 'bad';
   return (
     <li class={`check ${tone}`}>
-      <span class="check-mark">{ok ? '✓' : warn ? '!' : '✕'}</span>
-      <span>{children}</span>
+      <span class="check-mark">{k.ok ? '✓' : k.warn ? '!' : '✕'}</span>
+      <span>{k.text}</span>
     </li>
   );
 }
 
-function OfferCard({
-  o,
-  cash,
-  cap,
-  bays,
-  trucks,
-  actions,
-}: {
-  o: OfferView;
-  cash: number;
-  cap: Capacity;
-  bays: number;
-  /** Trucks already under contract. */
-  trucks: number;
-  actions: Actions;
-}) {
+/**
+ * What an offer needs, checked against the port as it stands, and why it
+ * cannot be signed at all yet (no berth for its ships, or what the sim says
+ * in `blocked`), or null.
+ */
+export function offerChecks(
+  o: OfferView,
+  s: Snapshot,
+): { checks: CheckView[]; blocked: string | null } {
   const t = o.terms;
-  const days = Math.max(1, Math.ceil(o.expiresIn / TICKS_PER_DAY));
-  const checks: ComponentChildren[] = [];
-  let blocked = false;
+  const cap = s.capacity;
+  const checks: CheckView[] = [];
+  let blocked: string | null = o.blocked ?? null;
+  const add = (ok: boolean, text: string, warn?: boolean) => checks.push({ ok, warn, text });
 
   if (t.kind === 'fishery' && t.vessel === 'feeder') {
     const b = cap.boxes;
     const after = b.demand + Math.round(fisheryDailyCrates(t));
-    blocked = b.berths === 0;
-    checks.push(
-      <Check ok={b.berths > 0}>
-        {b.berths > 0
-          ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a container crane`
-          : 'No feeder berth: needs a harbour or gantry crane on a 2-wide quay in 4 m of water, with 7 tiles of open water along it'}
-      </Check>,
-      <Check ok={after <= b.lifting} warn={after > b.lifting}>
-        Lifting: {after} needed, {b.lifting} possible
-      </Check>,
-      <Check ok={after <= b.moving} warn={after > b.moving}>
-        Moving: {after} needed, {b.moving} possible
-      </Check>,
-      <Check ok={after <= b.trucking} warn={after > b.trucking}>
-        Trucking: {after} needed, {b.trucking} possible
-      </Check>,
+    if (b.berths === 0) blocked ??= 'No feeder berth yet: needs a harbour or gantry crane';
+    add(
+      b.berths > 0,
+      b.berths > 0
+        ? `${b.berths} feeder berth${b.berths === 1 ? '' : 's'} with a container crane`
+        : 'No feeder berth: needs a harbour or gantry crane on a 2-wide quay in 4 m of water, with 7 tiles of open water along it',
+    );
+    add(after <= b.lifting, `Lifting: ${after} needed, ${b.lifting} possible`, after > b.lifting);
+    add(after <= b.moving, `Moving: ${after} needed, ${b.moving} possible`, after > b.moving);
+    add(
+      after <= b.trucking,
+      `Trucking: ${after} needed, ${b.trucking} possible`,
+      after > b.trucking,
     );
   } else if (t.kind === 'haulier' && t.cargo === 'container') {
-    const yards = (snapshot.value?.yards ?? []).length;
-    checks.push(
-      <Check ok={yards > 0}>
-        {yards > 0
-          ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
-          : 'Container trucks load at a container yard: mark one out on port road or quay, with a port road beside it inside a port gate'}
-      </Check>,
+    const yards = s.yards.length;
+    add(
+      yards > 0,
+      yards > 0
+        ? `${yards} container yard${yards === 1 ? '' : 's'} to load at`
+        : 'Container trucks load at a container yard: mark one out on port road or quay, with a port road beside it inside a port gate',
     );
   } else if (t.kind === 'shipper' && t.goods === 'ice') {
     // Ice comes straight to a truck bay, for the fishing boats to take.
-    const s = snapshot.value;
-    const boats = (s?.contracts ?? []).some(
-      (c) => c.terms.kind === 'fishery' && c.terms.vessel === 'smack',
-    );
+    const boats = s.contracts.some((c) => c.terms.kind === 'fishery' && c.terms.vessel === 'smack');
     // Ice and the catch keep to truck bays of their own: one for each.
-    const bays = (s?.bays ?? []).filter((b) => !b.tiles && !b.large).length;
-    checks.push(
-      <Check ok={boats}>
-        {boats ? 'Fishing boats call to take it on board' : 'No fishing boats call yet to take it'}
-      </Check>,
-      <Check ok={bays >= 2}>
-        {bays >= 2
-          ? 'A truck bay of its own to unload into, besides one for the catch'
-          : 'Needs a truck bay of its own: ice and the catch never share one. Build another'}
-      </Check>,
+    const bays = s.bays.filter((b) => !b.tiles && !b.large).length;
+    add(
+      boats,
+      boats ? 'Fishing boats call to take it on board' : 'No fishing boats call yet to take it',
+    );
+    add(
+      bays >= 2,
+      bays >= 2
+        ? 'A truck bay of its own to unload into, besides one for the catch'
+        : 'Needs a truck bay of its own: ice and the catch never share one. Build another',
     );
   } else if (t.kind === 'shipper') {
     // What its trucks need, as the port stands: worked out in the sim (shipperChecks).
-    for (const k of o.checks ?? []) {
-      checks.push(
-        <Check ok={k.ok} warn={k.warn}>
-          {k.text}
-        </Check>,
-      );
-    }
+    for (const k of o.checks ?? []) checks.push(k);
     if (t.goods === 'canned') {
-      checks.push(
-        <Check ok={true}>
-          The canned fish waits in the outgoing storage about{' '}
-          {Math.round((B.EXPORT_PAPERS_TICKS / TICKS_PER_DAY) * 24)} h for its export papers before
-          it may go on board: room for half a day of it
-        </Check>,
+      add(
+        true,
+        `The canned fish waits in the outgoing storage about ${Math.round((B.EXPORT_PAPERS_TICKS / TICKS_PER_DAY) * 24)} h for its export papers before it may go on board: room for half a day of it`,
       );
     }
   } else if (t.kind === 'fishery') {
@@ -565,84 +655,368 @@ function OfferCard({
     const payback = o.signingFee / Math.max(1, fisheryDailyValue(t));
     const unloadOk = after <= cap.unloading;
     const truckOk = after <= cap.trucking;
-    checks.push(
-      <Check ok={unloadOk} warn={!unloadOk && after <= cap.unloading * 1.2}>
-        Unloading: {after} needed, {cap.unloading} possible
-      </Check>,
-      <Check ok={truckOk} warn={!truckOk && after <= cap.trucking * 1.2}>
-        Trucking: {after} needed, {cap.trucking} possible
-      </Check>,
+    add(
+      unloadOk,
+      `Unloading: ${after} needed, ${cap.unloading} possible`,
+      !unloadOk && after <= cap.unloading * 1.2,
+    );
+    add(
+      truckOk,
+      `Trucking: ${after} needed, ${cap.trucking} possible`,
+      !truckOk && after <= cap.trucking * 1.2,
     );
     // Timber and goods wait a day in crate storage for customs.
     if (t.catch === 'timber' || t.catch === 'goods') {
-      const room = (snapshot.value?.bays ?? []).some((b) => b.tiles && !b.outgoing);
-      checks.push(
-        <Check ok={room}>
-          {room
-            ? `Its ${t.catch} waits about ${Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24)} h in crate storage for customs: room for a day of it`
-            : `Needs crate storage for cargo coming in: its ${t.catch} waits there about ${Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24)} h for customs`}
-        </Check>,
+      const room = s.bays.some((b) => b.tiles && !b.outgoing);
+      const h = Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24);
+      add(
+        room,
+        room
+          ? `Its ${t.catch} waits about ${h} h in crate storage for customs: room for a day of it`
+          : `Needs crate storage for cargo coming in: its ${t.catch} waits there about ${h} h for customs`,
       );
     }
     if (t.vessel === 'coaster') {
       const ok = cap.deepBerths > 0;
-      blocked = !ok;
-      checks.push(
-        <Check ok={ok}>
-          {ok
-            ? `${cap.deepBerths} coaster berth${cap.deepBerths === 1 ? '' : 's'} (${B.COASTER_DRAFT} m deep, 2-wide quay)`
-            : `No coaster berth yet: needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water`}
-        </Check>,
+      if (!ok)
+        blocked ??= `No coaster berth yet: needs a 2-wide quay in ${B.COASTER_DRAFT} m of water`;
+      add(
+        ok,
+        ok
+          ? `${cap.deepBerths} coaster berth${cap.deepBerths === 1 ? '' : 's'} (${B.COASTER_DRAFT} m deep, 2-wide quay)`
+          : `No coaster berth yet: needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water`,
       );
       const pallets = cap.pallets.demand + Math.round(fisheryDailyCrates(t));
       const forks = cap.pallets.unloading;
-      checks.push(
-        <Check ok={forks >= pallets} warn={forks > 0 && forks < pallets}>
-          {forks > 0
-            ? `Pallets: ${pallets} crates a day, ${forks} can be unloaded`
-            : 'Crates come on pallets: dockhands carry them off into crate storage or a truck bay, or a jib crane swings them into crate storage beside it'}
-        </Check>,
+      add(
+        forks >= pallets,
+        forks > 0
+          ? `Pallets: ${pallets} crates a day, ${forks} can be unloaded`
+          : 'Crates come on pallets: dockhands carry them off into crate storage or a truck bay, or a jib crane swings them into crate storage beside it',
+        forks > 0 && forks < pallets,
       );
     }
-    checks.push(
-      <Check ok={payback <= 3} warn={payback > 3}>
-        Signing fee pays back in {span(payback)}
-      </Check>,
-    );
+    add(payback <= 3, `Signing fee pays back in ${span(payback)}`, payback > 3);
   } else {
+    const trucks = s.contracts.reduce(
+      (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
+      0,
+    );
+    const bays = s.bays.length;
     const gain = o.truckingAfter - cap.trucking;
     const total = trucks + t.fleet;
-    checks.push(
-      <Check ok={gain > 0} warn={gain === 0}>
-        Trucking {cap.trucking} → {o.truckingAfter} crates/day
-      </Check>,
-      <Check ok={total <= bays} warn={total > bays}>
-        {total <= bays
-          ? `${bays} truck bays for ${total} trucks`
-          : `Only ${bays} truck bay${bays === 1 ? '' : 's'} for ${total} trucks: build more bays`}
-      </Check>,
+    add(gain > 0, `Trucking ${cap.trucking} → ${o.truckingAfter} crates/day`, gain === 0);
+    add(
+      total <= bays,
+      total <= bays
+        ? `${bays} truck bays for ${total} trucks`
+        : `Only ${bays} truck bay${bays === 1 ? '' : 's'} for ${total} trucks: build more bays`,
+      total > bays,
     );
   }
+  return { checks, blocked };
+}
 
+/** Why an offer cannot be signed right now, or null: blocked, or too dear. */
+export function whyNot(o: OfferView, s: Snapshot): string | null {
+  const { blocked } = offerChecks(o, s);
+  if (blocked) return blocked;
+  if (s.cash < o.signingFee) return `Needs ${money(o.signingFee - s.cash)} more cash to sign`;
+  return null;
+}
+
+function OfferRow({
+  o,
+  s,
+  open,
+  onToggle,
+  actions,
+}: {
+  o: OfferView;
+  s: Snapshot;
+  open: boolean;
+  onToggle: () => void;
+  actions: Actions;
+}) {
+  const t = o.terms;
+  const days = Math.max(1, Math.ceil(o.expiresIn / TICKS_PER_DAY));
+  const { checks, blocked } = offerChecks(o, s);
+  const why = blocked ?? (s.cash < o.signingFee ? whyNot(o, s) : null);
+  // The first thing short, for a row closed: what to build before signing.
+  const short = why ? null : (checks.find((k) => !k.ok && !k.warn)?.text ?? null);
+  const expiring = o.expiresIn <= EXPIRING_TICKS;
   return (
-    <div class="card offer">
-      <CardHead terms={t} extra={<span class="chip">{days}d left</span>} />
+    <Row
+      terms={t}
+      offer
+      open={open}
+      onToggle={onToggle}
+      tone={blocked ? 'locked' : ''}
+      why={why ?? (open ? null : short)}
+      whyTone={blocked ? 'bad' : 'warn'}
+      right={<span class={`pill ${expiring ? 'expiring' : 'days'}`}>{days}d left</span>}
+    >
       <Headline terms={t} />
       <Facts rows={termRows(t)} />
-      <ul class="checks">{checks}</ul>
+      <ul class="checks">
+        {checks.map((k) => (
+          <Check key={k.text} k={k} />
+        ))}
+      </ul>
       <div class="card-foot">
         <span class="muted">
           {t.kind === 'fishery' ? `Walk-out penalty ${money(o.breach)}` : 'No penalties'}
         </span>
         <button
           class="btn primary sm"
-          disabled={cash < o.signingFee || blocked}
+          disabled={!!why}
+          title={why ?? undefined}
           onClick={() => actions.send({ type: 'signContract', id: o.id })}
         >
           Sign · {money(o.signingFee)}
         </button>
       </div>
+    </Row>
+  );
+}
+
+// ── Filters ───────────────────────────────────────────────
+
+function Seg<T extends string>({
+  options,
+  value,
+  onPick,
+  label,
+}: {
+  options: { id: T | 'all'; label: string; count: number; tone?: string }[];
+  value: T | 'all';
+  onPick: (v: T | 'all') => void;
+  label: string;
+}) {
+  return (
+    <div class="seg" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          class={`seg-btn ${o.tone ?? ''} ${value === o.id ? 'on' : ''}`}
+          aria-pressed={value === o.id}
+          onClick={() => onPick(o.id)}
+        >
+          {o.label}
+          <span class="seg-count">{o.count}</span>
+        </button>
+      ))}
     </div>
+  );
+}
+
+function Pick<T extends string>({
+  label,
+  value,
+  options,
+  onPick,
+}: {
+  label: string;
+  value: T;
+  options: { id: T; label: string }[];
+  onPick: (v: T) => void;
+}) {
+  return (
+    <label class="cpick">
+      <span class="field-label">{label}</span>
+      <select value={value} onChange={(e) => onPick((e.target as HTMLSelectElement).value as T)}>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Kind and cargo choices for the terms in a list: those it has, with how many, and the one chosen. */
+function kindCargoOptions(all: Terms[], f: { kind: KindGroup | 'all'; cargo: Cargo | 'all' }) {
+  const kinds: { id: KindGroup | 'all'; label: string }[] = [
+    { id: 'all', label: `All kinds (${all.length})` },
+  ];
+  for (const k of KINDS) {
+    const n = all.filter((t) => kindGroup(t) === k).length;
+    if (n > 0 || f.kind === k) kinds.push({ id: k, label: `${KIND_LABEL[k]} (${n})` });
+  }
+  const cargos: { id: Cargo | 'all'; label: string }[] = [{ id: 'all', label: 'All cargo' }];
+  for (const k of CARGOS) {
+    const n = all.filter((t) => cargoOf(t) === k).length;
+    if (n > 0 || f.cargo === k) cargos.push({ id: k, label: `${CARGO_LABEL[k]} (${n})` });
+  }
+  return { kinds, cargos };
+}
+
+function NoMatch({ onClear }: { onClear: () => void }) {
+  return (
+    <p class="muted cnone">
+      None match these filters.{' '}
+      <button class="link" onClick={onClear}>
+        Show all
+      </button>
+    </p>
+  );
+}
+
+function useOpen(): [Set<number>, (id: number) => void] {
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const toggle = (id: number) =>
+    setOpen((was) => {
+      const next = new Set(was);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  return [open, toggle];
+}
+
+function SignedList({ actions }: { actions: Actions }) {
+  const s = snapshot.value!;
+  const f = signedFilter.value;
+  const set = (p: Partial<SignedFilter>) => (signedFilter.value = { ...f, ...p });
+  const [open, toggle] = useOpen();
+  const focus = contractFocus.value;
+  // Counts for each status among those of the kind and cargo chosen.
+  const narrowed = signedRows(s.contracts, { ...f, status: 'all' });
+  const count = (h: Health) => narrowed.filter((r) => r.health === h).length;
+  let rows = signedRows(s.contracts, f);
+  // The contract the panel was opened on shows whatever the filters say.
+  if (focus !== null && !rows.some((r) => r.c.id === focus)) {
+    const c = s.contracts.find((c) => c.id === focus);
+    if (c) rows = [{ c, ...health(c) }, ...rows];
+  }
+  const { kinds, cargos } = kindCargoOptions(
+    s.contracts.map((c) => c.terms),
+    f,
+  );
+  if (s.contracts.length === 0) {
+    return <p class="muted">No contracts signed yet. Sign one from the Offers tab.</p>;
+  }
+  return (
+    <>
+      <div class="cfilter">
+        <Seg<Health>
+          label="Status"
+          value={f.status}
+          onPick={(status) => set({ status })}
+          options={[
+            { id: 'all', label: 'All', count: narrowed.length },
+            { id: 'working', label: 'Working', count: count('working'), tone: 'good' },
+            { id: 'held', label: 'Held up', count: count('held'), tone: 'warn' },
+            { id: 'trouble', label: 'Trouble', count: count('trouble'), tone: 'bad' },
+          ]}
+        />
+        <div class="cpicks">
+          <Pick label="Kind" value={f.kind} options={kinds} onPick={(kind) => set({ kind })} />
+          <Pick label="Cargo" value={f.cargo} options={cargos} onPick={(cargo) => set({ cargo })} />
+          <Pick
+            label="Sort"
+            value={f.sort}
+            options={(Object.keys(SIGNED_SORT_LABEL) as SignedSort[]).map((id) => ({
+              id,
+              label: SIGNED_SORT_LABEL[id],
+            }))}
+            onPick={(sort) => set({ sort })}
+          />
+        </div>
+      </div>
+      {rows.length === 0 && (
+        <NoMatch onClear={() => (signedFilter.value = { ...SIGNED_DEFAULT, sort: f.sort })} />
+      )}
+      <div class="clist">
+        {rows.map((r) => (
+          <SignedRow
+            key={r.c.id}
+            c={r.c}
+            state={r.health}
+            why={r.why}
+            open={open.has(r.c.id) || r.c.id === focus}
+            onToggle={() => {
+              if (r.c.id === focus) contractFocus.value = null;
+              else toggle(r.c.id);
+            }}
+            actions={actions}
+          />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function OfferList({ actions }: { actions: Actions }) {
+  const s = snapshot.value!;
+  const f = offerFilter.value;
+  const set = (p: Partial<OfferFilter>) => (offerFilter.value = { ...f, ...p });
+  const [open, toggle] = useOpen();
+  const blocked = (o: OfferView) => whyNot(o, s);
+  const narrowed = offerRows(s.offers, { ...f, status: 'all' }, blocked);
+  const count = (st: OfferStatus) => narrowed.filter((o) => offerIs(o, st, blocked)).length;
+  const rows = offerRows(s.offers, f, blocked);
+  const { kinds, cargos } = kindCargoOptions(
+    s.offers.map((o) => o.terms),
+    f,
+  );
+  if (s.offers.length === 0) {
+    return <p class="muted">No offers right now. New ones arrive every few days.</p>;
+  }
+  return (
+    <>
+      <div class="cfilter">
+        <Seg<OfferStatus>
+          label="Status"
+          value={f.status}
+          onPick={(status) => set({ status })}
+          options={[
+            { id: 'all', label: 'All', count: narrowed.length },
+            { id: 'ready', label: OFFER_STATUS_LABEL.ready, count: count('ready'), tone: 'good' },
+            {
+              id: 'blocked',
+              label: OFFER_STATUS_LABEL.blocked,
+              count: count('blocked'),
+              tone: 'bad',
+            },
+            {
+              id: 'expiring',
+              label: OFFER_STATUS_LABEL.expiring,
+              count: count('expiring'),
+              tone: 'warn',
+            },
+          ]}
+        />
+        <div class="cpicks">
+          <Pick label="Kind" value={f.kind} options={kinds} onPick={(kind) => set({ kind })} />
+          <Pick label="Cargo" value={f.cargo} options={cargos} onPick={(cargo) => set({ cargo })} />
+          <Pick
+            label="Sort"
+            value={f.sort}
+            options={(Object.keys(OFFER_SORT_LABEL) as OfferSort[]).map((id) => ({
+              id,
+              label: OFFER_SORT_LABEL[id],
+            }))}
+            onPick={(sort) => set({ sort })}
+          />
+        </div>
+      </div>
+      {rows.length === 0 && (
+        <NoMatch onClear={() => (offerFilter.value = { ...OFFER_DEFAULT, sort: f.sort })} />
+      )}
+      <div class="clist">
+        {rows.map((o) => (
+          <OfferRow
+            key={o.id}
+            o={o}
+            s={s}
+            open={open.has(o.id)}
+            onToggle={() => toggle(o.id)}
+            actions={actions}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -738,12 +1112,9 @@ function Overview() {
   const unhappy = lines
     .filter((c) => c.satisfaction < 45)
     .sort((a, b) => a.satisfaction - b.satisfaction);
-  // The lines first, unhappiest at the top, then the hauliers.
-  const rows = [
-    ...lines.sort((a, b) => a.satisfaction - b.satisfaction),
-    ...ships.sort((a, b) => a.terms.name.localeCompare(b.terms.name)),
-    ...hauls.sort((a, b) => a.terms.name.localeCompare(b.terms.name)),
-  ];
+  // Those needing attention first, then by kind and name.
+  const rows = signedRows(s.contracts, SIGNED_DEFAULT);
+  const notWorking = rows.filter((r) => r.health !== 'working').length;
   return (
     <>
       <Summary cap={s.capacity} />
@@ -786,38 +1157,33 @@ function Overview() {
           {money(unhappy.reduce((n, c) => n + c.breach, 0))}.
         </p>
       )}
+      {notWorking > 0 && (
+        <p class="hint">
+          {notWorking} contract{notWorking === 1 ? ' is' : 's are'} not working as they should.{' '}
+          <button
+            class="link"
+            onClick={() => {
+              signedFilter.value = { ...SIGNED_DEFAULT, status: 'all', sort: 'status' };
+              contractsTab.value = 'active';
+            }}
+          >
+            See why
+          </button>
+        </p>
+      )}
       <table class="roster">
         <tbody>
-          {rows.map((c) => {
+          {rows.map(({ c, health: h }) => {
             const t = c.terms;
-            const color = t.kind === 'fishery' ? C.hulls[t.color] : C.trucks[t.color];
-            const m = mood(c.satisfaction);
             return (
-              <tr key={c.id} onClick={() => (contractsTab.value = 'active')} title="Show in detail">
+              <tr key={c.id} onClick={() => openContract(c.id)} title="Show in detail">
                 <td>
-                  <span class="swatch" style={{ background: css(color) }} />
+                  <Swatch terms={t} />
                 </td>
                 <td class="roster-name">{t.name}</td>
-                <td class="muted">{kindLabel(t)}</td>
+                <td class="muted roster-kind">{kindLabel(t)}</td>
                 <td class="num">
-                  {t.kind === 'fishery'
-                    ? `≈${Math.round(fisheryDailyCrates(t))}/day`
-                    : t.kind === 'shipper'
-                      ? `≈${t.perDay}/day out`
-                      : `${t.fleet}×${t.capacity}`}
-                </td>
-                <td class="num">
-                  {t.kind === 'fishery' ? (
-                    c.waiting > 0 ? (
-                      <span class="neg">{c.waiting} waiting</span>
-                    ) : (
-                      <span class={`mood-label ${m.tone}`}>{m.label}</span>
-                    )
-                  ) : (
-                    <span class="muted">
-                      {c.active} here{c.away > 0 ? `, ${c.away} away` : ''}
-                    </span>
-                  )}
+                  <span class={`pill ${h}`}>{HEALTH_LABEL[h]}</span>
                 </td>
               </tr>
             );
@@ -832,67 +1198,38 @@ export function ContractsPanel({ actions }: { actions: Actions }) {
   const tab = contractsTab.value;
   const s = snapshot.value;
   if (!s) return null;
-  const waiting = s.contracts.reduce((n, c) => n + c.waiting, 0);
-  const trucks = s.contracts.reduce(
-    (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
-    0,
-  );
-  // Fisheries first, the unhappiest at the top.
-  const sorted = [...s.contracts].sort(
-    (a, b) =>
-      (a.terms.kind === 'haulier' ? 1 : 0) - (b.terms.kind === 'haulier' ? 1 : 0) ||
-      a.satisfaction - b.satisfaction,
-  );
+  const notWorking = s.contracts.filter((c) => health(c).health !== 'working').length;
+  const ready = s.offers.filter((o) => whyNot(o, s) === null).length;
   return (
-    <aside class="side panel wide xwide" aria-label="Contracts">
+    <aside class="side panel wide xwide contracts" aria-label="Contracts">
       <InfoHeader kicker="Business" title="Contracts" onClose={() => (panel.value = null)} />
       <div class="tabs" role="tablist">
         <TabButton id="overview">Overview</TabButton>
         <TabButton id="active">
-          All <span class="tab-count">{s.contracts.length}</span>
-          {waiting > 0 && (
-            <span class="count bad" title="Boats waiting at anchor">
-              {waiting}
+          Signed <span class="tab-count">{s.contracts.length}</span>
+          {notWorking > 0 && (
+            <span class="count bad" title="Contracts held up or in trouble">
+              {notWorking}
             </span>
           )}
         </TabButton>
         <TabButton id="offers">
           Offers <span class="tab-count">{s.offers.length}</span>
+          {ready > 0 && (
+            <span class="count good" title="Offers you can sign now">
+              {ready}
+            </span>
+          )}
         </TabButton>
         <TabButton id="rules">
-          <Icon name="alert" /> Penalties
+          <Icon name="alert" />
+          <span class="tab-label">Penalties</span>
         </TabButton>
       </div>
 
       {tab === 'overview' && <Overview />}
-
-      {tab === 'active' && (
-        <>
-          {sorted.map((c) => (
-            <ContractCard key={c.id} c={c} actions={actions} />
-          ))}
-        </>
-      )}
-
-      {tab === 'offers' && (
-        <>
-          {s.offers.length === 0 && (
-            <p class="muted">No offers right now. New ones arrive every few days.</p>
-          )}
-          {s.offers.map((o) => (
-            <OfferCard
-              key={o.id}
-              o={o}
-              cash={s.cash}
-              cap={s.capacity}
-              bays={s.bays.length}
-              trucks={trucks}
-              actions={actions}
-            />
-          ))}
-        </>
-      )}
-
+      {tab === 'active' && <SignedList actions={actions} />}
+      {tab === 'offers' && <OfferList actions={actions} />}
       {tab === 'rules' && <Rules />}
     </aside>
   );
