@@ -512,9 +512,16 @@ function truckBay(t: TileBuild): Object3D {
     }
   }
   g.add(cyl(0.02, 0.5, C.chassis, 0.92, y, 0.08));
-  g.add(box(0.04, 0.16, 0.22, C.sign, 0.92, y + 0.45, 0.08));
+  g.add(baySign(0.92, y + 0.45));
   parts.stack = { crates, boxes: [] };
   return g;
+}
+
+/** A truck bay's sign on its post, its designation on both faces; see labels.ts. */
+function baySign(x: number, y: number): Object3D {
+  const sign = box(0.04, 0.2, 0.27, C.sign, x, y, 0.08);
+  sign.userData.baySign = true;
+  return sign;
 }
 
 function largeBay(t: TileBuild): Object3D {
@@ -544,7 +551,7 @@ function largeBay(t: TileBuild): Object3D {
   }
   g.add(box(1, 0.04, 1, C.depotRoof, 1.5, y + 0.8, 0.5));
   g.add(cyl(0.02, 0.5, C.chassis, 0.08, y, 0.08));
-  g.add(box(0.04, 0.16, 0.22, C.sign, 0.08, y + 0.45, 0.08));
+  g.add(baySign(0.08, y + 0.45));
   parts.stack = { crates, boxes: [] };
   return g;
 }

@@ -23,6 +23,7 @@ import { alertMarker } from './models';
 import { Overlay } from './overlay';
 import { C } from './palette';
 import { Structures } from './structures';
+import { Designations } from './structures/labels';
 import { Trains } from './trains';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
@@ -46,6 +47,8 @@ interface MapLayers {
   root: Group;
   water: Water;
   structures: Structures;
+  /** Each place's designation, on its sign or painted on the ground. */
+  designations: Designations;
   entities: Entities;
   trains: Trains;
   scenery: Group;
@@ -150,13 +153,16 @@ export class Renderer {
     const seabedDetail = buildSeabedDetail(map);
     scenery.add(seabed, seabedDetail, land, rocks, trees);
     const root = new Group();
+    const designations = new Designations(map, (i) => structures.tileObject(i));
     root.add(water.mesh, scenery, structures.group, entities.group, trains.group, this.marks);
+    root.add(designations.group);
     this.scene.add(root);
     this.layers = {
       map,
       root,
       water,
       structures,
+      designations,
       entities,
       trains,
       scenery,
@@ -229,6 +235,7 @@ export class Renderer {
     this.layers.structures.setTick(s.tick);
     this.layers.structures.setPiles(s.piles);
     this.layers.structures.setCranes(s.cranes);
+    this.layers.designations.set(s.bays, s.yards, s.parking);
     this.layers.structures.setGates(s.entities.filter((e) => e.kind === 'truck'));
     this.setProblems(s.problems ?? []);
   }
