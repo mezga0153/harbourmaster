@@ -1,5 +1,5 @@
 import { TIERS } from '../sim/tiers';
-import type { Actions } from './App';
+import type { Actions } from './actions';
 import { money } from './format';
 import { land, panel, snapshot, tool } from './store';
 import { InfoHeader, Meter, More, PortTownTabs } from './widgets';

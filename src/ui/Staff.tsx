@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { StaffView } from '../protocol';
 import * as B from '../sim/balance';
 import { traitDef, type Candidate, type Trait } from '../sim/staff';
-import type { Actions } from './App';
+import type { Actions } from './actions';
 import { money } from './format';
 import { Icon } from './icons';
 import { MACHINES } from '../sim/machines';

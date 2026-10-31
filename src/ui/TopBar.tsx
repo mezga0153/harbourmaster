@@ -1,0 +1,369 @@
+import type { ComponentChildren } from 'preact';
+import type { Snapshot } from '../protocol';
+import { soundSettings } from '../audio/sound';
+import { TOWN_STAGES } from '../sim/town';
+import type { Actions } from './actions';
+import { dayProgress, formatDate, money } from './format';
+import { Icon, type IconName } from './icons';
+import { SoundControl } from './Sound';
+import { menuOpen, panel, type PanelName, selection, snapshot, togglePanel } from './store';
+
+export const SPEEDS = [
+  { speed: 1, label: '1×' },
+  { speed: 2, label: '2×' },
+  { speed: 4, label: '4×' },
+  { speed: 8, label: '8×' },
+];
+
+/** What the port pays out a day: wages, haulier fees and loan interest. */
+function dailyCosts(s: Snapshot): number {
+  return s.wages + s.contractFees + s.interest;
+}
+
+function Stat({
+  icon,
+  label,
+  title,
+  children,
+  tone,
+  priority = 1,
+}: {
+  icon?: IconName;
+  label: string;
+  title: string;
+  children: ComponentChildren;
+  tone?: string;
+  /** Higher numbers hide first on narrow screens. */
+  priority?: number;
+}) {
+  return (
+    <div class={`stat ${tone ?? ''}`} title={title} data-priority={priority}>
+      {icon && <Icon name={icon} />}
+      <div>
+        <div class="stat-label">{label}</div>
+        <div class="stat-value">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Panels the top bar opens from the cash rather than a button of their own. */
+const MONEY: ReadonlySet<PanelName> = new Set(['finance', 'stats']);
+
+/** The management panels, as the top bar and the phone menu list them. */
+const MENU: {
+  id: PanelName;
+  icon: IconName;
+  label: string;
+  title: string;
+  /** What wants looking at there, if anything: a count, or "!". */
+  badge: (s: Snapshot) => string | number | null;
+}[] = [
+  {
+    id: 'finance',
+    icon: 'dollar',
+    label: 'Finance',
+    title: 'Finance: charts, loans and daily statement (M)',
+    badge: (s) => (s.daysInRed > 0 ? '!' : null),
+  },
+  {
+    id: 'stats',
+    icon: 'box',
+    label: 'Statistics',
+    title: 'Statistics: where the crates and containers are',
+    badge: () => null,
+  },
+  {
+    id: 'port',
+    icon: 'stairs',
+    label: 'Port',
+    title: 'Port development and upgrades (P)',
+    badge: (s) => (s.progress.canUpgrade ? '!' : null),
+  },
+  {
+    id: 'staff',
+    icon: 'users',
+    label: 'Staff',
+    title: 'Staff and hiring (H)',
+    badge: (s) => s.people.filter((p) => p.raiseAsk > 0).length || null,
+  },
+  {
+    id: 'contracts',
+    icon: 'contract',
+    label: 'Contracts',
+    title: 'Contracts (C)',
+    badge: (s) => s.offers.length || null,
+  },
+];
+
+export function TopBar({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s) return null;
+  const costs = dailyCosts(s);
+  const waiting = MENU.some((m) => m.badge(s) !== null);
+  return (
+    <header class="topbar panel">
+      <div class="topbar-left">
+        <button
+          class={`btn icon menu-button ${menuOpen.value ? 'on' : ''}`}
+          onClick={() => (menuOpen.value = !menuOpen.value)}
+          aria-label="Menu"
+          aria-expanded={menuOpen.value}
+        >
+          <Icon name="menu" />
+          {waiting && <span class="dot-badge" />}
+        </button>
+        <button
+          class={`brand ${panel.value === 'settings' ? 'on' : ''}`}
+          onClick={() => togglePanel('settings')}
+          title="Settings: graphics, sound, and saving the game to a file"
+          aria-label="Settings"
+        >
+          <span class="brand-mark">
+            <Icon name="anchor" />
+          </span>
+          <span class="brand-name">Harbourmaster</span>
+        </button>
+        <TimeControl actions={actions} />
+        <span class="vr" />
+        <button
+          class={`stat-button cash ${panel.value === 'finance' || panel.value === 'stats' ? 'on' : ''}`}
+          onClick={() =>
+            (panel.value = panel.value === 'finance' || panel.value === 'stats' ? null : 'finance')
+          }
+          title="Finance and statistics: charts, loans, the daily statement, and where the cargo is (M)"
+        >
+          <Stat label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
+            {money(s.cash)}
+            {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
+          </Stat>
+          {s.daysInRed > 0 && <span class="count">!</span>}
+        </button>
+        <Stat
+          icon="coins"
+          label="Costs / day"
+          title="Daily wages, haulier fees and loan interest"
+          priority={2}
+        >
+          {money(-costs)}
+        </Stat>
+        <Stat icon="users" label="Staff" title="Dockhands employed" priority={3}>
+          {s.staff}
+        </Stat>
+        <Stat icon="box" label="Crates" title="Crates handled so far" priority={3}>
+          {s.stats.cratesHandled.toLocaleString('en-US')}
+        </Stat>
+        {s.town && (
+          <button
+            class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
+            onClick={() => openTown()}
+            title={`${s.town.name}, ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow`}
+          >
+            <Stat icon="town" label={s.town.name} title="">
+              {s.town.population.toLocaleString('en-US')}
+            </Stat>
+            {s.town.next && (
+              <span class="task-bar" title={`Next: ${s.town.next.name.toLowerCase()}`}>
+                <span style={{ width: `${Math.round(landmarkProgress(s.town.next) * 100)}%` }} />
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+
+      <div class="topbar-right">
+        {MENU.filter((m) => !MONEY.has(m.id)).map((m) => {
+          const badge = m.badge(s);
+          return (
+            <button
+              key={m.id}
+              class={`btn ${panel.value === m.id ? 'on' : ''} ${m.id === 'contracts' ? 'keep' : ''}`}
+              onClick={() => togglePanel(m.id)}
+              title={m.title}
+            >
+              <Icon name={m.icon} />
+              <span>{m.label}</span>
+              {badge !== null && <span class="count">{badge}</span>}
+            </button>
+          );
+        })}
+        <button
+          class={`btn icon keep ${panel.value === 'handbook' ? 'on' : ''}`}
+          onClick={() => togglePanel('handbook')}
+          title="Handbook: how the port works (?)"
+        >
+          <Icon name="book" />
+        </button>
+        <SoundControl />
+        <button class="btn icon" onClick={() => actions.send({ type: 'save' })} title="Save game">
+          <Icon name="save" />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/** How far the port is towards the town's next landmark, 0 to 1. */
+function landmarkProgress(n: NonNullable<NonNullable<Snapshot['town']>['next']>): number {
+  const part = n.need > 0 ? Math.min(1, n.have / n.need) : 1;
+  return n.days ? Math.min(1, (n.days.done + part) / n.days.need) : part;
+}
+
+/** Show the town, or put it away again: the view flies over to it and back (see main.ts). */
+function openTown(): void {
+  if (!snapshot.value?.town) return;
+  selection.value = selection.value?.type === 'town' ? null : { type: 'town' };
+}
+
+/**
+ * On a phone, everything the top bar holds on a big screen, in a menu that
+ * slides in from the left behind the hamburger: the port's figures, the
+ * panels, the handbook and settings, sound, saving and a new port.
+ */
+export function MobileMenu({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s || !menuOpen.value) return null;
+  const close = () => (menuOpen.value = false);
+  const open = (id: PanelName) => {
+    close();
+    panel.value = id;
+  };
+  const costs = dailyCosts(s);
+  const sound = soundSettings.value;
+  const item = (id: PanelName, icon: IconName, label: string, badge: string | number | null) => (
+    <button
+      key={id}
+      class={`drawer-item ${panel.value === id ? 'on' : ''}`}
+      onClick={() => open(id)}
+    >
+      <Icon name={icon} />
+      <span>{label}</span>
+      {badge !== null && <span class="count">{badge}</span>}
+      <Icon name="chevron" />
+    </button>
+  );
+  return (
+    <>
+      <div class="drawer-backdrop" onClick={close} />
+      <nav class="drawer panel" aria-label="Menu">
+        <div class="drawer-head">
+          <span class="brand-mark">
+            <Icon name="anchor" />
+          </span>
+          <span class="brand-name">Harbourmaster</span>
+          <button class="btn icon" onClick={close} aria-label="Close the menu">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div class="drawer-stats">
+          <button class="drawer-stat" onClick={() => open('finance')}>
+            <span class="stat-label">Cash</span>
+            <span class={`stat-value ${s.cash < 0 ? 'neg' : 'pos'}`}>{money(s.cash)}</span>
+            {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
+          </button>
+          <div class="drawer-stat">
+            <span class="stat-label">Costs / day</span>
+            <span class="stat-value">{money(-costs)}</span>
+          </div>
+          <div class="drawer-stat">
+            <span class="stat-label">Staff</span>
+            <span class="stat-value">{s.staff}</span>
+          </div>
+          <div class="drawer-stat">
+            <span class="stat-label">Crates</span>
+            <span class="stat-value">{s.stats.cratesHandled.toLocaleString('en-US')}</span>
+          </div>
+          {s.town && (
+            <button
+              class="drawer-stat wide"
+              onClick={() => {
+                close();
+                openTown();
+              }}
+            >
+              <span class="stat-label">{s.town.name}</span>
+              <span class="stat-value">
+                {s.town.population.toLocaleString('en-US')}{' '}
+                <span class="muted">{TOWN_STAGES[s.town.stage].name.toLowerCase()}</span>
+              </span>
+            </button>
+          )}
+        </div>
+        <div class="drawer-list">
+          {s.town && (
+            <button
+              class={`drawer-item ${selection.value?.type === 'town' ? 'on' : ''}`}
+              onClick={() => {
+                close();
+                openTown();
+              }}
+            >
+              <Icon name="town" />
+              <span>Town</span>
+              <Icon name="chevron" />
+            </button>
+          )}
+          {MENU.map((m) => item(m.id, m.icon, m.label, m.badge(s)))}
+          {item('handbook', 'book', 'Handbook', null)}
+          {item('settings', 'settings', 'Settings', null)}
+        </div>
+        <div class="drawer-actions">
+          <button
+            class={`btn ${sound.on ? '' : 'off'}`}
+            onClick={() => (soundSettings.value = { ...sound, on: !sound.on })}
+            aria-pressed={sound.on}
+          >
+            <Icon name={sound.on ? 'sound' : 'mute'} />
+            <span>{sound.on ? 'Sound on' : 'Sound off'}</span>
+          </button>
+          <button
+            class="btn"
+            onClick={() => {
+              actions.send({ type: 'save' });
+              close();
+            }}
+          >
+            <Icon name="save" />
+            <span>Save</span>
+          </button>
+        </div>
+      </nav>
+    </>
+  );
+}
+
+/** The date and the game's speed, at the top left. */
+function TimeControl({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s) return null;
+  return (
+    <div class="time">
+      <div class="clock" title="Date">
+        <span class="clock-date">{formatDate(s.tick)}</span>
+        <span class="daybar">
+          <span style={{ width: `${dayProgress(s.tick) * 100}%` }} />
+        </span>
+      </div>
+      <div class="segmented" role="group" aria-label="Game speed">
+        <button
+          class={s.speed === 0 ? 'on' : ''}
+          onClick={() => actions.togglePause()}
+          title="Pause (Space)"
+          aria-label="Pause"
+        >
+          <Icon name="pause" />
+        </button>
+        {SPEEDS.map((o, k) => (
+          <button
+            key={o.speed}
+            class={s.speed === o.speed ? 'on' : ''}
+            onClick={() => actions.setSpeed(o.speed)}
+            title={`Speed ${o.label} (${k + 1})`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

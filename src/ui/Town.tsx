@@ -2,7 +2,7 @@ import { Fragment } from 'preact';
 import * as B from '../sim/balance';
 import { TIERS } from '../sim/tiers';
 import { TOWN_STAGES } from '../sim/town';
-import type { Actions } from './App';
+import type { Actions } from './actions';
 import { money } from './format';
 import { selection, snapshot } from './store';
 import { InfoHeader, Meter, PortTownTabs } from './widgets';

@@ -5,7 +5,7 @@ import { useState } from 'preact/hooks';
 import { LineSeries, PAD, shortDate, ticks, Tip, useHover, W } from './charts';
 import type { FinanceDay, Ledger, LedgerCategory } from '../protocol';
 import * as B from '../sim/balance';
-import type { Actions } from './App';
+import type { Actions } from './actions';
 import { formatDate, money } from './format';
 import { panel, snapshot } from './store';
 import { InfoHeader, Meter, MoneyTabs } from './widgets';
