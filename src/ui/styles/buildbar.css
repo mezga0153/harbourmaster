@@ -1,0 +1,384 @@
+/* The build bar along the bottom and the build menu above it (BuildBar.tsx). */
+
+/* Build dock */
+
+/* The build bar, along the whole bottom edge of the window. */
+.dock {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--bar);
+  display: flex;
+  align-items: stretch;
+  padding: 3px 8px;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dock .dock-group:nth-child(2) {
+  flex: 1;
+  justify-content: center;
+}
+
+.dock .tool {
+  height: 100%;
+  width: 64px;
+  gap: 1px;
+}
+
+.dock .tool .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Just the icon and name along the bar. */
+.dock .tool-cost {
+  display: none;
+}
+
+.dock .tool kbd {
+  top: 2px;
+  right: 2px;
+}
+
+.dock-group {
+  display: flex;
+  gap: 2px;
+}
+
+.dock-group + .dock-group {
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
+}
+
+.tool.category.open {
+  background: var(--raised-2);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.tool.category .tool-cost {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tool tray: the open category's tools, just above the bar. */
+
+/* A fixed size, so it never shifts as the pointer moves over the cards. */
+.tray {
+  position: absolute;
+  bottom: calc(var(--bar) + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 6px 4px;
+  width: min(600px, calc(100vw - 24px));
+  height: var(--tray);
+  animation: tray-in 0.14s ease-out;
+}
+
+.tray-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.tray-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.tray-title .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.tray-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+}
+
+.tray-tab {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.tray-tab:hover {
+  color: var(--text);
+}
+
+.tray-tab.on {
+  background: var(--raised-2);
+  color: var(--text);
+}
+
+/* A card per thing on offer: its picture, name and price. */
+
+.tray-cards {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.build-card {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 98px;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  text-align: left;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    transform 0.12s;
+}
+
+.build-card:hover:not(:disabled) {
+  background: var(--raised-2);
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
+}
+
+.build-card.on {
+  background: var(--accent-soft);
+  border-color: rgba(245, 184, 61, 0.55);
+}
+
+.build-picture {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #2b3a52, #1b2638);
+}
+
+.build-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.build-picture > .icon {
+  width: 34px;
+  height: 34px;
+  color: var(--text-2);
+}
+
+.build-picture kbd {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 8.5px;
+  padding: 1px 3px;
+  background: rgba(10, 14, 22, 0.7);
+  border-color: var(--line);
+}
+
+.build-card.locked .build-picture img,
+.build-card.locked .build-picture > .icon {
+  filter: grayscale(1) brightness(0.55);
+}
+
+.build-card .lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.build-card .lock .icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-2);
+}
+
+.build-label {
+  margin: 4px 3px 0;
+  line-height: 1.25;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.build-card.on .build-label {
+  color: var(--accent);
+}
+
+.build-cost {
+  margin: 0 3px 1px;
+  line-height: 1.25;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+/* What the card under the pointer does and costs. */
+
+.tray-about {
+  flex: 1;
+  min-height: 0;
+  padding: 5px 4px 0;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.tray-about p {
+  margin: 1px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tray-about-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tray-about-costs {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+@keyframes tray-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+.tool {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 68px;
+  height: 64px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.tool .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.tool:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.tool.on {
+  background: var(--accent-soft);
+  border-color: rgba(245, 184, 61, 0.45);
+  color: var(--accent);
+}
+
+.tool kbd {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 8.5px;
+  padding: 1px 3px;
+  border-color: var(--line);
+}
+
+.tool-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.tool.on .tool-label {
+  color: var(--accent);
+}
+
+.tool-cost {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.tool.locked {
+  opacity: 0.45;
+}
+
+.tool.locked:hover {
+  opacity: 0.7;
+}
+
+.tool .lock {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  color: var(--text-3);
+}
+
+.tool .lock .icon {
+  width: 11px;
+  height: 11px;
+}
+
+@media (max-width: 760px) {
+  .dock {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(var(--bar) + env(safe-area-inset-bottom));
+  }
+
+  .dock .dock-group:nth-child(2) {
+    flex: none;
+    justify-content: flex-start;
+  }
+
+  .tool,
+  .dock .tool {
+    width: 58px;
+    flex: none;
+  }
+
+  .tray {
+    bottom: calc(var(--bar) + 6px + env(safe-area-inset-bottom));
+    width: calc(100vw - 16px);
+  }
+}
