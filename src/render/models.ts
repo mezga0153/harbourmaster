@@ -196,7 +196,7 @@ export function paintLoad(model: Model, looks: number[]): void {
  * What a crate holds, as painted on its sides; goods as yet a plain crate,
  * each kind to have its own picture.
  */
-const CRATE_ICONS: Cargo[] = ['fish', 'ice', 'lobster'];
+const CRATE_ICONS: Cargo[] = ['fish', 'ice', 'lobster', 'canned', 'timber'];
 /** Per picture, the materials of a box's six faces: on the four sides, none top and bottom. */
 let iconMats: Partial<Record<Cargo, Material[]>> | null | undefined;
 const iconBand = new BoxGeometry(1, 1, 1);
@@ -396,6 +396,69 @@ function drawIcon(g: CanvasRenderingContext2D, name: Cargo): void {
       g.beginPath();
       g.arc(32, 31, 3, Math.PI * 0.15, Math.PI * 0.85);
       g.stroke();
+      break;
+    }
+    case 'canned': {
+      // Three tins of fish, two standing and one on top: silver rims and a
+      // yellow label with a little blue fish on each.
+      const ink = '#1d3557';
+      const tin = (x: number, y: number, w: number, h: number) => {
+        g.strokeStyle = ink;
+        g.lineWidth = 3;
+        g.fillStyle = '#c9d2da';
+        g.beginPath();
+        g.roundRect(x - w / 2, y - h / 2, w, h, 4);
+        g.fill();
+        g.stroke();
+        g.fillStyle = '#f2c230';
+        g.fillRect(x - w / 2 + 1.5, y - h / 2 + 5, w - 3, h - 10);
+        g.fillStyle = '#2f6fd0';
+        g.beginPath();
+        g.ellipse(x + 1, y, w * 0.24, h * 0.14, 0, 0, Math.PI * 2);
+        g.moveTo(x - w * 0.18, y);
+        g.lineTo(x - w * 0.34, y - h * 0.14);
+        g.lineTo(x - w * 0.34, y + h * 0.14);
+        g.closePath();
+        g.fill();
+        g.fillStyle = '#fff';
+        g.fillRect(x - w / 2 + 3, y - h / 2 + 7, 3, h - 14);
+      };
+      tin(17, 45, 28, 34);
+      tin(47, 45, 28, 34);
+      tin(32, 16, 28, 28);
+      break;
+    }
+    case 'timber': {
+      // Ends of a stack of logs, three, two and one, each with its rings,
+      // and a red strap round them.
+      const ink = '#5a3a1c';
+      for (const [x, y] of [
+        [11, 52],
+        [32, 52],
+        [53, 52],
+        [21.5, 32],
+        [42.5, 32],
+        [32, 12],
+      ]) {
+        g.fillStyle = '#e8c48c';
+        g.strokeStyle = ink;
+        g.lineWidth = 3.5;
+        g.beginPath();
+        g.arc(x, y, 10, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+        g.lineWidth = 1.5;
+        g.strokeStyle = '#b07a43';
+        g.beginPath();
+        g.arc(x, y, 6, 0, Math.PI * 2);
+        g.stroke();
+        g.fillStyle = '#b07a43';
+        g.beginPath();
+        g.arc(x, y, 2, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = '#d6453d';
+      g.fillRect(2, 41, 60, 4);
       break;
     }
     case 'goods':
