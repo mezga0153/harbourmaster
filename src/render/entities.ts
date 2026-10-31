@@ -6,10 +6,12 @@ import { isMachineKind } from '../sim/machines';
 import { Build, TICKS_PER_SECOND } from '../sim/types';
 import { place, type Entry, type Hand } from './entities/entry';
 import {
+  BACKED_OUT,
   bodyBlocked,
   forkIn,
   forkOut,
   forkPlan,
+  forkRoute,
   type Crate,
   type ForkPlan,
   type ForkSite,
@@ -98,16 +100,23 @@ const SLIP_TIME = 0.3;
 const FORK_SETTLE = 0.8;
 /**
  * Forklifts kept off a truck or crates: how far right of their way, and
- * ahead along it, they may be drawn instead, the likeliest first.
+ * ahead along it, they may be drawn instead, the likeliest first; at the
+ * last, held back short of the crates on a tile they drive into to work.
  */
-const SPOTS: [number, number][] = [0, -0.1, 0.1, -0.2, 0.2, -0.3].flatMap((a) =>
+const SPOTS: [number, number][] = [0, -0.1, 0.1, -0.2, 0.2, -0.3, -0.4, -0.5, -0.6].flatMap((a) =>
   [0.16, 0.1, 0.05, 0, -0.05, -0.1, -0.16, 0.22, -0.22, 0.28, -0.28].map((k): [number, number] => [
     k,
     a,
   ]),
 );
-/** How quickly a forklift edges over to keep clear, tiles per game second. */
+/** How quickly a forklift edges over to keep clear, tiles per game second; and holds back or catches up. */
 const KEEP_RATE = 3;
+const HOLD_RATE = 20;
+/**
+ * How far its way on may have gone, in tiles, while a forklift that has
+ * backed out waits where it lined up for that way to clear the crates.
+ */
+const HOLD_NEAR = 1.2;
 /** How far a crate in crate storage stands on its pallet. */
 const ON_PALLET = 0.025;
 
@@ -602,20 +611,28 @@ export class Entities {
     ];
     const blocked = (o: [number, number]) => bodyBlocked(this.forkSite, ...at(o), way);
     let want: [number, number] = [FORK_KEEP, 0];
+    const [k0, a0] = e.keep ?? want;
     if (blocked(want) > 0) {
+      // The clear spot nearest where it is drawn, so it never cuts across
+      // crates to get to another: held back as it drives in, it stays back.
+      const near = (o: [number, number]) => Math.hypot(o[0] - k0, o[1] - a0);
       let least = Infinity;
-      for (const o of SPOTS) {
+      for (const o of [...SPOTS].sort((p, q) => near(p) - near(q))) {
         const n = blocked(o);
         if (n < least) [want, least] = [o, n];
         if (n === 0) break;
       }
+      // Held back, it stands right up to them.
+      while (least === 0 && want[1] < 0 && blocked([want[0], want[1] + 0.02]) === 0) {
+        want = [want[0], want[1] + 0.02];
+      }
     }
     const [wk, wa] = want;
-    const [k0, a0] = e.keep ?? want;
-    const step = dt * KEEP_RATE;
-    const d = Math.hypot(wk - k0, wa - a0);
-    const f = d > step ? step / d : 1;
-    e.keep = [k0 + (wk - k0) * f, a0 + (wa - a0) * f];
+    const toward = (v: number, goal: number, rate: number) =>
+      v + Math.max(-dt * rate, Math.min(dt * rate, goal - v));
+    // It stops short at once, rather than drive on into them.
+    e.keep = [toward(k0, wk, KEEP_RATE), wa < a0 ? wa : toward(a0, wa, HOLD_RATE)];
+    if (blocked(e.keep) > 0 && blocked(want) === 0) e.keep = want;
     return at(e.keep);
   }
 
@@ -650,6 +667,8 @@ export class Entities {
           w.plan = { goal, line: goal };
         } else w.plan = plan ?? undefined;
         if (w.plan && w.last) w.plan.out = w.last.line;
+        // Round crates in the way to line up, not through them.
+        if (w.plan) w.plan.via = forkRoute(this.forkSite, w.plan.out ?? w.from, w.plan.line);
       }
       place(this.map, e, w.plan ? forkIn(w.plan, w.from, phase, w.stage === 'pick') : low);
       return;
@@ -659,7 +678,16 @@ export class Entities {
       w.done = this.sim;
       w.from = e.pose ?? low;
     }
-    const s = (this.sim - w.done) / FORK_SETTLE;
+    let s = (this.sim - w.done) / FORK_SETTLE;
+    if (w.plan && s > BACKED_OUT) {
+      // Backed out, it waits where it lined up while its way on still runs
+      // through crates, as off the tile it worked, then drives round them.
+      const near = Math.hypot(low.x - w.plan.line.x, low.z - w.plan.line.z) < HOLD_NEAR;
+      if (!w.plan.away && near && bodyBlocked(this.forkSite, low.x, low.z, low.dir) >= 3) {
+        w.done = this.sim - BACKED_OUT * FORK_SETTLE;
+        s = BACKED_OUT;
+      } else w.plan.away ??= forkRoute(this.forkSite, w.plan.line, low);
+    }
     if (s >= 1 || !w.plan) {
       e.hand = undefined;
       place(this.map, e, low);

@@ -3,7 +3,7 @@ import { drivable } from '../../sim/rules';
 import { Build } from '../../sim/types';
 import { driveTo, type Pose } from '../motion';
 import { surfaceY } from '../terrain';
-import { ease } from '../util/math';
+import { ease, lerpAngle } from '../util/math';
 
 // A forklift taking a load or setting one down: where it lines up, square
 // on to it a little back, and how it gets there, drives in, lifts or lowers
@@ -71,7 +71,7 @@ export function bodyBlocked(site: ForkSite, x: number, z: number, dir: number): 
     const px = x + c * f - s * r;
     const pz = z + s * f + c * r;
     // Over a truck or crates is worse than just off the port's ground.
-    if (site.inTruck(px, pz) || site.crateIn(px, pz, 0.01)) n += 3;
+    if (site.inTruck(px, pz) || site.crateIn(px, pz, 0)) n += 3;
     else if (!onGround(site.map, px, pz)) n++;
   }
   return n;
@@ -94,6 +94,16 @@ export interface ForkPlan {
   line: Pose;
   /** Backing out of where it worked the last load, first: where to. */
   out?: Pose;
+  /** Corners it drives by to line up, round crates in the way; see forkRoute. */
+  via?: Point[];
+  /** Corners it drives by from where it lined up back onto its way. */
+  away?: Point[];
+}
+
+/** A point on the ground. */
+export interface Point {
+  x: number;
+  z: number;
 }
 
 /**
@@ -155,6 +165,187 @@ export function forkPlan(
   return best;
 }
 
+/** How fine the grid a forklift finds its way round crates on is, in tiles. */
+const GRID = 0.25;
+/** How far round the straight way it looks for one, in tiles. */
+const ROOM = 1;
+/** The eight ways across the grid. */
+const STEPS: [number, number][] = [
+  [1, 0],
+  [1, 1],
+  [0, 1],
+  [-1, 1],
+  [-1, 0],
+  [-1, -1],
+  [0, -1],
+  [1, -1],
+];
+
+/** How badly a forklift at x, z along `dir` is in the way of things, driving forwards or backing. */
+function alongBlocked(site: ForkSite, x: number, z: number, dir: number): number {
+  return Math.max(bodyBlocked(site, x, z, dir), bodyBlocked(site, x, z, dir + Math.PI));
+}
+
+/** How badly a forklift driving straight from `a` to `b` is in the way of things all along. */
+function wayBlocked(site: ForkSite, a: Point, b: Point): number {
+  const d = Math.hypot(b.x - a.x, b.z - a.z);
+  const dir = Math.atan2(b.z - a.z, b.x - a.x);
+  const n = Math.max(1, Math.ceil(d / 0.1));
+  let blocked = 0;
+  for (let k = 1; k <= n; k++) {
+    blocked += alongBlocked(site, a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n, dir);
+  }
+  return blocked;
+}
+
+/**
+ * Corners a forklift drives by from `from` to `to` to keep its body off
+ * crates, trucks and the ground beside the port, where driving straight
+ * there would not: the shortest way across a fine grid round them,
+ * pulled straight wherever that is no worse. None when the straight way
+ * is clear, or no way round is better.
+ */
+export function forkRoute(site: ForkSite, from: Point, to: Point): Point[] {
+  const direct = wayBlocked(site, from, to);
+  if (direct === 0) return [];
+  // The grid, from where it starts, over the ground round the straight way.
+  const lo = (a: number, b: number) => Math.floor((Math.min(a, b) - ROOM - a) / GRID);
+  const hi = (a: number, b: number) => Math.ceil((Math.max(a, b) + ROOM - a) / GRID);
+  const [ix0, ix1] = [lo(from.x, to.x), hi(from.x, to.x)];
+  const [iz0, iz1] = [lo(from.z, to.z), hi(from.z, to.z)];
+  const nx = ix1 - ix0 + 1;
+  const at = (n: number): Point => ({
+    x: from.x + ((n % nx) + ix0) * GRID,
+    z: from.z + (Math.floor(n / nx) + iz0) * GRID,
+  });
+  const node = (ix: number, iz: number) => ix - ix0 + (iz - iz0) * nx;
+  const start = node(0, 0);
+  const goal = node(Math.round((to.x - from.x) / GRID), Math.round((to.z - from.z) / GRID));
+  // Each spot's body checked facing each way only once it is looked at.
+  const seen = new Map<number, number>();
+  const blockedAt = (n: number, k: number) => {
+    let b = seen.get(n * 8 + k);
+    if (b === undefined) {
+      const p = at(n);
+      b = alongBlocked(site, p.x, p.z, Math.atan2(STEPS[k][1], STEPS[k][0]));
+      seen.set(n * 8 + k, b);
+    }
+    return b;
+  };
+  const g = new Map<number, number>([[start, 0]]);
+  const came = new Map<number, number>();
+  const done = new Set<number>();
+  const open: number[] = [start];
+  const guess = (n: number) => {
+    const p = at(n);
+    return Math.hypot(p.x - to.x, p.z - to.z);
+  };
+  while (open.length > 0) {
+    let best = 0;
+    for (let i = 1; i < open.length; i++) {
+      if (g.get(open[i])! + guess(open[i]) < g.get(open[best])! + guess(open[best])) best = i;
+    }
+    const cur = open.splice(best, 1)[0];
+    if (cur === goal) break;
+    if (done.has(cur)) continue;
+    done.add(cur);
+    const cx = (cur % nx) + ix0;
+    const cz = Math.floor(cur / nx) + iz0;
+    STEPS.forEach(([dx, dz], k) => {
+      const [x, z] = [cx + dx, cz + dz];
+      if (x < ix0 || x > ix1 || z < iz0 || z > iz1) return;
+      const n = node(x, z);
+      if (done.has(n)) return;
+      const cost = g.get(cur)! + GRID * Math.hypot(dx, dz) * (1 + blockedAt(n, k));
+      if (cost >= (g.get(n) ?? Infinity)) return;
+      g.set(n, cost);
+      came.set(n, cur);
+      open.push(n);
+    });
+  }
+  if (!came.has(goal)) return [];
+  const points: Point[] = [];
+  for (let n = goal; n !== start; n = came.get(n)!) points.push(at(n));
+  points.push(from);
+  points.reverse();
+  points[points.length - 1] = to;
+  // Pulled straight between corners wherever that is no worse.
+  const way: Point[] = [from];
+  for (let i = 0; i < points.length - 1;) {
+    let j = points.length - 1;
+    while (j > i + 1) {
+      let steps = 0;
+      for (let k = i; k < j; k++) steps += wayBlocked(site, points[k], points[k + 1]);
+      if (wayBlocked(site, points[i], points[j]) <= steps) break;
+      j--;
+    }
+    way.push(points[j]);
+    i = j;
+  }
+  const corners = way.slice(1, -1);
+  let total = 0;
+  for (let k = 0; k < way.length - 1; k++) total += wayBlocked(site, way[k], way[k + 1]);
+  return total < direct ? corners : [];
+}
+
+/**
+ * Driven from one pose to another by `via`, `a` (0 to 1) of the way: to
+ * each corner in turn as driveTo drives, facing the way it came, the time
+ * shared out by how far each leg is and how far it turns.
+ */
+export function driveVia(
+  from: Pose,
+  via: Point[],
+  to: Pose,
+  a: number,
+  steer = false,
+): Omit<Pose, 'h'> {
+  const last = steer ? steerTo : driveTo;
+  if (via.length === 0) return last(from, to, a);
+  const poses: Pose[] = [from];
+  for (const p of via) {
+    const q = poses[poses.length - 1];
+    poses.push({ x: p.x, z: p.z, dir: Math.atan2(p.z - q.z, p.x - q.x), h: from.h });
+  }
+  poses.push(to);
+  const legs = poses.slice(1).map((p, k) => {
+    const q = poses[k];
+    const turn = Math.abs(Math.sin((Math.atan2(p.z - q.z, p.x - q.x) - q.dir) / 2));
+    return Math.hypot(p.x - q.x, p.z - q.z) + 0.3 * turn + 0.05;
+  });
+  const all = legs.reduce((s, l) => s + l, 0);
+  let left = Math.max(0, Math.min(1, a)) * all;
+  for (let k = 0; k < legs.length; k++) {
+    if (left <= legs[k] || k === legs.length - 1) {
+      const leg = k === legs.length - 1 ? last : driveTo;
+      return leg(poses[k], poses[k + 1], Math.min(1, left / legs[k]));
+    }
+    left -= legs[k];
+  }
+  return driveTo(from, to, a);
+}
+
+/**
+ * Driven from one pose to another, `a` of the way, as driveTo drives but
+ * turning to how it is to stand as it gets there rather than once there:
+ * so it comes onto its way without swinging round on the spot beside
+ * crates.
+ */
+function steerTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  if (Math.hypot(dx, dz) < 0.08) return driveTo(from, to, a);
+  let way = Math.atan2(dz, dx);
+  if (Math.cos(way - from.dir) < 0) way += Math.PI;
+  if (a < 0.2) return { x: from.x, z: from.z, dir: lerpAngle(from.dir, way, ease(a / 0.2)) };
+  const t = ease((a - 0.2) / 0.8);
+  return {
+    x: from.x + dx * t,
+    z: from.z + dz * t,
+    dir: lerpAngle(way, to.dir, ease((a - 0.5) / 0.5)),
+  };
+}
+
 /** Straight back or forward from one pose to another as it faces, `a` of the way. */
 function straight(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
   const t = ease(Math.max(0, Math.min(1, a)));
@@ -182,7 +373,7 @@ export function forkIn(plan: ForkPlan, from: Pose, a: number, pick: boolean): Po
   if (out && a < start) return { ...straight(from, out, a / start), h: from.h };
   if (a < LINED) {
     const b = (a - start) / (LINED - start);
-    return { ...driveTo(out ?? from, line, b), h: lift(a) };
+    return { ...driveVia(out ?? from, plan.via ?? [], line, b), h: lift(a) };
   }
   if (a < IN) return { ...straight(line, goal, (a - LINED) / (IN - LINED)), h: high };
   const h = pick ? high : high + (goal.h - high) * ease((a - IN) / (1 - IN - 0.05));
@@ -190,7 +381,7 @@ export function forkIn(plan: ForkPlan, from: Pose, a: number, pick: boolean): Po
 }
 
 /** How far through leaving a forklift has backed out to where it lined up. */
-const OUT = 0.4;
+export const BACKED_OUT = 0.4;
 
 /**
  * A forklift leaving where it took a load or set one down, `s` (0 to 1)
@@ -202,9 +393,10 @@ export function forkOut(plan: ForkPlan, drive: Pose, s: number, ride: number, pi
   const { goal, line } = plan;
   const free = Math.max(0, pick ? goal.h + LIFT : goal.h - LIFT / 2);
   if (s < 0.1) return { ...goal, h: goal.h + (free - goal.h) * ease(s / 0.1) };
-  if (s < OUT) {
-    const b = (s - 0.1) / (OUT - 0.1);
+  if (s < BACKED_OUT) {
+    const b = (s - 0.1) / (BACKED_OUT - 0.1);
     return { ...straight(goal, line, b), h: free + (ride - free) * ease((b - 0.5) / 0.5) };
   }
-  return { ...driveTo(line, drive, (s - OUT) / (1 - OUT)), h: ride };
+  const a = (s - BACKED_OUT) / (1 - BACKED_OUT);
+  return { ...driveVia(line, plan.away ?? [], drive, a, true), h: ride };
 }

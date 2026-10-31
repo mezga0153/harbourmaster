@@ -842,6 +842,67 @@ describe('Forklifts handling crates', () => {
     expect(inCrates).toBe(0);
     expect(inTrucks).toBe(0);
   }, 120_000);
+
+  it('keep their bodies off the crates in full crate storage they drive round, into and out of', () => {
+    // The Coastal Wharf's storage behind its gate, every tile of it full.
+    const world: World = wharf(4, 2);
+    for (const b of world.bays.values()) {
+      if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 56 }, () => 25);
+    }
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    entities.crateIn = (x, z, pad) => structures.crateIn(x, z, pad);
+    const scene = new Group();
+    scene.add(structures.group, entities.group);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entries = (entities as any).entries as Map<number, any>;
+    let frames = 0;
+    let inCrates = 0;
+    let hands = 0;
+    const loads = new Map<number, number>();
+    for (let t = 0, now = 0; t < TICKS_PER_DAY * 3; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+        scene.updateMatrixWorld(true);
+        for (const e of entries.values()) {
+          const v = e.view;
+          if (v.kind !== 'forklift' || v.parked || e.dock) continue;
+          if (v.load !== (loads.get(v.id) ?? 0)) hands++;
+          loads.set(v.id, v.load);
+          // Every frame out of its depot: driving, lining up, driving in
+          // and backing out; its body, not its forks, a little into one at most.
+          frames++;
+          const root = e.model.root;
+          const dir = -root.rotation.y;
+          const hit = BODY.some(([a, b]) =>
+            structures.crateIn(
+              root.position.x + Math.cos(dir) * a - Math.sin(dir) * b,
+              root.position.z + Math.sin(dir) * a + Math.cos(dir) * b,
+              -0.03,
+            ),
+          );
+          if (hit) inCrates++;
+        }
+      }
+    }
+    expect(hands).toBeGreaterThan(30);
+    expect(frames).toBeGreaterThan(5000);
+    // Where a crate stands in the way of the one it works there may be no
+    // clear way round at all; nowhere near as often as across the pallets.
+    expect(inCrates / frames).toBeLessThan(0.003);
+  }, 240_000);
 });
 
 describe('Crates stacked at a truck bay or in crate storage', () => {
