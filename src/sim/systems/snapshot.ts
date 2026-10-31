@@ -67,7 +67,7 @@ import {
   wideQuay,
 } from './boats/berthing';
 import { gantries, gantryLifts, handView, liftedLoad, palletPlaces, yardLooks } from './yardGantry';
-import { byHand } from './truckLoading';
+import { byHand, unloadWaiting } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
 import { exportsWaiting, readyWords, truckCargo } from './cargo/exports';
@@ -256,6 +256,12 @@ export function truckWhy(w: World, t: Truck): string | undefined {
     }
     const stackers = w.people.filter((p) => p.kind === 'stacker').length;
     return `This yard has no yard gantry: reach stackers load its trucks, and ${stackers === 0 ? 'there are none' : `all ${stackers} are busy`}. More reach stackers, or a yard gantry here, load trucks sooner.`;
+  }
+  if (unloadWaiting(w, t)) {
+    const crew = w.people.filter((p) => p.kind === 'dockhand' || p.kind === 'forklift');
+    return crew.length === 0
+      ? "Dockhands or forklifts unload shippers' crate trucks, and there are none. Hire some."
+      : 'Waiting for a dockhand or forklift to unload it: they are busy, or cannot walk or drive here. More of them, or a path to it, unload it sooner.';
   }
   if (t.state !== 'loading') return undefined;
   const bay = dest(w, t.bayIdx);
@@ -754,19 +760,21 @@ export function buildSnapshot(w: World): Snapshot {
                   : `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
           : t.exports && t.state === 'toBay'
             ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ${truckPlace(w, t, 'storage')}, to ship`
-            : t.state === 'delivering'
-              ? `Unloading ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship`
-              : t.state === 'toPark'
-                ? 'Driving to the parking'
-                : t.state === 'parked'
-                  ? parkedWords(w, t)
-                  : t.state === 'toBay'
-                    ? `Driving to ${truckPlace(w, t, 'the truck bay')}`
-                    : t.state === 'loading'
-                      ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
-                      : t.state === 'toTown' || t.state === 'unloading'
-                        ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
-                        : 'Heading out to the highway',
+            : unloadWaiting(w, t)
+              ? 'Waiting for a dockhand or forklift to unload it'
+              : t.state === 'delivering'
+                ? `Unloading ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship`
+                : t.state === 'toPark'
+                  ? 'Driving to the parking'
+                  : t.state === 'parked'
+                    ? parkedWords(w, t)
+                    : t.state === 'toBay'
+                      ? `Driving to ${truckPlace(w, t, 'the truck bay')}`
+                      : t.state === 'loading'
+                        ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
+                        : t.state === 'toTown' || t.state === 'unloading'
+                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
+                          : 'Heading out to the highway',
       variant: t.variant,
       capacity: t.capacity,
       alert: false,

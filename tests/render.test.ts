@@ -8,6 +8,7 @@ import { cargoOf, withCargo } from '../src/sim/cargo';
 import { Entities, turnAbout } from '../src/render/entities';
 import { settle, Structures } from '../src/render/structures';
 import { surfaceY } from '../src/render/terrain';
+import { wharf } from './wharf';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -902,4 +903,132 @@ describe('Crates stacked at a truck bay or in crate storage', () => {
     const at = [...world.bays.values()].find((b) => b.tiles)!.idx;
     expect(watch(world, at, TICKS_PER_DAY * 5)).toBeGreaterThan(3);
   }, 60_000);
+});
+
+describe("Shippers' trucks unloaded at crate storage", () => {
+  /**
+   * The cannery's trucks coming in to the outgoing storage of a Coastal
+   * Wharf, with nothing else going on, and only `kind` to unload them.
+   */
+  function cannery(kind: string): World {
+    const world = wharf(4, 2);
+    for (const c of world.contracts) {
+      if (c.terms.kind !== 'shipper') c.nextBoatTick = Infinity;
+    }
+    world.people = world.people.filter((p) => p.kind === kind);
+    return world;
+  }
+
+  for (const kind of ['dockhand', 'forklift']) {
+    it(`have each crate off the bed in a ${kind}'s hands, never straight into storage, and keep ${kind}s off the truck`, () => {
+      const world = cannery(kind);
+      const m = world.map;
+      const entities = new Entities(m);
+      const structures = new Structures(m, true);
+      structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+      structures.slotShown = (id, k) => entities.slotShown(id, k);
+      structures.slotObject = (id, k) => entities.slotObject(id, k);
+      entities.containerAt = (at, out) => structures.containerAt(at, out);
+      entities.crateIn = (x, z, pad) => structures.crateIn(x, z, pad);
+      const scene = new Group();
+      scene.add(structures.group, entities.group);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entries = (entities as any).entries as Map<number, any>;
+      const shows = (o: Object3D) => {
+        for (let p: Object3D | null = o; p; p = p.parent) if (!p.visible) return false;
+        return true;
+      };
+      // Crates on the beds of shippers' trucks standing to unload, in hands, and in storage.
+      const count = () => {
+        let bed = 0;
+        let hands = 0;
+        let store = 0;
+        const on = new Set<Object3D>();
+        structures.group.traverse((o) => o.userData.size && shows(o) && store++);
+        for (const e of entries.values()) {
+          const v = e.view;
+          const shown = e.model.crates.filter(shows);
+          if (v.kind === 'truck' && /^(Unloading|Waiting for a dockhand)/.test(v.activity ?? '')) {
+            bed += shown.length;
+            for (const c of shown) on.add(c);
+          } else if (v.kind === kind) hands += shown.length;
+        }
+        return { bed, hands, store, on };
+      };
+      const still = new Map<number, number>();
+      let was = count();
+      let off = 0;
+      let set = 0;
+      let near = 0;
+      for (let t = 0, now = 0; t < TICKS_PER_DAY && set < 20; t++) {
+        world.step();
+        const s = world.snapshot();
+        entities.push(s.entities, now, s.tick);
+        structures.setBays(s.bays);
+        structures.setPiles(s.piles);
+        for (const v of s.entities) {
+          if (v.kind === 'truck') still.set(v.id, v.moving ? 0 : (still.get(v.id) ?? 0) + 1);
+        }
+        for (let f = 0; f < 6; f++) {
+          now += 100 / 6;
+          entities.update(now, now / 1000);
+          structures.update(1 / 60, now / 1000);
+          scene.updateMatrixWorld(true);
+          const c = count();
+          const bed = c.bed - was.bed;
+          const store = c.store - was.store;
+          const hands = c.hands - was.hands;
+          // Off the bed into hands, out of hands into storage: none
+          // vanishes from one and turns up in the other.
+          if (bed < 0 && store === 0) {
+            expect(hands).toBe(-bed);
+            // Off the top: the rest stay just where they were.
+            for (const k of c.on) expect(was.on.has(k)).toBe(true);
+            off++;
+          }
+          if (store > 0 && bed === 0) {
+            expect(hands).toBe(-store);
+            set++;
+          }
+          expect(bed < 0 && store > 0 && hands === 0).toBe(false);
+          was = c;
+          // Never on or across the front of a truck standing there.
+          for (const e of entries.values()) {
+            if (e.view.kind !== kind) continue;
+            const p = e.model.root.position;
+            for (const truck of entries.values()) {
+              if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
+              const r = truck.model.root;
+              const body = truck.size as Box3 | undefined;
+              if (!body) continue;
+              const dir = -r.rotation.y;
+              const dx = p.x - r.position.x;
+              const dz = p.z - r.position.z;
+              const along = dx * Math.cos(dir) + dz * Math.sin(dir);
+              const across = -dx * Math.sin(dir) + dz * Math.cos(dir);
+              const q = kind === 'forklift' ? 0.05 : 0;
+              const inside =
+                along > body.min.x + q &&
+                along < body.max.x - q &&
+                across > body.min.z + q &&
+                across < body.max.z - q;
+              expect(inside).toBe(false);
+              if (kind === 'dockhand') {
+                const ahead =
+                  along > body.max.x &&
+                  along < body.max.x + 0.3 &&
+                  across > body.min.z &&
+                  across < body.max.z;
+                expect(ahead).toBe(false);
+              }
+              if (Math.hypot(dx, dz) < 1) near++;
+            }
+          }
+        }
+      }
+      expect(off).toBeGreaterThan(kind === 'dockhand' ? 10 : 3);
+      expect(set).toBeGreaterThan(kind === 'dockhand' ? 10 : 3);
+      expect(near).toBeGreaterThan(50);
+    }, 120_000);
+  }
 });

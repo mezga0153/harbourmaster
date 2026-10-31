@@ -496,13 +496,14 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     return { store: b.idx, place };
   };
   const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
-  // Ice off the back of an ice works' truck, onto the bay's stack.
-  const iceTruck =
-    p.truckId !== undefined && !p.truckLoad && w.trucks.find((q) => q.id === p.truckId);
-  if (iceTruck) {
+  // Off the top of a shipper's truck's bed, under any others are taking
+  // off it first, into its storage; ice onto the bay's stack.
+  const off = p.truckId !== undefined && !p.truckLoad && w.trucks.find((q) => q.id === p.truckId);
+  if (off) {
     const bay = w.bays.get(p.bayIdx);
-    if (pick) return { truck: iceTruck.id, slot: iceTruck.cargo - 1 };
-    return bay ? { bay: bay.idx, slot: heldIn(bay) } : undefined;
+    if (pick) return { truck: off.id, slot: off.cargo - 1 - takingFirst(w, p) };
+    if (!bay) return undefined;
+    return bay.tiles ? store(bay) : { bay: bay.idx, slot: heldIn(bay) };
   }
   if (pick) {
     const crane = w.cranes.get(p.craneIdx);
@@ -529,6 +530,19 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   const onto = straightOnto(w, p, bay);
   if (onto) return { truck: onto.id, slot: onto.cargo };
   return bay.tiles ? store(bay) : { bay: bay.idx, slot: bay.crates.length };
+}
+
+/**
+ * Crates others picking off the same truck as `p` take before it does:
+ * those further on, so each takes the top of what the others leave.
+ */
+function takingFirst(w: World, p: Dockhand): number {
+  let n = 0;
+  for (const q of w.people) {
+    if (q === p || q.truckId !== p.truckId || q.truckLoad || q.state !== 'picking') continue;
+    if (q.timer < p.timer || (q.timer === p.timer && q.id < p.id)) n += q.planned;
+  }
+  return n;
 }
 
 /** Where a stacker or tractor is taking a container from, or setting one down. */

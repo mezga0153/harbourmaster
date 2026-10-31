@@ -10,7 +10,6 @@ import {
   carriedLooks,
   clearTop,
   exportLooks,
-  iceTruck,
   nearerMachine,
   nextYardSlot,
   reachFrom,
@@ -20,11 +19,11 @@ import {
   workersAt,
   yardSlots,
 } from './cargo/stores';
-import { cancelJob, dest, readyIn, takeReady, waitMask } from './cargo/customs';
+import { cancelJob, dest, readyIn, startHolds, takeReady, waitMask } from './cargo/customs';
 import type { Bay, Dockhand, Truck } from '../state';
-import { onPallet, stackedAt, takenFrom } from './yardGantry';
+import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
-import { boxLookOf, isBoxy, isMachine, loadTicks, truckBay } from '../helpers';
+import { boxLookOf, isBoxy, isMachine, loadTicks } from '../helpers';
 import type { Source } from '../helpers';
 import { cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
@@ -83,17 +82,18 @@ export function bayTaken(w: World, p: Dockhand, bay: Bay): boolean {
 }
 
 /**
- * Crate trucks waiting to be loaded, for dockhands and forklifts; and ice
- * works' trucks waiting in a truck bay to be unloaded, their ice set on its
+ * Crate trucks waiting to be loaded, for dockhands and forklifts; and
+ * shippers' trucks waiting to be unloaded, their crates set down in the
+ * outgoing storage beside them, or an ice works' ice on its truck bay's
  * stack for the fishing boats.
  */
 export function crateTruckSources(w: World, sources: Source[]): void {
   for (const t of w.trucks) {
-    if (t.state === 'delivering' && iceTruck(w, t)) {
+    if (t.state === 'delivering') {
       const bay = dest(w, t.bayIdx);
       const avail = t.cargo - (t.taking ?? 0);
-      if (bay && truckBay(bay) && avail > 0) {
-        sources.push({ tile: bay.idx, avail, truck: t, load: false, rank: 1 });
+      if (bay && byHand(w, t, bay) && avail > 0) {
+        sources.push({ tile: crateTruckSpot(w, bay, t), avail, truck: t, load: false, rank: 1 });
       }
       continue;
     }
@@ -107,6 +107,16 @@ export function crateTruckSources(w: World, sources: Source[]): void {
     // Once the boats are seen to, nearest first, as crates in storage are.
     sources.push({ tile: crateTruckSpot(w, bay, t), avail, truck: t, load: true, rank: 1 });
   }
+}
+
+/**
+ * A shipper's crate truck standing to be unloaded with no dockhand or
+ * forklift on the way to it or at it.
+ */
+export function unloadWaiting(w: World, t: Truck): boolean {
+  if (t.state !== 'delivering' || t.cargo <= 0 || (t.taking ?? 0) > 0) return false;
+  const bay = dest(w, t.bayIdx);
+  return !!bay && byHand(w, t, bay) && !w.people.some((p) => p.truckId === t.id);
 }
 
 /** Whether a business in town still takes crates of this kind today. */
@@ -201,7 +211,8 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
     return false;
   }
   if (isMachine(p) && nearerMachine(w, p, src.tile)) return false;
-  // Off an ice works' truck onto the bay's stack: as many as it carries.
+  // Off a shipper's truck into storage, or ice onto the bay's stack: as
+  // many as it carries.
   const unload = !src.load;
   const room = unload
     ? t.cargo - (t.taking ?? 0)
@@ -235,7 +246,7 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
   const unload = !p.truckLoad;
   const live =
     !!t && !!bay && t.bayIdx === bay.idx && t.state === (unload ? 'delivering' : 'loading');
-  if (unload) return iceTruckJob(w, p, t, bay, live);
+  if (unload) return unloadTruckJob(w, p, t, bay, live);
   switch (p.state) {
     case 'toPickup': {
       if (!live) {
@@ -290,11 +301,13 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
 }
 
 /**
- * A dockhand or forklift unloading an ice works' truck: to the truck in
- * the bay, takes the ice off its back, and sets it on the bay's stack for
- * the fishing boats. True while it is at it.
+ * A dockhand or forklift unloading a shipper's truck: to the truck, takes
+ * crates off the top of its bed, and carries them to the next free place
+ * in the storage beside it, where their export papers start; or an ice
+ * works' ice onto its truck bay's stack for the fishing boats. True while
+ * it is at it.
  */
-export function iceTruckJob(
+export function unloadTruckJob(
   w: World,
   p: Dockhand,
   t: Truck | undefined,
@@ -331,14 +344,29 @@ export function iceTruckJob(
       p.planned = n;
       p.carrying = n;
       p.cargoFees = Array(n).fill(t!.value);
-      // The bay's stack is right beside the truck.
+      p.cargoLooks = Array.from({ length: n }, (_, k) => boxLookOf(t!.id, t!.cargo + k));
+      // On to the place in storage they go, unless it is right here; a
+      // truck bay's stack is right beside the truck.
+      const tile = bay?.tiles ? palletTile(w, bay, false, false) : -1;
+      if (tile >= 0 && tile !== w.tileOf(p) && headTo(w, p, tile)) {
+        p.state = 'toDrop';
+        return true;
+      }
+      p.state = 'dropping';
+      p.timer = handlingTicks(w, p, B.DROP_TICKS);
+      return true;
+    }
+    case 'toDrop': {
+      // Set down where it is if it cannot get there.
+      const r = walk(w, p);
+      if (r !== 'arrived' && r !== 'blocked') return true;
       p.state = 'dropping';
       p.timer = handlingTicks(w, p, B.DROP_TICKS);
       return true;
     }
     case 'dropping': {
       if (--p.timer > 0) return true;
-      landIce(w, p, bay);
+      landUnloaded(w, p, bay);
       endTruckJob(w, p);
       return true;
     }
@@ -346,13 +374,16 @@ export function iceTruckJob(
   return false;
 }
 
-/** Ice a dockhand or forklift has off an ice works' truck: onto the bay's stack, for the boats. */
-export function landIce(w: World, p: Dockhand, bay: Bay | undefined): void {
+/**
+ * Crates a dockhand or forklift has off a shipper's truck: into its
+ * outgoing storage, where canned fish waits for its export papers; ice
+ * onto the truck bay's stack, for the boats.
+ */
+export function landUnloaded(w: World, p: Dockhand, bay: Bay | undefined): void {
   if (p.carrying <= 0 || !bay) return;
-  for (const fee of p.cargoFees) {
-    exportLooks(w, bay).push(boxLookOf(p.id, 0));
-    (bay.exports ??= []).push(fee);
-  }
+  exportLooks(w, bay).push(...carriedLooks(w, p));
+  (bay.exports ??= []).push(...p.cargoFees);
+  startHolds(w, bay, p.cargoFees, true);
   bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
   tip(w, 'exports');
 }
@@ -550,8 +581,8 @@ export function releaseTruckJob(w: World, p: Dockhand): void {
   if (p.truckId === undefined) return;
   const t = w.trucks.find((q) => q.id === p.truckId);
   if (!isBoxy(p) && !p.truckLoad) {
-    // Ice off a truck: on the stack anyway, or the promise given back.
-    if (p.carrying > 0) landIce(w, p, dest(w, p.bayIdx));
+    // Crates or ice off a truck: set down anyway, or the promise given back.
+    if (p.carrying > 0) landUnloaded(w, p, dest(w, p.bayIdx));
     else if (t) t.taking = Math.max(0, (t.taking ?? 0) - p.planned);
     return endTruckJob(w, p);
   }

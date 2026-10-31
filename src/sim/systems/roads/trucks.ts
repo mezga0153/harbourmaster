@@ -4,9 +4,9 @@
 import type { World } from '../../world';
 import { book, hauliers } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
-import { bayCap, boxLookOf, truckBay, wrapAngle } from '../../helpers';
+import { bayCap, boxLookOf, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
-import { dest, startHolds, unclaimed } from '../cargo/customs';
+import { dest, unclaimed } from '../cargo/customs';
 import {
   avoiding,
   dockFor,
@@ -304,9 +304,13 @@ export function updateTruck(w: World, t: Truck): void {
     case 'delivering': {
       // Unloading a shipper's goods into storage, for the ships.
       if (!bay) return w.headOut(t);
-      // Ice in a truck bay comes off by hand, dockhands' and forklifts'.
-      if (iceTruck(w, t) && truckBay(bay)) {
-        if (t.cargo <= 0 && (t.taking ?? 0) === 0) w.headOut(t);
+      // Crates come off by hand, dockhands' and forklifts': ice into a
+      // truck bay, the rest into storage. It waits till they have it empty.
+      if (byHand(w, t, bay)) {
+        if (t.cargo <= 0 && (t.taking ?? 0) === 0) {
+          if (!iceTruck(w, t)) tip(w, 'exports');
+          w.headOut(t);
+        }
         return;
       }
       // Containers at a yard with no gantry come off by reach stacker.
@@ -335,8 +339,6 @@ export function updateTruck(w: World, t: Truck): void {
         if (++t.timer % truckTicks(w, t, bay) !== 0) return;
         exportLooks(w, bay).push(boxLookOf(t.id, t.cargo - 1));
         (bay.exports ??= []).push(t.value);
-        // Canned fish waits there for its export papers.
-        startHolds(w, bay, [t.value], true);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
       }
       if (--t.cargo <= 0) {
