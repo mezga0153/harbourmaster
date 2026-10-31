@@ -70,8 +70,18 @@ export const BUSINESSES: Partial<Record<number, Business>> = {
 export interface Landmark {
   code: number;
   name: string;
-  /** What the port must do: crates of `cargo` trucked out, `perDay` for `days` days running; or put on board fishing boats, `total` in all. */
-  goal: { cargo: 'fish' | 'ice' | 'lobster'; perDay?: number; days?: number; total?: number };
+  /**
+   * What the port must do: crates of `cargo` trucked out, `perDay` for
+   * `days` days running or `total` in all; `aboard`, put on board fishing
+   * boats rather than trucked out.
+   */
+  goal: {
+    cargo: 'fish' | 'ice' | 'lobster';
+    perDay?: number;
+    days?: number;
+    total?: number;
+    aboard?: boolean;
+  };
   /** The goal in words, for the town panel. */
   aim: string;
   /** What opening it brings, in words. */
@@ -93,7 +103,7 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.IceHouse,
     name: 'Ice house',
-    goal: { cargo: 'ice', total: 20 },
+    goal: { cargo: 'ice', total: 20, aboard: true },
     aim: 'Put 20 crates of ice on board fishing boats',
     opens: 'With ice on board, boats go further out: lobster boats offer their catch',
     cap: 200,
@@ -101,8 +111,9 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.Restaurant,
     name: 'Seafood restaurant',
-    goal: { cargo: 'lobster', perDay: 6, days: 3 },
-    aim: 'Truck out 6 crates of lobster a day, 3 days running',
+    // In all rather than a day: the lobster boats come every day or two.
+    goal: { cargo: 'lobster', total: 15 },
+    aim: 'Truck out 15 crates of lobster',
     opens:
       'Visitors come for the seafood: the town grows past 300, so the port may become a Coastal Wharf',
     cap: Infinity,

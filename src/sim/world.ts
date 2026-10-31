@@ -9461,7 +9461,7 @@ export class World {
     this.moneyAt(total, b.berth);
     // Ice on board a fishing boat, towards the town's ice house.
     const goal = this.town && LANDMARKS[this.town.landmarks]?.goal;
-    if (goal?.total !== undefined && this.town) {
+    if (goal?.aboard && this.town) {
       this.town.goal += fees.filter((f) => cargoOf(f, 'goods') === goal.cargo).length;
       this.openLandmark(landmarkDue(this.town, false));
     }
@@ -13504,8 +13504,9 @@ export class World {
       if (this.town) this.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
       // Towards the town's next landmark, crates of what it wants sent out.
       const goal = this.town && LANDMARKS[this.town.landmarks]?.goal;
-      if (goal && goal.total === undefined && !t.boxes) {
-        this.town!.goal += (t.fees ?? []).filter((f) => cargoOf(f) === goal.cargo).length;
+      if (goal && !goal.aboard && !t.boxes && this.town) {
+        this.town.goal += (t.fees ?? []).filter((f) => cargoOf(f) === goal.cargo).length;
+        this.openLandmark(landmarkDue(this.town, false));
       }
       const income = t.value;
       this.book(t.boxes ? 'containers' : 'cargo', income);
