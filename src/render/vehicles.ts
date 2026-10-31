@@ -3,6 +3,7 @@ import { Rng } from '../sim/rng';
 import { BOX_LENGTH } from './assets';
 import { C } from './palette';
 import type { Model } from './model';
+import { CRATE } from './models';
 import { box, cyl } from './parts';
 
 // Procedural trucks. Each is built from its id, in its haulier's colours:
@@ -149,7 +150,7 @@ function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Model
   const slots: Object3D[] = [];
   for (let k = 0; k < cols; k++) {
     for (const z of [-0.08, 0.08]) {
-      const c = crate(0.16, back - 0.04 - 0.1 - k * 0.19, bedY, z);
+      const c = crate(CRATE, back - 0.04 - 0.1 - k * 0.19, bedY, z);
       c.visible = false;
       root.add(c);
       slots.push(c);
@@ -227,7 +228,7 @@ function articulated(
     const cols = Math.ceil(capacity / 2);
     for (let k = 0; k < cols; k++) {
       for (const z of [-0.08, 0.08]) {
-        const c = crate(0.16, head - 0.13 - k * 0.19, deckY, z);
+        const c = crate(CRATE, head - 0.13 - k * 0.19, deckY, z);
         c.visible = false;
         trailer.add(c);
         slots.push(c);

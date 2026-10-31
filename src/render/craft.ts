@@ -5,6 +5,7 @@ import { BOX_WIDTH } from './assets';
 import { C } from './palette';
 import { box, cyl } from './parts';
 import type { Model } from './model';
+import { CRATE } from './models';
 import { mesh } from './util/mesh';
 
 // Procedural boats and ships. Every one is built from a seed, so each boat
@@ -282,12 +283,12 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Model 
   // Fish boxes: four along, two abreast, two high.
   const slots = slotGrid(
     root,
-    (x, y, z) => crate(0.16, x, y, z),
+    (x, y, z) => crate(CRATE, x, y, z),
     cargo,
     [-0.1, 0.1],
     deck,
     2,
-    0.16,
+    CRATE,
   );
   return { root, crates: slots, owned };
 }
@@ -362,15 +363,18 @@ export function lobsterBoat(seed: number, company: number, crate: Crate): Model 
   // The catch in crates amidships.
   const slots = slotGrid(
     root,
-    (x, y, z) => crate(0.14, x, y, z),
-    [-0.3, -0.14, 0.02, 0.18],
+    (x, y, z) => crate(CRATE, x, y, z),
+    [-0.33, -0.16, 0.01, 0.18],
     [-0.09, 0.09],
     deck,
     2,
-    0.14,
+    CRATE,
   );
   return { root, crates: slots, owned };
 }
+
+/** The pallet board under each of a coaster's crates, as thick as a jib crane's hook shows it. */
+const PALLET = CRATE * 0.14;
 
 /**
  * A coaster about 2.7 tiles long with crates on pallets in its hold. The
@@ -449,15 +453,15 @@ export function coasterShip(seed: number, company: number, crate: Crate): Model 
   const slots = slotGrid(
     root,
     (x, sy, z) => {
-      const c = crate(0.18, x, sy + 0.025, z);
-      c.add(box(0.2, 0.025, 0.2, C.wood, 0, -0.025, 0));
+      const c = crate(CRATE, x, sy + PALLET, z);
+      c.add(box(CRATE * 1.1, PALLET, CRATE * 1.1, C.wood, 0, -PALLET, 0));
       return c;
     },
     spread(-0.58, 0.62, 6),
     [-0.21, 0, 0.21],
     deck + 0.02,
     2,
-    0.205,
+    CRATE + PALLET,
   );
   return { root, crates: slots, owned };
 }

@@ -1,6 +1,7 @@
 import { Group, type Object3D } from 'three';
 import { Rng } from '../sim/rng';
 import type { Model } from './model';
+import { CRATE } from './models';
 import { box, cyl } from './parts';
 import { clamp01 } from './util/math';
 
@@ -114,7 +115,9 @@ export function worker(seed: number, crate: (size: number) => Object3D): Model {
     body.add(box(0.09, 0.025, 0.092, hair, -0.004, 0.395, 0));
   }
 
-  const load = crate(0.15);
+  // As big as every other crate, however tall or short they are.
+  const load = crate(CRATE);
+  load.scale.setScalar(1 / root.scale.x);
   load.position.set(HELD.x, HELD.y, 0);
   load.visible = false;
   body.add(load);

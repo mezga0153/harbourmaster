@@ -3,7 +3,7 @@ import type { CraneView } from '../../../protocol';
 import type { Cargo } from '../../../sim/cargo';
 import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN, CRANE_TICKS } from '../../../sim/balance';
 import { TICKS_PER_SECOND } from '../../../sim/types';
-import { crate, setCrateIcon } from '../../models';
+import { crate, CRATE, setCrateIcon } from '../../models';
 import { C } from '../../palette';
 import { box, cyl } from '../../parts';
 import { QUAY_Y } from '../../terrain';
@@ -30,7 +30,6 @@ interface JibEnd {
   angle: number;
   out: number;
   y: number;
-  size: number;
   yaw: number;
 }
 
@@ -87,10 +86,10 @@ export function makeJibCrane(t: TileBuild): Object3D {
   const back = landwardOffset(m, i);
   for (let layer = 0; layer < 2; layer++) {
     for (let k = 0; k < 5; k++) {
-      const a = 0.15 + k * 0.17;
+      const a = 0.14 + k * 0.18;
       const [cx, cz] = back.alongX ? [a, 0.5 + back.side * 0.32] : [0.5 + back.side * 0.32, a];
-      const c = crate(0.15, cx, QUAY_Y + layer * 0.15, cz);
-      palletUnder(c, 0.15).visible = false;
+      const c = crate(CRATE, cx, QUAY_Y + layer * CRATE, cz);
+      palletUnder(c, CRATE).visible = false;
       c.visible = false;
       g.add(c);
       stack.push(c);
@@ -132,10 +131,10 @@ export function makeJibCrane(t: TileBuild): Object3D {
 /** A jib crane's lift and landing stack as the game has them. */
 export function setJib(c: CraneParts, j: JibParts, v: CraneView): void {
   // Pallets lift the stack by their thickness.
-  const lift = v.pallets ? 0.15 * 0.14 : 0;
+  const lift = v.pallets ? CRATE * 0.14 : 0;
   c.stack.forEach((o, k) => {
     o.children[2].visible = !!v.pallets;
-    o.position.y = QUAY_Y + lift + (k < 5 ? 0 : 0.15 + lift);
+    o.position.y = QUAY_Y + lift + (k < 5 ? 0 : CRATE + lift);
   });
   j.work = v.working === 'load' || v.working === 'unload' ? v.working : null;
   j.boat = v.workBoat ?? -1;
@@ -179,8 +178,8 @@ function jibPlace(site: CraneSite, c: CraneParts, j: JibParts): Object3D | undef
 
 /**
  * Where a crate lies for a jib crane to lift, from its pedestal: which
- * way and how far, how high its foot is, how big it is and which way it
- * is turned.
+ * way and how far, how high its foot is and which way it is turned
+ * (every crate is CRATE big).
  */
 function jibAt(c: CraneParts, o: Object3D): JibEnd {
   const frame = c.slew.parent!;
@@ -192,7 +191,6 @@ function jibAt(c: CraneParts, o: Object3D): JibEnd {
     angle: Math.atan2(-dz, dx),
     out: Math.hypot(dx, dz),
     y: at.y - c.slew.position.y,
-    size: ax.length() * (o.children[0]?.scale.x ?? 0.2),
     yaw: Math.atan2(-ax.z, ax.x),
   };
 }
@@ -214,7 +212,6 @@ export function runJib(site: CraneSite, c: CraneParts, j: JibParts, dt: number):
   let angle = c.busy ? c.target : c.angle;
   let out = j.out;
   let carry = false;
-  let size = j.load.scale.x;
   let yaw = c.angle + j.load.rotation.y;
   // How far down the hook goes, onto the top of a crate, and how far there it is.
   let lower: { at: JibEnd; t: number } | null = null;
@@ -249,21 +246,18 @@ export function runJib(site: CraneSite, c: CraneParts, j: JibParts, dt: number):
       out = from.out;
       lower = { at: from, t: (p - a) / (b - a) };
       carry = p >= take || !src.visible;
-      size = from.size;
       yaw = from.yaw;
     } else if (p < d) {
       const t = ease((p - b) / (d - b));
       angle = lerpAngle(from.angle, to.angle, t);
       out = from.out + (to.out - from.out) * t;
       carry = true;
-      size = from.size + (to.size - from.size) * t;
       yaw = squareTurn(from.yaw, to.yaw, t);
     } else {
       angle = to.angle;
       out = to.out;
       lower = { at: to, t: (p - d) / (1 - d) };
       carry = p < set;
-      size = to.size;
       yaw = squareTurn(from.yaw, to.yaw, 1);
     }
   }
@@ -272,14 +266,14 @@ export function runJib(site: CraneSite, c: CraneParts, j: JibParts, dt: number):
   c.slew.rotation.y = c.angle;
   reachOut(j, j.out + (out - j.out) * follow);
   // The hook comes down onto the top of the crate, which hangs below it.
-  const depth = lower ? j.tip.position.y - (lower.at.y + lower.at.size + 0.05) : c.rest;
+  const depth = lower ? j.tip.position.y - (lower.at.y + CRATE + 0.05) : c.rest;
   const drop = lower ? c.rest + (depth - c.rest) * Math.sin(lower.t * Math.PI) : c.rest;
   c.rope.scale.y = drop;
   c.rope.position.y = -drop / 2;
   c.hook.position.y = -drop;
   j.load.visible = carry;
-  j.load.scale.setScalar(size);
-  j.load.position.y = -0.05 - size;
+  j.load.scale.setScalar(CRATE);
+  j.load.position.y = -0.05 - CRATE;
   j.load.rotation.y = yaw - c.angle;
   j.pallet.visible = j.carriesPallet;
 }

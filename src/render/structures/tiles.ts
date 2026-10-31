@@ -17,7 +17,7 @@ import { TOWN } from '../../sim/town';
 import { Build, isDock, storesBoxes, storesOutgoing } from '../../sim/types';
 import { BOX_HEIGHT } from '../assets';
 import type { Owns } from '../keyed';
-import { container, crate, PALLET_CRATE } from '../models';
+import { container, crate, CRATE } from '../models';
 import { C } from '../palette';
 import { box, cyl, mat } from '../parts';
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from '../terrain';
@@ -504,7 +504,7 @@ function truckBay(t: TileBuild): Object3D {
   for (const z of [0.89, 0.71]) {
     for (let layer = 0; layer < 4; layer++) {
       for (const x of [0.71, 0.89]) {
-        const c = crate(0.17, x, y + layer * 0.17, z);
+        const c = crate(CRATE, x, y + layer * CRATE, z);
         c.visible = false;
         g.add(c);
         crates.push(c);
@@ -538,7 +538,7 @@ function largeBay(t: TileBuild): Object3D {
     for (const z of [0.2, 0.4, 0.6, 0.8]) {
       for (const x of [1.2, 1.4, 1.6, 1.8]) {
         if (crates.length >= 28) break;
-        const c = crate(0.17, x, y + layer * 0.17, z);
+        const c = crate(CRATE, x, y + layer * CRATE, z);
         c.visible = false;
         g.add(c);
         crates.push(c);
@@ -618,7 +618,7 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
         } else place.position.set(a, y, b);
         for (let layer = 0; layer < 2; layer++) {
           for (const z of [-0.08, 0.08]) {
-            const c = crate(PALLET_CRATE, 0, 0.025 + layer * PALLET_CRATE, z);
+            const c = crate(CRATE, 0, 0.025 + layer * CRATE, z);
             c.visible = false;
             place.add(c);
             stack.crates.push(c);

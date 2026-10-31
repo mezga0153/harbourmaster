@@ -7,7 +7,7 @@ import {
 } from '../../sim/balance';
 import type { Cargo } from '../../sim/cargo';
 import type { GameMap } from '../../sim/map';
-import { crate, paintCargo, paintContainer, setCrateIcon, setCrateSeal } from '../models';
+import { crate, CRATE, paintCargo, paintContainer, setCrateIcon, setCrateSeal } from '../models';
 import { C } from '../palette';
 import { box } from '../parts';
 import { QUAY_Y } from '../terrain';
@@ -106,7 +106,7 @@ export class Stock {
         [0.38, 0.62],
         [0.62, 0.62],
       ]) {
-        const c = crate(0.2, x, QUAY_Y + lift + layer * 0.2, z);
+        const c = crate(CRATE, x, QUAY_Y + lift + layer * CRATE, z);
         c.visible = false;
         g.add(c);
         crates.push(c);

@@ -8,6 +8,9 @@ import { cargoOf, withCargo } from '../src/sim/cargo';
 import { Entities, turnAbout } from '../src/render/entities';
 import { settle, Structures } from '../src/render/structures';
 import { surfaceY } from '../src/render/terrain';
+import { boat, person, truck } from '../src/render/model';
+import { forklift } from '../src/render/machines';
+import { CRATE } from '../src/render/models';
 import { wharf } from './wharf';
 
 describe('Container slots', () => {
@@ -1092,4 +1095,55 @@ describe("Shippers' trucks unloaded at crate storage", () => {
       expect(near).toBeGreaterThan(50);
     }, 120_000);
   }
+});
+
+describe('Crates', () => {
+  it('are one size wherever they are, so a crate handed from one place to another stays the same crate', () => {
+    const world = forkPort();
+    const m = world.map;
+    const bay = m.build.findIndex((b, i) => b === Build.None && !placementError(m, 'truckBay', i));
+    world.command({ type: 'build', kind: 'truckBay', tiles: [bay] });
+    expect(m.build[bay]).toBe(Build.TruckBay);
+    const structures = new Structures(m, true);
+    const scene = new Group();
+    scene.add(structures.group);
+    // A pile left on the quay by an older game, on pallets and not.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stock = (structures as any).stock;
+    const tip = m.build.findIndex((b) => b === Build.JibCrane);
+    for (const pallets of [false, true]) scene.add(stock.pile(tip, pallets).group);
+    // As big as it shows in the world: its body, under whatever scales it.
+    const size = (o: Object3D) => {
+      o.updateWorldMatrix(true, false);
+      return o.children[0].scale.x * o.getWorldScale(new Vector3()).x;
+    };
+    const where = new Map<string, number[]>();
+    const add = (name: string, crates: Object3D[]) => {
+      where.set(name, [...(where.get(name) ?? []), ...crates.map(size)]);
+    };
+    // In a truck bay's stack, on storage pallets, the jib crane's landing
+    // stack and its hook, and quay piles.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jib = (structures as any).cranes.get(tip).jib;
+    structures.update(1 / 60, 0);
+    const all: Object3D[] = [];
+    structures.group.traverse((o) => o.userData.size && o !== jib.load && all.push(o));
+    add('structures', all);
+    add('jib hook', [jib.load]);
+    // In dockhands' arms, however tall they are; on a forklift's forks; on
+    // trucks' beds and boats' decks.
+    for (let id = 0; id < 12; id++) add('dockhand', person(id).crates);
+    add('forklift', forklift().crates);
+    for (const cap of [2, 4, 6, 8, 10]) add('truck', truck(0, cap, false, cap).crates);
+    for (const id of [1, 2, 3]) {
+      add('smack', boat(0, 'smack', id).crates);
+      add('lobster boat', boat(0, 'smack', id, true).crates);
+      add('coaster', boat(0, 'coaster', id).crates);
+    }
+    expect(all.length).toBeGreaterThan(20);
+    for (const [name, sizes] of where) {
+      expect(sizes.length, name).toBeGreaterThan(0);
+      for (const s of sizes) expect(s, name).toBeCloseTo(CRATE, 6);
+    }
+  });
 });

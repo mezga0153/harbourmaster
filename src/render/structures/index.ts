@@ -12,7 +12,7 @@ import type { Train } from '../../sim/railway';
 import { liftMarks, ON_QUAY, parkingLots } from '../../sim/rules';
 import { Build, isPublicRoad, isTownBuilding } from '../../sim/types';
 import { disposeOwned, KeyedObjects } from '../keyed';
-import { paintContainer } from '../models';
+import { CRATE, paintContainer } from '../models';
 import { QUAY_Y } from '../terrain';
 import { headingOf, syncPhase, lerpAngle } from '../util/math';
 import { runHarbourCrane } from './cranes/harbourCrane';
@@ -475,7 +475,7 @@ export class Structures {
         for (const c of crates) {
           if (!c.visible) continue;
           c.getWorldPosition(at);
-          const half = (c.userData.size ?? 0.17) / 2 + pad;
+          const half = (c.userData.size ?? CRATE) / 2 + pad;
           if (Math.abs(at.x - x) < half && Math.abs(at.z - z) < half) return true;
         }
       }
