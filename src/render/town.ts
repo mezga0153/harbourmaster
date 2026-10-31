@@ -303,6 +303,207 @@ function cannery(g: Group, y: number) {
   g.add(cyl(0.09, 0.22, 0xc9ced3, 0.82, y, 0.86, 10));
 }
 
+/** A cylinder lying along x (or z), its middle at x, y, z. */
+function log(
+  r: number,
+  len: number,
+  color: number,
+  x: number,
+  y: number,
+  z: number,
+  alongZ = false,
+) {
+  const m = cyl(r, len, color, 0, 0, 0, 8);
+  m.position.set(x, y, z);
+  if (alongZ) m.rotation.x = Math.PI / 2;
+  else m.rotation.z = Math.PI / 2;
+  return m;
+}
+
+/** A round face looking out along +z, as a clock: its middle at x, y, z. */
+function clock(g: Group, r: number, x: number, y: number, z: number) {
+  g.add(log(r + 0.012, 0.01, C.chassis, x, y, z - 0.004, true));
+  g.add(log(r, 0.012, 0xfaf6e8, x, y, z, true));
+  // Hands at three o'clock.
+  g.add(box(0.008, r * 0.8, 0.006, C.chassis, x, y - 0.004, z + 0.006));
+  g.add(box(r * 0.55, 0.008, 0.006, C.chassis, x + r * 0.27, y - 0.004, z + 0.006));
+}
+
+function buildersYard(g: Group, y: number) {
+  // A fenced yard of packed earth: a timber shed at the back, stacks of
+  // planks and a pile of logs, a hoist for lifting them and a handcart by
+  // the open gate onto the street.
+  g.add(box(0.92, 0.02, 0.92, C.dirt, 0.5, y, 0.5));
+  const fy = y + 0.02;
+  // Fence of boards round three sides and the front either side of the gate.
+  for (const x of [0.05, 0.95]) g.add(box(0.025, 0.1, 0.9, C.wood, x, fy, 0.5));
+  g.add(box(0.9, 0.1, 0.025, C.wood, 0.5, fy, 0.05));
+  for (const x of [0.17, 0.83]) g.add(box(0.26, 0.1, 0.025, C.wood, x, fy, 0.95));
+  for (const x of [0.05, 0.3, 0.7, 0.95]) {
+    for (const z of [0.05, 0.95]) g.add(box(0.04, 0.13, 0.04, C.woodDark, x, fy, z));
+  }
+  // The shed: dark boards, a slate roof and its wide doors open.
+  g.add(box(0.46, 0.26, 0.28, C.woodDark, 0.33, fy, 0.24));
+  g.add(gable(0.52, 0.12, 0.34, 0x5d6670, 0.33, fy + 0.26, 0.24));
+  g.add(box(0.2, 0.19, 0.012, 0x3a2a1c, 0.3, fy, 0.385));
+  g.add(box(0.3, 0.05, 0.012, C.cabin, 0.33, fy + 0.2, 0.386));
+  // Stacks of sawn planks, battens between the layers.
+  const plank = 0xd9b07a;
+  for (const [x, z, n] of [
+    [0.24, 0.62, 4],
+    [0.24, 0.8, 3],
+  ] as const) {
+    for (let k = 0; k < n; k++) {
+      g.add(box(0.34, 0.035, 0.13, k % 2 ? plank : 0xcfa36b, x, fy + k * 0.045, z));
+      g.add(box(0.03, 0.01, 0.14, C.woodDark, x - 0.12, fy + k * 0.045 + 0.035, z));
+      g.add(box(0.03, 0.01, 0.14, C.woodDark, x + 0.12, fy + k * 0.045 + 0.035, z));
+    }
+  }
+  // A pile of logs, three and two, along z.
+  for (let k = 0; k < 3; k++)
+    g.add(log(0.035, 0.36, C.wood, 0.66 + k * 0.07, fy + 0.035, 0.66, true));
+  for (let k = 0; k < 2; k++)
+    g.add(log(0.035, 0.36, C.wood, 0.695 + k * 0.07, fy + 0.095, 0.66, true));
+  // A hoist: a post and a jib, its rope down to the logs.
+  g.add(box(0.04, 0.5, 0.04, C.woodDark, 0.84, fy, 0.3));
+  g.add(box(0.3, 0.035, 0.035, C.woodDark, 0.74, fy + 0.46, 0.3));
+  const brace = box(0.02, 0.18, 0.02, C.woodDark, 0.79, fy + 0.3, 0.3);
+  brace.rotation.z = 0.8;
+  g.add(brace);
+  g.add(cyl(0.004, 0.26, C.chassis, 0.62, fy + 0.2, 0.3, 4));
+  g.add(box(0.05, 0.03, 0.05, C.chassis, 0.62, fy + 0.18, 0.3));
+  // A handcart with a load of planks.
+  g.add(box(0.12, 0.03, 0.2, C.wood, 0.5, fy + 0.04, 0.78));
+  g.add(box(0.1, 0.03, 0.22, plank, 0.5, fy + 0.07, 0.78));
+  for (const x of [0.43, 0.57]) g.add(log(0.035, 0.015, C.tyre, x, fy + 0.035, 0.74));
+  // The builder's sign over the gate.
+  for (const x of [0.32, 0.68]) g.add(cyl(0.012, 0.28, C.woodDark, x, fy, 0.95));
+  g.add(box(0.4, 0.07, 0.015, C.stripe, 0.5, fy + 0.24, 0.95));
+}
+
+function school(g: Group, y: number, v: number) {
+  // A two-storey brick school: tall windows, a gabled middle bay with a
+  // clock and a bell turret on the ridge, and a playground out front with a
+  // swing and a slide behind railings.
+  const brick = pick([0xa95a3f, 0xb8674a], v);
+  const stone = 0xe8e0cc;
+  g.add(box(0.84, 0.44, 0.38, brick, 0.5, y, 0.3));
+  g.add(box(0.86, 0.025, 0.4, stone, 0.5, y + 0.22, 0.3));
+  g.add(gable(0.9, 0.18, 0.46, 0x5d6670, 0.5, y + 0.44, 0.3));
+  // The middle bay stands forward, with its own gable to the street.
+  g.add(box(0.24, 0.5, 0.08, brick, 0.5, y, 0.51));
+  g.add(gable(0.28, 0.14, 0.1, 0x5d6670, 0.5, y + 0.5, 0.51, true));
+  g.add(box(0.26, 0.025, 0.09, stone, 0.5, y + 0.5, 0.51));
+  clock(g, 0.045, 0.5, y + 0.4, 0.556);
+  g.add(box(0.1, 0.16, 0.012, DOOR, 0.5, y, 0.556));
+  g.add(box(0.12, 0.025, 0.02, stone, 0.5, y + 0.16, 0.556));
+  // Tall windows on both floors, front and back.
+  for (const x of [0.15, 0.27, 0.73, 0.85]) {
+    for (const wy of [0.04, 0.26]) {
+      g.add(box(0.07, 0.15, 0.012, C.window, x, y + wy, 0.495));
+      g.add(box(0.08, 0.02, 0.016, stone, x, y + wy - 0.01, 0.495));
+      g.add(box(0.07, 0.15, 0.012, C.window, x, y + wy, 0.105));
+    }
+  }
+  // The bell turret: white posts, the bell and a little spire.
+  g.add(box(0.1, 0.03, 0.1, stone, 0.5, y + 0.6, 0.3));
+  for (const [dx, dz] of [
+    [-0.04, -0.04],
+    [0.04, -0.04],
+    [-0.04, 0.04],
+    [0.04, 0.04],
+  ]) {
+    g.add(box(0.015, 0.09, 0.015, C.cabin, 0.5 + dx, y + 0.63, 0.3 + dz));
+  }
+  g.add(cone(0.03, 0.045, 0xc9a23a, 0.5, y + 0.65, 0.3, canopyGeo));
+  g.add(cone(0.08, 0.12, 0x5d6670, 0.5, y + 0.72, 0.3));
+  // Playground: tarmac with hopscotch, a swing, a slide, railings.
+  g.add(box(0.92, 0.015, 0.36, C.asphalt, 0.5, y, 0.76));
+  for (let k = 0; k < 4; k++)
+    g.add(box(0.05, 0.004, 0.05, C.marking, 0.5, y + 0.015, 0.62 + k * 0.065));
+  for (const x of [0.12, 0.32]) {
+    const leg = box(0.015, 0.2, 0.015, 0xd6453d, x, y, 0.76);
+    g.add(leg);
+  }
+  g.add(box(0.22, 0.015, 0.015, 0xd6453d, 0.22, y + 0.2, 0.76));
+  for (const x of [0.18, 0.26]) {
+    g.add(box(0.003, 0.13, 0.003, C.chassis, x, y + 0.07, 0.76));
+    g.add(box(0.05, 0.01, 0.03, C.wood, x, y + 0.065, 0.76));
+  }
+  g.add(box(0.04, 0.16, 0.04, 0x2f6fd0, 0.82, y, 0.66));
+  const slide = box(0.06, 0.012, 0.24, 0xf2c230, 0.82, y + 0.06, 0.78);
+  slide.rotation.x = 0.6;
+  g.add(slide);
+  for (const x of [0.06, 0.94]) {
+    g.add(box(0.012, 0.012, 0.36, C.chassis, x, y + 0.07, 0.76));
+    for (const z of [0.6, 0.76, 0.93]) g.add(box(0.012, 0.07, 0.012, C.chassis, x, y, z));
+  }
+  for (const x of [0.25, 0.75]) {
+    g.add(box(0.38, 0.012, 0.012, C.chassis, x, y + 0.07, 0.94));
+    for (const dx of [-0.12, 0, 0.12]) g.add(box(0.012, 0.07, 0.012, C.chassis, x + dx, y, 0.94));
+  }
+}
+
+function townHall(g: Group, y: number) {
+  // The grandest building in town: pale stone on a stepped plinth, a
+  // portico of columns under a pediment, a clock tower with a copper dome
+  // and the town's flag flying on top.
+  const stone = 0xece4d0;
+  const shade = 0xd8ceb6;
+  const copper = 0x5fa38a;
+  g.add(box(0.9, 0.04, 0.6, shade, 0.5, y, 0.36));
+  const by = y + 0.04;
+  g.add(box(0.84, 0.4, 0.5, stone, 0.5, by, 0.34));
+  g.add(box(0.88, 0.04, 0.54, shade, 0.5, by + 0.4, 0.34));
+  g.add(box(0.8, 0.06, 0.46, 0x5d6670, 0.5, by + 0.44, 0.34));
+  // Windows in the wings, two floors.
+  for (const x of [0.13, 0.24, 0.76, 0.87]) {
+    for (const wy of [0.05, 0.23]) {
+      g.add(box(0.06, 0.13, 0.012, C.window, x, by + wy, 0.595));
+      g.add(box(0.075, 0.02, 0.016, shade, x, by + wy + 0.13, 0.595));
+      g.add(box(0.06, 0.13, 0.012, C.window, x, by + wy, 0.085));
+    }
+  }
+  // The portico: steps, six columns and a pediment over them.
+  g.add(box(0.48, 0.025, 0.2, shade, 0.5, y, 0.72));
+  g.add(box(0.44, 0.025, 0.16, shade, 0.5, y + 0.025, 0.7));
+  for (let k = 0; k < 6; k++) {
+    const x = 0.3 + k * 0.08;
+    g.add(cyl(0.022, 0.33, stone, x, by + 0.01, 0.74, 8));
+    g.add(box(0.05, 0.02, 0.05, shade, x, by + 0.33, 0.74));
+  }
+  g.add(box(0.48, 0.06, 0.18, stone, 0.5, by + 0.35, 0.69));
+  g.add(gable(0.52, 0.12, 0.2, stone, 0.5, by + 0.41, 0.69, true));
+  g.add(box(0.12, 0.2, 0.012, DOOR, 0.5, by, 0.595));
+  g.add(box(0.34, 0.035, 0.012, 0xc9a23a, 0.5, by + 0.37, 0.781));
+  // The clock tower, rising from the roof behind the portico.
+  const ty = by + 0.5;
+  g.add(box(0.2, 0.42, 0.2, stone, 0.5, ty - 0.05, 0.32));
+  g.add(box(0.23, 0.03, 0.23, shade, 0.5, ty + 0.37, 0.32));
+  clock(g, 0.06, 0.5, ty + 0.24, 0.425);
+  for (const x of [0.43, 0.57]) g.add(box(0.03, 0.1, 0.012, C.window, x, ty + 0.04, 0.425));
+  // Belfry of four posts, then the dome and the flagpole.
+  for (const [dx, dz] of [
+    [-0.08, -0.08],
+    [0.08, -0.08],
+    [-0.08, 0.08],
+    [0.08, 0.08],
+  ]) {
+    g.add(box(0.03, 0.12, 0.03, stone, 0.5 + dx, ty + 0.4, 0.32 + dz));
+  }
+  g.add(box(0.22, 0.03, 0.22, shade, 0.5, ty + 0.52, 0.32));
+  g.add(cone(0.12, 0.16, copper, 0.5, ty + 0.55, 0.32, canopyGeo));
+  g.add(cyl(0.008, 0.3, C.chassis, 0.5, ty + 0.68, 0.32, 4));
+  g.add(box(0.012, 0.08, 0.13, C.funnel, 0.5, ty + 0.88, 0.385));
+  g.add(box(0.014, 0.025, 0.13, C.cabin, 0.5, ty + 0.907, 0.385));
+  // Box hedges and lamps either side of the steps.
+  for (const x of [0.16, 0.84]) {
+    g.add(box(0.2, 0.06, 0.08, C.leaves[0], x, y, 0.72));
+    g.add(cyl(0.01, 0.26, C.chassis, x === 0.16 ? 0.24 : 0.76, y, 0.88));
+    g.add(box(0.05, 0.05, 0.05, 0xfff2b0, x === 0.16 ? 0.24 : 0.76, y + 0.26, 0.88));
+  }
+}
+
 function store(g: Group, y: number, v: number) {
   // A department store: a glass ground floor, two storeys of windows, its name on the roof.
   const wall = pick([0xe8d9c4, 0xd9e6ee, 0xf2d7c9], v);
@@ -402,6 +603,15 @@ export function townBuilding(code: number, top: number, v: number): Group | null
       break;
     case Build.Restaurant:
       restaurant(g, top);
+      break;
+    case Build.BuildersYard:
+      buildersYard(g, top);
+      break;
+    case Build.School:
+      school(g, top, v);
+      break;
+    case Build.TownHall:
+      townHall(g, top);
       break;
     case Build.Store:
       store(g, top, v);
