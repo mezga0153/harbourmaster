@@ -249,13 +249,14 @@ export function offTrucks(site: TruckSite, e: Entry, x: number, z: number): [num
       continue;
     }
     // Kept to the side they are on, so they go round, never across; at
-    // one loading, to its left, the side its crates are on.
+    // one loading, to its left, the side its crates are on. Never along
+    // its front: from there, to whichever side is nearer.
     const from = beyond(me.x, me.z);
     const side = /^Loading/.test(truck.view.activity ?? '')
       ? 2
       : e.round?.truck === truck.view.id
         ? e.round.side
-        : from.indexOf(Math.max(...from));
+        : [2, 3, 0].reduce((k, n) => (from[n] > from[k] ? n : k));
     e.round = { truck: truck.view.id, side };
     let a = dx * c + dz * s;
     let b = -dx * s + dz * c;
@@ -269,10 +270,14 @@ export function offTrucks(site: TruckSite, e: Entry, x: number, z: number): [num
   return [x, z];
 }
 
+/** How far ahead of a truck standing still people keep out of, going round by its back instead. */
+export const FRONT_CLEAR = 0.5;
+
 /**
  * Corners to walk by from one point to another round a truck standing
- * still in the way, the shorter way round it; none if nothing is in the
- * way.
+ * still in the way, or across the ground just ahead of its cab: always
+ * round its back, never past its front, unless both ends are ahead of it.
+ * None if nothing is in the way.
  */
 export function aroundTrucks(
   site: TruckSite,
@@ -297,7 +302,7 @@ export function aroundTrucks(
     const [ta, tb] = local(to);
     // Whether a way crosses it (Liang-Barsky), kept a body's width off.
     const pad = 0.06;
-    const crosses = ([fa, fb]: number[], [ta, tb]: number[]) => {
+    const through = ([fa, fb]: number[], [ta, tb]: number[], a0: number, a1: number) => {
       let lo = 0;
       let hi = 1;
       const clip = (p: number, q: number) => {
@@ -308,13 +313,20 @@ export function aroundTrucks(
         return lo < hi;
       };
       return (
-        clip(-(ta - fa), fa - (box.min.x - pad)) &&
-        clip(ta - fa, box.max.x + pad - fa) &&
+        clip(-(ta - fa), fa - a0) &&
+        clip(ta - fa, a1 - fa) &&
         clip(-(tb - fb), fb - (box.min.z - pad)) &&
         clip(tb - fb, box.max.z + pad - fb) &&
         hi - lo > 1e-3
       );
     };
+    // Through it, or across the ground ahead of its cab.
+    const front = box.max.x + pad;
+    const ahead = (a: number, b: number) =>
+      a > front && a < front + FRONT_CLEAR && b > box.min.z - pad && b < box.max.z + pad;
+    const crosses = (f: number[], t: number[]) =>
+      through(f, t, box.min.x - pad, front) ||
+      (!(ahead(f[0], f[1]) && ahead(t[0], t[1])) && through(f, t, front, front + FRONT_CLEAR));
     if (!crosses([fa, fb], [ta, tb])) continue;
     const out = pad + 0.05;
     const corners: [number, number][] = [
@@ -341,7 +353,12 @@ export function aroundTrucks(
         ...path.map((k) => ({ x: corners[k][0], z: corners[k][1] })),
         { x: ta, z: tb },
       ]);
-    const best = long(ways[0]) <= long(ways[1]) ? ways[0] : ways[1];
+    // Never from one front corner to the other, past the cab.
+    const pastFront = (path: number[]) =>
+      path.some((k, n) => n > 0 && k + path[n - 1] === 3 && k !== 0 && k !== 3);
+    const [p, q] = ways;
+    const best =
+      pastFront(p) !== pastFront(q) ? (pastFront(p) ? q : p) : long(p) <= long(q) ? p : q;
     // Only the corners it has to go by.
     while (best.length > 1 && !crosses(corners[best[best.length - 2]], [ta, tb])) best.pop();
     while (best.length > 1 && !crosses([fa, fb], corners[best[1]])) best.shift();

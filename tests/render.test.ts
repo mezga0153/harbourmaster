@@ -605,6 +605,13 @@ describe('Trucks at a truck bay', () => {
               across > body.min.z &&
               across < body.max.z;
             expect(inside).toBe(false);
+            // Nor across the front of its cab: round its back.
+            const ahead =
+              along > body.max.x &&
+              along < body.max.x + 0.3 &&
+              across > body.min.z &&
+              across < body.max.z;
+            expect(ahead).toBe(false);
             beside++;
           }
           // The crate leaves their hands just where it shows on the truck.
