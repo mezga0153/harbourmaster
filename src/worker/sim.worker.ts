@@ -17,6 +17,9 @@ const ctx = self as unknown as {
 let world: World | null = null;
 const queued: Command[] = [];
 let saveSoon: ReturnType<typeof setTimeout> | undefined;
+/** Dev server only: what the debug overlays want each frame, and what works it out; see src/debug/. */
+let debugWant: import('../debug/types').DebugWant | null = null;
+let debugCollect: typeof import('../debug/collect').collect | null = null;
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000);
@@ -96,6 +99,11 @@ function handle(cmd: Command): void {
     if (import.meta.env.DEV) world.debug(cmd);
   } else if (cmd.type === 'dumpSave') {
     if (import.meta.env.DEV) ctx.postMessage({ type: 'dump', save: world.toSave() });
+  } else if (cmd.type === 'debugView') {
+    if (import.meta.env.DEV) {
+      debugWant = cmd.want;
+      if (!debugCollect) void import('../debug/collect').then((m) => (debugCollect = m.collect));
+    }
   } else if (cmd.type === 'loadSave') {
     if (import.meta.env.DEV && World.isValidSave(cmd.save)) {
       start(World.fromSave(cmd.save));
@@ -121,6 +129,13 @@ function postFrame(extra: ReturnType<World['drainEvents']> = []): void {
     plots: world.drainPlotChanges(),
     events: [...world.drainEvents(), ...extra],
   });
+  if (import.meta.env.DEV && debugWant && debugCollect) {
+    try {
+      ctx.postMessage({ type: 'debugView', view: debugCollect(world, debugWant) });
+    } catch (err) {
+      console.warn('Debug overlays:', err);
+    }
+  }
 }
 
 function loop(): void {

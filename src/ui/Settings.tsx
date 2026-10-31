@@ -217,6 +217,20 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
           <span>Report a bug or share an idea</span>
         </button>
       </div>
+      {import.meta.env.DEV && (
+        <>
+          <div class="section-title">
+            <span>Dev server</span>
+          </div>
+          <div class="actions">
+            {/* src/debug/: paths, passability, slots and more drawn over the map (`). */}
+            <button class="btn" onClick={() => window.dispatchEvent(new Event('hm-debug'))}>
+              <Icon name="map" />
+              <span>Debug overlays</span>
+            </button>
+          </div>
+        </>
+      )}
       <input
         ref={picker}
         type="file"

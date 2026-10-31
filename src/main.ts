@@ -124,7 +124,7 @@ setReportHooks({
 });
 
 function handle(msg: WorkerMessage): void {
-  if (msg.type === 'dump') return;
+  if (msg.type === 'dump' || msg.type === 'debugView') return;
   if (msg.type === 'exported') {
     if (!msg.forReport) return downloadSave(msg.save);
     for (const take of wantSave.splice(0)) take(msg.save);
@@ -186,4 +186,16 @@ if (import.meta.env.DEV) {
   void import('./debug/bridge').then((b) =>
     b.startBridge({ worker, send, renderer, map: () => map }),
   );
+  // Paths, passability, slots and more drawn over the map: Settings, or `.
+  void import('./debug/start').then(({ startDebug }) => {
+    const dbg = startDebug({
+      renderer,
+      map: () => map,
+      ui: uiRoot,
+      request: (want) => worker.postMessage({ type: 'debugView', want } satisfies Command),
+    });
+    worker.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
+      if (e.data.type === 'debugView') dbg.receive(e.data.view);
+    });
+  });
 }

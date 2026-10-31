@@ -1,5 +1,6 @@
 // Messages between the main thread and the sim worker. See plan.md §11, Threads.
 
+import type { DebugView, DebugWant } from '../debug/types';
 import type { MapData } from '../sim/map';
 import type { SaveData } from '../sim/state';
 import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
@@ -69,7 +70,9 @@ export type Command =
   /** Dev server only: post the whole game state back, for the debug bridge. */
   | { type: 'dumpSave' }
   /** Dev server only: carry on from this game instead, from the debug bridge. */
-  | { type: 'loadSave'; save: SaveData };
+  | { type: 'loadSave'; save: SaveData }
+  /** Dev server only: what the debug overlays show, sent back each frame; null stops it. */
+  | { type: 'debugView'; want: DebugWant | null };
 
 export type SimEvent =
   | { kind: 'message'; text: string; tone: 'info' | 'good' | 'bad' }
@@ -100,6 +103,8 @@ export type WorkerMessage =
     }
   /** Dev server only: the game as a save, for the debug bridge. */
   | { type: 'dump'; save: SaveData }
+  /** Dev server only: what the debug overlays asked for; see src/debug/. */
+  | { type: 'debugView'; view: DebugView }
   /** The game as a save, to keep in a file; see exportSave. */
   | { type: 'exported'; save: SaveData; forReport?: boolean }
   /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */

@@ -1,6 +1,9 @@
 import { h, render } from 'preact';
 import { BufferGeometry, Float32BufferAttribute, Group, Line, LineBasicMaterial } from 'three';
 import { Soundscape } from '../audio/sound';
+import { collect } from '../debug/collect';
+import { startDebug } from '../debug/start';
+import type { DebugWant } from '../debug/types';
 import { Input } from '../input';
 import type { Command, Snapshot } from '../protocol';
 import { Renderer } from '../render/renderer';
@@ -39,6 +42,9 @@ class Runner {
   /** Keys and commands are taken only while the tab is showing. */
   active = false;
   onFrame?: (s: Snapshot) => void;
+  /** The debug overlays (src/debug/), and what they want of the sim each frame. */
+  private debug: ReturnType<typeof startDebug>;
+  private debugWant: DebugWant | null = null;
 
   constructor(game: HTMLElement, floaters: HTMLElement, hud: HTMLElement) {
     this.renderer = new Renderer(game, floaters);
@@ -65,6 +71,15 @@ class Runner {
     graphics.subscribe((g) => this.renderer.setGraphics(g));
     this.overlays = wireOverlays(this.renderer, () => this.map);
     this.renderer.overlay.group.add(this.courses);
+    this.debug = startDebug({
+      renderer: this.renderer,
+      map: () => this.map,
+      ui: hud.parentElement ?? hud,
+      request: (want) => {
+        this.debugWant = want;
+        if (want && this.world) this.debug?.receive(collect(this.world, want));
+      },
+    });
     const actions: Actions = {
       send: (cmd) => this.send(cmd),
       setSpeed: (s) => this.input.setSpeed(s),
@@ -183,6 +198,7 @@ class Runner {
     snapshot.value = s;
     this.overlays.onSnapshot();
     this.drawCourses(s);
+    if (this.debugWant) this.debug.receive(collect(w, this.debugWant));
     for (const ev of events) {
       if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
       else if (ev.kind === 'tip') advise(ev.id);

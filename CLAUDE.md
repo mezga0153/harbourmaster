@@ -24,6 +24,21 @@ loads `save.json` into the sim, runs it on and prints the report.
 Automated browsers don't mirror (so tests can't overwrite the player's files)
 unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
 
+## Debug overlays
+
+On the dev server only (never built), Settings > Debug overlays, the `
+key or the small "dbg" chip opens a menu (`src/debug/`) that draws over the
+map: the selected worker's, machine's or truck's planned path and its job
+field by field, the view's own plan for a forklift or dockhand working a
+load, every agent's path and state, tile passability for dockhands,
+machines, forklifts or trucks (green ok, amber costly, red blocked), a finer
+grid the view works out round the middle of the view (`fine.ts`, where a
+finer path-finding grid plugs in), the trucks' road graph as arrows, crate
+slots used and kept in bays and storage with bays cut off, crane reach, land
+plots and the tile under the pointer. The sim side is `collect.ts`, run in
+the worker on a `debugView` command (or on the page in the dev lab);
+`window.__debug` sets it from a driver.
+
 ## Players' games: the play log
 
 The published game (only the built one, never `npm run dev`, an automated
