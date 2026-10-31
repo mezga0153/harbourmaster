@@ -27,6 +27,9 @@ import { walkableAt } from '../../rules/placement';
 import { message, nag, tip } from '../output';
 import { sail } from './seamanship';
 import { tugReady } from '../tugs';
+import { forklifts, muster } from '../workforce/dockhands';
+import { exportsComing, stillLoading } from '../cargo/exports';
+import { jibStows } from '../cargo/stores';
 
 export function spawnBoats(w: World): void {
   for (const c of fisheries(w)) {
@@ -595,7 +598,7 @@ export function docks(w: World): { tiles: number[]; quay: boolean; coordinated: 
   const m = w.map;
   const seen = new Uint8Array(m.build.length);
   const groups: { tiles: number[]; quay: boolean; coordinated: boolean; d: number }[] = [];
-  const home = w.muster();
+  const home = muster(w);
   for (let i = 0; i < m.build.length; i++) {
     if (seen[i] || !isDock(m.build[i])) continue;
     const tiles: number[] = [];
@@ -741,7 +744,7 @@ export function freeBerths(
   const out: { berth: number; jetty: number; d: number; craned: boolean }[] = [];
   // With nobody to unload by hand, boats wait for a berth under a jib crane.
   let cranes = false;
-  const forks = w.forklifts();
+  const forks = forklifts(w);
   for (let j = 0; j < m.build.length; j++) {
     if (!dockInUse(w, j)) continue;
     for (const n of m.neighbors4(j)) {
@@ -757,7 +760,7 @@ export function freeBerths(
       // storage it can swing it into: dockhands keep away from cranes.
       // Lying square under the jib crane, centred on it.
       const jib = w.cranes.get(j);
-      const craned = !!jib && jib.kind === 'jib' && (forks || w.jibStows(jib));
+      const craned = !!jib && jib.kind === 'jib' && (forks || jibStows(w, jib));
       cranes ||= craned;
       // Nobody could unload it by hand next to a crane, or off machines-only quay.
       if (!needCrane && !craned && !walkableAt(m, j)) continue;
@@ -1084,7 +1087,7 @@ export function updateBoat(w: World, b: Boat): void {
     case 'moored': {
       if (b.crates === 0 && b.reserved === 0) b.unloadedAt ??= w.tick;
       // Unloaded, a coaster or feeder takes exports on board before it goes.
-      const loading = b.crates === 0 && b.reserved === 0 && w.stillLoading(b);
+      const loading = b.crates === 0 && b.reserved === 0 && stillLoading(w, b);
       // Unloading and loading count against us; waiting for the fairway does not.
       if (b.crates > 0 || b.reserved > 0 || loading) b.mooredTicks++;
       if (loading) {
@@ -1093,7 +1096,7 @@ export function updateBoat(w: World, b: Boat): void {
         // Lying in the way of a ship coming in, it takes on what is on its
         // way to it, and no more.
         if (waitingFor(w, b)) {
-          b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + w.exportsComing(b));
+          b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + exportsComing(w, b));
         }
         b.timer = 0;
         return;

@@ -5,6 +5,10 @@ import { placementError } from '../src/sim/rules';
 import { Build, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { addContract } from '../src/sim/systems/economy';
+import { spawnDockhand } from '../src/sim/systems/workforce/dockhands';
+import { dropRoom } from '../src/sim/systems/cargo/stores';
+import { truckLeave } from '../src/sim/systems/roads/traffic';
+import { shipOut as shipOutOf } from '../src/sim/systems/cargo/exports';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -112,7 +116,7 @@ function wharf(inTiles: number, outTiles: number): Any {
   // Hands enough for the coasters.
   const home = world.people.find((p: Any) => p.kind === 'dockhand');
   for (let k = 0; k < 4; k++) {
-    world.spawnDockhand(m.idx(Math.floor(home.x), Math.floor(home.y)), {
+    spawnDockhand(world, m.idx(Math.floor(home.x), Math.floor(home.y)), {
       id: 0,
       name: `Extra ${k}`,
       skill: 3,
@@ -185,7 +189,7 @@ function run(world: Any, days: number) {
     anchored: 0,
   };
   const brought = new Set<number>();
-  const leave = world.truckLeave.bind(world);
+  const leave = truckLeave.bind(null, world);
   world.truckLeave = (t: Any) => {
     if (t.state !== 'leaving' && t.state !== 'away') {
       for (const f of t.fees ?? []) {
@@ -195,7 +199,7 @@ function run(world: Any, days: number) {
     }
     return leave(t);
   };
-  const shipOut = world.shipOut.bind(world);
+  const shipOut = shipOutOf.bind(null, world);
   world.shipOut = (b: Any, fees: number[]) => {
     tally.canned += fees.filter((f) => cargoOf(f, 'goods') === 'canned').length;
     return shipOut(b, fees);
@@ -204,7 +208,7 @@ function run(world: Any, days: number) {
   const seen = new Map<number, number>();
   for (let k = 0; k < TICKS_PER_DAY * days; k++) {
     world.step();
-    if (stores().some((b: Any) => world.dropRoom(b, false) <= 0)) tally.full++;
+    if (stores().some((b: Any) => dropRoom(world, b, false) <= 0)) tally.full++;
     for (const b of world.boats) {
       if (b.vessel !== 'coaster') continue;
       if (!brought.has(b.id)) {

@@ -9,6 +9,7 @@ import { Build, TICKS_PER_DAY } from '../types';
 import * as B from '../balance';
 import type { SimEvent, TileChange } from '../../protocol/messages';
 import { docks } from './boats/berthing';
+import { depotRoom } from './workforce/dockhands';
 
 export function message(w: World, text: string, tone: 'info' | 'good' | 'bad'): void {
   w.events.push({ kind: 'message', text, tone });
@@ -64,7 +65,7 @@ export function depotViews(w: World): { idx: number; forklifts: number }[] {
   const out: { idx: number; forklifts: number }[] = [];
   for (let i = 0; i < w.map.build.length; i++) {
     if (w.map.build[i] === Build.Depot) {
-      out.push({ idx: i, forklifts: B.DEPOT_SLOTS - w.depotRoom(i) });
+      out.push({ idx: i, forklifts: B.DEPOT_SLOTS - depotRoom(w, i) });
     }
   }
   return out;

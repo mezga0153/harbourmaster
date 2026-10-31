@@ -22,6 +22,8 @@ import { townTrade } from '../contracts';
 import { Build } from '../types';
 import { bayRoom } from '../helpers';
 import { berthCount } from './boats/berthing';
+import { takesExports, takesImports } from './cargo/stores';
+import { holds } from './cargo/customs';
 
 /** The town's builders keep up with the people moving in. */
 export function buildTown(w: World, t: Town): void {
@@ -151,7 +153,7 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
  */
 export function storeHint(w: World, out: boolean): string | undefined {
   const stores = [...w.bays.values()].filter(
-    (b) => b.tiles && (out ? w.takesExports(b) : w.takesImports(b)),
+    (b) => b.tiles && (out ? takesExports(w, b) : takesImports(w, b)),
   );
   const what = out ? 'cargo going out' : 'cargo coming in';
   const waits = out
@@ -160,7 +162,7 @@ export function storeHint(w: World, out: boolean): string | undefined {
   if (stores.length === 0) return `${waits}: mark out crate storage for ${what}`;
   // Full, with crates still waiting in it.
   const full = stores.every((b) => bayRoom(b, false) <= 0);
-  if (full && stores.some((b) => w.holds(b, out).length > 0)) {
+  if (full && stores.some((b) => holds(w, b, out).length > 0)) {
     return `${waits}, and the crate storage for ${what} is full: mark out more`;
   }
   return undefined;

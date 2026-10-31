@@ -4,6 +4,9 @@ import { frontOf } from '../src/sim/rules';
 import { BUSINESSES, townWants } from '../src/sim/town';
 import { Build, isPublicRoad, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { cratesFor, cratesOff } from '../src/sim/systems/truckLoading';
+import { deliverInTown } from '../src/sim/systems/roads/traffic';
+import { updateTruck } from '../src/sim/systems/roads/trucks';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -54,7 +57,7 @@ function truckWith(world: Any, kinds: Cargo[]): Any {
 /** The business a truck of these crates is sent to in town, or null. */
 function sentTo(world: Any, kinds: Cargo[]): number | null {
   const t = truckWith(world, kinds);
-  if (!world.deliverInTown(t)) return null;
+  if (!deliverInTown(world, t)) return null;
   return world.map.build[t.drop];
 }
 
@@ -74,7 +77,7 @@ describe('Deliveries in town', () => {
     const yard = BUSINESSES[Build.BuildersYard]!.perDay;
     // The builders' yard takes so much timber a day, and no more.
     const t = truckWith(world, Array<Cargo>(12).fill('timber'));
-    expect(world.deliverInTown(t)).toBe(true);
+    expect(deliverInTown(world, t)).toBe(true);
     expect(t.dropCount).toBe(Math.min(12, yard));
     expect(world.town.wants[Build.BuildersYard]).toBe(yard - t.dropCount);
     expect(world.town.wants[Build.FishMarket]).toBe(BUSINESSES[Build.FishMarket]!.perDay);
@@ -96,12 +99,12 @@ describe('Deliveries in town', () => {
     // A mixed load, as from an older save.
     const t = truckWith(world, ['fish', 'lobster', 'fish', 'lobster']);
     t.kind = undefined;
-    expect(world.deliverInTown(t)).toBe(true);
+    expect(deliverInTown(world, t)).toBe(true);
     expect(t.dropCount).toBe(2);
     t.state = 'unloading';
     t.timer = 1e6;
     world.trucks.push(t);
-    world.updateTruck(t);
+    updateTruck(world, t);
     expect(t.cargo).toBe(2);
     expect(t.fees.map((f: number) => cargoOf(f))).toEqual(['lobster', 'lobster']);
     expect(Math.round(t.value)).toBe(Math.round(2 * withCargo(30, 'lobster')));
@@ -122,16 +125,16 @@ describe('Crate trucks', () => {
     const t = truckWith(world, []);
     t.kind = undefined;
     t.cargo = 0;
-    expect(world.cratesFor(t, bay)).toBe(4);
-    const off = world.cratesOff(t, bay, 0, 3);
+    expect(cratesFor(world, t, bay)).toBe(4);
+    const off = cratesOff(world, t, bay, 0, 3);
     expect(off.map((f: number) => cargoOf(f))).toEqual(['fish', 'fish']);
     expect(t.kind).toBe('fish');
-    expect(world.cratesFor(t, bay)).toBe(0);
+    expect(cratesFor(world, t, bay)).toBe(0);
     expect(bay.crates.map((f: number) => cargoOf(f))).toEqual(['lobster', 'lobster']);
     // Once the town takes no more fish or lobster today, they all go out
     // by road, so it may as well take the lobster too.
     world.town.wants = {};
-    expect(world.cratesFor(t, bay)).toBe(2);
+    expect(cratesFor(world, t, bay)).toBe(2);
   });
 
   it('take fish to the market and lobster to the restaurant, nothing else', () => {

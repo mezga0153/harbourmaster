@@ -6,6 +6,7 @@ import { placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { addContract } from '../src/sim/systems/economy';
+import { wantsLoad } from '../src/sim/systems/cargo/exports';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -105,7 +106,7 @@ describe('Cargo', () => {
         0,
       );
       for (const b of world.boats) {
-        if (b.state === 'moored' && b.crates === 0 && ice > 0 && world['wantsLoad'](b)) {
+        if (b.state === 'moored' && b.crates === 0 && ice > 0 && wantsLoad(world, b)) {
           wait.set(b.id, (wait.get(b.id) ?? 0) + 1);
           waited = Math.max(waited, wait.get(b.id)!);
         }

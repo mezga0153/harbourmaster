@@ -14,6 +14,10 @@ import {
   deckPlace,
 } from '../helpers';
 import type { CraneView } from '../../protocol/views';
+import { besideStack, crateSlot } from './yardGantry';
+import { loadShip, wantsLoad } from './cargo/exports';
+import { carriedLooks, outLooks, readyList, stackLooks, takesImports } from './cargo/stores';
+import { startHolds } from './cargo/customs';
 
 export function addCrane(w: World, i: number, kind: Crane['kind']): void {
   w.cranes.set(i, { idx: i, kind, stack: [], reserved: 0, timer: 0, angle: 0, busy: false });
@@ -41,8 +45,8 @@ export function updateCrane(w: World, c: Crane): void {
   const boxes = c.kind !== 'jib';
   const store = boxes
     ? undefined
-    : jibStores(w, c).find((a) => bayRoom(a, false) > 0 && w.takesImports(a));
-  if (!store && stackFull(w, c)) return w.loadShip(c);
+    : jibStores(w, c).find((a) => bayRoom(a, false) > 0 && takesImports(w, a));
+  if (!store && stackFull(w, c)) return loadShip(w, c);
   const m = w.map;
   const reaches = (b: Boat) => craneReaches(w, c, b);
   const boat = w.boats.find(
@@ -54,7 +58,7 @@ export function updateCrane(w: World, c: Crane): void {
       b.crates - b.reserved > 0 &&
       reaches(b),
   );
-  if (!boat) return w.loadShip(c);
+  if (!boat) return loadShip(w, c);
   // A container crane lifts them a tier at a time, from the top down, so
   // the ship stays even, in its own share of it when others work it too.
   if (boxes && !liftingFrom(w, c, boat)) {
@@ -76,7 +80,7 @@ export function updateCrane(w: World, c: Crane): void {
   boat.crates--;
   if (store) {
     store.crates.push(boat.fee);
-    w.startHolds(store, [boat.fee], false);
+    startHolds(w, store, [boat.fee], false);
     w.stats.cratesHandled++;
     return;
   }
@@ -94,7 +98,7 @@ export function updateCrane(w: World, c: Crane): void {
       tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
       tractor.timer = 1;
     } else {
-      w.stackLooks(c).push(look);
+      stackLooks(w, c).push(look);
       c.stack.push(boat.fee);
       (c.stackFrom ??= []).push(boat.id);
     }
@@ -331,7 +335,7 @@ export function craneTop(w: World, c: Crane, out: boolean, by?: Dockhand): numbe
   const used = new Set([...places.stack, ...places.out]);
   // A stacker standing along a gantry crane takes one from the stack it is at.
   const at = by?.kind === 'stacker' && c.kind === 'gantry' ? w.tileOf(by) : -1;
-  const near = (k: number) => at < 0 || w.besideStack(c, k) === at;
+  const near = (k: number) => at < 0 || besideStack(w, c, k) === at;
   const anyNear = (out ? places.out : places.stack).some(
     (k) => near(k) && !used.has(k + craneStacks(c)),
   );
@@ -375,7 +379,7 @@ export function craneWork(w: World, c: Crane, jibs: Map<Crane, JibLift>): Partia
     return {
       working: serve.give ? 'give' : 'take',
       workTruck: serve.id,
-      workLook: serve.give ? w.stackLooks(c)[top] : servedLooks(w, c, p)[0],
+      workLook: serve.give ? stackLooks(w, c)[top] : servedLooks(w, c, p)[0],
       workPhase: c.timer / craneTicks(c),
       workPlace: serve.give ? cranePlaces(w, c).stack[top] : nextCranePlace(w, c, true),
     };
@@ -392,7 +396,7 @@ export function craneWork(w: World, c: Crane, jibs: Map<Crane, JibLift>): Partia
     working: unload ? 'unload' : 'load',
     workBoat: b.id,
     workSlot: k,
-    workLook: unload ? boxLookOf(b.id, k) : w.outLooks(c)[Math.max(0, top)],
+    workLook: unload ? boxLookOf(b.id, k) : outLooks(w, c)[Math.max(0, top)],
     workPhase: c.timer / craneTicks(c),
     workTruck: tractor?.id,
     workPlace: unload ? nextCranePlace(w, c) : cranePlaces(w, c).out[Math.max(0, top)],
@@ -452,7 +456,7 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     const k = load ? there - 1 - nth(key) : there + nth(key);
     if (slot < 0 || k < 0) continue;
     // In crate storage, on its pallet, wherever that is.
-    const place = store ? w.crateSlot(store, k, Math.max(k + 1, there)) : k;
+    const place = store ? crateSlot(w, store, k, Math.max(k + 1, there)) : k;
     const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
     lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
   }
@@ -514,7 +518,7 @@ export function deckView(w: World, b: Boat): { load: number; looks: number[]; de
       looks.push(servedLooks(w, c, tractor)[0]);
     } else if (!liftingFrom(w, c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
       deck.push(c.liftSlot!);
-      looks.push(w.outLooks(c)[Math.max(0, craneTop(w, c, true))]);
+      looks.push(outLooks(w, c)[Math.max(0, craneTop(w, c, true))]);
     }
   }
   return { load: deck.length, looks, deck };
@@ -580,7 +584,7 @@ export function serveTractor(w: World, c: Crane): boolean {
     // An export off a tractor goes straight on board a ship it is loading.
     const loading =
       p.state === 'dropping' &&
-      w.boats.find((b) => b.vessel === 'feeder' && w.wantsLoad(b) && craneReaches(w, c, b));
+      w.boats.find((b) => b.vessel === 'feeder' && wantsLoad(w, b) && craneReaches(w, c, b));
     const slot = loading ? deckSlot(w, c, loading, true) : -1;
     if (loading && slot >= 0) {
       c.serving.ship = loading.id;
@@ -599,7 +603,7 @@ export function serveTractor(w: World, c: Crane): boolean {
   // free to go on its way, and the crane carries it on by itself.
   const serving = c.serving!;
   if (p && !serving.give && !serving.held && c.timer >= craneTakenIn(w, c)) {
-    serving.held = { fees: p.cargoFees, looks: w.carriedLooks(p), planned: p.planned };
+    serving.held = { fees: p.cargoFees, looks: carriedLooks(w, p), planned: p.planned };
     p.carrying = 0;
     p.cargoFees = [];
     p.cargoLooks = undefined;
@@ -624,7 +628,7 @@ export function serveTractor(w: World, c: Crane): boolean {
       w.shipOut(on, held.fees);
       c.liftSlot = undefined;
     } else {
-      w.outLooks(c).push(...held.looks);
+      outLooks(w, c).push(...held.looks);
       (c.outStack ??= []).push(...held.fees);
     }
     return true;
@@ -648,13 +652,13 @@ export function craneTakenIn(_w: World, c: Crane): number {
 
 /** How the containers a crane is lifting for a tractor look: on its spreader, or still on the tractor. */
 export function servedLooks(w: World, c: Crane, p: Dockhand | undefined): number[] {
-  return c.serving?.held?.looks ?? (p ? w.carriedLooks(p) : []);
+  return c.serving?.held?.looks ?? (p ? carriedLooks(w, p) : []);
 }
 
 /** A crane has lifted a tractor's export straight on board a ship, into deck slot `slot`. */
 export function onBoardFrom(w: World, c: Crane, p: Dockhand, ship: Boat, slot: number): void {
   c.outReserved = Math.max(0, (c.outReserved ?? 0) - p.planned);
-  (ship.outLooks ??= []).push(...w.carriedLooks(p));
+  (ship.outLooks ??= []).push(...carriedLooks(w, p));
   outSlots(w, ship).push(slot);
   w.shipOut(ship, p.cargoFees);
   p.carrying = 0;
@@ -680,7 +684,7 @@ export function servedStack(
   const stack = c.stack.length + set;
   const out = c.outStack?.length ?? 0;
   if (c.kind === 'jib') return { stack, out };
-  const looks = [...w.stackLooks(c), ...w.outLooks(c)];
+  const looks = [...stackLooks(w, c), ...outLooks(w, c)];
   const gantry = true;
   const at = cranePlaces(w, c);
   const places = at && [...at.stack, ...at.out];
@@ -745,7 +749,7 @@ export function servedLoad(
   if (!serve || serve.id !== p.id) return view;
   if (serve.give && phase >= B.CRANE_LIFT_SET) {
     const top = Math.max(0, takingAt(w, p, c));
-    return { load: view.load + 1, looks: [...(view.looks ?? []), w.stackLooks(c)[top]] };
+    return { load: view.load + 1, looks: [...(view.looks ?? []), stackLooks(w, c)[top]] };
   }
   if (!serve.give && phase >= B.CRANE_LIFT_TAKEN) return { load: 0, looks: [] };
   return view;
@@ -832,7 +836,7 @@ export function shipUnloaded(w: World, b: Boat): void {
   if (w.unloadedAt.has(b.id)) return;
   w.unloadedAt.set(b.id, w.tick);
   for (const y of w.yards.values()) {
-    const ready = w.readyList(y);
+    const ready = readyList(w, y);
     for (let k = 0; k < ready.length; k++) {
       if (ready[k] === -b.id) ready[k] = w.tick + B.CUSTOMS_TICKS;
     }

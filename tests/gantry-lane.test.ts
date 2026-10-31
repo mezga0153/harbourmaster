@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { Build } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { tractorSpot } from '../src/sim/systems/cargo/stores';
+import {
+  alongLane,
+  dockFor,
+  freeDockSet,
+  laneCost,
+  laneWays,
+  stageNearer,
+} from '../src/sim/systems/roads/bays';
+import { lengthOf } from '../src/sim/systems/roads/traffic';
+import { updateTruck } from '../src/sim/systems/roads/trucks';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -78,10 +89,10 @@ function laneWorld(reachNorth = 5, reachSouth = 20) {
 describe('A yard gantry’s lane', () => {
   it('is one way for trucks: in at the end nearer the highway, out at the other', () => {
     const { world, m, tiles, north, south, X, Y0 } = laneWorld();
-    const ways = world.laneWays();
+    const ways = laneWays(world);
     expect(ways.size).toBe(7);
     expect(ways.get(tiles[0])).toEqual([0, 1]);
-    const cost = world.laneCost(() => 1);
+    const cost = laneCost(world, () => 1);
     // Along it, in at the north end and out at the south.
     expect(cost(tiles[1], tiles[0])).toBe(1);
     expect(cost(tiles[0], north)).toBe(1);
@@ -98,12 +109,12 @@ describe('A yard gantry’s lane', () => {
 
   it('runs the other way when the south end is nearer the highway, and both ways with a way out at one end only', () => {
     const a = laneWorld(20, 5);
-    expect(a.world.laneWays().get(a.tiles[0])).toEqual([0, -1]);
+    expect(laneWays(a.world).get(a.tiles[0])).toEqual([0, -1]);
     // With no way on from the far end, trucks drive in and back out again.
     const b = laneWorld(5, -1);
-    expect(b.world.laneWays().size).toBe(0);
+    expect(laneWays(b.world).size).toBe(0);
     const c = laneWorld(-1, 20);
-    expect(c.world.laneWays().size).toBe(0);
+    expect(laneWays(c.world).size).toBe(0);
   });
 
   it('has trucks join its queue, as long as its lane, for the far end of it', () => {
@@ -111,20 +122,20 @@ describe('A yard gantry’s lane', () => {
     const route = (dock: number) => [north, ...tiles.slice(0, tiles.indexOf(dock) + 1)];
     // One on its way in holds no spot: the next goes for the far end too.
     world.trucks.push(truck(tiles[6], 'toBay', north, { path: [...tiles] }));
-    expect(world.freeDockSet(yard, 1.18).has(tiles[6])).toBe(true);
-    expect(world.dockFor(yard, route, 1.18)?.dock).toBe(tiles[6]);
+    expect(freeDockSet(world, yard, 1.18).has(tiles[6])).toBe(true);
+    expect(dockFor(world, yard, route, 1.18)?.dock).toBe(tiles[6]);
     // Even with no spot free, while there is room in the queue.
     world.trucks.push(truck(tiles[4], 'loading', tiles[4]), truck(tiles[6], 'loading', tiles[6]));
-    expect(world.freeDockSet(yard, 1.18).has(tiles[5])).toBe(false);
-    expect(world.dockFor(yard, route, 1.18)?.dock).toBe(tiles[6]);
+    expect(freeDockSet(world, yard, 1.18).has(tiles[5])).toBe(false);
+    expect(dockFor(world, yard, route, 1.18)?.dock).toBe(tiles[6]);
     // Until the trucks in it, bumper to bumper, are as long as the lane and a little more.
     const room = tiles.length + B.GANTRY_QUEUE_EXTRA;
     const used = () =>
-      world.trucks.reduce((n: number, o: Any) => n + world.lengthOf(o) + B.TRUCK_GAP, 0);
+      world.trucks.reduce((n: number, o: Any) => n + lengthOf(world, o) + B.TRUCK_GAP, 0);
     while (used() + 1.18 <= room) {
       world.trucks.push(truck(tiles[6], 'toBay', north, { path: [...tiles] }));
     }
-    expect(world.dockFor(yard, route, 1.18)).toBeNull();
+    expect(dockFor(world, yard, route, 1.18)).toBeNull();
     // A shorter truck than those may still fit; a full queue is not out of reach.
     expect(world.dockRouted).toBe(true);
   });
@@ -134,13 +145,13 @@ describe('A yard gantry’s lane', () => {
     const t = truck(tiles[6], 'toBay', north, { path: [...tiles] });
     const standing = truck(tiles[4], 'delivering', tiles[4]);
     world.trucks.push(t, standing);
-    world.alongLane(t, yard);
+    alongLane(world, t, yard);
     // Short of the one standing, and not right up against it.
     expect(t.goal).toBe(tiles[2]);
     expect(t.path).toEqual(tiles.slice(0, 3));
     // Once that one has gone, on to the far end.
     world.trucks = [t];
-    world.alongLane(t, yard);
+    alongLane(world, t, yard);
     expect(t.goal).toBe(tiles[6]);
     expect(t.path).toEqual([...tiles]);
     // A tractor standing for the gantry is in the way as a truck is.
@@ -155,7 +166,7 @@ describe('A yard gantry’s lane', () => {
       goal: tiles[4],
       path: [],
     });
-    world.alongLane(t, yard);
+    alongLane(world, t, yard);
     expect(t.goal).toBe(tiles[2]);
   });
 
@@ -163,15 +174,21 @@ describe('A yard gantry’s lane', () => {
     const { world, tiles, yard, truck } = laneWorld();
     world.spotTaken = () => false;
     world.pathFor = () => [tiles[3]];
-    const p = { id: 1, kind: 'tractor', state: 'toPickup', stockIdx: yard.idx, bayIdx: -1 };
+    const p = {
+      id: 1,
+      kind: 'tractor',
+      state: 'toPickup',
+      stockIdx: yard.idx,
+      bayIdx: -1,
+    } as never;
     // Nearest the gantry with no truck about.
-    expect(world.tractorSpot(p, yard, tiles[0])).toBe(tiles[3]);
+    expect(tractorSpot(world, p, yard, tiles[0])).toBe(tiles[3]);
     // Not where a truck stands, nor where one is on its way to.
     world.trucks.push(truck(tiles[3], 'delivering', tiles[3]));
-    expect(world.tractorSpot(p, yard, tiles[0])).toBe(tiles[2]);
+    expect(tractorSpot(world, p, yard, tiles[0])).toBe(tiles[2]);
     // One on its way in to the queue holds no spot.
     world.trucks.push(truck(tiles[2], 'toBay', tiles[0], { path: [tiles[1], tiles[2]] }));
-    expect(world.tractorSpot(p, yard, tiles[0])).toBe(tiles[2]);
+    expect(tractorSpot(world, p, yard, tiles[0])).toBe(tiles[2]);
   });
 });
 
@@ -199,7 +216,7 @@ describe('A shipper’s truck waiting for a spot', () => {
 
   it('moves to parking much nearer the storage, inside the port, to be there when a spot comes free', () => {
     const { world, outside, yard, near, space } = staging();
-    world.stageNearer(outside);
+    stageNearer(world, outside);
     expect(outside.state).toBe('toPark');
     expect(outside.staged).toBe(yard.idx);
     expect(outside.park).toBe(near);
@@ -211,13 +228,13 @@ describe('A shipper’s truck waiting for a spot', () => {
   it('stays put when the nearer parking is not much nearer, or as many as the storage has spots wait there', () => {
     const a = staging();
     a.world.distTo = () => 10;
-    a.world.stageNearer(a.outside);
+    stageNearer(a.world, a.outside);
     expect(a.outside.state).toBe('parked');
     const b = staging();
     for (let k = 0; k < b.world.loadingDocks(b.yard).length; k++) {
       b.world.trucks.push(b.truck(b.near, 'parked', b.near, { staged: b.yard.idx }));
     }
-    b.world.stageNearer(b.outside);
+    stageNearer(b.world, b.outside);
     expect(b.outside.state).toBe('parked');
     expect(b.outside.staged).toBeUndefined();
   });
@@ -237,16 +254,16 @@ describe('A shipper’s truck waiting for a spot', () => {
     world.freeParking = () => null;
     // On their turn, every tenth tick.
     world.tick = 10 - (outside.id % 10);
-    world.updateTruck(outside);
+    updateTruck(world, outside);
     expect(outside.state).toBe('parked');
     world.tick = 10 - (staged.id % 10) + 10;
-    world.updateTruck(staged);
+    updateTruck(world, staged);
     expect(staged.state).toBe('toBay');
     expect(staged.staged).toBeUndefined();
     expect(staged.goal).toBe(tiles[6]);
     // With no one waiting near any more, the one outside goes.
     world.tick = 10 - (outside.id % 10) + 20;
-    world.updateTruck(outside);
+    updateTruck(world, outside);
     expect(outside.state).toBe('toBay');
   });
 
@@ -266,8 +283,8 @@ describe('A yard every spot of which is too short for a long truck', () => {
         truck(tiles[k], 'loading', tiles[k], { capacity: 4, boxes: false, exports: false }),
       );
     }
-    expect(world.freeDockSet(yard, 1).size).toBeGreaterThan(0);
-    expect(world.freeDockSet(yard, 1.92).size).toBe(0);
+    expect(freeDockSet(world, yard, 1).size).toBeGreaterThan(0);
+    expect(freeDockSet(world, yard, 1.92).size).toBe(0);
     const park = m.idx(30, 30);
     m.build[park] = Build.Parking;
     const long = truck(park, 'parked', park, { capacity: 2, exports: false, park });
@@ -275,7 +292,7 @@ describe('A yard every spot of which is too short for a long truck', () => {
     world.collectable = () => 5;
     world.handlerFree = () => true;
     world.tick = 10 - (long.id % 10);
-    world.updateTruck(long);
+    updateTruck(world, long);
     // It waits for a spot, and the yard is not marked as out of the trucks' reach.
     expect(yard.noAccess).toBeFalsy();
     expect(long.state).toBe('parked');

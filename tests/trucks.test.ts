@@ -4,6 +4,7 @@ import type { EntityView } from '../src/protocol';
 import { Entities } from '../src/render/entities';
 import * as B from '../src/sim/balance';
 import { World } from '../src/sim/world';
+import { drive as driveOn, steerPoints } from '../src/sim/systems/roads/trucks';
 
 /**
  * A container truck driving as the sim moves one: from tile centre to tile
@@ -244,7 +245,7 @@ describe('A truck through a jog', () => {
       ...Array.from({ length: 14 }, (_, k) => at(6 + k, 9)),
     ];
     const t = truck(jog);
-    const points = world['steerPoints'](t as never, 6) as {
+    const points = steerPoints(world, t as never, 6) as {
       x: number;
       y: number;
       passes: boolean;
@@ -267,7 +268,7 @@ describe('A truck through a jog', () => {
         t as never,
         () => 1,
         false,
-        () => world['drive'](t as never, top),
+        () => driveOn(world, t as never, top),
       );
       slowest = Math.min(slowest, t.v);
       headings.add(Math.round((t.dir * 180) / Math.PI));
@@ -284,7 +285,7 @@ describe('A truck through a jog', () => {
         u as never,
         () => 1,
         false,
-        () => world['drive'](u as never, top),
+        () => driveOn(world, u as never, top),
       );
       slow = Math.min(slow, u.v);
     }

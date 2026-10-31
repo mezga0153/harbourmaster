@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { Build } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import {
+  buried,
+  buriedCount,
+  collectable,
+  reachable,
+  takesExports,
+  takesImports,
+} from '../src/sim/systems/cargo/stores';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -61,8 +69,8 @@ describe('A reach stacker with time on its hands', () => {
       { slot: 9, clear: false },
       { slot: 12, clear: false },
     ]);
-    expect(world.buriedCount(yard)).toBe(2);
-    expect(world.buried(yard)).toEqual([
+    expect(buriedCount(world, yard)).toBe(2);
+    expect(buried(world, yard)).toEqual([
       { at: 4, tile: 1 },
       { at: 2, tile: 0 },
     ]);
@@ -77,15 +85,15 @@ describe('A reach stacker with time on its hands', () => {
       { slot: 9, clear: false },
     ]);
     const before = [...yard.boxReady].sort();
-    expect(world.reachable(yard)).toBe(0);
+    expect(reachable(world, yard)).toBe(0);
     let restacking = 0;
-    for (let k = 0; k < TICKS_PER_DAY && world.buriedCount(yard) > 0; k++) {
+    for (let k = 0; k < TICKS_PER_DAY && buriedCount(world, yard) > 0; k++) {
       world.step();
       if (world.people.some((p: Any) => p.restack)) restacking++;
     }
     expect(restacking).toBeGreaterThan(0);
-    expect(world.buriedCount(yard)).toBe(0);
-    expect(world.reachable(yard)).toBe(2);
+    expect(buriedCount(world, yard)).toBe(0);
+    expect(reachable(world, yard)).toBe(2);
     // Every container is still there, clearing when it did.
     for (let k = 0; k < 60; k++) world.step();
     const stacker = world.people.find((p: Any) => p.kind === 'stacker');
@@ -93,7 +101,7 @@ describe('A reach stacker with time on its hands', () => {
     expect(yard.boxes.length).toBe(4);
     expect([...yard.boxReady].sort()).toEqual(before);
     // And it does not go on to bury them again.
-    expect(world.buriedCount(yard)).toBe(0);
+    expect(buriedCount(world, yard)).toBe(0);
     expect(stacker.state).not.toBe('toPickup');
   });
 
@@ -103,7 +111,7 @@ describe('A reach stacker with time on its hands', () => {
     const at: { slot: number; clear: boolean }[] = [];
     for (let k = 0; k < 18; k++) if (k !== 4) at.push({ slot: k, clear: k === 0 });
     fill(world, yard, at);
-    expect(world.buriedCount(yard)).toBe(1);
+    expect(buriedCount(world, yard)).toBe(1);
     for (let k = 0; k < 200; k++) world.step();
     expect(world.people.some((p: Any) => p.restack)).toBe(false);
     expect(yard.boxes.length).toBe(17);
@@ -115,15 +123,15 @@ describe('Storage stopped from taking cargo', () => {
     const world: Any = World.create(7, 96);
     const store: Any = { idx: 1, tiles: [1], crates: [5], boxes: [], incoming: 0, boxIncoming: 0 };
     const out: Any = { ...store, idx: 2, tiles: [2], outgoing: true, exports: [7] };
-    expect(world.takesImports(store)).toBe(true);
-    expect(world.takesExports(out)).toBe(true);
+    expect(takesImports(world, store)).toBe(true);
+    expect(takesExports(world, out)).toBe(true);
     store.shut = true;
     out.shut = true;
-    expect(world.takesImports(store)).toBe(false);
-    expect(world.takesExports(out)).toBe(false);
+    expect(takesImports(world, store)).toBe(false);
+    expect(takesExports(world, out)).toBe(false);
     // Truck bays have no such switch.
-    expect(world.takesImports({ ...store, tiles: undefined })).toBe(true);
+    expect(takesImports(world, { ...store, tiles: undefined })).toBe(true);
     // What is in it is still there for the trucks.
-    expect(world.collectable(store)).toBe(1);
+    expect(collectable(world, store)).toBe(1);
   });
 });

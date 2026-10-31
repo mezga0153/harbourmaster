@@ -4,6 +4,16 @@ import { withCargo, type Cargo } from '../src/sim/cargo';
 import { Build, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { storeHint } from '../src/sim/systems/townBusiness';
+import { cratesFor, cratesOff } from '../src/sim/systems/truckLoading';
+import { exportsFor } from '../src/sim/systems/cargo/exports';
+import { bayWithRoom, cannedTruck } from '../src/sim/systems/cargo/stores';
+import {
+  readyIn,
+  startHolds,
+  takeReady,
+  unclaimed,
+  waitMask,
+} from '../src/sim/systems/cargo/customs';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -37,7 +47,7 @@ function setDown(world: Any, bay: Any, c: Cargo, n: number, out = false): void {
   const fees = Array(n).fill(withCargo(20, c));
   if (out) (bay.exports ??= []).push(...fees);
   else bay.crates.push(...fees);
-  world.startHolds(bay, fees, out);
+  startHolds(world, bay, fees, out);
 }
 
 /** A haulier's truck loading at `bay`. */
@@ -54,10 +64,10 @@ describe('Customs and export papers on crates', () => {
     setDown(world, into, 'goods', 2);
     expect(into.customs).toHaveLength(5);
     // Only the fish and lobster may go.
-    expect(world.readyIn(into, false)).toBe(3);
-    expect(world.cratesFor(truckAt(into), into)).toBe(3);
+    expect(readyIn(world, into, false)).toBe(3);
+    expect(cratesFor(world, truckAt(into), into)).toBe(3);
     const t = truckAt(into);
-    const fees = world.cratesOff(t, into, 0, 8);
+    const fees = cratesOff(world, t, into, 0, 8);
     expect(fees.map((f: number) => Math.round((f % 1) * 1e6))).toEqual([1, 1, 3]);
     expect(into.crates).toHaveLength(5);
     // The selected storage says so.
@@ -66,11 +76,11 @@ describe('Customs and export papers on crates', () => {
     expect(view.customs.next).toBe(B.CRATE_CUSTOMS_TICKS);
     expect(view.waiting.filter(Boolean)).toHaveLength(5);
     // No truck is sent for them meanwhile.
-    expect(world.unclaimed(into, false)).toBe(0);
+    expect(unclaimed(world, into, false)).toBe(0);
     world.tick += B.CRATE_CUSTOMS_TICKS;
-    expect(world.readyIn(into, false)).toBe(5);
+    expect(readyIn(world, into, false)).toBe(5);
     expect(into.customs).toBeUndefined();
-    expect(world.cratesOff(truckAt(into), into, 0, 8)).toHaveLength(5);
+    expect(cratesOff(world, truckAt(into), into, 0, 8)).toHaveLength(5);
   });
 
   it('clear the oldest first, and take only those cleared', () => {
@@ -79,12 +89,12 @@ describe('Customs and export papers on crates', () => {
     world.tick += TICKS_PER_DAY / 2;
     setDown(world, into, 'timber', 2);
     world.tick += TICKS_PER_DAY / 2;
-    expect(world.readyIn(into, false)).toBe(2);
-    const mask = world.waitMask(into, false);
+    expect(readyIn(world, into, false)).toBe(2);
+    const mask = waitMask(world, into, false);
     expect(mask).toEqual([false, false, true, true]);
     // Even asked for the newest, the truck gets the two cleared.
-    expect(world.cratesOff(truckAt(into), into, 2, 4)).toHaveLength(2);
-    expect(world.readyIn(into, false)).toBe(0);
+    expect(cratesOff(world, truckAt(into), into, 2, 4)).toHaveLength(2);
+    expect(readyIn(world, into, false)).toBe(0);
     expect(into.crates).toHaveLength(2);
   });
 
@@ -93,17 +103,17 @@ describe('Customs and export papers on crates', () => {
     setDown(world, out, 'canned', 6, true);
     setDown(world, out, 'goods', 2, true);
     expect(out.papers).toHaveLength(6);
-    expect(world.readyIn(out, true)).toBe(2);
+    expect(readyIn(world, out, true)).toBe(2);
     // A coaster alongside counts only what may go on board.
-    const coaster = { vessel: 'coaster', id: 5 };
-    expect(world.exportsFor(coaster)).toBe(2);
-    const fees = world.takeReady(out, true, 0, 4);
+    const coaster = { vessel: 'coaster', id: 5 } as never;
+    expect(exportsFor(world, coaster)).toBe(2);
+    const fees = takeReady(world, out, true, 0, 4);
     expect(fees).toHaveLength(2);
-    expect(world.takeReady(out, true, 0, 4)).toHaveLength(0);
+    expect(takeReady(world, out, true, 0, 4)).toHaveLength(0);
     world.tick += B.EXPORT_PAPERS_TICKS - 1;
-    expect(world.readyIn(out, true)).toBe(0);
+    expect(readyIn(world, out, true)).toBe(0);
     world.tick += 1;
-    expect(world.exportsFor(coaster)).toBe(6);
+    expect(exportsFor(world, coaster)).toBe(6);
   });
 
   it('start nothing in a truck bay, and send timber only to crate storage', () => {
@@ -111,12 +121,12 @@ describe('Customs and export papers on crates', () => {
     const bay = [...world.bays.values()].find((b: Any) => !b.tiles);
     setDown(world, bay, 'timber', 3);
     expect(bay.customs).toBeUndefined();
-    expect(world.readyIn(bay, false)).toBe(3);
+    expect(readyIn(world, bay, false)).toBe(3);
     // Timber off a boat goes only into crate storage: not into the truck
     // bay the catch goes to, and here the crew cannot get to the storage.
     const p = world.people.find((q: Any) => q.kind === 'dockhand');
-    expect(world.bayWithRoom(p, world.tileOf(p))?.idx).toBe(bay.idx);
-    expect(world.bayWithRoom(p, world.tileOf(p), false, true)).toBeNull();
+    expect(bayWithRoom(world, p, world.tileOf(p))?.idx).toBe(bay.idx);
+    expect(bayWithRoom(world, p, world.tileOf(p), false, true)).toBeNull();
     expect(into.tiles).toBeDefined();
   });
 
@@ -130,8 +140,8 @@ describe('Customs and export papers on crates', () => {
     const b = loaded.bays.get(out.idx);
     expect(a.customs).toEqual(into.customs);
     expect(b.papers).toEqual(out.papers);
-    expect(loaded.readyIn(a, false)).toBe(0);
-    expect(loaded.readyIn(b, true)).toBe(0);
+    expect(readyIn(loaded, a, false)).toBe(0);
+    expect(readyIn(loaded, b, true)).toBe(0);
     // From before customs on crates: all clear.
     const old = JSON.parse(JSON.stringify(save));
     for (const bay of old.bays) {
@@ -139,8 +149,8 @@ describe('Customs and export papers on crates', () => {
       delete bay.papers;
     }
     const older: Any = World.fromSave(old);
-    expect(older.readyIn(older.bays.get(into.idx), false)).toBe(4);
-    expect(older.readyIn(older.bays.get(out.idx), true)).toBe(3);
+    expect(readyIn(older, older.bays.get(into.idx), false)).toBe(4);
+    expect(readyIn(older, older.bays.get(out.idx), true)).toBe(3);
   });
 
   it('carry over when storage is marked out again', () => {
@@ -150,7 +160,7 @@ describe('Customs and export papers on crates', () => {
     world.command({ type: 'store', tiles: [tiles[0] - world.map.w], kind: 'crates', on: true });
     const now = world.bays.get(world.storeOf[tiles[0]]);
     expect(now.crates).toHaveLength(4);
-    expect(world.readyIn(now, false)).toBe(0);
+    expect(readyIn(world, now, false)).toBe(0);
   });
 
   it('say on the Next step card when storage full of crates in customs holds the town up', () => {
@@ -174,7 +184,7 @@ describe('Customs and export papers on crates', () => {
   it('let the cannery’s trucks in without the shippers’ day of paperwork outside', () => {
     const { world } = port();
     const t = { exports: true, boxes: false, value: withCargo(20, 'canned') };
-    expect(world.cannedTruck(t)).toBe(true);
-    expect(world.cannedTruck({ ...t, value: withCargo(20, 'goods') })).toBe(false);
+    expect(cannedTruck(world, t as never)).toBe(true);
+    expect(cannedTruck(world, { ...t, value: withCargo(20, 'goods') } as never)).toBe(false);
   });
 });

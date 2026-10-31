@@ -84,6 +84,10 @@ import type { Bay } from '../state';
 import { bayCap, bayIncoming, bayRoom, isBoxy } from '../helpers';
 import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
+import { settleGantry } from './yardGantry';
+import { readyList, removePile } from './cargo/stores';
+import { dest } from './cargo/customs';
+import { addBay, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
 
 export function build(w: World, kind: BuildKind, tiles: number[], facing?: number): void {
   const def = BUILDABLES[kind];
@@ -131,7 +135,7 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         w.map.deco[t] = Deco.None;
         w.dirty.add(t);
       });
-      if (kind === 'truckBay' || kind === 'largeBay') w.addBay(i);
+      if (kind === 'truckBay' || kind === 'largeBay') addBay(w, i);
       if (kind === 'jibCrane') addCrane(w, i, 'jib');
       if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
         tip(w, 'cranes');
@@ -177,8 +181,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
     // Laid out where trucks cannot use it: say why.
     w.lotsCache = null;
     w.reachCache = null;
-    const lot = w.lots().find((l) => l.tiles.some((i) => tiles.includes(i)));
-    const trouble = lot && w.lotTrouble(lot);
+    const lot = lots(w).find((l) => l.tiles.some((i) => tiles.includes(i)));
+    const trouble = lot && lotTrouble(w, lot);
     if (trouble) message(w, `This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
   } else if (firstError) message(w, firstError, 'bad');
 }
@@ -320,7 +324,7 @@ export function openExit(w: World, row: number, auto = false): void {
 export function markOneWay(w: World, tiles: number[], on: boolean): void {
   const m = w.map;
   // Truck parking picked: its lot turned round, to run the other way.
-  const lots = new Set(tiles.filter((i) => m.build[i] === Build.Parking).map((i) => w.lotOf(i)));
+  const lots = new Set(tiles.filter((i) => m.build[i] === Build.Parking).map((i) => lotOf(w, i)));
   for (const lot of lots) {
     if (!lot) continue;
     const next = nextParkWay(m, lot.tiles);
@@ -572,14 +576,14 @@ export function markStore(w: World, tiles: number[], kind: StoreKind, on: boolea
 export function rebuildStores(w: World): void {
   const m = w.map;
   // Any container on a gantry's spreader goes down first, with the rest.
-  for (const y of w.yards.values()) w.settleGantry(y);
+  for (const y of w.yards.values()) settleGantry(w, y);
   const old = [...w.bays.values(), ...w.yards.values()].filter((b) => b.tiles);
   const held = new Map<number, number[]>();
   const ready = new Map<number, number[]>();
   const lost = { crates: 0, boxes: 0 };
   for (const a of old) {
     const goods = a.yard ? a.boxes : a.crates;
-    const clear = a.yard ? w.readyList(a) : [];
+    const clear = a.yard ? readyList(w, a) : [];
     const per = a.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE;
     const tiles = a.tiles!;
     tiles.forEach((t, k) => {
@@ -650,7 +654,7 @@ export function rebuildStores(w: World): void {
     const t = a.tiles!.find((t) => m.store[t] === code);
     const now = t === undefined ? -1 : w.storeOf[t];
     remap.set(a.idx, now);
-    const area = w.dest(now);
+    const area = dest(w, now);
     if (area) {
       area.nextTruckTick = Math.max(area.nextTruckTick, a.nextTruckTick);
       area.noAccess ||= a.noAccess;
@@ -661,7 +665,7 @@ export function rebuildStores(w: World): void {
   for (const p of w.people) {
     const now = remap.get(p.bayIdx);
     if (now !== undefined) p.bayIdx = now;
-    const area = w.dest(p.bayIdx);
+    const area = dest(w, p.bayIdx);
     if (area?.tiles && p.planned > 0) {
       // Exports on their way into storage by a crane, or cargo coming in.
       if (p.outbound) area.exportIncoming = (area.exportIncoming ?? 0) + p.planned;
@@ -677,7 +681,7 @@ export function rebuildStores(w: World): void {
   // Exports go with the area their old one became, as far as there is room.
   for (const a of old) {
     const goods = a.exports ?? [];
-    const area = w.dest(remap.get(a.idx) ?? -1);
+    const area = dest(w, remap.get(a.idx) ?? -1);
     const room = area ? Math.max(0, bayRoom(area, !!a.yard)) : 0;
     if (area) (area.exports ??= []).push(...goods.slice(0, room));
     lost[a.yard ? 'boxes' : 'crates'] += Math.max(0, goods.length - room);
@@ -695,13 +699,13 @@ export function rebuildStores(w: World): void {
     }
   }
   for (const t of w.trucks) {
-    const area = w.dest(t.bayIdx);
+    const area = dest(w, t.bayIdx);
     if (t.exports && t.state === 'toBay' && area?.tiles) {
       area.exportIncoming = (area.exportIncoming ?? 0) + t.cargo;
     }
   }
   for (const p of w.people) {
-    const area = w.dest(p.stockIdx);
+    const area = dest(w, p.stockIdx);
     if (p.outbound && !p.carrying && area?.tiles) {
       area.outReserved = (area.outReserved ?? 0) + p.planned;
     }
@@ -817,8 +821,8 @@ export function bulldoze(w: World, tiles: number[]): void {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
     } else if (w.map.build[i] !== Build.None) {
-      if (isBay(w.map.build[i])) w.removeBay(i);
-      w.removePile(i);
+      if (isBay(w.map.build[i])) removeBay(w, i);
+      removePile(w, i);
       for (const b of bulldozeTiles(w.map, i)) {
         w.map.build[b] = w.map.orient[b] & ON_QUAY ? Build.Quay : Build.None;
         w.map.orient[b] = 0;

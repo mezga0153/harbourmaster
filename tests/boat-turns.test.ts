@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { assignJob } from '../src/sim/systems/workforce/dockhands';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -34,12 +35,12 @@ describe('Boats in turn', () => {
     const old = boat(1001, 300);
     world.boats.push(young, old);
     world.pickupSpots = (b: Any) => [b === old ? far : near];
-    expect(world.assignJob(p)).toBe(true);
+    expect(assignJob(world, p)).toBe(true);
     expect(p.boatId).toBe(old.id);
     // Once all its crates are spoken for, the next goes to the other.
     const q = world.people.find((r: Any) => r.kind === 'dockhand' && r !== p);
     old.reserved = old.crates;
-    expect(world.assignJob(q)).toBe(true);
+    expect(assignJob(world, q)).toBe(true);
     expect(q.boatId).toBe(young.id);
   });
 

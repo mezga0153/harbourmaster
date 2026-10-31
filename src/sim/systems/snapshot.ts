@@ -63,6 +63,37 @@ import {
   near,
   wideQuay,
 } from './boats/berthing';
+import { gantries, gantryLifts, handView, liftedLoad, palletPlaces, yardLooks } from './yardGantry';
+import { byHand } from './truckLoading';
+import { handlingPhase } from './workforce/crowding';
+import { forklifts, parkedPoses } from './workforce/dockhands';
+import { exportsWaiting, readyWords, truckCargo } from './cargo/exports';
+import {
+  buriedCount,
+  byCrane,
+  cannedTruck,
+  carriedLooks,
+  cleared,
+  customsHold,
+  jibStows,
+  nextClear,
+  pending,
+  pickupSpots,
+  takesFrom,
+  takesImports,
+} from './cargo/stores';
+import { dest, holdsView } from './cargo/customs';
+import {
+  docked,
+  inQueue,
+  lotTrouble,
+  lots,
+  oneWayLane,
+  queueRoom,
+  stagedFor,
+  stagingSpace,
+} from './roads/bays';
+import { backingPose, cratesOf, lanePos, lengthOf } from './roads/traffic';
 
 /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
 export function arrivingWords(w: World, b: Boat): string {
@@ -98,16 +129,16 @@ export function boatWhy(w: World, b: Boat): string | undefined {
     return undefined;
   }
   const jib = [...w.cranes.values()].find((c) => c.kind === 'jib' && near(w, c.idx, b.berth));
-  const spots = w.pickupSpots(b).filter((t) => walkableAt(w.map, t));
+  const spots = pickupSpots(w, b).filter((t) => walkableAt(w.map, t));
   if (!jib && (spots.length === 0 || !hands)) {
     return hands
       ? 'Dockhands cannot get to it: it lies by machines-only ground. Forklifts cannot unload boats.'
       : 'Nobody to unload it: forklifts cannot unload boats. Hire dockhands, or berth boats under a jib crane.';
   }
-  if (jib && jib.stack.length >= B.CRANE_STACK && !w.jibStows(jib)) {
+  if (jib && jib.stack.length >= B.CRANE_STACK && !jibStows(w, jib)) {
     return "The crane's landing stack is full: a forklift must take it away. Crate storage within reach would take crates straight in.";
   }
-  if (b.vessel === 'coaster' && !w.forklifts() && !(jib && w.jibStows(jib))) {
+  if (b.vessel === 'coaster' && !forklifts(w) && !(jib && jibStows(w, jib))) {
     return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
   }
   return undefined;
@@ -118,7 +149,7 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
   const waiting = w.boats.filter(
     (b) => b.state === 'moored' && b.vessel !== 'feeder' && b.crates - b.reserved > 0,
   );
-  const outOfReach = waiting.filter((b) => !w.pickupSpots(b).some((t) => walkableAt(w.map, t)));
+  const outOfReach = waiting.filter((b) => !pickupSpots(w, b).some((t) => walkableAt(w.map, t)));
   if (waiting.length > 0 && outOfReach.length === waiting.length) {
     return 'Boats are waiting, but dockhands keep off machines-only ground and the ground round cranes.';
   }
@@ -127,7 +158,7 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
 
 /** What a truck waiting in the parking to load is waiting for. */
 export function parkedWords(w: World, t: Truck): string {
-  const bay = w.dest(t.bayIdx);
+  const bay = dest(w, t.bayIdx);
   if (bay && t.boxes && !w.handlerFree(bay, t)) {
     return 'Parked, waiting for a free reach stacker to load it';
   }
@@ -139,41 +170,41 @@ export function truckWhy(w: World, t: Truck): string | undefined {
     const store = t.boxes ? 'container yard' : 'crate storage';
     if (!w.outgoingRoom(t)) return `No outgoing ${store} has room for its load.`;
     const stores = [...(t.boxes ? w.yards : w.bays).values()].filter(
-      (b) => w.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo,
+      (b) => takesFrom(w, b, t) && bayRoom(b, t.boxes) >= t.cargo,
     );
     // Those parked nearer, inside the port, take the spots first.
     const nearer =
       t.staged === undefined
-        ? w.stagingSpace(t)
+        ? stagingSpace(w, t)
           ? ''
           : ' No free parking nearer the storage, inside the port, for it to wait at instead.'
         : '';
-    if (t.staged === undefined && stores.some((b) => w.stagedFor(b, t))) {
+    if (t.staged === undefined && stores.some((b) => stagedFor(w, b, t))) {
       return `Waiting its turn: shippers' trucks parked nearer the outgoing ${store}, inside the port, unload first.${nearer}`;
     }
-    if (stores.some((b) => w.oneWayLane(b)) && !stores.some((b) => w.queueRoom(b))) {
+    if (stores.some((b) => oneWayLane(w, b)) && !stores.some((b) => queueRoom(w, b))) {
       return `Waiting its turn: the queue at the outgoing ${store}'s yard gantry is full. A longer yard along the gantry's lane gives room for more.${nearer}`;
     }
     // Spots free, but those on their way in to the others have to get past them first.
-    const free = stores.some((b) => w.freeDockSet(b, w.lengthOf(t)).size > 0);
+    const free = stores.some((b) => w.freeDockSet(b, lengthOf(w, t)).size > 0);
     return free
       ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.${nearer}`
       : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken${t.boxes ? ', or spoken for by trucks on their way in' : ''}. More tiles along the side trucks use give more spots.${nearer}`;
   }
   if (t.state === 'parked' && !t.exports) {
-    const bay = w.dest(t.bayIdx);
+    const bay = dest(w, t.bayIdx);
     if (!bay) return undefined;
     const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage' : 'truck bay';
     if (bay.noAccess) return bay.noAccessWhy;
-    if (w.oneWayLane(bay)) {
-      const n = w.inQueue(bay);
+    if (oneWayLane(w, bay)) {
+      const n = inQueue(w, bay);
       return `The queue at the yard gantry is full: ${n} ${n === 1 ? 'truck is' : 'trucks are'} loading or lined up for it. A longer yard along the gantry's lane gives room for more.`;
     }
     if (!t.boxes || w.handlerFree(bay, t)) {
       const going = w.trucks.filter(
-        (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || w.docked(o)),
+        (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || docked(w, o)),
       ).length;
-      return w.freeDockSet(bay, w.lengthOf(t)).size === 0
+      return w.freeDockSet(bay, lengthOf(w, t)).size === 0
         ? `Every loading spot at the ${what} is taken: ${going} ${going === 1 ? 'truck is' : 'trucks are'} loading there or on the way.${bay.tiles ? ' A truck longer than a tile takes the spots either side of it too.' : ''}${bay.yard ? " A longer yard along the gantry's lane gives more spots." : ''}`
         : `Spots at the ${what} are free, but trucks on their way in go first, so it would not stand in their way.`;
     }
@@ -181,15 +212,15 @@ export function truckWhy(w: World, t: Truck): string | undefined {
     return `This yard has no yard gantry: reach stackers load its trucks, and ${stackers === 0 ? 'there are none' : `all ${stackers} are busy`}. More reach stackers, or a yard gantry here, load trucks sooner.`;
   }
   if (t.state !== 'loading') return undefined;
-  const bay = w.dest(t.bayIdx);
+  const bay = dest(w, t.bayIdx);
   if (!bay) return undefined;
-  if (t.boxes && bay.yard && w.cleared(bay) === 0 && bay.boxes.length > 0) {
+  if (t.boxes && bay.yard && cleared(w, bay) === 0 && bay.boxes.length > 0) {
     return 'Waiting for customs to clear the containers in the yard.';
   }
   if (w.collectable(bay) === 0) {
     return 'Waiting for more cargo. It leaves part-loaded if none comes soon.';
   }
-  if (w.byHand(t, bay) && (t.coming ?? 0) === 0) {
+  if (byHand(w, t, bay) && (t.coming ?? 0) === 0) {
     const crew = w.people.filter((p) => p.kind === 'dockhand' || p.kind === 'forklift');
     return crew.length === 0
       ? 'Dockhands or forklifts load crate trucks, and there are none. Hire some.'
@@ -203,7 +234,7 @@ export function craneWhy(w: World, c: Crane): string {
   if (c.kind === 'jib') {
     const stores = jibStores(w, c);
     if (c.busy) {
-      return stores.some((a) => bayRoom(a, false) > 0 && w.takesImports(a))
+      return stores.some((a) => bayRoom(a, false) > 0 && takesImports(w, a))
         ? 'Swinging crates straight into crate storage.'
         : 'Lifting crates onto its landing stack.';
     }
@@ -293,7 +324,7 @@ export function problems(w: World): ProblemView[] {
     if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
   }
   // Yard gantries working no yard: beside none, or a second by one.
-  for (const [g, text] of w.gantries().idle) {
+  for (const [g, text] of gantries(w).idle) {
     out.push({ ...middle([g]), h: 1.6, text, type: 'yardGantry', idx: g });
   }
   for (const b of [...w.bays.values(), ...w.yards.values()]) {
@@ -307,8 +338,8 @@ export function problems(w: World): ProblemView[] {
       idx: b.idx,
     });
   }
-  for (const lot of w.lots()) {
-    const why = w.lotTrouble(lot);
+  for (const lot of lots(w)) {
+    const why = lotTrouble(w, lot);
     if (why)
       out.push({
         ...middle(lot.tiles),
@@ -326,17 +357,17 @@ export function waitingCargo(w: World): Snapshot['stock'] {
   const cranes = [...w.cranes.values()];
   const yards = [...w.yards.values()];
   const boxes = yards.reduce((n, y) => n + y.boxes.length, 0);
-  const cleared = yards.reduce((n, y) => n + w.cleared(y), 0);
+  const clearedBoxes = yards.reduce((n, y) => n + cleared(w, y), 0);
   return {
     landed:
       [...w.piles.values()].reduce((n, p) => n + p.crates.length, 0) +
       cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + c.stack.length, 0),
     stored: [...w.bays.values()].reduce((n, b) => n + b.crates.length, 0),
-    crateExports: w.exportsWaiting(false),
-    boxExports: w.exportsWaiting(true),
+    crateExports: exportsWaiting(w, false),
+    boxExports: exportsWaiting(w, true),
     boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + c.stack.length, 0),
-    boxCustoms: boxes - cleared,
-    boxCleared: cleared,
+    boxCustoms: boxes - clearedBoxes,
+    boxCleared: clearedBoxes,
   };
 }
 
@@ -381,7 +412,7 @@ export function cargoStats(w: World): CargoStats {
     c.crateExports.stored += b.exports?.length ?? 0;
   }
   for (const y of w.yards.values()) {
-    const clear = w.cleared(y);
+    const clear = cleared(w, y);
     c.containers.ready += clear;
     c.containers.customs += y.boxes.length - clear;
     c.containerExports.stored += y.exports?.length ?? 0;
@@ -408,10 +439,10 @@ export function cargoStats(w: World): CargoStats {
 export function buildSnapshot(w: World): Snapshot {
   const entities: EntityView[] = [];
   const staff: StaffView[] = [];
-  const lifts = w.gantryLifts();
+  const lifts = gantryLifts(w);
   const jibs = jibLifts(w);
   const moved = (where: object) => jibMoved(w, jibs, where);
-  const parked = w.parkedPoses();
+  const parked = parkedPoses(w);
   for (const p of w.people) {
     const park = parked.get(p.id);
     entities.push({
@@ -424,13 +455,13 @@ export function buildSnapshot(w: World): Snapshot {
       ...servedLoad(
         w,
         p,
-        w.liftedLoad(p.carrying, isBoxy(p) ? [...w.carriedLooks(p)] : undefined, lifts.get(p.id)),
+        liftedLoad(w, p.carrying, isBoxy(p) ? [...carriedLooks(w, p)] : undefined, lifts.get(p.id)),
       ),
       moving: p.path.length > 0,
       cargo: isBoxy(p)
         ? undefined
         : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),
-      handling: w.handlingPhase(p),
+      handling: handlingPhase(w, p),
       sitting: p.state === 'resting' && p.hutIdx >= 0 && w.map.build[p.hutIdx] === Build.BreakHut,
       name: p.name,
       activity:
@@ -441,7 +472,7 @@ export function buildSnapshot(w: World): Snapshot {
       capacity: p.capacity,
       alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
       why: workerWhy(w, p),
-      ...w.handView(p),
+      ...handView(w, p),
     });
     staff.push({
       id: p.id,
@@ -501,7 +532,7 @@ export function buildSnapshot(w: World): Snapshot {
             : b.state === 'arriving'
               ? arrivingWords(w, b)
               : b.state === 'moored' && b.crates === 0 && b.reserved === 0
-                ? w.readyWords(b)
+                ? readyWords(w, b)
                 : b.state === 'moored'
                   ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
                   : 'Heading back out to sea') +
@@ -555,14 +586,15 @@ export function buildSnapshot(w: World): Snapshot {
   }
   for (const t of w.trucks) {
     const shown = t.backing
-      ? w.backingPose(t)
-      : { x: w.lanePos(t)[0], y: w.lanePos(t)[1], dir: t.dir };
+      ? backingPose(w, t)
+      : { x: lanePos(w, t)[0], y: lanePos(w, t)[1], dir: t.dir };
     entities.push({
       id: t.id,
       kind: 'truck',
       ...shown,
       // A shipper's containers are all alike; the rest as they were loaded.
-      ...w.liftedLoad(
+      ...liftedLoad(
+        w,
         t.cargo,
         t.boxes
           ? t.exports
@@ -571,20 +603,20 @@ export function buildSnapshot(w: World): Snapshot {
           : undefined,
         lifts.get(t.id),
       ),
-      cargo: t.boxes ? undefined : w.truckCargo(t),
+      cargo: t.boxes ? undefined : truckCargo(w, t),
       moving: t.path.length > 0,
       name: t.company,
       activity:
         t.exports && (t.state === 'toPark' || t.state === 'parked')
           ? t.staged !== undefined && t.state === 'toPark'
             ? `Paperwork done, driving to parking nearer the outgoing storage to wait for a spot`
-            : w.cannedTruck(t) && t.state === 'toPark'
+            : cannedTruck(w, t) && t.state === 'toPark'
               ? `Bringing ${t.cargo} crates of canned fish to ship: to parking outside the port, to wait for a spot in the outgoing storage`
               : w.tick < (t.papers ?? Infinity) || t.state === 'toPark'
                 ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
                 : w.outgoingRoom(t)
-                  ? `${w.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
-                  : `${w.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
+                  ? `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
+                  : `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
           : t.exports && t.state === 'toBay'
             ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
             : t.state === 'delivering'
@@ -596,9 +628,9 @@ export function buildSnapshot(w: World): Snapshot {
                   : t.state === 'toBay'
                     ? 'Driving to the truck bay'
                     : t.state === 'loading'
-                      ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${w.customsHold(t)}`
+                      ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
                       : t.state === 'toTown' || t.state === 'unloading'
-                        ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : w.cratesOf(t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
+                        ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
                         : 'Heading out to the highway',
       variant: t.variant,
       capacity: t.capacity,
@@ -615,10 +647,10 @@ export function buildSnapshot(w: World): Snapshot {
     large: b.large,
     warehouse: !!b.warehouse,
     exports: (b.exports?.length ?? 0) - moved(b).taken,
-    places: b.tiles && w.palletPlaces(b, heldIn(b) + moved(b).set),
+    places: b.tiles && palletPlaces(w, b, heldIn(b) + moved(b).set),
     outgoing: !!b.outgoing,
     shut: !!b.shut,
-    byCrane: w.byCrane(b),
+    byCrane: byCrane(w, b),
     tiles: b.tiles && [...b.tiles],
     noAccess: b.noAccess,
     noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
@@ -626,7 +658,7 @@ export function buildSnapshot(w: World): Snapshot {
       ...b.crates.map((f) => cargoOf(f)),
       ...(b.exports ?? []).map((f) => cargoOf(f, 'goods')),
     ],
-    ...w.holdsView(b),
+    ...holdsView(w, b),
   }));
   const contracts: ContractView[] = w.contracts.map((c) => ({
     id: c.id,
@@ -673,22 +705,22 @@ export function buildSnapshot(w: World): Snapshot {
       idx: y.idx,
       boxes: y.boxes.length,
       exports: y.exports?.length ?? 0,
-      ...w.yardLooks(y, lifts),
+      ...yardLooks(w, y, lifts),
       outgoing: !!y.outgoing,
       shut: !!y.shut,
-      byCrane: w.byCrane(y),
+      byCrane: byCrane(w, y),
       gantry: w.yardGantry(y),
-      cleared: w.cleared(y),
-      buried: w.buriedCount(y),
-      nextClear: w.nextClear(y),
-      pending: w.pending(y),
+      cleared: cleared(w, y),
+      buried: buriedCount(w, y),
+      nextClear: nextClear(w, y),
+      pending: pending(w, y),
       capacity: bayCap(y),
       tiles: [...(y.tiles ?? [y.idx])],
       noAccess: y.noAccess,
       noAccessWhy: y.noAccess ? y.noAccessWhy : undefined,
     })),
     problems: problems(w),
-    parking: w.lots().map((lot) => {
+    parking: lots(w).map((lot) => {
       const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
       return {
         tiles: lot.tiles,
@@ -696,7 +728,7 @@ export function buildSnapshot(w: World): Snapshot {
         wide: lot.wide,
         spaces: lot.spaces.length,
         used: w.trucks.filter((t) => t.park !== undefined && keys.has(t.park)).length,
-        why: w.lotTrouble(lot),
+        why: lotTrouble(w, lot),
       };
     }),
     piles: [...w.piles.values()].map((p) => ({

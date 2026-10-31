@@ -35,6 +35,11 @@ import type { Contract, FisheryTerms, HaulierTerms, ShipperTerms, Terms } from '
 import { Rng } from '../rng';
 import type { BoatVisit, Capacity } from '../../protocol/views';
 import { berthCount, dockInUse, pickTile } from './boats/berthing';
+import { changeMorale } from './workforce/crowding';
+import { muster, spawnDockhand } from './workforce/dockhands';
+import { jibStows } from './cargo/stores';
+import { cancelJob } from './cargo/customs';
+import { roadTo } from './roads/bays';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -128,7 +133,7 @@ export function hire(w: World, candidateId: number): void {
   if (w.cash < B.HIRE_FEE) return message(w, 'Not enough money to hire', 'bad');
   book(w, 'hiring', -B.HIRE_FEE);
   w.candidates = w.candidates.filter((x) => x !== c);
-  const p = w.spawnDockhand(w.muster(), c);
+  const p = spawnDockhand(w, muster(w), c);
   message(w, `${p.name} has been hired and reports at the truck bay.`, 'good');
 }
 
@@ -145,14 +150,14 @@ export function fire(w: World, id: number): void {
   if (!p) return;
   if (isMachine(p)) {
     const refund = Math.round(MACHINES[p.kind as MachineKind].price * B.SELL_SHARE);
-    w.cancelJob(p);
+    cancelJob(w, p);
     w.people = w.people.filter((q) => q !== p);
     book(w, 'construction', refund);
     message(w, `Sold ${p.name} for $${refund}.`, 'info');
     return;
   }
   if (p.carrying) message(w, `${p.name} dropped their crate on the way out.`, 'bad');
-  w.cancelJob(p);
+  cancelJob(w, p);
   w.people = w.people.filter((q) => q !== p);
   message(w, `${p.name} has left the port.`, 'info');
 }
@@ -517,7 +522,7 @@ export function capacity(w: World): Capacity {
     if (c.kind !== 'jib' || !dockInUse(w, c.idx)) continue;
     const rate = (TICKS_PER_DAY / B.CRANE_TICKS) * 0.3;
     lifting += rate;
-    if (w.jibStows(c)) stowing += rate;
+    if (jibStows(w, c)) stowing += rate;
   }
   // Off the boats and on to the bays: with forklifts about, dockhands land
   // the cargo and the forklifts take it on; without, dockhands carry it all
@@ -528,7 +533,7 @@ export function capacity(w: World): Capacity {
 
   // One truck trip: highway to bay and back, plus loading. A bay loads one
   // truck at a time, so trucks beyond the number of bays add nothing.
-  w.roadLen = Math.min(Infinity, ...[...w.bays.values()].map((b) => w.roadTo(b)));
+  w.roadLen = Math.min(Infinity, ...[...w.bays.values()].map((b) => roadTo(w, b)));
   // Time lost in queues on narrow walkways comes straight off the top.
   const unloading = Math.min(off, on) * (1 - w.congestion);
   const palletDemand = fisheries(w)
@@ -587,7 +592,7 @@ export function containerCapacity(w: World): Capacity['boxes'] {
   let trucking = 0;
   // Trucks load beside the yards, one at a time at each spot, while the
   // others are away on their rounds.
-  const road = Math.min(Infinity, ...yards.map((y) => w.roadTo(y)));
+  const road = Math.min(Infinity, ...yards.map((y) => roadTo(w, y)));
   if (Number.isFinite(road)) {
     const carried = hauliers(w)
       .filter((h) => h.terms.cargo === 'container')
@@ -660,10 +665,10 @@ export function answerRaise(w: World, id: number, accept: boolean): void {
   if (!p || p.raiseAsk === 0) return;
   if (accept) {
     p.wage = p.raiseAsk;
-    w.changeMorale(p, B.RAISE_ACCEPT_MORALE);
+    changeMorale(w, p, B.RAISE_ACCEPT_MORALE);
     message(w, `${p.name} is delighted with the raise.`, 'good');
   } else {
-    w.changeMorale(p, B.RAISE_REFUSE_MORALE);
+    changeMorale(w, p, B.RAISE_REFUSE_MORALE);
     message(w, `${p.name} is not happy about being turned down.`, 'bad');
   }
   p.raiseAsk = 0;
@@ -691,7 +696,7 @@ export function checkMorale(w: World): void {
     if (p.lowMoraleDays === 1) {
       message(w, `${p.name} is miserable and thinking about quitting.`, 'bad');
     } else if (p.lowMoraleDays >= B.QUIT_DAYS) {
-      w.cancelJob(p);
+      cancelJob(w, p);
       w.people = w.people.filter((q) => q !== p);
       message(w, `${p.name} has quit. Morale was too low.`, 'bad');
     }

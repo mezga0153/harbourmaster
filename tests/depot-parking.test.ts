@@ -6,6 +6,7 @@ import { surfaceY } from '../src/render/terrain';
 import { MACHINES, parkPoses } from '../src/sim/machines';
 import { Build, Terrain, type MachineKind } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { depotRoom, headTo } from '../src/sim/systems/workforce/dockhands';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -244,7 +245,7 @@ describe('Machines parked in their depot', () => {
     );
     world.people.find((p: Any) => p.kind === 'stacker' && p.home !== one).home = one;
     const loaded: Any = World.fromSave(world.toSave());
-    for (const i of depots) expect(loaded.depotRoom(i), `room at ${i}`).toBeGreaterThanOrEqual(0);
+    for (const i of depots) expect(depotRoom(loaded, i), `room at ${i}`).toBeGreaterThanOrEqual(0);
     expect(loaded.people.filter((p: Any) => p.home === one).length).toBe(1);
   });
 
@@ -266,7 +267,7 @@ describe('Machines parked in their depot', () => {
     // Every one sent off to the crossroads, to come back to park.
     const fleet = world.people.filter((p: Any) => p.kind !== 'dockhand');
     for (const p of fleet) {
-      expect(world.headTo(p, road), `${p.name} finds its way out`).toBe(true);
+      expect(headTo(world, p, road), `${p.name} finds its way out`).toBe(true);
       p.state = 'wander';
     }
     let left = 0;

@@ -21,6 +21,7 @@ import {
 import { laneRuns, lightsError, truckCost } from '../src/sim/rules';
 import { Build, isPublicRoad, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { gapAhead, lengthOf, mayEnter } from '../src/sim/systems/roads/traffic';
 
 /** A truck's way from tile to tile, every tick, checked against the rules of the road. */
 function watchTrucks(world: World, ticks: number, each?: (from: number, to: number) => void) {
@@ -382,11 +383,11 @@ describe('Giving way at junctions', () => {
       m.idx(x + 3, row),
     ]);
     const entering = truckAt(world, x + 2, row, Math.PI, [junction, m.idx(x + 1, row - 1)]);
-    const may = (t: unknown) => world['mayEnter'](t as never)(junction);
+    const may = (t: unknown) => mayEnter(world, t as never)(junction);
     expect(may(leaving)).toBe(true);
     expect(may(entering)).toBe(true);
     // Nor does either queue behind the other as it drives across.
-    const gap = (t: unknown) => world['gapAhead'](t as never) as number;
+    const gap = (t: unknown) => gapAhead(world, t as never) as number;
     expect(gap(entering)).toBeGreaterThan(1);
     expect(gap(leaving)).toBeGreaterThan(1);
   });
@@ -415,7 +416,7 @@ describe('Giving way at junctions', () => {
     const came = world['cameFrom'] as Map<number, { tile: number; from: number }>;
     came.set(leaving.id, { tile: corner, from: m.idx(x, row + 1) });
     came.set(entering.id, { tile: junction, from: m.idx(x + 2, row) });
-    world['gapAhead'](leaving as never);
+    gapAhead(world, leaving as never);
     expect((leaving as { blocker?: number }).blocker).not.toBe(entering.id);
   });
 
@@ -431,7 +432,7 @@ describe('Giving way at junctions', () => {
     const turningIn = truckAt(world, x - 1, row, 0, [junction, m.idx(x, row - 1)]);
     // Down the side road, turning right towards the west.
     const turningOut = truckAt(world, x, row - 1, Math.PI / 2, [junction, m.idx(x - 1, row)]);
-    const may = (t: unknown) => world['mayEnter'](t as never)(junction);
+    const may = (t: unknown) => mayEnter(world, t as never)(junction);
     expect(may(turningIn)).toBe(true);
     expect(may(turningOut)).toBe(true);
     // One turning out left, onto the lane a truck from the west is driving along, gives way to it.
@@ -519,7 +520,7 @@ describe('Round a bend', () => {
       world.step();
       closest = Math.min(closest, Math.hypot(lead.x - next.x, lead.y - next.y));
     }
-    expect(closest).toBeGreaterThan(world['lengthOf'](lead as never) * 0.75);
+    expect(closest).toBeGreaterThan(lengthOf(world, lead as never) * 0.75);
   });
 });
 

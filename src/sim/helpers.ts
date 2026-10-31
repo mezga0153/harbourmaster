@@ -364,3 +364,6 @@ export function activity(p: Dockhand, landing: boolean): string {
 }
 
 /** Authoritative game state. Runs inside the sim worker and in tests. */
+
+/** The dockhand states in which one is at work on a crate. */
+export const WORKING: ReadonlySet<DockhandState> = new Set(['toPickup', 'picking', 'toDrop', 'dropping']);

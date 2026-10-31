@@ -47,6 +47,61 @@ import { docks, freeBerths, letsGoFirst, route } from '../src/sim/systems/boats/
 import { berthsClash, gateSide } from '../src/sim/systems/boats/berthing';
 import { clips as clipsOf } from '../src/sim/systems/boats/seamanship';
 import { outranks as outranksOf } from '../src/sim/systems/boats/traffic';
+import {
+  craneSpot,
+  gantries,
+  gantryDone,
+  gantryElsewhere,
+  gantryFor,
+  gantryWork,
+  liftDone,
+  quayHeading,
+  settleGantry,
+  takenIn,
+  yardLooks,
+} from '../src/sim/systems/yardGantry';
+import { pathFor, roomToTurn, tileBehind } from '../src/sim/systems/workforce/crowding';
+import {
+  assignJob,
+  craneStackTiles,
+  pileAt,
+  spawnDockhand,
+} from '../src/sim/systems/workforce/dockhands';
+import { outgoingFull, shipOut, stillLoading, stranded } from '../src/sim/systems/cargo/exports';
+import {
+  byCrane,
+  clearTop,
+  nextYardSlot,
+  reachable,
+  takesExports,
+  takesImports,
+  workable,
+  yardSlots,
+} from '../src/sim/systems/cargo/stores';
+import {
+  crossesRails,
+  dockFor,
+  freeParking,
+  gantryLane,
+  gantryRailWays,
+  goDeeper,
+  intoSpace,
+  routeFrom,
+  storeSpots,
+  throughCost,
+  truckCostFor,
+} from '../src/sim/systems/roads/bays';
+import {
+  ahead,
+  gapAhead,
+  junctions,
+  lengthOf,
+  mayEnter,
+  pace as paceOf,
+  toCrossing,
+  truckLeave,
+} from '../src/sim/systems/roads/traffic';
+import { cutOff, updateTruck } from '../src/sim/systems/roads/trucks';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -1032,7 +1087,7 @@ describe('Buildings', () => {
     expect(turn.every((i) => m.build[i] === Build.PortRoad)).toBe(true);
     // A forklift on the port road loads them: trucks have no crew of their own.
     world.cash = 100_000;
-    const lift = world['spawnDockhand'](inside[1], {
+    const lift = spawnDockhand(world, inside[1], {
       id: 0,
       name: 'Forklift 1',
       skill: 3,
@@ -1109,8 +1164,8 @@ describe('Buildings', () => {
     const out = world.bays.get(at + 2)!;
     expect(m.store[at + 2]).toBe(Store.CratesOut);
     expect(out.outgoing).toBe(true);
-    expect([world['takesImports'](into), world['takesExports'](into)]).toEqual([true, false]);
-    expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
+    expect([takesImports(world, into), takesExports(world, into)]).toEqual([true, false]);
+    expect([takesImports(world, out), takesExports(world, out)]).toEqual([false, true]);
   });
 
   it('clears storage and machines-only marks with Unmark, but not the ground round a crane', () => {
@@ -1159,14 +1214,14 @@ describe('Buildings', () => {
     const at = jetty[jetty.length - 2];
     world.command({ type: 'store', tiles: [at], kind: 'crates', on: true });
     const area = world.bays.get(at)!;
-    expect(world['byCrane'](area)).toBe(true);
+    expect(byCrane(world, area)).toBe(true);
     // Marked for cargo coming in, it takes no exports even when empty.
-    expect([world['takesImports'](area), world['takesExports'](area)]).toEqual([true, false]);
+    expect([takesImports(world, area), takesExports(world, area)]).toEqual([true, false]);
     // Marked for cargo going out, no imports.
     world.command({ type: 'store', tiles: [at], kind: 'crates', on: false });
     world.command({ type: 'store', tiles: [at], kind: 'cratesOut', on: true });
     const out = world.bays.get(at)!;
-    expect([world['takesImports'](out), world['takesExports'](out)]).toEqual([false, true]);
+    expect([takesImports(world, out), takesExports(world, out)]).toEqual([false, true]);
   });
 
   it('warns, once a day, when shippers find no outgoing storage with room', () => {
@@ -1174,11 +1229,11 @@ describe('Buildings', () => {
     const said = () =>
       world.drainEvents().filter((e) => e.kind === 'message' && /going out/.test(e.text)).length;
     world.drainEvents();
-    world['outgoingFull'](true);
-    world['outgoingFull'](true);
+    outgoingFull(world, true);
+    outgoingFull(world, true);
     expect(said()).toBe(1);
     world.tick += TICKS_PER_DAY;
-    world['outgoingFull'](true);
+    outgoingFull(world, true);
     expect(said()).toBe(1);
   });
 
@@ -1260,8 +1315,8 @@ describe('Buildings', () => {
     parkingLot(world);
     const [lot] = parkingLots(world.map);
     expect(lot.wide).toBe(false);
-    expect(world['freeParking'](null, true, true)).toBeNull();
-    expect(world['freeParking'](null, true, false)).not.toBeNull();
+    expect(freeParking(world, null, true, true)).toBeNull();
+    expect(freeParking(world, null, true, false)).not.toBeNull();
   });
 
   it('has trucks drive through angled parking one way, in off one road, out onto the other, never round a hairpin', () => {
@@ -1281,7 +1336,7 @@ describe('Buildings', () => {
     const row = m.yOf(inEnd);
     const x0 = m.xOf(inEnd);
     for (const dx of [-1, 6]) {
-      const into = world['intoSpace'](m.idx(x0 + dx, row), space, -1);
+      const into = intoSpace(world, m.idx(x0 + dx, row), space, -1);
       expect(into).not.toBeNull();
       expect(into!.via).toBe(inEnd);
       const path: number[] = into!.path;
@@ -1298,7 +1353,7 @@ describe('Buildings', () => {
       parkFrom: inEnd,
       path: [],
     };
-    const way: number[] = world['routeFrom'](t as never, m.entry, world['truckCostFor'](m.entry))!;
+    const way: number[] = routeFrom(world, t as never, m.entry, truckCostFor(world, m.entry))!;
     expect(way).not.toBeNull();
     const k = way.indexOf(outEnd);
     expect(k).toBeGreaterThanOrEqual(0);
@@ -1308,14 +1363,14 @@ describe('Buildings', () => {
     // However its way is found, as when held up on the way: into its space
     // only off the in side, out of it only onto the other.
     const going = { ...t, state: 'toPark', x: m.xOf(inEnd) + 0.5, y: m.yOf(inEnd) + 0.5 };
-    const own = world['truckCostFor'](-1, -1, going as never);
+    const own = truckCostFor(world, -1, -1, going as never);
     expect(own(space.tiles[0], outEnd)).toBe(Infinity);
     expect(Number.isFinite(own(space.tiles[0], inEnd))).toBe(true);
     // Turned round with the one-way tool, in off the other side.
     world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
     const [again] = parkingLots(m);
     expect(again.flow!.in).toBe(1 - flow.in);
-    expect(world['intoSpace'](m.idx(x0 - 1, row), again.spaces[0], -1)?.via).toBe(outEnd);
+    expect(intoSpace(world, m.idx(x0 - 1, row), again.spaces[0], -1)?.via).toBe(outEnd);
     // Again, and its spaces lean the other way: in turning left, across the traffic.
     const lean = (f: typeof flow) => [f.along[0] + f.across[0], f.along[1] + f.across[1]];
     world.command({ type: 'oneWay', tiles: [tiles[0]], on: true });
@@ -1462,8 +1517,8 @@ describe('Rules of the road', () => {
     const a = truck(world, 10.5, 20.5, 0, east);
     // Up to speed, gathering it as it goes.
     const pace = () => {
-      for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) world['pace'](a)();
-      return world['pace'](a)();
+      for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) paceOf(world, a)();
+      return paceOf(world, a)();
     };
     expect(pace()).toBeCloseTo(B.TRUCK_SPEED, 6);
     // Close ahead, going the same way: it holds back.
@@ -1493,21 +1548,21 @@ describe('Rules of the road', () => {
       m.build[m.idx(10, 10 + d)] = Build.Road;
     }
     world['junctionCache'] = null;
-    expect(world['junctions']()[j]).toBe(1);
+    expect(junctions(world)[j]).toBe(1);
     const cx = m.xOf(j) + 0.5;
     const cy = m.yOf(j) + 0.5;
     // One coming up from the south heading north, one from the east heading west.
     const north = truck(world, cx, cy + 1, -Math.PI / 2, [j]);
     const west = truck(world, cx + 1, cy, Math.PI, [j]);
-    expect(world['mayEnter'](north)(j)).toBe(false);
-    expect(world['mayEnter'](west)(j)).toBe(true);
+    expect(mayEnter(world, north)(j)).toBe(false);
+    expect(mayEnter(world, west)(j)).toBe(true);
     // Both standing at the line, they take turns rather than wait for each other.
     north.held = west.held = 5;
     const turns = new Set<boolean>();
     for (let k = 0; k < 2; k++) {
       world.tick = k * B.TRUCK_TAKE_TURNS;
-      turns.add(world['mayEnter'](north)(j));
-      expect(world['mayEnter'](west)(j)).toBe(true);
+      turns.add(mayEnter(world, north)(j));
+      expect(mayEnter(world, west)(j)).toBe(true);
     }
     expect([...turns].sort()).toEqual([false, true]);
     // While one is driving across, the other waits for it.
@@ -1515,14 +1570,14 @@ describe('Rules of the road', () => {
     west.x = cx;
     west.y = cy;
     north.held = 0;
-    expect(world['mayEnter'](north)(j)).toBe(false);
+    expect(mayEnter(world, north)(j)).toBe(false);
     // One coming through the other way passes it.
     west.dir = Math.PI / 2;
-    expect(world['mayEnter'](north)(j)).toBe(true);
+    expect(mayEnter(world, north)(j)).toBe(true);
     // Wedged for good, it goes anyway.
     west.dir = Math.PI;
     north.held = B.TRUCK_SQUEEZE_AFTER + 1;
-    expect(world['mayEnter'](north)(j)).toBe(true);
+    expect(mayEnter(world, north)(j)).toBe(true);
   });
 
   it('has one of two trucks caught across each other wait for the other', () => {
@@ -1531,7 +1586,7 @@ describe('Rules of the road', () => {
     // One turning north out of the eastbound lane, across one going west.
     const a = truck(world, 10.5, 20.4, -Math.PI / 2, [1]);
     const b = truck(world, 10.8, 20.5, Math.PI, [1]);
-    const moves = [world['pace'](a)(), world['pace'](b)()].filter((v) => v > 0);
+    const moves = [paceOf(world, a)(), paceOf(world, b)()].filter((v) => v > 0);
     expect(moves).toHaveLength(1);
   });
 
@@ -1550,7 +1605,7 @@ describe('Rules of the road', () => {
     const start = ring.map((t) => [t.x, t.y]);
     for (let k = 0; k < B.TRUCK_RING_AFTER + 60; k++) {
       for (const t of ring) {
-        const v = world['pace'](t)();
+        const v = paceOf(world, t)();
         t.x += Math.cos(t.dir) * v;
         t.y += Math.sin(t.dir) * v;
       }
@@ -1571,11 +1626,11 @@ describe('Rules of the road', () => {
       truck(world, 11.5, 19.5, Math.PI, [m.idx(1, 19)]),
       truck(world, 10.5, 19.5, Math.PI / 2, [m.idx(10, 40)]),
     ] as (ReturnType<typeof truck> & { passing?: { ids: number[]; x: number; y: number } })[];
-    for (let k = 0; k < B.TRUCK_RING_AFTER; k++) ring.forEach((t) => world['pace'](t)());
-    for (let k = 0; k < 5; k++) ring.slice(1).forEach((t) => world['pace'](t)());
+    for (let k = 0; k < B.TRUCK_RING_AFTER; k++) ring.forEach((t) => paceOf(world, t)());
+    for (let k = 0; k < 5; k++) ring.slice(1).forEach((t) => paceOf(world, t)());
     // The lowest numbered, the one to go, has only just stopped again.
     ring[0].held = 1;
-    world['pace'](ring[0])();
+    paceOf(world, ring[0])();
     expect(ring[0].passing).toBeDefined();
   });
 
@@ -1587,10 +1642,10 @@ describe('Rules of the road', () => {
     const t = truck(world, 20.5, 20.5, Math.PI, [m.idx(19, 20), m.idx(19, 19), m.idx(19, 18)]);
     // One coming down the road beside, a tile further on west.
     const o = truck(world, 18.5, 20.2, Math.PI / 2, [m.idx(18, 30)]);
-    expect(world['ahead'](t, o)).toBe(-1);
+    expect(ahead(world, t, o)).toBe(-1);
     // But one standing where it turns is in its way.
     o.x = 19.5;
-    expect(world['ahead'](t, o)).toBeGreaterThan(0);
+    expect(ahead(world, t, o)).toBeGreaterThan(0);
   });
 
   it('undoes a ring of trucks however many there are in it, as round a loop of roads', () => {
@@ -1615,7 +1670,7 @@ describe('Rules of the road', () => {
       const far = m.idx(x + Math.round(Math.cos(dir)) * 20, y + Math.round(Math.sin(dir)) * 20);
       ring.push(truck(world, x + 0.5, y + 0.5, dir, [far]));
     }
-    const pace = () => ring.forEach((t) => world['pace'](t)());
+    const pace = () => ring.forEach((t) => paceOf(world, t)());
     for (let k = 0; k <= B.TRUCK_RING_AFTER; k++) pace();
     // Each held up by the next, all the way round; one of them goes on
     // through all the rest.
@@ -1634,8 +1689,8 @@ describe('Rules of the road', () => {
     const t = truck(world, 8.6, 20.5, 0, east);
     // A queue ahead, just past where another's way crosses at (10, 20).
     truck(world, 11.6, 20.5, 0, [m.idx(20, 20)]).held = 50;
-    const room = world['gapAhead'](t) - B.TRUCK_GAP;
-    expect(world['toCrossing'](t, room)).toBe(Infinity);
+    const room = gapAhead(world, t) - B.TRUCK_GAP;
+    expect(toCrossing(world, t, room)).toBe(Infinity);
     truck(
       world,
       10.5,
@@ -1646,9 +1701,9 @@ describe('Rules of the road', () => {
     world.tick++;
     // Its front at the near edge of the crossing, not across it.
     const half = B.truckLength(6, false) / 2;
-    expect(world['toCrossing'](t, room)).toBeCloseTo(10 - half - 8.6, 6);
+    expect(toCrossing(world, t, room)).toBeCloseTo(10 - half - 8.6, 6);
     // With room to get all the way over, it goes on.
-    expect(world['toCrossing'](t, 4)).toBe(Infinity);
+    expect(toCrossing(world, t, 4)).toBe(Infinity);
   });
 
   it('sends a truck to a loading spot one already on its way in drives past first', () => {
@@ -1667,10 +1722,10 @@ describe('Rules of the road', () => {
     world['drivePath'] = () => [m.entry];
     const bay = { idx: 0 } as never;
     // From well behind it: the deepest still free.
-    const behind = world['dockFor'](bay, (d: number) => lane(0, m.yOf(d)));
+    const behind = dockFor(world, bay, (d: number) => lane(0, m.yOf(d)));
     expect(behind?.dock).toBe(docks[2]);
     // From ahead of it, it would stop where that one has yet to get past.
-    const ahead = world['dockFor'](bay, (d: number) => lane(8, m.yOf(d)));
+    const ahead = dockFor(world, bay, (d: number) => lane(8, m.yOf(d)));
     expect(ahead).toBeNull();
   });
 
@@ -1690,14 +1745,14 @@ describe('Rules of the road', () => {
     const bay = { idx: 0, tiles: [] } as never;
     // Asked for a way that keeps off where that one will stand.
     let kept: ReadonlySet<number> = new Set();
-    world['dockFor'](bay, (d: number, avoid: ReadonlySet<number>) => {
+    dockFor(world, bay, (d: number, avoid: ReadonlySet<number>) => {
       kept = avoid;
       return lane(0, m.yOf(d));
     });
     expect([...kept]).toEqual([docks[1]]);
     // The spot past it free, the one coming in goes on to it.
     world['routeFrom'] = (_t: never, d: number) => lane(5, m.yOf(d));
-    world['goDeeper'](coming, bay);
+    goDeeper(world, coming, bay);
     expect(coming.goal).toBe(docks[3]);
     expect(coming.state).toBe('toBay');
   });
@@ -1713,14 +1768,14 @@ describe('Rules of the road', () => {
     const t = truck(world, 30.5, 30.5, 0);
     Object.assign(t, { state: 'parked', bayIdx: bay.idx, park });
     world.tick = 10 - (t.id % 10);
-    world['updateTruck'](t);
+    updateTruck(world, t);
     expect(t.state).toBe('parked');
     expect(parkedWords(world, t)).toBe('Parked, waiting for a loading spot');
     // Cut off from it, as by a dead end trucks cannot turn round in.
-    world['cutOff'](bay, true);
+    cutOff(world, bay, true);
     expect(truckWhy(world, t)).toMatch(/not drive away again/);
     world.tick += 10;
-    world['updateTruck'](t);
+    updateTruck(world, t);
     // Off out of the port, or gone already where it cannot drive.
     expect(world.trucks.includes(t) && (t.state as string) === 'parked').toBe(false);
   });
@@ -1740,7 +1795,7 @@ describe('Rules of the road', () => {
     world['loadingDocks'] = () => [dock];
     world['freeDockSet'] = () => new Set([dock]);
     world['drivePath'] = () => [m.entry];
-    const to = world['dockFor']({ idx: 0 } as never, () => lane(0, 16));
+    const to = dockFor(world, { idx: 0 } as never, () => lane(0, 16));
     expect(to?.dock).toBe(dock);
   });
 
@@ -1760,16 +1815,16 @@ describe('Rules of the road', () => {
     const t = truck(world, 10.5, 14.1, Math.PI / 2, way);
     t.goal = goal;
     t.state = 'toPark' as never;
-    const cost = world['truckCostFor'](goal);
+    const cost = truckCostFor(world, goal);
     let v = 0;
-    for (let k = 0; k <= B.REROUTE_AFTER; k++) v = world['pace'](t, cost)();
+    for (let k = 0; k <= B.REROUTE_AFTER; k++) v = paceOf(world, t, cost)();
     // It pulls up behind it, then finds a way round it.
     expect(v).toBeLessThan(0.05);
     expect(t.path).not.toContain(m.idx(10, 15));
     expect(t.path.at(-1)).toBe(goal);
     // And sets off, the loading truck no longer on its way.
     t.held = 0;
-    for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) v = world['pace'](t, cost)();
+    for (let k = 0; k < B.VEHICLE_ACCEL_TICKS; k++) v = paceOf(world, t, cost)();
     expect(v).toBeGreaterThan(0.1);
   });
 
@@ -1780,7 +1835,7 @@ describe('Rules of the road', () => {
     const t = truck(world, 10.5, 20.5, 0, [m.idx(20, 20)]);
     // Close ahead, facing our way but setting off back towards us.
     const o = truck(world, 11.6, 20.5, 0, [m.idx(1, 20)]);
-    expect(world['ahead'](t, o)).toBe(-1);
+    expect(ahead(world, t, o)).toBe(-1);
     // At a junction, turning left across one coming the other way, it goes.
     for (const d of [-2, -1, 0, 1, 2]) {
       m.build[m.idx(30 + d, 30)] = Build.Road;
@@ -1790,7 +1845,7 @@ describe('Rules of the road', () => {
     const j = m.idx(30, 30);
     const left = truck(world, 29.5, 30.5, 0, [j, m.idx(30, 29)]);
     truck(world, 31.5, 30.5, Math.PI, [j, m.idx(29, 30)]);
-    expect(world['mayEnter'](left)(j)).toBe(true);
+    expect(mayEnter(world, left)(j)).toBe(true);
   });
 
   it('drives on the right-hand side of the road', () => {
@@ -2584,7 +2639,7 @@ describe('Container Port tier', () => {
     const yard = [...world.yards.values()][0];
     if (gantry) {
       // Not on the port road the trucks load from, inside the gate.
-      const loading: number[] = world['storeSpots'](yard);
+      const loading: number[] = storeSpots(world, yard);
       const spot = m.build.findIndex(
         (_, i) => !placementError(m, 'yardGantry', i) && !loading.includes(i),
       );
@@ -2703,7 +2758,7 @@ describe('Container Port tier', () => {
               !q.round &&
               world.map.build[world.map.idx(Math.floor(q.x), Math.floor(q.y))] !== Build.Highway,
           )
-          .map((q) => ({ o: q, at: lane(q, B.TRUCK_LANE), len: world['lengthOf'](q) })),
+          .map((q) => ({ o: q, at: lane(q, B.TRUCK_LANE), len: lengthOf(world, q) })),
       ];
       for (const a of vs) {
         for (const b of vs) {
@@ -2784,9 +2839,9 @@ describe('Container Port tier', () => {
     const world = feederPort(true);
     const m = world.map;
     const yard = [...world.yards.values()][0];
-    const spot: number = world['storeSpots'](yard)[0];
+    const spot: number = storeSpots(world, yard)[0];
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
-    const rails: Map<number, [number, number]> = world['gantryRailWays']();
+    const rails: Map<number, [number, number]> = gantryRailWays(world);
     expect(rails.get(spot)).toBeDefined();
     const [ax, ay] = rails.get(spot)!;
     const at = (dx: number, dy: number) => m.idx(m.xOf(spot) + dx, m.yOf(spot) + dy);
@@ -2795,7 +2850,7 @@ describe('Container Port tier', () => {
     m.build[side] = Build.PortRoad;
     world['railCache'] = null;
     world['laneCache'] = null;
-    const truck = world['truckCostFor'](-1);
+    const truck = truckCostFor(world, -1);
     const drive = world['driveCost'];
     // Onto the lane from the side, or off it that way: no; along it: yes.
     for (const cost of [truck, drive]) {
@@ -2806,10 +2861,10 @@ describe('Container Port tier', () => {
     const ends = [at(ax, ay), at(-ax, -ay)].filter((t) => rails.has(t));
     expect(ends.length).toBeGreaterThan(0);
     for (const end of ends) {
-      expect(world['crossesRails'](end, spot)).toBe(false);
-      expect(world['crossesRails'](spot, end)).toBe(false);
+      expect(crossesRails(world, end, spot)).toBe(false);
+      expect(crossesRails(world, spot, end)).toBe(false);
     }
-    expect(world['crossesRails'](side, spot)).toBe(true);
+    expect(crossesRails(world, side, spot)).toBe(true);
     // A stacker cutting a corner onto it is across them too.
     const corner = at(ax - ay, ay + ax);
     if (m.inBounds(m.xOf(corner), m.yOf(corner))) expect(drive(spot, corner)).toBe(Infinity);
@@ -2818,16 +2873,16 @@ describe('Container Port tier', () => {
   it('has a yard gantry work one yard, say when it works none, and keep other trucks out from under it', () => {
     const world = feederPort(true);
     const yard = [...world.yards.values()][0];
-    const spot: number = world['storeSpots'](yard)[0];
+    const spot: number = storeSpots(world, yard)[0];
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
-    const byYard = (): Map<number, number> => world['gantries']().byYard;
+    const byYard = (): Map<number, number> => gantries(world).byYard;
     expect(byYard().get(yard.idx)).toBe(spot);
     // Trucks bound for the yard, or leaving it, drive under it as they
     // always did; others pay to, and go round where they can.
     const flat = () => 1;
-    expect(world['throughCost'](flat, yard.idx, -1)(spot)).toBe(1);
-    expect(world['throughCost'](flat, -1, yard.idx)(spot)).toBe(1);
-    expect(world['throughCost'](flat, -1, -1)(spot)).toBe(1 + B.GANTRY_LANE_DETOUR);
+    expect(throughCost(world, flat, yard.idx, -1)(spot)).toBe(1);
+    expect(throughCost(world, flat, -1, yard.idx)(spot)).toBe(1);
+    expect(throughCost(world, flat, -1, -1)(spot)).toBe(1 + B.GANTRY_LANE_DETOUR);
     // The yard beside it unmarked: it works none, and its red mark says so.
     world.command({ type: 'unmark', tiles: [...yard.tiles!] });
     expect([...byYard().values()]).not.toContain(spot);
@@ -2839,12 +2894,12 @@ describe('Container Port tier', () => {
     const world = feederPort(true);
     const m = world.map;
     const yard = [...world.yards.values()][0];
-    const spot: number = world['storeSpots'](yard)[0];
+    const spot: number = storeSpots(world, yard)[0];
     expect(placementError(m, 'yardGantry', spot)).toBeNull();
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
     expect(m.build[spot]).toBe(Build.YardGantry);
     // The trucks load under the gantry, where it reaches out of the yard.
-    expect(world['storeSpots'](yard)).toEqual([spot]);
+    expect(storeSpots(world, yard)).toEqual([spot]);
     addContract(
       world,
       {
@@ -2885,7 +2940,7 @@ describe('Container Port tier', () => {
     world.trucks.push(t as never);
     world['gantryTruck'] = () => t as never;
     // A truck it has started lifting an export off.
-    expect(world['gantryElsewhere'](t as never, yard)).toBe(false);
+    expect(gantryElsewhere(world, t as never, yard)).toBe(false);
     // A tractor pulls up to set a container down: it waits for that lift.
     const tractorId = world.nextId++;
     const tractor = {
@@ -2898,22 +2953,22 @@ describe('Container Port tier', () => {
       timer: B.YARD_GANTRY_TICKS,
     } as never;
     world.people.push(tractor);
-    expect(world['gantryFor'](tractor)).toBe(false);
-    expect(world['gantryWork'](yard).workTruck).toBe(truckId);
-    const first = world['gantryWork'](yard).workStart;
+    expect(gantryFor(world, tractor)).toBe(false);
+    expect(gantryWork(world, yard).workTruck).toBe(truckId);
+    const first = gantryWork(world, yard).workStart;
     expect(first).toBe(world.tick);
     // Done, and with the next not yet begun, it is at no lift: the view
     // shows it standing where it set the last one down, not starting one.
-    world['gantryDone'](yard, truckId);
-    expect(world['gantryWork'](yard)).toEqual({});
+    gantryDone(world, yard, truckId);
+    expect(gantryWork(world, yard)).toEqual({});
     // Then it is the tractor's turn, and the truck waits for that.
     world.tick += 3;
-    expect(world['gantryFor'](tractor)).toBe(true);
-    expect(world['gantryElsewhere'](t as never, yard)).toBe(true);
-    expect(world['gantryWork'](yard).workTruck).toBe(tractorId);
+    expect(gantryFor(world, tractor)).toBe(true);
+    expect(gantryElsewhere(world, t as never, yard)).toBe(true);
+    expect(gantryWork(world, yard).workTruck).toBe(tractorId);
     // A lift of its own, begun when it was, and the view is told so.
-    expect(world['gantryWork'](yard).workStart).toBe(first! + 3);
-    const view = world['yardLooks'](yard, new Map());
+    expect(gantryWork(world, yard).workStart).toBe(first! + 3);
+    const view = yardLooks(world, yard, new Map());
     expect(view.workStart).toBe(first! + 3);
   });
 
@@ -2943,19 +2998,18 @@ describe('Container Port tier', () => {
       t.state = 'leaving';
     }) as never;
     const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown; exports?: number[] };
-    world['updateTruck'](t as never);
-    const taken: number = world['takenIn'](yard);
+    updateTruck(world, t as never);
+    const taken: number = takenIn(world, yard);
     const start = y.gantryLift!.start;
     let left = -1;
     let set = -1;
     for (let k = 0; k < 200 && set < 0; k++) {
       world.tick++;
-      if (t.state === 'delivering') world['updateTruck'](t as never);
+      if (t.state === 'delivering') updateTruck(world, t as never);
       if (t.state === 'leaving' && left < 0) left = world.tick - start;
       // Meanwhile it takes on no other.
-      if (y.gantryHeld)
-        expect(world['gantryElsewhere']({ ...t, id: 999 } as never, yard)).toBe(true);
-      if (y.gantryHeld && world['liftDone'](yard)) world['settleGantry'](yard);
+      if (y.gantryHeld) expect(gantryElsewhere(world, { ...t, id: 999 } as never, yard)).toBe(true);
+      if (y.gantryHeld && liftDone(world, yard)) settleGantry(world, yard);
       if (left >= 0 && !y.gantryHeld && set < 0) set = world.tick - start;
     }
     // Off as soon as the spreader had it, well before it was set down.
@@ -3002,14 +3056,14 @@ describe('Container Port tier', () => {
   it("has a yard gantry stack a ship's containers up first, and the next ship's beside them", () => {
     const world = feederPort(true);
     const yard = [...world.yards.values()][0];
-    const spot: number = world['storeSpots'](yard)[0];
+    const spot: number = storeSpots(world, yard)[0];
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
     yard.boxes = [];
     yard.boxReady = [];
     yard.boxSlots = [];
     // Each waits on its ship to finish unloading, as customsFor has it.
     const put = (ship: number) => {
-      const k: number = world['nextYardSlot'](yard, -ship);
+      const k: number = nextYardSlot(world, yard, -ship);
       yard.boxes.push(0);
       yard.boxReady!.push(-ship);
       yard.boxSlots!.push(k);
@@ -3049,7 +3103,7 @@ describe('Container Port tier', () => {
       // rails run along.
       if (t.state === 'dropping' && t.bayIdx === yard.idx) {
         lifting++;
-        expect(world['gantryLane'](yard)?.has(world['tileOf'](t))).toBe(true);
+        expect(gantryLane(world, yard)?.has(world['tileOf'](t))).toBe(true);
         if (world.snapshot().yards.some((y) => y.working === 'unload')) shown++;
       }
     }
@@ -3103,7 +3157,7 @@ describe('Container Port tier', () => {
         // The tractor waits along the row behind the stack, never in the stack.
         const p = world.people.find((q) => q.id === v.workTruck)!;
         expect(lane.has(world['tileOf'](p))).toBe(true);
-        expect(world['craneStackTiles']().has(world['tileOf'](p))).toBe(false);
+        expect(craneStackTiles(world).has(world['tileOf'](p))).toBe(false);
       }
     }
     expect(given + direct).toBeGreaterThan(0);
@@ -3120,7 +3174,7 @@ describe('Container Port tier', () => {
     const { at, f } = placeGantry(world, gantryPier(world, t.crane));
     const rails = gantryRails(m, at, f);
     const crane = world.cranes.get(at)!;
-    const a = world['quayHeading'](crane);
+    const a = quayHeading(world, crane);
     const [ax, ay] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
     const drive = (from: number, to: number) => world['driveCost'](to, from) as number;
     // Behind the stack, the row tractors line up in: along it, yes.
@@ -3136,7 +3190,7 @@ describe('Container Port tier', () => {
       }
     }
     // Under it, a tractor may turn about; anywhere along it.
-    expect(row.every((r) => world['roomToTurn'](r))).toBe(true);
+    expect(row.every((r) => roomToTurn(world, r))).toBe(true);
   });
 
   it('never has a tractor turn about on a road, only at a depot or under a crane or gantry', () => {
@@ -3149,7 +3203,7 @@ describe('Container Port tier', () => {
     const yard = world.yards.get(t.yard)!;
     tractorGantry(world, yard);
     const depot = m.build.findIndex((b) => b === Build.Depot);
-    const turn = (i: number) => world['roomToTurn'](i) as boolean;
+    const turn = (i: number) => roomToTurn(world, i) as boolean;
     expect(turn(depot)).toBe(true);
     // Under the gantry crane, along its rails behind the stack; never in a yard gantry's lane.
     expect(
@@ -3157,7 +3211,7 @@ describe('Container Port tier', () => {
         .filter((_, k) => k % 2 === 1)
         .some(turn),
     ).toBe(true);
-    expect([...world['gantryLane'](yard)!.keys()].some(turn)).toBe(false);
+    expect([...gantryLane(world, yard)!.keys()].some(turn)).toBe(false);
     // Nowhere on the roads, however wide or wherever they meet.
     const lane = new Set<number>(world['lineUpCache']!.keys());
     const roads = m.build
@@ -3174,8 +3228,8 @@ describe('Container Port tier', () => {
     p.y = m.yOf(road) + 0.5;
     p.came = from;
     p.dir = Math.atan2(m.yOf(road) - m.yOf(from), m.xOf(road) - m.xOf(from)) + Math.PI / 2;
-    expect(world['tileBehind'](p)).toBe(from);
-    const back = world['pathFor'](p, road, from) as number[] | null;
+    expect(tileBehind(world, p)).toBe(from);
+    const back = pathFor(world, p, road, from) as number[] | null;
     expect(back === null || back[0] !== from).toBe(true);
   });
 
@@ -3218,7 +3272,7 @@ describe('Container Port tier', () => {
     // The row behind the stack, the length of its rails.
     const lane = new Set(gantryRails(m, at, f).filter((_, k) => k % 2 === 1));
     const pick = footprint(m, 'gantryCrane', at, f)[2];
-    const quay = world['quayHeading'](crane);
+    const quay = quayHeading(world, crane);
     let offBay = 0;
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
@@ -3229,7 +3283,7 @@ describe('Container Port tier', () => {
         const tile = world['tileOf'](p);
         // In the row behind the stack, lined up along the quay, each on its own tile.
         expect(lane.has(tile)).toBe(true);
-        expect(world['craneStackTiles']().has(tile)).toBe(false);
+        expect(craneStackTiles(world).has(tile)).toBe(false);
         expect(Math.abs(Math.cos(p.dir - quay))).toBeGreaterThan(0.9);
       }
       const tiles = new Set(waiting.map((p) => world['tileOf'](p)));
@@ -3260,10 +3314,10 @@ describe('Container Port tier', () => {
       p.y = m.yOf(entry) + 0.5;
     }
     world.people = world.people.filter((p) => p.kind !== 'tractor' || p === a || p === b);
-    const ahead: number = world['craneSpot'](a, crane);
+    const ahead: number = craneSpot(world, a, crane);
     a.state = 'toPickup';
     a.goal = ahead;
-    const behind: number = world['craneSpot'](b, crane);
+    const behind: number = craneSpot(world, b, crane);
     expect(lane.has(ahead) && lane.has(behind)).toBe(true);
     expect(behind).not.toBe(ahead);
     const d = (i: number) => Math.abs(m.xOf(i) - m.xOf(entry)) + Math.abs(m.yOf(i) - m.yOf(entry));
@@ -3361,20 +3415,20 @@ describe('Container Port tier', () => {
     let stacked = 0;
     let across = 0;
     const crane = world.cranes.get(at)!;
-    const quay = world['quayHeading'](crane);
+    const quay = quayHeading(world, crane);
     let under = 0;
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
       for (const p of world.people) {
         if (p.kind !== 'tractor' && p.kind !== 'stacker') continue;
-        if (world['craneStackTiles']().has(world['tileOf'](p))) across++;
+        if (craneStackTiles(world).has(world['tileOf'](p))) across++;
         // Under the crane to be lifted onto or off, along the quay.
         if (p.kind === 'tractor' && p.state === 'picking' && underGantry(world, p) === crane) {
           under++;
           expect(Math.abs(Math.cos(p.dir - quay))).toBeGreaterThan(0.9);
         }
       }
-      stacked += row.filter((i) => world['craneStackTiles']().has(i)).length;
+      stacked += row.filter((i) => craneStackTiles(world).has(i)).length;
     }
     expect(stacked).toBeGreaterThan(0);
     // Not across the containers it has set down, with room to go round: at
@@ -3740,24 +3794,24 @@ describe('Container Port tier', () => {
     const yard = world.yards.get(t.yard)!;
     // The ground first, a stack at a time across the yard where the
     // machines can get at it, every one cleared.
-    const ground = world['workable'](yard)!.size * 2;
+    const ground = workable(world, yard)!.size * 2;
     for (let k = 0; k < ground; k++) {
       yard.boxes.push(100);
       (yard.boxReady ??= []).push(0);
     }
-    world['yardSlots'](yard);
+    yardSlots(world, yard);
     // One still in customs has nowhere but on top of one of them.
     yard.boxes.push(100);
     yard.boxReady!.push(world.tick + 10 * TICKS_PER_DAY);
-    const slots = world['yardSlots'](yard).boxes;
+    const slots = yardSlots(world, yard).boxes;
     expect(slots[ground]).toBe(slots[0] + 2);
     // The one under it is buried: the trucks can reach all but that.
-    expect(world['reachable'](yard)).toBe(ground - 1);
-    expect(world['clearTop'](yard)).not.toBe(0);
+    expect(reachable(world, yard)).toBe(ground - 1);
+    expect(clearTop(world, yard)).not.toBe(0);
     // Once the one on top clears too, it can go, before the one under it.
     yard.boxReady![ground] = 0;
-    expect(world['reachable'](yard)).toBe(ground + 1);
-    expect(world['clearTop'](yard)).toBe(ground);
+    expect(reachable(world, yard)).toBe(ground + 1);
+    expect(clearTop(world, yard)).toBe(ground);
   });
 
   it('stacks a container where it buries none that will clear before it', () => {
@@ -3775,11 +3829,11 @@ describe('Container Port tier', () => {
       yard.boxes.push(100);
       (yard.boxReady ??= []).push(k === 0 ? soon : later);
     }
-    world['yardSlots'](yard);
+    yardSlots(world, yard);
     // One clearing in a week goes on one of those, not on the first.
     yard.boxes.push(100);
     yard.boxReady!.push(later);
-    const slots = world['yardSlots'](yard).boxes;
+    const slots = yardSlots(world, yard).boxes;
     expect(slots[ground]).not.toBe(slots[0] + 2);
   });
 
@@ -3919,7 +3973,7 @@ describe('Container Port tier', () => {
     // Hands enough for the boats, the trucks and the exports alike.
     const home = world.people.find((p) => p.kind === 'dockhand')!;
     for (let k = 0; k < 2; k++) {
-      world['spawnDockhand'](world.map.idx(Math.floor(home.x), Math.floor(home.y)), {
+      spawnDockhand(world, world.map.idx(Math.floor(home.x), Math.floor(home.y)), {
         id: 0,
         name: `Extra ${k}`,
         skill: 3,
@@ -3981,10 +4035,10 @@ describe('Container Port tier', () => {
     world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
     // Crates set down for a coaster that has sailed without them.
     const quay = m.build.findIndex((b, i) => b === Build.Quay && !m.store[i]);
-    const pile = world['pileAt'](quay, false, true)!;
+    const pile = pileAt(world, quay, false, true)!;
     pile.crates.push(...Array(6).fill(20));
     world.piles.set(quay, pile);
-    expect(world['stranded'](pile)).toBe(true);
+    expect(stranded(world, pile)).toBe(true);
     const out = world.bays.get(store[0])!;
     for (let k = 0; k < TICKS_PER_DAY && (out.exports?.length ?? 0) < 6; k++) world.step();
     expect(world.piles.get(quay)?.crates.length ?? 0).toBe(0);
@@ -4011,9 +4065,9 @@ describe('Container Port tier', () => {
     world.boats.push(a, b);
     // Four crates waiting to go out: the first ship ready claims them all.
     world['exportsFor'] = () => 4;
-    expect(world['stillLoading'](a)).toBe(true);
+    expect(stillLoading(world, a)).toBe(true);
     expect(a.loadQuota).toBe(4);
-    expect(world['stillLoading'](b)).toBe(false);
+    expect(stillLoading(world, b)).toBe(false);
     expect(b.loadQuota).toBe(0);
     // Its words say it is ready, not taking exports on.
     const words = (id: number) =>
@@ -4057,12 +4111,12 @@ describe('Container Port tier', () => {
     // Past the time allowed alongside, the line stands to like it less.
     expect(v.moodChange).toBeCloseTo(B.SATISFACTION_PER_BOAT - 50 / B.MOORED_PENALTY_TICKS, 1);
     expect(v.mood).toBeGreaterThan(0);
-    expect(world['stillLoading'](a)).toBe(true);
+    expect(stillLoading(world, a)).toBe(true);
     expect(visit().canSail).toBe(true);
     // Sent off: it takes on nothing more, and gets ready to sail.
     world.command({ type: 'sailNow', id: 1000 });
     expect(a.loadQuota).toBe(1);
-    expect(world['stillLoading'](a)).toBe(false);
+    expect(stillLoading(world, a)).toBe(false);
   });
 
   it('rounds the end of a jetty wide, not shaving its corner', () => {
@@ -4144,8 +4198,8 @@ describe('Container Port tier', () => {
     far.y = m.yOf(depot) + 0.5;
     world.cranes.get(t.crane)!.stack.push(150);
     // The one at home, asked first, leaves it to the one at the crane.
-    expect(world['assignJob'](far)).toBe(false);
-    expect(world['assignJob'](near)).toBe(true);
+    expect(assignJob(world, far)).toBe(false);
+    expect(assignJob(world, near)).toBe(true);
     expect(near.state).toBe('toPickup');
     expect(far.state).not.toBe('toPickup');
   });
@@ -4409,19 +4463,19 @@ describe('Container Port tier', () => {
     expect(yard.tiles!.some((i) => m.neighbors4(i).some((n) => m.build[n] === Build.Road))).toBe(
       true,
     );
-    const spots: number[] = world['storeSpots'](yard);
+    const spots: number[] = storeSpots(world, yard);
     expect(spots.length).toBeGreaterThan(0);
     expect(spots.every((i) => m.build[i] === Build.PortRoad || m.build[i] === Build.Quay)).toBe(
       true,
     );
     // Without the port road inside, nowhere to load, road or no road.
     world.command({ type: 'bulldoze', tiles: spots });
-    expect(world['storeSpots'](yard)).toEqual([]);
+    expect(storeSpots(world, yard)).toEqual([]);
     world.command({ type: 'build', kind: 'portRoad', tiles: spots });
-    expect(world['storeSpots'](yard)).toEqual(spots);
+    expect(storeSpots(world, yard)).toEqual(spots);
     // Marked for machines only, the yard is the port's machines' alone.
     world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: true });
-    expect(world['storeSpots'](world.yards.get(t.yard)!)).toEqual([]);
+    expect(storeSpots(world, world.yards.get(t.yard)!)).toEqual([]);
     world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: false });
     yard.boxes.push(100, 100);
     addContract(
@@ -4459,8 +4513,8 @@ describe('Container Port tier', () => {
     expect(world.bays.get(store)).toBeDefined();
     world.command({ type: 'build', kind: 'jibCrane', tiles: [jetty[jetty.length - 1]] });
     // Next to a crane it is machines-only ground: the trucks keep off.
-    expect(world['byCrane'](world.bays.get(store)!)).toBe(true);
-    expect(world['storeSpots'](world.bays.get(store)!)).toEqual([]);
+    expect(byCrane(world, world.bays.get(store)!)).toBe(true);
+    expect(storeSpots(world, world.bays.get(store)!)).toEqual([]);
   });
 
   it('collects containers left in a large bay by an older save', () => {
@@ -4510,7 +4564,7 @@ describe('The Coastal Wharf’s landmarks', () => {
 
   /** As a truck leaving the port with `n` crates of `cargo`. */
   function truckOut(world: World, cargo: 'fish' | 'timber' | 'goods', n: number): void {
-    world['truckLeave']({
+    truckLeave(world, {
       id: 999_999,
       contractId: -1,
       company: 'Test',
@@ -4599,11 +4653,11 @@ describe('The Coastal Wharf’s landmarks', () => {
     opened(world, at(Build.BuildersYard));
     const boat = { out: 0, berth: world.map.entry } as never;
     const need = LANDMARKS[at(Build.BuildersYard)].goal.total!;
-    world['shipOut'](boat, Array(need - 1).fill(withCargo(15, 'canned')));
+    shipOut(world, boat, Array(need - 1).fill(withCargo(15, 'canned')));
     // Fish on board does not count.
-    world['shipOut'](boat, [withCargo(15, 'fish')]);
+    shipOut(world, boat, [withCargo(15, 'fish')]);
     expect(t.landmarks).toBe(at(Build.BuildersYard));
-    world['shipOut'](boat, [withCargo(15, 'canned')]);
+    shipOut(world, boat, [withCargo(15, 'canned')]);
     expect(t.landmarks).toBe(at(Build.BuildersYard) + 1);
     const timber = world.offers.find((o) => townTrade(o.terms) === 'timber')!;
     expect(timber.terms.name).toBe('Valley Timber Co.');
