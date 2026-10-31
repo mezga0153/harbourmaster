@@ -1,5 +1,6 @@
 import { computed, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
+import type { Preview } from '../preview/types';
 import type { Tool } from './tools';
 
 // The UI's shared state: what the sim last sent, what the player has in
@@ -43,18 +44,8 @@ export interface HoverInfo {
   depth: number;
 }
 
-export interface Preview {
-  count: number;
-  /** The tool places a building that can be turned. */
-  rotatable: boolean;
-  /** Money spent (negative) or refunded (positive). */
-  value: number;
-  error: string | null;
-  /** How what is being built will work, shown under the cost. */
-  note?: string;
-  /** What is counted, if not tiles. */
-  unit?: string;
-}
+/** What the tip over the map says about the build in hand; worked out in preview/. */
+export type { Preview } from '../preview/types';
 
 export const snapshot = signal<Snapshot | null>(null);
 export const seed = signal(0);

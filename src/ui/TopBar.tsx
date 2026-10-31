@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import type { Snapshot } from '../protocol';
+import { keyHint, PAUSE_KEY, SPEEDS } from '../input/keys';
 import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './actions';
 import { dayProgress, formatDate, money } from './format';
@@ -17,13 +18,6 @@ import {
   togglePanel,
   town,
 } from './store';
-
-export const SPEEDS = [
-  { speed: 1, label: '1×' },
-  { speed: 2, label: '2×' },
-  { speed: 4, label: '4×' },
-  { speed: 8, label: '8×' },
-];
 
 function Stat({
   icon,
@@ -60,6 +54,7 @@ const MENU: {
   id: PanelName;
   icon: IconName;
   label: string;
+  /** What the panel is for; its key (input/keys.ts) is added when shown. */
   title: string;
   /** What wants looking at there, if anything: a count, or "!". */
   badge: (s: Snapshot) => string | number | null;
@@ -68,7 +63,7 @@ const MENU: {
     id: 'finance',
     icon: 'dollar',
     label: 'Finance',
-    title: 'Finance: charts, loans and daily statement (M)',
+    title: 'Finance: charts, loans and daily statement',
     badge: (s) => (s.daysInRed > 0 ? '!' : null),
   },
   {
@@ -82,21 +77,21 @@ const MENU: {
     id: 'port',
     icon: 'stairs',
     label: 'Port',
-    title: 'Port development and upgrades (P)',
+    title: 'Port development and upgrades',
     badge: (s) => (s.progress.canUpgrade ? '!' : null),
   },
   {
     id: 'staff',
     icon: 'users',
     label: 'Staff',
-    title: 'Staff and hiring (H)',
+    title: 'Staff and hiring',
     badge: (s) => s.people.filter((p) => p.raiseAsk > 0).length || null,
   },
   {
     id: 'contracts',
     icon: 'contract',
     label: 'Contracts',
-    title: 'Contracts (C)',
+    title: 'Contracts',
     badge: (s) => s.offers.length || null,
   },
 ];
@@ -136,7 +131,7 @@ export function TopBar({ actions }: { actions: Actions }) {
           onClick={() =>
             (panel.value = panel.value === 'finance' || panel.value === 'stats' ? null : 'finance')
           }
-          title="Finance and statistics: charts, loans, the daily statement, and where the cargo is (M)"
+          title={`Finance and statistics: charts, loans, the daily statement, and where the cargo is${keyHint('finance')}`}
         >
           <Stat label="Cash" title="" tone={cash.value < 0 ? 'neg' : 'pos'}>
             {money(cash.value)}
@@ -184,7 +179,7 @@ export function TopBar({ actions }: { actions: Actions }) {
               key={m.id}
               class={`btn ${panel.value === m.id ? 'on' : ''} ${m.id === 'contracts' ? 'keep' : ''}`}
               onClick={() => togglePanel(m.id)}
-              title={m.title}
+              title={m.title + keyHint(m.id)}
             >
               <Icon name={m.icon} />
               <span>{m.label}</span>
@@ -195,7 +190,7 @@ export function TopBar({ actions }: { actions: Actions }) {
         <button
           class={`btn icon keep ${panel.value === 'handbook' ? 'on' : ''}`}
           onClick={() => togglePanel('handbook')}
-          title="Handbook: how the port works (?)"
+          title={`Handbook: how the port works${keyHint('handbook')}`}
         >
           <Icon name="book" />
         </button>
@@ -353,17 +348,17 @@ function TimeControl({ actions }: { actions: Actions }) {
         <button
           class={s.speed === 0 ? 'on' : ''}
           onClick={() => actions.togglePause()}
-          title="Pause (Space)"
+          title={`Pause (${PAUSE_KEY})`}
           aria-label="Pause"
         >
           <Icon name="pause" />
         </button>
-        {SPEEDS.map((o, k) => (
+        {SPEEDS.map((o) => (
           <button
             key={o.speed}
             class={s.speed === o.speed ? 'on' : ''}
             onClick={() => actions.setSpeed(o.speed)}
-            title={`Speed ${o.label} (${k + 1})`}
+            title={`Speed ${o.label} (${o.key})`}
           >
             {o.label}
           </button>

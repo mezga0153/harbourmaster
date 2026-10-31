@@ -1,4 +1,5 @@
 import { useState } from 'preact/hooks';
+import { keyHint, panelKey } from '../input/keys';
 import { thumbnail } from '../render/thumbs';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { BUILDABLES } from '../sim/rules';
@@ -170,6 +171,7 @@ function CategoryTray({ cat }: { cat: Category }) {
 
 export function BuildBar() {
   const current = tool.value;
+  const staffKey = panelKey('staff');
   const at = tier.value;
   // Menus with nothing in them yet are not shown at all.
   const categories = CATEGORIES.filter((c) => toolsAt(c, at).length > 0);
@@ -213,9 +215,9 @@ export function BuildBar() {
           <button
             class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
             onClick={() => togglePanel('staff')}
-            title="Hire and manage dockhands (H)"
+            title={`Hire and manage dockhands${keyHint('staff')}`}
           >
-            <kbd>H</kbd>
+            {staffKey && <kbd>{staffKey}</kbd>}
             <Icon name="hire" />
             <span class="tool-label">Staff</span>
             <span class="tool-cost">Hire</span>
