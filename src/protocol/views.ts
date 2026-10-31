@@ -245,6 +245,12 @@ export interface OfferView {
   truckingAfter: number;
   /** Shippers: what their trucks need, and whether the port has it now. */
   checks?: { ok: boolean; warn?: boolean; text: string }[];
+  /**
+   * Why it cannot be signed yet, in the player's words ("Needs a customs
+   * office"), when the sim knows: the Contracts panel greys its Sign button
+   * and shows this under it, and lists it among the blocked offers.
+   */
+  blocked?: string;
 }
 
 /** Crates per day: what the fisheries send versus what the port can move. */
