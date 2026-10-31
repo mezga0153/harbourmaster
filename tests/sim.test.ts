@@ -1102,7 +1102,7 @@ describe('Coastal Wharf tier', () => {
       expect(crane.stack).toHaveLength(0);
     }
     expect(boat.crates).toBe(load);
-    expect(craneWhy(world, crane)).toMatch(/full: waiting for room/);
+    expect(craneWhy(world, crane)).toMatch(/Crate storage in reach is full/);
     // Not a red mark: it works once there is room.
     expect(problems(world).some((p) => p.type === 'crane' && p.idx === tip)).toBe(false);
     store.crates.length = 0;

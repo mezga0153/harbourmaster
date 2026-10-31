@@ -253,7 +253,12 @@ export function craneWhy(w: World, c: Crane): string {
     if (c.stack.length > 0) return 'Waiting for a forklift to collect the crates at its feet.';
     if (berthTrouble(w, c)) return 'No boat can come alongside it.';
     if (!jibStows(w, c)) return 'No crate storage in reach to swing crates into.';
-    if (!jibStore(w, c)) return 'Crate storage in reach is full: waiting for room.';
+    if (!jibStore(w, c)) {
+      // Beside it is machines-only ground: trucks cannot load there, only forklifts take them on.
+      return w.people.some((p) => p.kind === 'forklift')
+        ? 'Crate storage in reach is full: waiting for room.'
+        : 'Crate storage in reach is full, and nothing empties it: it is machines-only ground, so only forklifts take crates on from it. Buy one at a forklift depot.';
+    }
     return 'No boat lying under it.';
   }
   if (c.busy) return 'Lifting containers off the ship.';
