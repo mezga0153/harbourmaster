@@ -55,7 +55,6 @@ const UPDATE_MS = 100;
 interface Beds {
   hum: Loop;
   wash: Loop;
-  lap: Loop;
   road: Record<RoadEngine, Loop>;
   ships: Record<Hull, Loop>;
   electric: Loop;
@@ -120,11 +119,9 @@ export class Soundscape {
         console.warn('No sound: Web Audio is not available', err);
         return;
       }
-      const sea = this.synth.sea();
       this.beds = {
         hum: this.synth.hum(),
-        wash: sea.wash,
-        lap: sea.lap,
+        wash: this.synth.sea(),
         road: {
           truck: this.synth.roadEngine('truck'),
           tractor: this.synth.roadEngine('tractor'),
@@ -237,8 +234,6 @@ export class Soundscape {
     set(b.hum, (0.1 + 0.6 * far) * (0.25 + 0.75 * act) * (running ? 1 : 0.6), 0, 0.8);
     // The sea, more of it the further out the view.
     set(b.wash, water * (0.14 + 0.2 * far), 0, 1);
-    // Waves slap the quay walls up close.
-    set(b.lap, water * near * 0.3, 0, 0.3);
     const work = running ? near * zoom : 0;
     // Each kind of land diesel on its own note, deeper the bigger the
     // vehicles heard, revving up a little as more of them get going.

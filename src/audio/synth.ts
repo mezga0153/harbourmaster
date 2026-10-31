@@ -255,20 +255,19 @@ export class Synth {
   }
 
   /**
-   * Water. The wash is built the way the ocean noise generators that sound
-   * right are built (Syntherjack's pedal, the Ong engine for norns): plain
+   * The sea, built the way the ocean noise generators that sound right
+   * are built (Syntherjack's pedal, the Ong engine for norns): plain
    * broadband noise under a gentle lowpass, no resonant sweeps, swelling
-   * smoothly up and down over six to nine seconds with a moment of near
+   * smoothly up and down over four or five seconds with a moment of near
    * silence between waves. Near waves are white noise rolled off above
    * 3.5 kHz, a run of them each side at its own pace, each side mixed a
    * little into the other; foam is white noise that peaks as each wave
    * draws back; far waves are pink noise rolled off above 800 Hz, slower
    * and wide; and a faint bed of noise sits under it all. Each wave's
-   * length, height and the pause after it are drawn afresh. And the lap:
-   * waves slapping and gurgling at the quay walls up close, one after
-   * another at no fixed beat. Both are planned `ahead` seconds ahead.
+   * length, height and the pause after it are drawn afresh, planned
+   * `ahead` seconds ahead.
    */
-  sea(ahead = 12): { wash: Loop; lap: Loop } {
+  sea(ahead = 12): Loop {
     const wash = this.loopOut(this.ambience, 0.1);
     const sides = this.ctx.createChannelMerger(2);
     sides.connect(wash.gain);
@@ -315,7 +314,7 @@ export class Synth {
       n.start(this.now, Math.random() * 3);
       // The wave itself, mostly on its side, and its foam, brighter and
       // loudest as the wave draws back.
-      swell(lp, side ? 0.14 : 0.42, side ? 0.42 : 0.14, [6, 9], [0.5, 3], 0.42, from);
+      swell(lp, side ? 0.14 : 0.42, side ? 0.42 : 0.14, [3.5, 5.5], [0.3, 2], 0.42, from);
     };
     near(0, rnd(0, 2));
     near(1, rnd(3, 6));
@@ -323,12 +322,12 @@ export class Synth {
     const foamHp = this.filter('highpass', 2500, 0.5);
     foam.connect(foamHp);
     foam.start(this.now, Math.random() * 3);
-    swell(foamHp, 0.07, 0.07, [6, 9], [1, 3], 0.65, rnd(1, 4));
+    swell(foamHp, 0.07, 0.07, [3.5, 5.5], [0.5, 2], 0.65, rnd(1, 3));
     const far = this.noise('pink');
     const farLp = this.filter('lowpass', 800, 0.5);
     far.connect(farLp);
     far.start(this.now, Math.random() * 3);
-    swell(farLp, 0.4, 0.4, [8, 13], [0, 2], 0.5, rnd(0, 3));
+    swell(farLp, 0.4, 0.4, [5, 8], [0, 1.5], 0.5, rnd(0, 3));
     // A wave's shape: up along a quarter of a sine to the peak, down along
     // another, so it starts and ends gently with no corner at the top.
     const shape = (peak: number, height: number) => {
@@ -356,62 +355,9 @@ export class Synth {
       }
     };
 
-    const lap = this.loopOut(this.ambience, 0.1);
-    // Between slaps, the water moving at the wall.
-    const lapBed = this.gainNode(0.14);
-    this.lfo(lapBed.gain, 0.23, 0.04);
-    const lapSrc = this.noise('brown');
-    lapSrc
-      .connect(this.filter('bandpass', 320, 1.1))
-      .connect(lapBed)
-      .connect(lap.gain);
-    lapSrc.start(this.now, Math.random() * 3);
-    // Each slap a short burst of noise, its ring dropping as the water falls
-    // back, some of them gurgling after as it drains out of the wall.
-    let nextSlap = this.now + rnd(0.2, 1);
-    const burst = (
-      t0: number,
-      level: number,
-      from: number,
-      to: number,
-      q: number,
-      fall: number,
-    ) => {
-      const n = this.noise('white', false);
-      const bp = this.filter('bandpass', from, q);
-      bp.frequency.setValueAtTime(from, t0);
-      bp.frequency.exponentialRampToValueAtTime(to, t0 + fall * 0.5);
-      const g = this.gainNode(0);
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(level, t0 + 0.012);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + fall);
-      const pan = this.ctx.createStereoPanner();
-      pan.pan.value = rnd(-0.7, 0.7);
-      n.connect(bp).connect(g).connect(pan).connect(lap.gain);
-      n.start(t0, rnd(0, 3));
-      n.stop(t0 + fall + 0.1);
-    };
-    const slaps = () => {
-      const limit = this.now + ahead;
-      if (nextSlap < this.now) nextSlap = this.now + rnd(0, 0.5);
-      while (nextSlap < limit) {
-        const t0 = nextSlap;
-        const size = rnd(0.25, 1);
-        burst(t0, size * 1.6, rnd(500, 1100), rnd(150, 300), 1.5, rnd(0.25, 0.6));
-        if (Math.random() < 0.5) burst(t0 + rnd(0.1, 0.3), size * 0.9, 420, 110, 5, rnd(0.5, 0.9));
-        nextSlap = t0 + rnd(0.3, 2.5) * (1.6 - size * 0.6);
-      }
-    };
-
     roll();
-    slaps();
-    if (!(this.ctx instanceof OfflineAudioContext)) {
-      setInterval(() => {
-        roll();
-        slaps();
-      }, 1000);
-    }
-    return { wash, lap };
+    if (!(this.ctx instanceof OfflineAudioContext)) setInterval(roll, 1000);
+    return wash;
   }
 
   /**

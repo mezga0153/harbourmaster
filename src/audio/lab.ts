@@ -295,8 +295,7 @@ export function soundLab(lab: HTMLElement): void {
     section(
       'The port from afar',
       loopRow('Port hum', (s) => s.hum(), 0.4),
-      loopRow('Sea', (s) => s.sea().wash, 0.15),
-      loopRow('Waves at the quay', (s) => s.sea().lap, 0.3),
+      loopRow('Sea', (s) => s.sea(), 0.15),
       loopRow('Train going by', (s) => s.rumble(), 0.4),
     ),
   );
@@ -379,18 +378,12 @@ async function measure(): Promise<Record<string, { peak: number; rms: number }>>
  * the water, from the console: `__renderSea(30)` gives it as a WAV in
  * base64, to listen to, and how loud it is every half second.
  */
-async function renderSea(
-  seconds: number,
-  washLevel = 0.28,
-  lapLevel = 0.3,
-): Promise<{ env: string; wav: string }> {
+async function renderSea(seconds: number, level = 0.28): Promise<{ env: string; wav: string }> {
   const rate = 44100;
   const ctx = new OfflineAudioContext(2, Math.ceil(rate * seconds), rate);
   const s = new Synth(ctx);
   s.master.gain.value = 1;
-  const sea = s.sea(seconds + 1);
-  sea.wash.gain.gain.value = washLevel;
-  sea.lap.gain.gain.value = lapLevel;
+  s.sea(seconds + 1).gain.gain.value = level;
   const buf = await ctx.startRendering();
   const n = buf.length;
   const l = buf.getChannelData(0);
