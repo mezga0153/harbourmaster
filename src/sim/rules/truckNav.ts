@@ -3,17 +3,18 @@
 import type { GameMap } from '../map';
 import type { CostFn } from '../path';
 import { flowOk, GATE_IN, GATE_OUT, hasHighway, highwayIns, isHighway, oneWay } from '../roads';
-import { Build, isPublicRoad } from '../types';
+import { Build, isBay, isPublicRoad } from '../types';
 import { nearCrane } from './placement';
 import { forkliftOnly, machinesOnly } from './marking';
-import { anchorOf } from './footprint';
+import { anchorOf, frontOf } from './footprint';
 
 /**
  * Trucks drive on public roads, and on port roads once they are through a
  * port gate: never straight from one to the other. A truck bay is only
- * enterable as the destination, or the one being left, from any side of it
- * that touches a road. Storage areas they load beside, never drive into, and
- * they keep off machines-only ground.
+ * enterable as the destination, or the one being left, and only through its
+ * front, the road it faces: a bay with road down a side too is still backed
+ * into from the front, to stand square in it as it is drawn. Storage areas
+ * they load beside, never drive into, and they keep off machines-only ground.
  */
 export function truckCost(
   map: GameMap,
@@ -48,6 +49,8 @@ export function truckCost(
     const there = known ? way(from) : null;
     const jump = (here === 'road' && there === 'port') || (here === 'port' && there === 'road');
     if (jump) return Infinity;
+    // Into a truck bay and out of it again only through its front.
+    if (known && throughSide(map, from, i)) return Infinity;
     // A port gate for trucks only coming in, or only going out.
     if (known && map.build[i] === Build.Gate) {
       if (there === 'road' && map.orient[i] & GATE_OUT) return Infinity;
@@ -70,6 +73,18 @@ export function truckCost(
     }
     return 1;
   };
+}
+
+/**
+ * Whether the step from `from` to `i` goes into or out of a truck bay any
+ * way but through its front, the tile it faces.
+ */
+function throughSide(map: GameMap, from: number, i: number): boolean {
+  const into = isBay(map.build[i]);
+  const outOf = isBay(map.build[from]);
+  if (into === outOf && (!into || anchorOf(map, i) === anchorOf(map, from))) return false;
+  if (into && frontOf(map, i, map.orient[i]) !== from) return true;
+  return outOf && frontOf(map, from, map.orient[from]) !== i;
 }
 
 /**
