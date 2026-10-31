@@ -181,8 +181,6 @@ export const CATEGORIES: Category[] = [
     tools: [
       { tool: 'jetty', icon: 'jetty', label: 'Jetty', key: 'J', group: 'Docks' },
       { tool: 'quay', icon: 'quay', label: 'Quay', key: 'G', group: 'Docks' },
-      { tool: 'harbourHut', icon: 'office', label: "Harbourmaster's hut", group: 'Docks' },
-      { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O', group: 'Docks' },
       { tool: 'buoyIn', icon: 'buoyIn', label: 'Buoy: way in', group: 'Channel' },
       { tool: 'buoyOut', icon: 'buoyOut', label: 'Buoy: way out', group: 'Channel' },
       {
@@ -310,10 +308,16 @@ export const CATEGORIES: Category[] = [
     ],
   },
   {
+    // The port's own buildings: the offices that run it, and the crew's huts.
     id: 'facilities',
-    label: 'Facilities',
-    icon: 'hut',
-    tools: [{ tool: 'breakHut', icon: 'hut', label: 'Break hut', key: 'K' }],
+    label: 'Port buildings',
+    icon: 'office',
+    tools: [
+      { tool: 'harbourHut', icon: 'office', label: "Harbourmaster's hut", group: 'Offices' },
+      { tool: 'office', icon: 'office', label: 'Harbour office', key: 'O', group: 'Offices' },
+      { tool: 'customs', icon: 'office', label: 'Customs office', group: 'Offices' },
+      { tool: 'breakHut', icon: 'hut', label: 'Break hut', key: 'K', group: 'Crew' },
+    ],
   },
 ];
 

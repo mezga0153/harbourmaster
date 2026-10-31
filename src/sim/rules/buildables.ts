@@ -76,6 +76,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `A shed by the jetties where the harbourmaster keeps an eye on the boats: looks after ${B.JETTIES_PER_HUT} more jetties, but no quays, which need a harbour office. Goes on open ground or over a port path or road, its door facing a port path or road`,
     drag: false,
   },
+  customs: {
+    code: Build.Customs,
+    label: 'Customs office',
+    cost: B.CUSTOMS_OFFICE_COST,
+    hint: 'Customs officers clear timber and goods coming in, containers off the feeders and the cannery’s export papers: lines with cargo like that cannot be signed without one. One office does for the whole port. Goes on open ground or over a port path or road, its door facing a port path or road',
+    drag: false,
+  },
   harbourCrane: {
     code: Build.HarbourCrane,
     label: 'Harbour crane',
@@ -163,6 +170,7 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'depot',
   'office',
   'harbourHut',
+  'customs',
   'breakHut',
   'gantryCrane',
 ]);

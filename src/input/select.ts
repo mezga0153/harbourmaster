@@ -47,6 +47,7 @@ export function selectionAt(
   if (map?.build[i] === Build.Office || map?.build[i] === Build.HarbourHut) {
     return { type: 'office', idx: i, hut: map.build[i] === Build.HarbourHut };
   }
+  if (map?.build[i] === Build.Customs) return { type: 'customs', idx: i };
   if (map?.build[i] === Build.Parking) return { type: 'parking', idx: i };
   if (map?.build[i] === Build.YardGantry) return { type: 'yardGantry', idx: i };
   if (s?.yards.some((y) => y.idx === i)) return { type: 'yard', idx: i };

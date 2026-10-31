@@ -42,6 +42,7 @@ export const TIERS: Tier[] = [
     unlocks: [
       'Concrete quay, up to 8 m deep',
       'The harbour office, for quays and more docks',
+      'The customs office, for timber, goods and canned fish',
       'Truck parking, for shippers’ trucks waiting on their paperwork',
       'Forklifts (4 crates a trip), forklift depots, port roads and machines-only areas',
       'Small trucks in place of pickups, backing into truck bays: a layer of crates by hand, two by forklift',
@@ -95,6 +96,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   buoyOut: 1,
   office: 1,
   harbourHut: 0,
+  customs: 1,
   largeBay: 1,
   harbourCrane: 2,
   gantryCrane: 2,

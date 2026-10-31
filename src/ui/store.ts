@@ -25,6 +25,7 @@ export type Selection =
   | { type: 'crane'; idx: number }
   /** A harbour office, or (`hut`) a harbourmaster's hut. */
   | { type: 'office'; idx: number; hut?: boolean }
+  | { type: 'customs'; idx: number }
   | { type: 'parking'; idx: number }
   | { type: 'yardGantry'; idx: number }
   | { type: 'town' }

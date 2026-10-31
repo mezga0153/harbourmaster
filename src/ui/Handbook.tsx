@@ -248,15 +248,17 @@ export const TOPICS: Record<TopicId, Topic> = {
           forklifts take its crates on.
         </p>
         <p>
-          <b>Customs and export papers.</b> Crates of timber and goods off the coasters go into
-          crate storage for cargo coming in, never a truck bay nor straight onto a truck, and wait
-          there about {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a truck may take them.
-          The cannery's canned fish waits in the outgoing storage about{' '}
-          {hours(B.EXPORT_PAPERS_TICKS)} hours for its export papers before it may go on board.
-          Fish, lobster and ice are fresh and go at once. Crates still waiting have a slip of paper
-          under a red seal on the lid; select storage to see how many wait and when the next clear.
-          A busy Coastal Wharf needs room for a day of the coasters' timber and goods: when the
-          storage is full of crates in customs, the coasters cannot be unloaded.
+          <b>Customs and export papers.</b> Lines landing timber, goods or containers, and the
+          cannery, cannot be signed till the port has a customs office (Port buildings): one does
+          for the whole port. Crates of timber and goods off the coasters go into crate storage for
+          cargo coming in, never a truck bay nor straight onto a truck, and wait there about{' '}
+          {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a truck may take them. The
+          cannery's canned fish waits in the outgoing storage about {hours(B.EXPORT_PAPERS_TICKS)}{' '}
+          hours for its export papers before it may go on board. Fish, lobster and ice are fresh and
+          go at once. Crates still waiting have a slip of paper under a red seal on the lid; select
+          storage to see how many wait and when the next clear. A busy Coastal Wharf needs room for
+          a day of the coasters' timber and goods: when the storage is full of crates in customs,
+          the coasters cannot be unloaded.
         </p>
       </>
     ),
@@ -328,9 +330,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           container yard, and container trucks collect them.
         </p>
         <p>
-          Customs start on a ship's containers once the whole ship has been unloaded, and clear them
-          about {hours(B.CUSTOMS_TICKS)} hours later. Until then they wait in the yard, and no truck
-          may take them. Yards hold a ship's load and a day of traffic: when they fill, the stackers
+          A feeder line needs a customs office in the port before it may be signed. Customs start on
+          a ship's containers once the whole ship has been unloaded, and clear them about{' '}
+          {hours(B.CUSTOMS_TICKS)} hours later. Until then they wait in the yard, and no truck may
+          take them. Yards hold a ship's load and a day of traffic: when they fill, the stackers
           stop, then the cranes, and ships wait. Select a yard to see what is in customs and when
           the next one clears.
         </p>

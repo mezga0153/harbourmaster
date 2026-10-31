@@ -79,6 +79,11 @@ export const CRATE_CUSTOMS_TICKS = TICKS_PER_DAY;
  * export papers before it may go on board: half a day.
  */
 export const EXPORT_PAPERS_TICKS = TICKS_PER_DAY / 2;
+/**
+ * A customs office, which the port needs before it may sign a line whose
+ * cargo customs must clear (see needsCustomsOffice in contracts.ts).
+ */
+export const CUSTOMS_OFFICE_COST = 1000;
 export const BAY_CAPACITY = 12;
 export const LARGE_BAY_CAPACITY = 28;
 // Ticks to put one crate on a truck: by hand at a truck bay, quicker with

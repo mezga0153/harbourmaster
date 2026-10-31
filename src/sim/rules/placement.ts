@@ -116,12 +116,12 @@ export function placementError(
     return along ? 'Roads cross the railway straight over, not along it' : null;
   }
   // A jetty can be paved over into a quay and a port path into a port road,
-  // and a harbour office or hut put up on a port path or road not marked
+  // and a harbour office, hut or customs office put up on a port path or road not marked
   // out for storage; nothing else is built over.
   const upgrade =
     (kind === 'quay' && map.build[i] === Build.Jetty) ||
     (kind === 'portRoad' && map.build[i] === Build.Footpath) ||
-    ((kind === 'office' || kind === 'harbourHut') && onPath(map, i));
+    ((kind === 'office' || kind === 'harbourHut' || kind === 'customs') && onPath(map, i));
   if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
 
   if (kind === 'quay') {
@@ -205,14 +205,14 @@ export function placementError(
   // A depot goes anywhere, but its machines are shut in till its door faces
   // a port road or quay: see depotDoorTrouble.
   if (kind === 'depot') return null;
-  if (kind === 'office' || kind === 'harbourHut') {
+  if (kind === 'office' || kind === 'harbourHut' || kind === 'customs') {
     const ok = walkableAt(map, front) || f === Build.Road;
     return ok ? null : 'The door must face a port path or road';
   }
   return walkableAt(map, front) ? null : 'The door must face a port path, quay or truck bay';
 }
 
-/** A port path or road a harbour office or hut may go up on: not storage, not by a crane. */
+/** A port path or road a harbour office, hut or customs office may go up on: not storage, not by a crane. */
 function onPath(map: GameMap, i: number): boolean {
   const b = map.build[i];
   return (b === Build.Footpath || b === Build.PortRoad) && map.store[i] === 0 && !nearCrane(map, i);

@@ -2,7 +2,8 @@ import type { BoatVisit, Snapshot } from '../protocol';
 import * as B from '../sim/balance';
 import { isMachineKind, MACHINES } from '../sim/machines';
 import { MACHINE_TIER } from '../sim/tiers';
-import type { MachineKind } from '../sim/types';
+import { needsCustomsOffice } from '../sim/contracts';
+import { TICKS_PER_DAY, type MachineKind } from '../sim/types';
 import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
@@ -65,6 +66,7 @@ export function InfoPanel({ actions }: { actions: Actions }) {
   if (sel.type === 'railway') return <RailwayPanel />;
   if (sel.type === 'yardGantry') return <YardGantryInfo idx={sel.idx} onClose={close} />;
   if (sel.type === 'office') return <OfficeInfo hut={!!sel.hut} onClose={close} />;
+  if (sel.type === 'customs') return <CustomsInfo onClose={close} />;
   // The rest are things in the snapshot, found there; gone, nothing shows.
   const found = selected.value;
   if (!found) return null;
@@ -323,6 +325,32 @@ function OfficeInfo({ hut, onClose: close }: { hut: boolean; onClose: () => void
       ) : (
         <p class="note">Every dock is in use.</p>
       )}
+    </aside>
+  );
+}
+
+function CustomsInfo({ onClose: close }: { onClose: () => void }) {
+  const s = snapshot.value;
+  if (!s) return null;
+  const lines = s.contracts.filter((c) => needsCustomsOffice(c.terms)).map((c) => c.terms.name);
+  return (
+    <aside class="side panel">
+      <InfoHeader kicker="Building" title="Customs office" onClose={close} />
+      <p class="muted">
+        Customs officers clear timber and goods off the coasters, about{' '}
+        {Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24)} h in crate storage, containers
+        off the feeders in the yard, and the cannery's export papers. Lines with cargo like that
+        cannot be signed without a customs office; one does for the whole port.{' '}
+        <More topic="storage" />
+      </p>
+      <dl class="props">
+        <dt>Crates in customs</dt>
+        <dd>{s.cargo.crates.customs}</dd>
+        <dt>Containers in customs</dt>
+        <dd>{s.cargo.containers.customs}</dd>
+        <dt>Lines it clears</dt>
+        <dd>{lines.length > 0 ? lines.join(', ') : <span class="muted">None yet</span>}</dd>
+      </dl>
     </aside>
   );
 }

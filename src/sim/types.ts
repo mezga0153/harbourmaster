@@ -82,6 +82,8 @@ export const Build = {
   BuildersYard: 41,
   School: 42,
   TownHall: 43,
+  /** A customs office: clears timber, goods, containers and export papers; see needsCustomsOffice. */
+  Customs: 44,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -122,6 +124,7 @@ export type BuildKind =
   | 'depot'
   | 'office'
   | 'harbourHut'
+  | 'customs'
   | 'largeBay'
   | 'harbourCrane'
   | 'gantryCrane'

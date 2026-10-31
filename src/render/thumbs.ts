@@ -162,6 +162,7 @@ function scene(tool: string): Patch | null {
     }
     case 'office':
     case 'harbourHut':
+    case 'customs':
     case 'depot':
     case 'breakHut':
     case 'truckBay':
@@ -217,6 +218,7 @@ export const PICTURED: readonly string[] = [
   'gantryCrane',
   'office',
   'harbourHut',
+  'customs',
   'depot',
   'breakHut',
   'truckBay',

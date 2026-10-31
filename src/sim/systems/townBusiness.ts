@@ -17,10 +17,10 @@ import type { Landmark, Town } from '../town';
 import { message, tip } from './output';
 import type { TownView } from '../../protocol/views';
 import { cargoName } from '../cargo';
-import { fisheries, hauliers, townTradeOffers } from './economy';
+import { customsTip, fisheries, hasCustomsOffice, hauliers, townTradeOffers } from './economy';
 import { TIERS } from '../tiers';
 import * as B from '../balance';
-import { townTrade } from '../contracts';
+import { needsCustomsOffice, townTrade } from '../contracts';
 import { Build } from '../types';
 import { bayRoom } from '../helpers';
 import { berthCount } from './boats/berthing';
@@ -113,8 +113,14 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
     w.contracts.some((c) => townTrade(c.terms) === trade);
   const offer = (trade: 'canned' | 'timber' | 'goods') =>
     w.offers.find((o) => townTrade(o.terms) === trade)?.terms.name;
-  const sign = (trade: 'canned' | 'timber' | 'goods', what: string) =>
-    `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
+  // A line customs clears needs a customs office before it may be signed.
+  const sign = (trade: 'canned' | 'timber' | 'goods', what: string) => {
+    const o = w.offers.find((x) => townTrade(x.terms) === trade);
+    if (o && needsCustomsOffice(o.terms) && !hasCustomsOffice(w)) {
+      return `Build a customs office (Port buildings) so you can sign ${o.terms.name}'s offer: ${trade === 'canned' ? 'the canned fish needs export papers' : `customs clears the ${trade}`}`;
+    }
+    return `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
+  };
   const noBerth = `Coasters need a berth: build a quay 2 wide, in ${B.COASTER_DRAFT} m of water`;
   let held: string | undefined;
   switch (l.code) {
@@ -189,4 +195,5 @@ export function openLandmark(w: World, l: Landmark | null): void {
   }
   // The offer it brings goes up on the board at once.
   townTradeOffers(w);
+  customsTip(w);
 }

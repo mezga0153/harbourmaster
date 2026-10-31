@@ -49,12 +49,12 @@ put on board fishing boats in all (ice: 20). The landmark goes up as soon as its
 goal is met (no scaffolding yet). The restaurant lets the town grow to 400,
 past the 300 the Coastal Wharf needs.
 
-| # | Landmark | Goal | Opens | Cap after |
-|---|---|---|---|---|
-| 0 | Fishing village | | fishery (fish) contracts | 100 |
-| 1 | **Fish market** | fish trucked out, 12 crates/day for 3 days | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 150 |
-| 2 | **Ice house** | ice put on board fishing boats, 20 crates in all | boats with ice stay out longer and go further: **lobster boats** (a lobsterman's offer stays on the board till one is signed) | 200 |
-| 3 | **Seafood restaurant** | lobster trucked out, 15 crates in all | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf** | 400 |
+| #   | Landmark               | Goal                                             | Opens                                                                                                                                                | Cap after |
+| --- | ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 0   | Fishing village        |                                                  | fishery (fish) contracts                                                                                                                             | 100       |
+| 1   | **Fish market**        | fish trucked out, 12 crates/day for 3 days       | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 150       |
+| 2   | **Ice house**          | ice put on board fishing boats, 20 crates in all | boats with ice stay out longer and go further: **lobster boats** (a lobsterman's offer stays on the board till one is signed)                        | 200       |
+| 3   | **Seafood restaurant** | lobster trucked out, 15 crates in all            | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf**                           | 400       |
 
 ## Coastal Wharf: town to large town (cap 400 → 800+)
 
@@ -77,12 +77,12 @@ goal cannot move (no coasters, no berth for them, the offer not signed, no
 haulier). Saves from before count the steps a town is past by its size: 500+
 has its cannery, 600+ its builders' yard, 700+ its school.
 
-| # | Landmark | Goal | Opens | Cap after |
-|---|---|---|---|---|
-| 4 | **Cannery** | fish trucked out, 30 crates/day for 2 days running (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500 |
-| 5 | **Builders' yard** | canned fish put on board ships, 25 crates in all | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats** | 600 |
-| 6 | **School** | timber trucked out, 25 crates in all | families settle; the **department store** opens, and a coaster line offers **goods** for it | 700 |
-| 7 | **Town hall** | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day) | the town charter: grows past 800, which lets the port become a **Container Port** | no limit |
+| #   | Landmark           | Goal                                                                                                                   | Opens                                                                                                   | Cap after |
+| --- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------- |
+| 4   | **Cannery**        | fish trucked out, 30 crates/day for 2 days running (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500       |
+| 5   | **Builders' yard** | canned fish put on board ships, 25 crates in all (the cannery's line needs a customs office)                           | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats**        | 600       |
+| 6   | **School**         | timber trucked out, 25 crates in all                                                                                   | families settle; the **department store** opens, and a coaster line offers **goods** for it             | 700       |
+| 7   | **Town hall**      | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day)                         | the town charter: grows past 800, which lets the port become a **Container Port**                       | no limit  |
 
 **Storage holds it back** (`startHolds` and `holds` in `src/sim/world.ts`):
 crates of timber and goods off the coasters go into crate storage for cargo
@@ -97,6 +97,20 @@ both lines signed, about 35 crates a day, two tiles (32 crates) is full
 half the time and the coasters wait at anchor, four tiles (64) is hardly
 ever full (`tests/coastal-storage.test.ts`). The Next step card says when
 storage full of crates in customs, or no storage at all, holds the town up.
+
+**The customs office** (`customs` in `src/sim/rules/buildables.ts`, $1,000,
+from the Coastal Wharf, under Port buildings with the harbour office and
+hut): a line whose cargo customs clears cannot be signed till the port has
+one (`needsCustomsOffice` in `src/sim/contracts.ts`): the timber and goods
+coasters, feeder lines' containers, and the cannery, for its export papers.
+So the builders' yard step, which needs the cannery signed, needs one
+first. The offer's card says so and its Sign button is greyed
+(`blocked` on the offer, `offerBlocked` in `src/sim/systems/economy.ts`),
+the Next step card asks for one, and the advisor tips it the first time
+such an offer is on the board. One office does for the whole port: it
+does not speed customs up. Lines signed with no office (saves from before
+it, or the office pulled down since) go on as they are, with a note on
+their contract card that no other like them can be signed.
 
 ## Container Port and on (sketch)
 

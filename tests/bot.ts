@@ -3,13 +3,18 @@
  * port built up the way a player would.
  */
 import * as B from '../src/sim/balance';
-import { fisheryDailyCrates, type FisheryTerms } from '../src/sim/contracts';
+import {
+  fisheryDailyCrates,
+  needsCustomsOffice,
+  type FisheryTerms,
+  type Offer,
+} from '../src/sim/contracts';
 import { buyable, landError, plotPrice } from '../src/sim/land';
 import { placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
-import { canUpgrade, capacity } from '../src/sim/systems/economy';
+import { canUpgrade, capacity, hasCustomsOffice } from '../src/sim/systems/economy';
 import { docks as docksOf } from '../src/sim/systems/boats/berthing';
 
 /**
@@ -111,8 +116,7 @@ export function playDay(w: World): string[] {
         }
       } else if (need > cap.trucking * 0.85) {
         if (fleet > w.bays.size ? buildBay(w) : signHaulier(w)) did.push('trucks ahead');
-      } else {
-        w.command({ type: 'signContract', id: offer.id });
+      } else if (signLine(w, offer)) {
         did.push(`fishery ${offer.terms.name}`);
       }
     }
@@ -190,6 +194,28 @@ function connect(w: World, from: number[]): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Sign a line's offer, first building the customs office a line whose
+ * cargo customs clears needs, if the port has none and can afford it.
+ */
+export function signLine(w: World, offer: Offer): boolean {
+  if (needsCustomsOffice(offer.terms) && !hasCustomsOffice(w)) {
+    if (w.cash < offer.signingFee + B.CUSTOMS_OFFICE_COST + 1000 || !buildCustoms(w)) return false;
+  }
+  const before = w.contracts.length;
+  w.command({ type: 'signContract', id: offer.id });
+  return w.contracts.length > before;
+}
+
+/** A customs office on the first spot it may go, as the harbour office. */
+function buildCustoms(w: World): boolean {
+  const m = w.map;
+  const spot = m.build.findIndex((b, i) => b === Build.None && !placementError(m, 'customs', i));
+  if (spot < 0) return false;
+  w.command({ type: 'build', kind: 'customs', tiles: [spot] });
+  return m.build[spot] === Build.Customs;
 }
 
 function buildOffice(w: World): boolean {

@@ -18,7 +18,7 @@ type Any = any;
  * A Coastal Wharf with a two-wide quay out to deep water for the coasters,
  * forklifts, and crate storage by the public road: `inTiles` tiles of it
  * for cargo coming in (two or four), `outTiles` (one or two) for cargo
- * going out. The cannery, Valley Timber Co. and a line of goods are
+ * going out. A customs office; the cannery, Valley Timber Co. and a line of goods are
  * signed, and a haulier's trucks take the crates away. With `atQuay`, the
  * storage for cargo coming in is on the back row of the quay by the
  * coasters' berths instead, for the dockhands to carry it into.
@@ -117,6 +117,12 @@ export function wharf(inTiles: number, outTiles: number, atQuay = false): Any {
   loop.push(m.idx(x - 1, r + 1), m.idx(x + 2, r + 1));
   world.command({ type: 'build', kind: 'road', tiles: [...loop, ...lot] });
   world.command({ type: 'build', kind: 'parking', tiles: lot });
+  // A customs office, which its timber, goods and canned fish need.
+  const customs = m.build.findIndex(
+    (b: number, i: number) => b === Build.None && !placementError(m, 'customs', i),
+  );
+  world.command({ type: 'build', kind: 'customs', tiles: [customs] });
+  expect(m.build[customs]).toBe(Build.Customs);
   // Hands enough for the coasters.
   const home = world.people.find((p: Any) => p.kind === 'dockhand');
   for (let k = 0; k < 4; k++) {

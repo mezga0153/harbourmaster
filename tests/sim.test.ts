@@ -4706,6 +4706,14 @@ describe('The Coastal Wharf’s landmarks', () => {
     return world;
   }
 
+  /** A customs office, which lines customs clears need before they may be signed. */
+  function customsOffice(world: World): void {
+    const m = world.map;
+    const spot = m.build.findIndex((b, i) => b === Build.None && !placementError(m, 'customs', i));
+    world.command({ type: 'build', kind: 'customs', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.Customs);
+  }
+
   /** The town with its first `n` landmarks open and standing. */
   function opened(world: World, n: number): void {
     const t = world.town!;
@@ -4794,6 +4802,10 @@ describe('The Coastal Wharf’s landmarks', () => {
     refreshOffers(world);
     const again = world.offers.find((o) => townTrade(o.terms) === 'canned')!;
     expect(again).toBeDefined();
+    // Its export papers need a customs office first.
+    world.command({ type: 'signContract', id: again.id });
+    expect(world.contracts.some((c) => townTrade(c.terms) === 'canned')).toBe(false);
+    customsOffice(world);
     world.command({ type: 'signContract', id: again.id });
     expect(world.contracts.some((c) => townTrade(c.terms) === 'canned')).toBe(true);
     refreshOffers(world);
@@ -4845,6 +4857,7 @@ describe('The Coastal Wharf’s landmarks', () => {
     opened(world, at(Build.School) + 1);
     refreshOffers(world);
     const goods = world.offers.find((o) => townTrade(o.terms) === 'goods')!;
+    customsOffice(world);
     world.command({ type: 'signContract', id: goods.id });
     const c = world.contracts.find((k) => townTrade(k.terms) === 'goods')!;
     c.nextBoatTick = world.tick;

@@ -533,6 +533,20 @@ export function townTrade(t: Terms): 'canned' | 'timber' | 'goods' | null {
   return null;
 }
 
+/**
+ * A line whose cargo customs must clear, so it cannot be signed till the
+ * port has a customs office: coasters of timber or goods and feeders'
+ * containers coming in, and the cannery's canned fish going out on its
+ * export papers. Fish, lobster and ice are fresh and go at once, and other
+ * shippers do their paperwork outside the port.
+ */
+export function needsCustomsOffice(t: Terms): boolean {
+  if (t.kind === 'shipper') return t.goods === 'canned';
+  if (t.kind === 'fishery')
+    return t.vessel === 'feeder' || t.catch === 'timber' || t.catch === 'goods';
+  return false;
+}
+
 /** An ice works, rather than a shipper of goods. */
 export function isIce(t: Terms): boolean {
   return t.kind === 'shipper' && t.goods === 'ice';

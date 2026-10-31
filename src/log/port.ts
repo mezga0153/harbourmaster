@@ -26,6 +26,7 @@ const PIECES: Partial<Record<number, string>> = {
   [Build.Depot]: 'depot',
   [Build.Office]: 'office',
   [Build.HarbourHut]: 'harbourHut',
+  [Build.Customs]: 'customs',
   [Build.Gate]: 'gate',
   [Build.BuoyIn]: 'buoy',
   [Build.BuoyOut]: 'buoy',

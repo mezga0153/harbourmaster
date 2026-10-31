@@ -20,7 +20,7 @@ import {
 import { Build } from '../types';
 import { cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
-import { isIce, type Contract } from '../contracts';
+import { isIce, needsCustomsOffice, type Contract } from '../contracts';
 import { thought } from '../staff';
 import { BUSINESSES, population, townHomes, townTarget } from '../town';
 import { depotViews } from './output';
@@ -41,6 +41,8 @@ import {
   truckingWith,
   visitView,
   wageBill,
+  hasCustomsOffice,
+  offerBlocked,
 } from './economy';
 import { businessViews, landmarkView, wantsView } from './townBusiness';
 import { tugged } from './tugs';
@@ -503,9 +505,18 @@ function shipperMarks(w: World, out: ProblemView[]): Set<number> {
 }
 
 /** What holds a shipper's trucks up, for its contract card. */
-function troubleView(w: World, c: Contract): ContractView['trouble'] {
+function troubleView(w: World, c: Contract, customs: boolean): ContractView['trouble'] {
   const t = shipperTrouble(w, c);
-  return t ? { text: `${t.text}.`, bad: t.bad } : undefined;
+  if (t) return { text: `${t.text}.`, bad: t.bad };
+  // Signed before the port needed a customs office, or with one since
+  // pulled down: it goes on, but no line like it can be signed.
+  if (!customs && needsCustomsOffice(c.terms)) {
+    return {
+      text: 'The port has no customs office: this line goes on as signed, but no other whose cargo customs clears can be signed till you build one (Port buildings).',
+      bad: false,
+    };
+  }
+  return undefined;
 }
 
 /** Cargo waiting at each step from boat to truck, for the cargo flow. */
@@ -819,6 +830,7 @@ export function buildSnapshot(w: World): Snapshot {
     ],
     ...holdsView(w, b),
   }));
+  const customs = hasCustomsOffice(w);
   const contracts: ContractView[] = w.contracts.map((c) => ({
     id: c.id,
     terms: c.terms,
@@ -836,7 +848,7 @@ export function buildSnapshot(w: World): Snapshot {
     ),
     waiting: w.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
     nextIn: c.terms.kind !== 'haulier' ? Math.max(0, c.nextBoatTick - w.tick) : -1,
-    trouble: troubleView(w, c),
+    trouble: troubleView(w, c, customs),
   }));
   const cap = capacity(w);
   return {
@@ -957,6 +969,7 @@ export function buildSnapshot(w: World): Snapshot {
         o.terms.kind === 'shipper' && !isIce(o.terms)
           ? shipperChecks(w, o.terms).map(({ ok, warn, text }) => ({ ok, warn, text }))
           : undefined,
+      blocked: offerBlocked(w, o.terms, customs) ?? undefined,
     })),
   };
 }

@@ -186,6 +186,7 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
   [Build.Depot]: depot,
   [Build.BreakHut]: breakHut,
   [Build.HarbourHut]: harbourHut,
+  [Build.Customs]: customsOffice,
   [Build.TruckBay]: truckBay,
   [Build.LargeBay]: largeBay,
 };
@@ -439,6 +440,47 @@ function breakHut(t: TileBuild): Object3D {
   // The bench the dockhands sit on, on their break.
   g.add(box(0.7, 0.03, 0.12, C.wood, 0.5, top + 0.1, 0.8));
   for (const x of [0.2, 0.8]) g.add(box(0.04, 0.06, 0.1, C.woodDark, x, top + 0.04, 0.8));
+  return g;
+}
+
+function customsOffice(t: TileBuild): Object3D {
+  const { g, top } = t;
+  // The customs house: a squat stone building under a dark hipped roof,
+  // white pilasters either side of a porch over the door, a blue board
+  // with the red customs seal (as on the crates waiting for it) over the
+  // porch, a striped barrier arm out front and a flag on the roof.
+  g.add(box(1, 0.04, 1, C.flagstone, 0.5, top, 0.5));
+  const y = top + 0.04;
+  // A plinth, the walls on it, and a white cornice under the roof.
+  g.add(box(0.72, 0.04, 0.56, C.quayWall, 0.5, y, 0.42));
+  g.add(box(0.68, 0.3, 0.52, C.concrete, 0.5, y + 0.04, 0.42));
+  g.add(box(0.74, 0.03, 0.58, C.shedTrim, 0.5, y + 0.34, 0.42));
+  const roof = new Mesh(roofGeo, mat(C.depotRoof));
+  roof.scale.set(0.95, 0.75, 0.95);
+  roof.position.set(0.5, y + 0.37, 0.42);
+  roof.castShadow = roof.receiveShadow = true;
+  g.add(roof);
+  // Tall windows down each side and along the front, either side of the porch.
+  for (const x of [0.25, 0.75]) g.add(box(0.08, 0.15, 0.012, C.window, x, y + 0.1, 0.685));
+  for (const z of [0.3, 0.54]) {
+    for (const x of [0.155, 0.845]) g.add(box(0.012, 0.15, 0.08, C.window, x, y + 0.1, z));
+  }
+  // The porch: two white columns, a flat white roof and the door behind.
+  for (const x of [0.39, 0.61]) g.add(cyl(0.022, 0.26, C.shedTrim, x, y + 0.04, 0.78));
+  g.add(box(0.3, 0.03, 0.14, C.shedTrim, 0.5, y + 0.3, 0.74));
+  g.add(box(0.13, 0.22, 0.02, C.woodDark, 0.5, y + 0.04, 0.69));
+  g.add(box(0.3, 0.02, 0.14, C.quayWall, 0.5, y, 0.75));
+  // The board over the porch, and the seal on it.
+  g.add(box(0.3, 0.07, 0.02, C.sign, 0.5, y + 0.33, 0.81));
+  g.add(cyl(0.028, 0.012, C.seal, 0.5, y + 0.36, 0.822, 12).rotateX(Math.PI / 2));
+  // A barrier arm across the way in, red and white, on a post.
+  g.add(box(0.05, 0.12, 0.05, C.chassis, 0.14, y, 0.9));
+  for (let k = 0; k < 4; k++) {
+    g.add(box(0.07, 0.025, 0.025, k % 2 ? C.cabin : C.funnel, 0.2 + k * 0.07, y + 0.1, 0.9));
+  }
+  // A flagpole at the roof's corner.
+  g.add(cyl(0.01, 0.5, C.cabin, 0.82, y + 0.34, 0.2));
+  g.add(box(0.012, 0.09, 0.15, C.sign, 0.82, y + 0.72, 0.28));
   return g;
 }
 
@@ -889,6 +931,7 @@ export const FACES = new Set<number>([
   Build.Depot,
   Build.Office,
   Build.HarbourHut,
+  Build.Customs,
   Build.BreakHut,
 ]);
 

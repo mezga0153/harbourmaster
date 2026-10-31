@@ -7,7 +7,7 @@ import type { World } from '../world';
 import { jobs, openLandmark } from './townBusiness';
 import type { Boat, LedgerCategory } from '../state';
 import * as B from '../balance';
-import { message, moneyAt, nag, tip } from './output';
+import { message, moneyAt, nag, tip, tipUnless } from './output';
 import { LANDMARKS, landmarkDue, townCap, townDay } from '../town';
 import { TIERS } from '../tiers';
 import { makeCandidate, paceFactor, traitDef } from '../staff';
@@ -32,6 +32,7 @@ import {
   makeLobsterOffer,
   makeOffer,
   makeTownLineOffer,
+  needsCustomsOffice,
   townTrade,
 } from '../contracts';
 import type { Contract, FisheryTerms, HaulierTerms, ShipperTerms, Terms } from '../contracts';
@@ -279,6 +280,7 @@ export function refreshOffers(w: World): void {
       message(w, `New contract offer from ${w.offers.at(-1)!.terms.name}.`, 'info');
     }
   }
+  customsTip(w);
 }
 
 /**
@@ -311,9 +313,45 @@ export function townTradeOffers(w: World): void {
   });
 }
 
+/** Whether the port has a customs office, which lines whose cargo customs clears need. */
+export function hasCustomsOffice(w: World): boolean {
+  return w.map.build.includes(Build.Customs);
+}
+
+/**
+ * Why an offer cannot be signed yet, in the player's words, as the sim
+ * sees it; null when nothing stops it.
+ */
+export function offerBlocked(w: World, terms: Terms, customs = hasCustomsOffice(w)): string | null {
+  if (needsCustomsOffice(terms) && !customs) return `Needs a customs office: ${customsWhat(terms)}`;
+  return null;
+}
+
+/** What customs does for a line's cargo, for the reason it cannot be signed. */
+function customsWhat(t: Terms): string {
+  if (t.kind === 'shipper')
+    return 'its canned fish goes out on export papers. Build one (Port buildings)';
+  if (t.kind === 'fishery' && t.vessel === 'feeder')
+    return 'customs clears its containers. Build one (Port buildings)';
+  const what = t.kind === 'fishery' ? t.catch : 'cargo';
+  return `customs clears its ${what}. Build one (Port buildings)`;
+}
+
+/**
+ * The advisor tells of the customs office the first time a line on the
+ * board needs one and the port has none.
+ */
+export function customsTip(w: World): void {
+  if (w.tipsSeen.has('customsOffice')) return;
+  if (!w.offers.some((o) => needsCustomsOffice(o.terms))) return;
+  tipUnless(w, 'customsOffice', hasCustomsOffice(w));
+}
+
 export function signContract(w: World, offerId: number): void {
   const offer = w.offers.find((o) => o.id === offerId);
   if (!offer) return message(w, 'That offer is no longer available.', 'bad');
+  const blocked = offerBlocked(w, offer.terms);
+  if (blocked) return message(w, `Cannot sign with ${offer.terms.name}. ${blocked}.`, 'bad');
   if (w.cash < offer.signingFee) return message(w, 'Not enough money to sign', 'bad');
   book(w, 'contracts', -offer.signingFee);
   w.offers = w.offers.filter((o) => o !== offer);

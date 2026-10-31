@@ -182,6 +182,12 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   } else if (spent > 0 && kind === 'office') {
     w.warnedOffice = false;
     message(w, 'The harbour office is open and coordinating berths.', 'good');
+  } else if (spent > 0 && kind === 'customs') {
+    message(
+      w,
+      'The customs office is open: lines landing timber, goods or containers, and the cannery, can be signed now.',
+      'good',
+    );
   } else if (spent > 0 && kind === 'harbourHut') {
     w.warnedOffice = false;
     message(
