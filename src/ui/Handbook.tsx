@@ -375,9 +375,10 @@ export const TOPICS: Record<TopicId, Topic> = {
             {hours(B.EXPORT_PAPERS_TICKS)} hours, before it may go on board.
           </li>
           <li>
-            Then it drives in and unloads into crate storage or a container yard. While every spot
-            there is taken, it moves to parking nearer the storage, inside the port where there is
-            some, to be there the moment one comes free.
+            Then it drives in and is unloaded into crate storage or a container yard: crates by
+            dockhands or forklifts, containers by the yard's gantry or a reach stacker. While every
+            spot there is taken, it moves to parking nearer the storage, inside the port where there
+            is some, to be there the moment one comes free.
           </li>
           <li>
             A coaster or feeder that has unloaded stays to take on the exports waiting for it.
