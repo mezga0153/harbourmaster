@@ -128,26 +128,10 @@ button.brand.on {
   color: var(--text-3);
 }
 
-/* Under the town's size in the top bar: how far the port is towards its next landmark. */
-.stat-button.town {
-  position: relative;
-}
-
-.task-bar {
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  bottom: 0;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line-strong);
-  overflow: hidden;
-}
-
-.task-bar > span {
+/* Under a stat's value, as under the date: the town's, how far the port is towards its next landmark. */
+.stat-bar {
   display: block;
-  height: 100%;
-  background: var(--accent);
+  margin-top: 3px;
 }
 
 /* The date and game speed, at the top left. */

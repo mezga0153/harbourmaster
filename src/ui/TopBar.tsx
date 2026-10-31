@@ -26,6 +26,7 @@ function Stat({
   children,
   tone,
   priority = 1,
+  bar,
 }: {
   icon?: IconName;
   label: string;
@@ -34,6 +35,8 @@ function Stat({
   tone?: string;
   /** Higher numbers hide first on narrow screens. */
   priority?: number;
+  /** A bar under the value, as the date has: how far along, 0 to 1. */
+  bar?: number;
 }) {
   return (
     <div class={`stat ${tone ?? ''}`} title={title} data-priority={priority}>
@@ -41,6 +44,11 @@ function Stat({
       <div>
         <div class="stat-label">{label}</div>
         <div class="stat-value">{children}</div>
+        {bar !== undefined && (
+          <span class="daybar stat-bar">
+            <span style={{ width: `${Math.round(bar * 100)}%` }} />
+          </span>
+        )}
       </div>
     </div>
   );
@@ -157,16 +165,16 @@ export function TopBar({ actions }: { actions: Actions }) {
           <button
             class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
             onClick={() => openTown()}
-            title={`${t.name}, ${TOWN_STAGES[t.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow`}
+            title={`${t.name}, ${TOWN_STAGES[t.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow${t.next ? `. Next: ${t.next.name.toLowerCase()}, ${Math.round(landmarkProgress(t.next) * 100)}% of the way` : ''}`}
           >
-            <Stat icon="town" label={t.name} title="">
+            <Stat
+              icon="town"
+              label={t.name}
+              title=""
+              bar={t.next ? landmarkProgress(t.next) : undefined}
+            >
               {t.population.toLocaleString('en-US')}
             </Stat>
-            {t.next && (
-              <span class="task-bar" title={`Next: ${t.next.name.toLowerCase()}`}>
-                <span style={{ width: `${Math.round(landmarkProgress(t.next) * 100)}%` }} />
-              </span>
-            )}
           </button>
         )}
       </div>
