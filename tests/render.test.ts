@@ -911,7 +911,7 @@ describe("Shippers' trucks unloaded at crate storage", () => {
    * Wharf, with nothing else going on, and only `kind` to unload them.
    */
   function cannery(kind: string): World {
-    const world = wharf(4, 2);
+    const world: World = wharf(4, 2);
     for (const c of world.contracts) {
       if (c.terms.kind !== 'shipper') c.nextBoatTick = Infinity;
     }

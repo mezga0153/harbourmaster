@@ -368,10 +368,42 @@ export function unloadTruckJob(
       if (--p.timer > 0) return true;
       landUnloaded(w, p, bay);
       endTruckJob(w, p);
+      if (t && bay) backForMore(w, p, t, bay);
       return true;
     }
   }
   return false;
+}
+
+/**
+ * A dockhand or forklift that has just set down crates off a shipper's
+ * truck goes straight back for more while it has any: in place of one
+ * still on its way there from further off, if need be.
+ */
+function backForMore(w: World, p: Dockhand, t: Truck, bay: Bay): void {
+  if (t.state !== 'delivering' || t.bayIdx !== bay.idx || t.cargo <= 0) return;
+  const tile = crateTruckSpot(w, bay, t);
+  if (t.cargo - (t.taking ?? 0) <= 0 || workersAt(w, tile) >= B.WORKERS_PER_SPOT) {
+    const near = w.dist(w.tileOf(p), tile);
+    const far = w.people.find(
+      (q) =>
+        q !== p &&
+        q.kind === p.kind &&
+        q.truckId === t.id &&
+        q.state === 'toPickup' &&
+        q.path.length > near + 2,
+    );
+    if (!far) return;
+    releaseTruckJob(w, far);
+    far.path = [];
+  }
+  takeCrateTruckJob(w, p, {
+    tile,
+    avail: t.cargo - (t.taking ?? 0),
+    truck: t,
+    load: false,
+    rank: 1,
+  });
 }
 
 /**
