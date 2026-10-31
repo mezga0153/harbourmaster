@@ -9,6 +9,7 @@
 CREATE TABLE visits (
   id         INTEGER PRIMARY KEY,
   visit      TEXT    NOT NULL UNIQUE,   -- random, per page load
+  version    TEXT,                      -- the game's version: its commit's time and hash, e.g. '2026-10-31 00:51 3b839e2'
   page       TEXT    NOT NULL,          -- the address it landed on: path and query (click ids taken out), no #view
   referrer   TEXT,                      -- the page it came from: host and path, and any utm_ tags; null if none
   ref_host   TEXT,                      -- the referrer's host alone, for counting
@@ -36,6 +37,7 @@ CREATE TABLE visits (
 );
 CREATE INDEX visits_created ON visits (created_at);
 CREATE INDEX visits_game ON visits (game);
+CREATE INDEX visits_version ON visits (version);
 
 -- One row per day of a game, sent by src/log/days.ts to /api/days when the day
 -- ends (done = 1), and while it is under way when the page is put away
@@ -46,6 +48,7 @@ CREATE TABLE days (
   id         INTEGER PRIMARY KEY,
   game       TEXT    NOT NULL,          -- random, per game
   visit      TEXT,                      -- the page load that sent it (visits.visit)
+  version    TEXT,                      -- the game's version the day was played on (a game can go over to the next)
   seed       INTEGER NOT NULL,
   day        INTEGER NOT NULL,          -- 1 is the first day
   done       INTEGER NOT NULL,          -- 1: the day ended; 0: under way when the page was put away
@@ -67,8 +70,13 @@ CREATE TABLE days (
   staff      INTEGER NOT NULL,          -- dockhands employed
   machines   TEXT,                      -- JSON: machines by kind
   contracts  INTEGER NOT NULL,          -- contracts signed and running
+  can_up     INTEGER NOT NULL,          -- 1 when the next tier could be bought (the town big enough), and has not been
   town_pop   INTEGER,                   -- people in the town
   town_stage INTEGER,                   -- index into TOWN_STAGES
+  town       TEXT,                      -- JSON: its homes, the people it would grow to (target), jobs, goods a day sent out
+                                        --   and supplied to it, businesses
+  size       INTEGER NOT NULL,          -- tiles the player has built on, all told (src/log/port.ts)
+  port       TEXT,                      -- JSON: what is built, {road: tiles, quay: tiles, truckBay: 2, jibCrane: 1, oneWay: 4, ...}
   capacity   TEXT,                      -- JSON: crates a day wanted, unloaded, trucked; containers; congestion
   problems   TEXT,                      -- JSON: red marks on the map as the day ended, {what: how many}
   bad        TEXT,                      -- JSON: the day's bad news and refusals, {what: how many} (names and numbers taken out)
@@ -82,6 +90,7 @@ CREATE TABLE days (
   UNIQUE (game, day)
 );
 CREATE INDEX days_created ON days (created_at);
+CREATE INDEX days_version ON days (version);
 
 -- What went wrong in players' browsers, sent by src/log/errors.ts to
 -- /api/errors: an error nothing caught, a promise nobody waited on, the
@@ -91,12 +100,12 @@ CREATE TABLE errors (
   visit      TEXT,
   game       TEXT,
   day        INTEGER,
+  version    TEXT,
   kind       TEXT    NOT NULL,          -- error | rejection | worker | sim | save | autosave | webgl
   message    TEXT    NOT NULL,
   stack      TEXT,                      -- where, as the browser gave it (trimmed)
   page       TEXT,
   device     TEXT,                      -- JSON: window, pixel ratio, memory, cores, GPU
-  build      TEXT,                      -- which script sent it (its hashed name)
   country    TEXT,
   region     TEXT,
   city       TEXT,

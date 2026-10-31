@@ -9,6 +9,8 @@ export const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) &&
 export const plain = (v, n) => typeof v === 'string' && v.length <= n && !/[\u0000-\u001f]/.test(v);
 export const id = (v) => typeof v === 'string' && ID.test(v);
 export const object = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+/** The game's version (vite.config.ts): its commit's time and hash. */
+export const version = (v) => typeof v === 'string' && /^[\w .:+-]{1,40}$/.test(v);
 
 /** {what: how many}, with at most `most` keys of `len` characters: as JSON, or undefined if it is not that. */
 export function counts(v, most = 60, len = 120) {

@@ -1,4 +1,4 @@
-import { LOG_ON, post, visitId } from './common';
+import { LOG_ON, post, VERSION, visitId } from './common';
 
 // What goes wrong in a player's browser, sent to /api/errors: an error
 // nothing caught, a promise nobody waited on, the sim worker failing, the
@@ -30,15 +30,6 @@ export function gpu(): string | null {
   }
 }
 
-// which script is running: its hashed name once built
-const BUILD = (() => {
-  try {
-    return new URL(import.meta.url).pathname.split('/').pop() ?? null;
-  } catch {
-    return null;
-  }
-})();
-
 export function report(kind: ErrorKind, err: unknown, stack?: string): void {
   if (!LOG_ON) return;
   try {
@@ -66,9 +57,9 @@ export function report(kind: ErrorKind, err: unknown, stack?: string): void {
           visit: visitId,
           game,
           day,
+          version: VERSION,
           page: (location.pathname + location.search).slice(0, 300),
           device,
-          build: BUILD,
         },
       ],
     });

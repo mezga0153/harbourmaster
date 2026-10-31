@@ -9,6 +9,9 @@ cd "$(dirname "$0")"
 # loudly instead of publishing there
 export CLOUDFLARE_ACCOUNT_ID=5b599c00c72a707712ba9f65977a2acd
 here=$(pwd)
+# which version this is, for the play log (see scripts/version.mjs)
+HM_VERSION=$(git log -1 --format='%cd %h' --date=format:'%Y-%m-%d %H:%M')
+export HM_VERSION
 build=$(mktemp -d)
 trap 'rm -rf "${build:?}"' EXIT
 git archive HEAD | tar -x -C "$build"

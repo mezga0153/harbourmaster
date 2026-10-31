@@ -9,6 +9,8 @@
 
 // the game's own addresses: a visit from one of them came from the game itself
 const HOSTS = `'harbourmaster.tinetov.net', 'localhost', '127.0.0.1'`;
+// days one by one to 20, then by fives to 50, then by tens: where few games get
+const DAYB = `CASE WHEN day <= 20 THEN day WHEN day <= 50 THEN (day - 1) / 5 * 5 + 1 ELSE (day - 1) / 10 * 10 + 1 END`;
 // what holds the port back as a day ends: no cargo wanted, the boats unloaded
 // too slowly, the trucks taking it away too slowly, or nothing
 const LIMIT = `CASE WHEN json_extract(capacity, '$.demand') = 0 THEN 'no cargo coming'
@@ -17,6 +19,35 @@ const LIMIT = `CASE WHEN json_extract(capacity, '$.demand') = 0 THEN 'no cargo c
                     ELSE 'keeping up' END`;
 
 export const SECTIONS = [
+  {
+    id: 'versionlist',
+    title: 'The versions of the game played (for the page to pick one)',
+    tab: 'both',
+    page: true,
+    sql: `SELECT version, COUNT(DISTINCT game) AS games, MIN(created_at) AS first FROM days WHERE version IS NOT NULL
+          GROUP BY version ORDER BY version DESC LIMIT 40`,
+  },
+  {
+    id: 'versions',
+    title: 'Versions compared: games by the version they started on',
+    sql: `SELECT COALESCE(v0, '?') AS version, COUNT(*) AS games, ROUND(AVG(far), 1) AS average_far_day,
+                 ROUND(AVG(far >= 5) * 100) AS day5_pct, ROUND(AVG(far >= 20) * 100) AS day20_pct, ROUND(AVG(t1) * 100) AS tier1_pct,
+                 ROUND(AVG(red) * 100) AS in_red_pct, ROUND(AVG(bust) * 100) AS bankrupt_pct, ROUND(AVG(secs) / 3600.0, 2) AS hours,
+                 (SELECT COUNT(*) FROM errors e WHERE e.version = v0) AS errors
+          FROM (SELECT game, (SELECT version FROM d d0 WHERE d0.game = d.game ORDER BY day LIMIT 1) AS v0, MAX(day) AS far,
+                       MAX(tier >= 1) AS t1, MAX(in_red > 0) AS red, MAX(bankrupt) AS bust, SUM(seconds) AS secs
+                FROM d GROUP BY game)
+          GROUP BY v0 ORDER BY v0 DESC LIMIT 20`,
+  },
+  {
+    id: 'vdays',
+    title: 'Versions compared, day by day: the days played on each version (days ended)',
+    page: true,
+    sql: `SELECT COALESCE(version, '?') AS version, day, COUNT(*) AS games, ROUND(AVG(cash)) AS cash, ROUND(AVG(income)) AS income,
+                 ROUND(AVG(tier), 2) AS tier, ROUND(AVG(town_pop)) AS town, ROUND(AVG(size)) AS size, ROUND(AVG(seconds) / 60, 1) AS minutes
+          FROM d WHERE done AND day <= 40 AND version IN (SELECT version FROM days WHERE version IS NOT NULL GROUP BY version ORDER BY version DESC LIMIT 5)
+          GROUP BY version, day ORDER BY version, day`,
+  },
   {
     id: 'overview',
     title: 'Overview',
@@ -63,7 +94,7 @@ export const SECTIONS = [
   {
     id: 'curve',
     title: 'The port as games go on: averages over the games that got to each day (days ended)',
-    sql: `SELECT CASE WHEN day <= 20 THEN day WHEN day <= 50 THEN (day - 1) / 5 * 5 + 1 ELSE (day - 1) / 10 * 10 + 1 END AS from_day,
+    sql: `SELECT ${DAYB} AS from_day,
                  COUNT(DISTINCT game) AS games, ROUND(AVG(cash)) AS cash, ROUND(AVG(income)) AS income, ROUND(AVG(spend)) AS spend,
                  ROUND(AVG(loan)) AS loan, ROUND(AVG(tier), 2) AS tier, ROUND(AVG(staff), 1) AS staff, ROUND(AVG(contracts), 1) AS contracts,
                  ROUND(AVG(town_pop)) AS town, ROUND(AVG(in_red > 0) * 100) AS in_red_pct, ROUND(AVG(seconds) / 60, 1) AS minutes
@@ -76,6 +107,58 @@ export const SECTIONS = [
                  (SELECT COUNT(DISTINCT game) FROM d WHERE loan > 0) AS took_a_loan, (SELECT COUNT(DISTINCT game) FROM d WHERE bankrupt) AS bankrupt,
                  (SELECT ROUND(AVG(first)) FROM (SELECT MIN(day) AS first FROM d WHERE in_red > 0 GROUP BY game)) AS first_red_day,
                  (SELECT ROUND(AVG(first)) FROM (SELECT MIN(day) AS first FROM d WHERE bankrupt GROUP BY game)) AS bankrupt_day`,
+  },
+  {
+    id: 'upgrade',
+    title:
+      'Holding back: days ended with the next tier there to buy (the town big enough), not bought',
+    sql: `SELECT tier, COUNT(*) AS days, COUNT(DISTINCT game) AS games, ROUND(AVG(cash)) AS cash_on_hand
+          FROM d WHERE done AND can_up GROUP BY tier ORDER BY tier`,
+  },
+  {
+    id: 'stages',
+    title: 'When towns reach each stage (the day, and the hours played before it)',
+    sql: `SELECT town_stage AS stage, COUNT(*) AS games, MIN(first) AS earliest_day, ROUND(AVG(first), 1) AS average_day,
+                 MAX(first) AS latest_day, ROUND(AVG(before) / 3600.0, 1) AS hours_before
+          FROM (SELECT game, town_stage, MIN(day) AS first, MIN(played - seconds) AS before
+                FROM (SELECT game, town_stage, day, seconds, SUM(seconds) OVER (PARTITION BY game ORDER BY day) AS played
+                      FROM d WHERE town_stage IS NOT NULL)
+                GROUP BY game, town_stage)
+          GROUP BY town_stage ORDER BY town_stage`,
+  },
+  {
+    id: 'town',
+    title:
+      'The town as games go on: people, homes, what it would grow to, and its trade (days ended)',
+    sql: `SELECT ${DAYB} AS from_day, COUNT(DISTINCT game) AS games, ROUND(AVG(town_pop)) AS people,
+                 ROUND(AVG(json_extract(town, '$.homes'))) AS homes, ROUND(AVG(json_extract(town, '$.target'))) AS would_grow_to,
+                 ROUND(AVG(json_extract(town, '$.jobs'))) AS jobs, ROUND(AVG(json_extract(town, '$.goods')), 1) AS goods_out,
+                 ROUND(AVG(json_extract(town, '$.supplied')), 1) AS supplied, ROUND(AVG(json_extract(town, '$.businesses')), 1) AS businesses,
+                 ROUND(AVG(json_extract(port, '$.townStreet'))) AS street_tiles,
+                 ROUND(AVG(town_stage), 2) AS stage
+          FROM d WHERE done AND town IS NOT NULL GROUP BY from_day ORDER BY from_day`,
+  },
+  {
+    id: 'portsize',
+    title: 'The port as games go on: how much is built (tiles, and buildings apiece; days ended)',
+    sql: `SELECT ${DAYB} AS from_day, COUNT(DISTINCT game) AS games, ROUND(AVG(size)) AS tiles_built,
+                 ROUND(AVG(json_extract(port, '$.jetty')), 1) AS jetty, ROUND(AVG(json_extract(port, '$.quay')), 1) AS quay,
+                 ROUND(AVG(COALESCE(json_extract(port, '$.road'), 0) + COALESCE(json_extract(port, '$.portRoad'), 0)), 1) AS road,
+                 ROUND(AVG(COALESCE(json_extract(port, '$.truckBay'), 0) + COALESCE(json_extract(port, '$.largeBay'), 0)), 1) AS bays,
+                 ROUND(AVG(COALESCE(json_extract(port, '$.jibCrane'), 0) + COALESCE(json_extract(port, '$.harbourCrane'), 0)
+                           + COALESCE(json_extract(port, '$.gantryCrane'), 0)), 1) AS cranes,
+                 ROUND(AVG(json_extract(port, '$.docks')), 1) AS docks
+          FROM d WHERE done GROUP BY from_day ORDER BY from_day`,
+  },
+  {
+    id: 'features',
+    title:
+      'What ports have: each kind of thing built or feature in use, in how many games, from what day',
+    sql: `SELECT feature, COUNT(*) AS games, ROUND(COUNT(*) * 100.0 / (SELECT COUNT(DISTINCT game) FROM d)) AS games_pct,
+                 ROUND(AVG(first), 1) AS average_first_day, ROUND(AVG(most), 1) AS average_most
+          FROM (SELECT j.key AS feature, d.game, MIN(d.day) AS first, MAX(j.value) AS most
+                FROM d, json_each(d.port) j WHERE j.value > 0 AND j.key <> 'townStreet' GROUP BY feature, d.game)
+          GROUP BY feature ORDER BY games DESC, average_first_day`,
   },
   {
     id: 'limits',
@@ -135,14 +218,14 @@ export const SECTIONS = [
     title:
       'Errors players have hit, most often first (every one sent: the time span does not apply)',
     sql: `SELECT kind, message, COUNT(*) AS times, COUNT(DISTINCT COALESCE(game, visit)) AS games,
-                 datetime(MAX(created_at) / 1000, 'unixepoch') AS last
+                 MIN(version) AS first_version, MAX(version) AS last_version, datetime(MAX(created_at) / 1000, 'unixepoch') AS last
           FROM errors GROUP BY kind, message ORDER BY times DESC LIMIT 40`,
   },
   {
     id: 'errorlog',
     title: 'The latest errors, with where and on what',
     page: true,
-    sql: `SELECT datetime(created_at / 1000, 'unixepoch') AS at, kind, message, game, day, build, device, stack
+    sql: `SELECT datetime(created_at / 1000, 'unixepoch') AS at, version, kind, message, game, day, device, stack
           FROM errors ORDER BY id DESC LIMIT 30`,
   },
   {

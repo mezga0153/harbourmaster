@@ -24,17 +24,18 @@ const send = (res, status, body, type = 'application/json') => {
 };
 
 // Every section of a tab at once (the games', or the visitors'), for a
-// stretch of time, from one database.
-async function everything(db, since, fresh, tab) {
-  const key = `${db}|${since}|${tab}`,
+// stretch of time and maybe one version of the game, from one database.
+async function everything(db, since, version, fresh, tab) {
+  const key = `${db}|${since}|${version}|${tab}`,
     hit = cache.get(key);
   if (hit && !fresh && Date.now() - hit.at < CACHE_MS) return hit.data;
-  const sections = SECTIONS.filter((s) => (s.tab || 'play') === tab);
+  const sections = SECTIONS.filter((s) => s.tab === 'both' || (s.tab || 'play') === tab);
   const t0 = Date.now(),
-    { answers, missing } = await ask(sections, { local: db === 'local', since });
+    { answers, missing } = await ask(sections, { local: db === 'local', since, version });
   const data = {
     db,
     since,
+    version,
     tab,
     at: Date.now(),
     took: Date.now() - t0,
@@ -60,9 +61,11 @@ function readOnly(sql) {
     return 'this page only reads: nothing that changes the data';
   return null;
 }
-const yours = (sql, since) => {
+const yours = (sql, since, version) => {
   const s = sql.trim().replace(/;\s*$/, '');
-  return /^with\b/i.test(s) ? s.replace(/^with\b/i, `WITH ${ctes(since)},`) : within(s, since);
+  return /^with\b/i.test(s)
+    ? s.replace(/^with\b/i, `WITH ${ctes(since, version)},`)
+    : within(s, since, version);
 };
 
 const body = (req) =>
@@ -79,6 +82,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x'),
     db = url.searchParams.get('db') === 'local' ? 'local' : 'live';
   const since = Number(url.searchParams.get('since')) || 0;
+  // one version of the game, or all of them
+  const asked = url.searchParams.get('version') || '';
+  const version = /^[\w .:+-]{1,40}$/.test(asked) ? asked : null;
   try {
     if (req.method === 'GET' && url.pathname === '/') {
       return send(
@@ -90,7 +96,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/all') {
       const tab = url.searchParams.get('tab') === 'visitors' ? 'visitors' : 'play';
-      return send(res, 200, await everything(db, since, url.searchParams.has('fresh'), tab));
+      return send(
+        res,
+        200,
+        await everything(db, since, version, url.searchParams.has('fresh'), tab),
+      );
     }
     if (req.method === 'GET' && url.pathname === '/api/game') {
       const id = url.searchParams.get('id') || '';
@@ -108,7 +118,7 @@ const server = http.createServer(async (req, res) => {
       } catch {}
       const no = readOnly(sql);
       if (no) return send(res, 400, { error: no });
-      const [rows] = await d1([yours(sql, since)], { local: db === 'local' });
+      const [rows] = await d1([yours(sql, since, version)], { local: db === 'local' });
       return send(res, 200, { rows });
     }
     send(res, 404, { error: 'not here' });

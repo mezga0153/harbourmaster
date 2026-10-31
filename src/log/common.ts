@@ -11,6 +11,10 @@ export const LOG_ON =
   !new URLSearchParams(location.search).has('nolog') &&
   !(navigator as { webdriver?: boolean }).webdriver;
 
+/** Which version of the game this is: its commit's time and hash (vite.config.ts). */
+declare const __VERSION__: string;
+export const VERSION = __VERSION__;
+
 /** A random id: twelve letters and digits. */
 export const newId = (): string =>
   Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');

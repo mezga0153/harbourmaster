@@ -88,7 +88,8 @@
         background: var(--ink);
         color: var(--bg);
       }
-      button.plain {
+      button.plain,
+      select.plain {
         border: 1px solid var(--line);
         background: none;
         color: var(--ink);
@@ -297,6 +298,9 @@
         <button data-win="1">24 h</button><button data-win="7">7 days</button
         ><button data-win="30">30 days</button><button data-win="0">all</button>
       </div>
+      <select class="plain" id="verSel" title="only the days and visits of one version of the game">
+        <option value="">all versions</option>
+      </select>
       <button class="plain" id="refresh">refresh</button>
       <div id="status"></div>
     </header>
@@ -321,6 +325,7 @@
         data: null,
         vdata: null,
         game: null,
+        version: saved.version || '',
         sql:
           saved.sql ||
           'SELECT day, COUNT(*) AS games, ROUND(AVG(cash)) AS cash, ROUND(AVG(tier), 2) AS tier\nFROM d WHERE done\nGROUP BY day ORDER BY day LIMIT 30',
@@ -329,11 +334,20 @@
         try {
           localStorage.setItem(
             'hmStats',
-            JSON.stringify({ db: st.db, win: st.win, tab: st.tab, sql: st.sql }),
+            JSON.stringify({
+              db: st.db,
+              win: st.win,
+              tab: st.tab,
+              version: st.version,
+              sql: st.sql,
+            }),
           );
         } catch {}
       };
       const since = () => (st.win ? Date.now() - st.win * 864e5 : 0);
+      // the time span, and the version picked if one is
+      const scope = () =>
+        `since=${since()}${st.version ? '&version=' + encodeURIComponent(st.version) : ''}`;
       const $ = (s) => document.querySelector(s);
       const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
@@ -700,6 +714,37 @@
             table((a.tiers || []).map((r) => ({ ...r, tier: `${r.tier} ${tierName(r.tier)}` }))),
           ),
         );
+        // versions compared: how games went on each version of the game
+        const vdays = a.vdays || [];
+        const vs = [...new Set(vdays.map((r) => r.version))];
+        const vcolor = [C.sea, C.gold, C.violet, C.green, C.red];
+        const byDay = (key) =>
+          [...new Set(vdays.map((r) => r.day))].map((day) =>
+            Object.fromEntries([
+              ['day', day],
+              ...vs.map((v) => [
+                v,
+                (vdays.find((r) => r.day === day && r.version === v) || {})[key],
+              ]),
+            ]),
+          );
+        const vseries = vs.map((v, i) => ({ key: v, label: v, color: vcolor[i % vcolor.length] }));
+        cards.push(
+          wide(
+            card(
+              'Versions compared',
+              'games by the version of the game they started on: how far they got, how many reached the next tier, ran into the red or went bankrupt; then cash and town people by day, on each of the latest versions',
+              table(a.versions),
+              vs.length
+                ? [
+                    lines(byDay('cash'), { x: 'day', series: vseries, h: 150, W: FULL }),
+                    lines(byDay('town'), { x: 'day', series: vseries, h: 120, W: FULL }),
+                    legend(vseries),
+                  ]
+                : null,
+            ),
+          ),
+        );
         cards.push(
           card(
             'Money trouble',
@@ -745,6 +790,81 @@
                     table(a.curve),
                   ],
             ),
+          ),
+        );
+        // the town
+        cards.push(
+          wide(
+            card(
+              'The town as games go on',
+              'averages over the games that got to each day: its people, homes, and the people the port’s jobs and trade would support; goods it sends out and takes in a day',
+              none(a.town)
+                ? table([])
+                : [
+                    lines(a.town, {
+                      x: 'from_day',
+                      series: [
+                        { key: 'people', label: 'people', color: C.sea },
+                        { key: 'would_grow_to', label: 'would grow to', color: C.gold },
+                        { key: 'homes', label: 'homes', color: C.violet },
+                      ],
+                      h: 150,
+                      W: FULL,
+                    }),
+                    legend([
+                      { label: 'people', color: C.sea },
+                      { label: 'would grow to', color: C.gold },
+                      { label: 'homes', color: C.violet },
+                    ]),
+                    table(a.town),
+                  ],
+            ),
+          ),
+        );
+        const STAGES = ['Fishing village', 'Village', 'Town', 'Large town', 'City'];
+        cards.push(
+          card(
+            'Town stages',
+            'the day a game’s town first got to each, and the hours of play before it',
+            table(
+              (a.stages || []).map((r) => ({ ...r, stage: `${r.stage} ${STAGES[r.stage] ?? ''}` })),
+            ),
+          ),
+        );
+        cards.push(
+          card(
+            'Holding back',
+            'days ended with the next tier there to buy (the town big enough) but not bought, by the tier the port was at',
+            table((a.upgrade || []).map((r) => ({ ...r, tier: `${r.tier} ${tierName(r.tier)}` }))),
+          ),
+        );
+        // the port: how big, and what is in it
+        cards.push(
+          card(
+            'How much is built',
+            'averages over the games that got to each day: tiles built on, then jetty and quay tiles, road tiles, truck bays, cranes and docks',
+            none(a.portsize)
+              ? table([])
+              : [
+                  lines(a.portsize, {
+                    x: 'from_day',
+                    series: [{ key: 'tiles_built', label: 'tiles built', color: C.blue }],
+                    h: 130,
+                  }),
+                  table(a.portsize),
+                ],
+          ),
+        );
+        cards.push(
+          card(
+            'What ports have',
+            'each kind of thing built, and each road feature in use (one-way, lights, forklift-only, exits off the highway): % of games, from what day on average',
+            none(a.features)
+              ? table([])
+              : [
+                  hbars(a.features.slice(0, 20), 'feature', 'games_pct', C.green),
+                  table(a.features),
+                ],
           ),
         );
         // trouble
@@ -931,6 +1051,7 @@
       const GAME_COLS = [
         'day',
         'done',
+        'version',
         'tier',
         'cash',
         'loan',
@@ -945,7 +1066,10 @@
         'staff',
         'machines',
         'contracts',
+        'can_up',
         'town_pop',
+        'size',
+        'port',
         'problems',
         'bad',
         'actions',
@@ -981,11 +1105,9 @@
         let out;
         try {
           const res = await fetch(`/api/game?db=${st.db}&id=${encodeURIComponent(id)}`);
-          out = await res
-            .json()
-            .catch(() => ({
-              error: `the stats server answered ${res.status} ${res.statusText}, not with the game`,
-            }));
+          out = await res.json().catch(() => ({
+            error: `the stats server answered ${res.status} ${res.statusText}, not with the game`,
+          }));
           if (out.error) throw new Error(out.error);
         } catch (e) {
           out = {
@@ -1033,7 +1155,7 @@
                   ? tierName(r.tier)
                   : k === 'tips'
                     ? JSON.parse(r.tips || '[]').join(' ') || null
-                    : ['machines', 'problems', 'bad', 'actions'].includes(k)
+                    : ['machines', 'problems', 'bad', 'actions', 'port'].includes(k)
                       ? tallyText(r[k])
                       : k === 'done'
                         ? r.done
@@ -1357,7 +1479,7 @@
             el(
               'span',
               { class: 'hint' },
-              'days: game visit seed day done tier cash loan income spend ledger in_red bankrupt earned crates containers boats trucks exported penalties staff machines contracts town_pop town_stage capacity problems bad actions tips seconds paused fast fps created_at',
+              'days: game visit version seed day done tier cash loan income spend ledger in_red bankrupt earned crates containers boats trucks exported penalties staff machines contracts can_up town_pop town_stage town size port capacity problems bad actions tips seconds paused fast fps created_at',
             ),
           ),
           out,
@@ -1367,7 +1489,7 @@
         sqlOut = { rows: [] };
         try {
           const r = await (
-            await fetch(`/api/sql?db=${st.db}&since=${since()}`, {
+            await fetch(`/api/sql?db=${st.db}&${scope()}`, {
               method: 'POST',
               body: JSON.stringify({ sql: st.sql }),
             })
@@ -1393,7 +1515,7 @@
           b.classList.toggle('on', +b.dataset.win === st.win);
         try {
           const res = await fetch(
-            `/api/all?db=${st.db}&since=${since()}&tab=${tab}${fresh ? '&fresh' : ''}`,
+            `/api/all?db=${st.db}&${scope()}&tab=${tab}${fresh ? '&fresh' : ''}`,
           );
           const r = await res
             .json()
@@ -1403,6 +1525,7 @@
           if (tab === 'visitors') st.vdata = r;
           else st.data = r;
           $('#banner').replaceChildren();
+          versions(r.answers.versionlist || []);
           $('#status').textContent =
             `${st.db} · updated ${new Date(r.at).toTimeString().slice(0, 8)} · ${(r.took / 1000).toFixed(1)} s`;
           render();
@@ -1448,6 +1571,27 @@
         const b = e.target.closest('button');
         if (!b) return;
         st.win = +b.dataset.win;
+        keep();
+        load();
+      };
+      // the versions there are to pick from, newest first, the one picked kept
+      function versions(list) {
+        const sel = $('#verSel');
+        const have = list.map((r) => r.version);
+        if (st.version && !have.includes(st.version)) have.unshift(st.version);
+        sel.replaceChildren(
+          el('option', { value: '' }, 'all versions'),
+          ...have.map((v) => {
+            const r = list.find((x) => x.version === v);
+            return el('option', { value: v }, r ? `${v} · ${r.games} games` : v);
+          }),
+        );
+        sel.value = st.version;
+      }
+      $('#verSel').onchange = (e) => {
+        st.version = e.target.value;
+        st.game = null;
+        gameAsk++;
         keep();
         load();
       };

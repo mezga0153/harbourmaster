@@ -1,11 +1,14 @@
 import type { Command, SimEvent, Snapshot } from '../protocol';
+import type { GameMap } from '../sim/map';
 import { TICKS_PER_DAY } from '../sim/types';
-import { gist, keep, LOG_ON, newId, post, recall, tally, visitId } from './common';
+import { gist, keep, LOG_ON, newId, post, recall, tally, VERSION, visitId } from './common';
 import { setWhere } from './errors';
+import { portSize, townNow } from './port';
 import { visitAction, visitDay, visitGame } from './visit';
 
 // Each day of a game is sent to /api/days as it ends: the port as it stands
-// (money, the tier, the town, the cargo and boats handled), what the player
+// (money, the tier and whether the next could be bought, the town, the cargo
+// and boats handled, how much is built and which features: port.ts), what the player
 // did that day (built, hired, signed, the screens looked at), the red marks
 // on the map, the bad news, the advisor's tips, and how long it took in real
 // time, paused, sped up or not, at how many frames a second. The day under way is sent
@@ -40,6 +43,7 @@ let t: Tallies | null = null;
 let starting = false; // a game sent from the worker, its first frame still to come
 let games = 0;
 let latest: Snapshot | null = null;
+let map: GameMap | null = null;
 let lastFrame = 0;
 let frames = 0;
 
@@ -69,7 +73,7 @@ if (LOG_ON) {
       frames = 0;
     } else if (latest && t) {
       keep(DAY_KEY, t);
-      void post(URL_, { days: [dayRow(latest, false, t)] }, true);
+      if (map) void post(URL_, { days: [dayRow(latest, map, false, t)] }, true);
     }
   });
 }
@@ -93,8 +97,9 @@ function begin(s: Snapshot): void {
   visitGame(game, s.seed, day, games > 1);
 }
 
-export function logFrame(s: Snapshot, events: SimEvent[]): void {
+export function logFrame(s: Snapshot, events: SimEvent[], m: GameMap): void {
   if (!LOG_ON) return;
+  map = m;
   try {
     if (starting) {
       starting = false;
@@ -103,7 +108,7 @@ export function logFrame(s: Snapshot, events: SimEvent[]): void {
     if (!game || !t) return;
     const d = dayOf(s.tick);
     if (d > day) {
-      void post(URL_, { days: [dayRow(s, true, t)] });
+      void post(URL_, { days: [dayRow(s, m, true, t)] });
       day = d;
       t = fresh(game, day);
       keep(GAME_KEY, { id: game, seed: s.seed, day });
@@ -169,7 +174,12 @@ const round = (v: number) => Math.round(v) || 0;
  * The row for a day: ended (`done`, read at the start of the next) or under
  * way, with the day's tallies.
  */
-export function dayRow(s: Snapshot, done: boolean, tt: Tallies): Record<string, unknown> {
+export function dayRow(
+  s: Snapshot,
+  m: GameMap,
+  done: boolean,
+  tt: Tallies,
+): Record<string, unknown> {
   const ledger = (done ? s.yesterday : null) ?? s.today;
   let income = 0;
   let spend = 0;
@@ -182,9 +192,11 @@ export function dayRow(s: Snapshot, done: boolean, tt: Tallies): Record<string, 
   const machines: Record<string, number> = {};
   for (const p of s.people) if (p.kind !== 'dockhand') tally(machines, p.kind, 10);
   const c = s.capacity;
+  const { size, port } = portSize(m, s);
   return {
     game: tt.game,
     visit: visitId,
+    version: VERSION,
     seed: s.seed,
     day: tt.day,
     done,
@@ -206,8 +218,12 @@ export function dayRow(s: Snapshot, done: boolean, tt: Tallies): Record<string, 
     staff: s.people.filter((p) => p.kind === 'dockhand').length,
     machines,
     contracts: s.contracts.length,
+    canUp: s.progress.canUpgrade,
     townPop: s.town ? round(s.town.population) : null,
     townStage: s.town?.stage ?? null,
+    town: townNow(s),
+    size,
+    port,
     capacity: {
       demand: c.demand,
       unloading: c.unloading,

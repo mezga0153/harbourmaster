@@ -23,18 +23,20 @@ const PASSING =
 // since epoch): d, the days of games sent; v, the visits, each with whether
 // it started a game (started), did anything in it (played) and was a bot;
 // and g, the games, each with its seed, the furthest day it got to (far),
-// when it was first and last seen, and on how many visits.
-export const ctes = (since) => {
+// when it was first and last seen, and on how many visits. With a
+// `version`, d and v are only the days and visits of that version of the game.
+export const ctes = (since, version) => {
   const t = Math.max(0, Math.floor(+since || 0));
+  const only = version ? ` AND version = '${String(version).replace(/'/g, "''")}'` : '';
   return (
-    `d AS (SELECT * FROM days WHERE created_at >= ${t}), ` +
-    `v AS (SELECT *, game IS NOT NULL AS started, actions > 0 AS played, device LIKE 'bot ·%' AS bot FROM visits WHERE created_at >= ${t}), ` +
+    `d AS (SELECT * FROM days WHERE created_at >= ${t}${only}), ` +
+    `v AS (SELECT *, game IS NOT NULL AS started, actions > 0 AS played, device LIKE 'bot ·%' AS bot FROM visits WHERE created_at >= ${t}${only}), ` +
     `g AS (SELECT game, MAX(seed) AS seed, MAX(day) AS far, MIN(created_at) AS first, MAX(created_at) AS last, ` +
     `SUM(visit) AS visits FROM (SELECT game, seed, day, created_at, 0 AS visit FROM d UNION ALL ` +
     `SELECT game, seed, day, created_at, 1 FROM v WHERE game IS NOT NULL AND NOT bot) GROUP BY game)`
   );
 };
-export const within = (sql, since) => `WITH ${ctes(since)} ${sql}`;
+export const within = (sql, since, version) => `WITH ${ctes(since, version)} ${sql}`;
 
 let queue = Promise.resolve();
 function wrangler(statements, local) {
@@ -109,8 +111,8 @@ async function schema(local) {
 // hasn't got one yet (the live one before a deploy), that section answers
 // nothing and is named in `missing`, and the others are asked again without it.
 // raw sections are asked as they are, without p and v in front.
-export async function ask(sections, { local, since, raw = false }) {
-  const sql = (s) => (raw ? s.sql : within(s.sql, since));
+export async function ask(sections, { local, since, version, raw = false }) {
+  const sql = (s) => (raw ? s.sql : within(s.sql, since, version));
   let asked = sections,
     missing = [],
     rows;

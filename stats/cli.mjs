@@ -2,12 +2,15 @@
 //   node stats/cli.mjs [--local] [section ...]     (see queries.mjs for the sections)
 //   node stats/cli.mjs [--local] visits           (every section of the visitors)
 //   node stats/cli.mjs [--local] sql "SELECT ..."
+//   --version '2026-10-31 00:51 3b839e2' anywhere: only that version of the game
 import { SECTIONS } from './queries.mjs';
 import { ask, d1 } from './db.mjs';
 
 const args = process.argv.slice(2),
   local = args[0] === '--local';
 if (local) args.shift();
+const at = args.indexOf('--version');
+const version = at >= 0 ? args.splice(at, 2)[1] : null;
 
 function table(title, rows) {
   console.log(`\n== ${title}`);
@@ -36,7 +39,7 @@ try {
     const known = new Set([...SECTIONS.map((s) => s.id), 'visits']);
     if (args.some((a) => !known.has(a)))
       throw new Error(`unknown section; there are: visits ${SECTIONS.map((s) => s.id).join(' ')}`);
-    const { answers, missing } = await ask(pick, { local, since: 0 });
+    const { answers, missing } = await ask(pick, { local, since: 0, version });
     for (const s of pick) {
       if (missing.includes(s.id))
         console.log(

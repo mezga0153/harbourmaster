@@ -1,4 +1,4 @@
-import { LOG_ON, post, visitId } from './common';
+import { LOG_ON, post, VERSION, visitId } from './common';
 
 // Each page load of the game is a visit, sent to /api/visits: the page it came
 // from (the referrer's host and path, and any utm_ tags), the address it
@@ -81,6 +81,7 @@ export function visitOpen(graphics: string, gpu: string | null): void {
     const s = window.screen;
     first = {
       visit: visitId,
+      version: VERSION,
       page: landing(),
       ref,
       lang: String(navigator.language || '').slice(0, 35) || null,

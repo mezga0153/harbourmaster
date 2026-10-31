@@ -290,7 +290,7 @@ function handle(msg: WorkerMessage): void {
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
   sound.onSnapshot(msg.snapshot);
-  logFrame(msg.snapshot, msg.events);
+  logFrame(msg.snapshot, msg.events, map);
   showPlots();
   for (const ev of msg.events) {
     if (ev.kind === 'message') pushMessage(ev.text, ev.tone);

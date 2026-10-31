@@ -1,21 +1,22 @@
 // The days of players' games, at /api/days: one row per day of a game, sent
 // by src/log/days.ts (see migrations/0001_log.sql for each field).
-//   POST { days: [ { game, visit?, seed, day, done, tier, cash, loan, income, spend, ledger,
+//   POST { days: [ { game, visit?, version?, seed, day, done, tier, cash, loan, income, spend, ledger,
 //                    inRed, bankrupt, earned, crates, containers, boats, trucks, exported,
-//                    penalties, staff, machines, contracts, townPop?, townStage?, capacity,
-//                    problems, bad, actions, tips, seconds, paused, fast, fps? } ] }  -> 204
+//                    penalties, staff, machines, contracts, canUp, townPop?, townStage?, town?,
+//                    size, port, capacity, problems, bad, actions, tips, seconds, paused, fast, fps? } ] }  -> 204
 // A day under way (done false: the page put away) is replaced when it is sent
 // again, finished or not; a finished day is never replaced by one under way.
 
-import { counts, id, int, json, num, numbers, object } from '../check.js';
+import { counts, id, int, json, num, numbers, object, version } from '../check.js';
 
 const MAX_BODY = 32 * 1024; // bytes
 const MAX_DAYS = 10; // rows a request
 const MONEY = 1e13;
 
-const COLUMNS = [
+export const COLUMNS = [
   'game',
   'visit',
+  'version',
   'seed',
   'day',
   'done',
@@ -37,8 +38,12 @@ const COLUMNS = [
   'staff',
   'machines',
   'contracts',
+  'can_up',
   'town_pop',
   'town_stage',
+  'town',
+  'size',
+  'port',
   'capacity',
   'problems',
   'bad',
@@ -54,6 +59,7 @@ const COLUMNS = [
 /** A row ready to insert, in COLUMNS' order, or null if anything about it is off. */
 export function row(d, now) {
   if (!object(d) || !id(d.game) || (d.visit != null && !id(d.visit))) return null;
+  if (d.version != null && !version(d.version)) return null;
   if (
     !int(d.seed, 0, 1e9) ||
     !int(d.day, 1, 1e6) ||
@@ -74,6 +80,7 @@ export function row(d, now) {
     if (!int(d[k], 0, 1e9)) return null;
   if (d.townPop != null && !int(d.townPop, 0, 1e7)) return null;
   if (d.townStage != null && !int(d.townStage, 0, 50)) return null;
+  if (typeof d.canUp !== 'boolean' || !int(d.size, 0, 1e7)) return null;
   const json = {
     ledger: numbers(d.ledger),
     machines: counts(d.machines, 10, 20),
@@ -81,6 +88,8 @@ export function row(d, now) {
     problems: counts(d.problems),
     bad: counts(d.bad),
     actions: counts(d.actions, 120, 60),
+    town: numbers(d.town),
+    port: counts(d.port, 60, 30),
   };
   if (Object.values(json).some((v) => v === undefined)) return null;
   if (
@@ -93,43 +102,49 @@ export function row(d, now) {
     return null;
   if (d.fps != null && !num(d.fps, 0, 1000)) return null;
   const tenth = (v) => Math.round(v * 10) / 10;
-  return [
-    d.game,
-    d.visit ?? null,
-    d.seed,
-    d.day,
-    d.done ? 1 : 0,
-    d.tier,
-    d.cash,
-    d.loan,
-    d.income,
-    d.spend,
-    json.ledger,
-    d.inRed,
-    d.bankrupt ? 1 : 0,
-    d.earned,
-    d.crates,
-    d.containers,
-    d.boats,
-    d.trucks,
-    d.exported,
-    d.penalties,
-    d.staff,
-    json.machines,
-    d.contracts,
-    d.townPop ?? null,
-    d.townStage ?? null,
-    json.capacity,
-    json.problems,
-    json.bad,
-    json.actions,
-    JSON.stringify(d.tips),
-    tenth(d.seconds),
-    tenth(d.paused),
-    tenth(d.fast),
-    d.fps == null ? null : tenth(d.fps),
-    now,
-  ];
+  const r = {
+    game: d.game,
+    visit: d.visit ?? null,
+    version: d.version ?? null,
+    seed: d.seed,
+    day: d.day,
+    done: d.done ? 1 : 0,
+    tier: d.tier,
+    cash: d.cash,
+    loan: d.loan,
+    income: d.income,
+    spend: d.spend,
+    ledger: json.ledger,
+    in_red: d.inRed,
+    bankrupt: d.bankrupt ? 1 : 0,
+    earned: d.earned,
+    crates: d.crates,
+    containers: d.containers,
+    boats: d.boats,
+    trucks: d.trucks,
+    exported: d.exported,
+    penalties: d.penalties,
+    staff: d.staff,
+    machines: json.machines,
+    contracts: d.contracts,
+    can_up: d.canUp ? 1 : 0,
+    town_pop: d.townPop ?? null,
+    town_stage: d.townStage ?? null,
+    town: json.town,
+    size: d.size,
+    port: json.port,
+    capacity: json.capacity,
+    problems: json.problems,
+    bad: json.bad,
+    actions: json.actions,
+    tips: JSON.stringify(d.tips),
+    seconds: tenth(d.seconds),
+    paused: tenth(d.paused),
+    fast: tenth(d.fast),
+    fps: d.fps == null ? null : tenth(d.fps),
+    created_at: now,
+  };
+  return COLUMNS.map((c) => r[c]);
 }
 
 export async function take(request, env) {

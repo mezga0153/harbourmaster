@@ -29,11 +29,13 @@ unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
 The published game (only the built one, never `npm run dev`, an automated
 browser or `?nolog`) tells how players get on, with nothing about who they
 are (random ids, no IP): `src/log/` sends each page load (`visit.ts`), each
-day of each game as it ends (`days.ts`: money, tier, town, what the player
+day of each game as it ends (`days.ts`: money, tier, the town, how much of
+the port is built and which features are in use (`port.ts`), what the player
 did, the red marks on the map, the messages in red, the advisor's tips, real
 time paused or sped up, frames a second) and what goes wrong (`errors.ts`:
 uncaught errors, the sim throwing, saves failing, an autosave set aside, the
-3D view lost). `server/` (the Worker beside the game's files, see
+3D view lost), each stamped with the game's version (its commit's time and
+hash, `scripts/version.mjs`). `server/` (the Worker beside the game's files, see
 `wrangler.jsonc`) keeps them in D1 (`harbourmaster-log`, tables in
 `migrations/`; `deploy.sh` applies new ones).
 
@@ -42,7 +44,8 @@ uncaught errors, the sim throwing, saves failing, an autosave set aside, the
   your own; the questions are in `stats/queries.mjs`
 - `./stats.sh gui` is the stats page (http://127.0.0.1:8798): games by day,
   how far they get, tiers, money, what holds ports back, problems, errors,
-  devices, and any game day by day
+  devices, and any game day by day; versions side by side, and a picker to
+  narrow it all to one version (`--version '...'` in the terminal)
 - `--local` reads the copy `wrangler dev` keeps instead: `npm run build`,
   then `wrangler dev` serves the built game with the log at
   http://localhost:8787

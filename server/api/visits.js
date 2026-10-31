@@ -1,12 +1,12 @@
 // Visits, at /api/visits: one row per page load of the game, sent by
 // src/log/visit.ts (see migrations/0001_log.sql for each field).
-//   POST { visit, page, ref?, lang?, sw?, sh?, dpr?, touch?, graphics?, gpu?,
+//   POST { visit, version?, page, ref?, lang?, sw?, sh?, dpr?, touch?, graphics?, gpu?,
 //          game?, seed?, day0?, day?, actions, newGames, seconds }  -> 204
 // The first one makes the row; the ones after bring how far the visit got up
 // to date (the game, its day, what was done, the time looked at), and only for
 // a day. Where and on what come from the request (where.js), never the IP.
 
-import { id, int, json, num, plain } from '../check.js';
+import { id, int, json, num, plain, version } from '../check.js';
 import { where } from '../where.js';
 
 const MAX_BODY = 4 * 1024; // bytes
@@ -76,12 +76,14 @@ export function row(v, now, w) {
   )
     return null;
   if (v.gpu != null && !plain(v.gpu, 300)) return null;
+  if (v.version != null && !version(v.version)) return null;
   if (v.seed != null && !int(v.seed, 0, 1e9)) return null;
   for (const k of ['day0', 'day']) if (v[k] != null && !int(v[k], 1, 1e6)) return null;
   if (!int(v.actions, 0, 1e7) || !int(v.newGames, 0, 1e4) || !num(v.seconds, 0, 7 * 86400))
     return null;
   return [
     v.visit,
+    v.version ?? null,
     page,
     ref ? ref.ref : null,
     ref ? ref.host : null,
@@ -117,9 +119,9 @@ export async function take(request, env) {
   // where it came from and on what stay as the first beacon had them; the
   // game is the latest one played, the day the game opened on the first
   await env.DB.prepare(
-    'INSERT INTO visits (visit, page, referrer, ref_host, lang, screen_w, screen_h, dpr, touch, graphics, gpu, device, ua, ' +
+    'INSERT INTO visits (visit, version, page, referrer, ref_host, lang, screen_w, screen_h, dpr, touch, graphics, gpu, device, ua, ' +
       'country, region, city, game, seed, day0, day, actions, new_games, seconds, created_at, updated_at) ' +
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
       'ON CONFLICT (visit) DO UPDATE SET game = COALESCE(excluded.game, game), seed = COALESCE(excluded.seed, seed), ' +
       'day0 = COALESCE(day0, excluded.day0), day = COALESCE(excluded.day, day), actions = MAX(actions, excluded.actions), ' +
       'new_games = MAX(new_games, excluded.new_games), seconds = MAX(seconds, excluded.seconds), updated_at = excluded.updated_at ' +
