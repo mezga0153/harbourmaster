@@ -88,10 +88,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           office: each one coordinates {B.DOCKS_PER_OFFICE} docks.
         </p>
         <p>
-          The harbour master sends boats to a berth under a jib crane first. With no dockhands at
-          all, boats wait at anchor for one. A boat kept waiting costs demurrage, and one kept too
-          long leaves with its cargo. Buoys mark the ways in and out, so boats keep out of each
-          other's way.
+          The harbour master sends boats to a berth under a jib crane first, if it has room in crate
+          storage in its reach. With no dockhands at all, boats wait at anchor for one. A boat kept
+          waiting costs demurrage, and one kept too long leaves with its cargo. Buoys mark the ways
+          in and out, so boats keep out of each other's way.
         </p>
       </>
     ),
@@ -125,9 +125,11 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          <b>Jib cranes</b> stand on a quay edge and lift crates off a boat lying under them. If
-          crate storage is marked out within {B.JIB_REACH} tiles they swing the crates straight into
-          it; otherwise onto a landing stack of {B.CRANE_STACK} for forklifts.
+          <b>Jib cranes</b> stand on a quay edge and lift crates off a boat lying under them,
+          swinging them straight into crate storage for cargo coming in marked out right next to
+          them, in the machines-only ground round them. They never set crates down at their feet:
+          one with no such storage next to it, or all of it full, unloads nothing, and has a red
+          mark over it until it has some.
         </p>
         <p>
           <b>Harbour cranes</b> lift containers off feeder ships onto a small stack beside them, for
@@ -145,7 +147,7 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <p>
           The ground round every crane is for port machines only: no dockhands, no hauliers' trucks.
-          Placing or selecting a crane shows it in red, and a jib crane's reach in blue.
+          Placing or selecting a crane shows it in red; a jib crane's storage goes there too.
         </p>
       </>
     ),
@@ -161,8 +163,8 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <p>
           <b>Forklifts</b> carry {B.FORKLIFT_CAPACITY} crates a trip, but cannot unload boats. They
-          take what dockhands land on the quay and what jib cranes stack, and empty crate storage
-          the trucks cannot reach, to a truck bay or storage they can.
+          take what dockhands land on the quay, and empty crate storage the trucks cannot reach,
+          like that by a jib crane, to a truck bay or storage they can.
         </p>
         <p>
           <b>Reach stackers</b> take containers from the harbour and gantry cranes to the container

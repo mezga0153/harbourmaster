@@ -372,6 +372,15 @@ export function jibStows(w: World, c: Crane): boolean {
   return jibStores(w, c).some((a) => takesImports(w, a));
 }
 
+/**
+ * The crate storage a jib crane swings the next crate off a boat into: the
+ * nearest in reach that takes cargo coming in and has room for it. With
+ * none, it unloads nothing: it never sets crates down at its feet.
+ */
+export function jibStore(w: World, c: Crane): Bay | undefined {
+  return jibStores(w, c).find((a) => bayRoom(a, false) > 0 && takesImports(w, a));
+}
+
 /** Trucks can get to this bay or storage area to load. */
 export function truckable(w: World, b: Bay): boolean {
   return roadTo(w, b) < Infinity;

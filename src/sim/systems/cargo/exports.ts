@@ -208,11 +208,9 @@ export function exportTarget(
   return null;
 }
 
-/** Whether a jib crane can swing a crate on board from tile `t`. */
+/** Whether a jib crane can swing a crate on board from tile `t`: right beside it. */
 export function inJibReach(w: World, c: Crane, t: number): boolean {
-  const m = w.map;
-  const d = Math.max(Math.abs(m.xOf(t) - m.xOf(c.idx)), Math.abs(m.yOf(t) - m.yOf(c.idx)));
-  return d <= B.JIB_REACH;
+  return near(w, c.idx, t);
 }
 
 /**

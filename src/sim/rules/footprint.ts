@@ -175,7 +175,10 @@ export function kindOfCode(code: number): BuildKind | null {
   return null;
 }
 
-/** Tiles round a crane at `i` kept for port machines, and those a jib crane reaches storage in. */
+/**
+ * Tiles round a crane at `i` kept for port machines (a jib crane reaches
+ * storage in just these, right beside it), and a gantry crane's rails.
+ */
 export function craneGround(
   map: GameMap,
   kind: 'jibCrane' | 'harbourCrane' | 'gantryCrane',
@@ -203,6 +206,5 @@ export function craneGround(
     for (const t of gantryGround(map, i, facing)) zone.add(t);
     return { zone: [...zone].filter((t) => !rails.includes(t)), reach: rails };
   }
-  const reach = kind === 'jibCrane' ? [...around(B.JIB_REACH)].filter((t) => !zone.has(t)) : [];
-  return { zone: [...zone], reach };
+  return { zone: [...zone], reach: [] };
 }

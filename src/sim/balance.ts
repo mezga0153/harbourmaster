@@ -250,8 +250,6 @@ export const SELL_SHARE = 0.5;
 export const CRANE_RUNNING_COST = 30; // per day
 export const CRANE_TICKS = 10; // per crate lifted
 export const CRANE_STACK = 10;
-/** Tiles a jib crane reaches round from where it stands, to swing crates straight into storage. */
-export const JIB_REACH = 2;
 /** Crates dockhands set down on one quay tile beside a boat, for the forklifts. */
 export const PILE_CRATES = 8;
 

@@ -88,7 +88,7 @@ import { bayCap, bayIncoming, bayRoom, isBoxy } from '../helpers';
 import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
-import { readyList, removePile } from './cargo/stores';
+import { jibStows, readyList, removePile } from './cargo/stores';
 import { dest } from './cargo/customs';
 import { addBay, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
 
@@ -101,6 +101,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   let firstError: string | null = null;
   // Why a depot just built is no use yet, said once it is up.
   let shutIn: string | undefined;
+  // A jib crane just built with no crate storage in reach to swing crates into.
+  let noStore = false;
   // Docks grow out from the shore, so a line dragged from the sea inwards
   // only fits once the tiles nearer the shore are built: keep going round
   // until nothing more can be placed.
@@ -142,7 +144,10 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
       });
       if (kind === 'truckBay' || kind === 'largeBay') addBay(w, i);
       if (kind === 'depot') shutIn ??= depotDoorTrouble(w.map, i, f) ?? undefined;
-      if (kind === 'jibCrane') addCrane(w, i, 'jib');
+      if (kind === 'jibCrane') {
+        addCrane(w, i, 'jib');
+        noStore ||= !jibStows(w, w.cranes.get(i)!);
+      }
       if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
         tip(w, 'cranes');
       }
@@ -192,6 +197,12 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
     if (trouble) message(w, `This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
   } else if (shutIn) {
     message(w, `This depot is no use yet: ${shutIn[0].toLowerCase()}${shutIn.slice(1)}`, 'bad');
+  } else if (noStore) {
+    message(
+      w,
+      'This jib crane unloads nothing yet: it swings crates only into crate storage, and there is none for cargo coming in next to it. Mark some out in the machines-only ground round it.',
+      'bad',
+    );
   } else if (firstError) message(w, firstError, 'bad');
 }
 

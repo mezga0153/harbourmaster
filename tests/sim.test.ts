@@ -31,9 +31,17 @@ import {
 import { Build, Deco, Store, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { Rng } from '../src/sim/rng';
+import { bayRoom } from '../src/sim/helpers';
 import { World } from '../src/sim/world';
 import { tip } from '../src/sim/systems/output';
-import { berthTrouble, craneWhy, parkedWords, truckWhy } from '../src/sim/systems/snapshot';
+import {
+  berthTrouble,
+  boatWhy,
+  craneWhy,
+  parkedWords,
+  problems,
+  truckWhy,
+} from '../src/sim/systems/snapshot';
 import { addContract, capacity, newDay, refreshOffers } from '../src/sim/systems/economy';
 import {
   cranePlaces,
@@ -773,7 +781,8 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'quay', tiles: jetty });
     const crane = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [crane] });
-    // Pallets, so the dockhands leave them for the forklift.
+    // Pallets an older game left at the crane's feet, so the dockhands
+    // leave them for the forklift.
     world.cranes.get(crane)!.stack.push(10, 10);
     world.cranes.get(crane)!.pallets = true;
     // The bay is only joined to the quay by port paths, which forklifts avoid.
@@ -784,7 +793,7 @@ describe('Coastal Wharf tier', () => {
     expect(world.snapshot().entities.find((e) => e.id === f.id)!.alert).toBe(true);
   });
 
-  it('leaves pallets for forklifts', () => {
+  it('leaves pallets an older game left at a jib crane for forklifts', () => {
     const world = World.create(7, 96);
     world.boats.length = 0; // the first boat moors at once; keep the jetty free
     world.tier = 1;
@@ -798,6 +807,7 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'portRoad', tiles: paths });
     buildOffice(world);
     const crane = world.cranes.get(tip)!;
+    // From before jib cranes stopped setting crates down at their feet.
     crane.stack.push(10, 10, 10, 10);
     crane.pallets = true;
     for (let t = 0; t < 300; t++) world.step();
@@ -947,7 +957,9 @@ describe('Coastal Wharf tier', () => {
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
-    // A forklift to take on what the crane lands.
+    // Storage beside it to swing the crates into, and a forklift to take
+    // them on from there, as no truck gets beside a crane.
+    world.command({ type: 'store', tiles: [jetty[jetty.length - 2]], kind: 'crates', on: true });
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
     fireDockhands(world);
     const m = world.map;
@@ -976,6 +988,8 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'jibCrane', tiles: [side] });
     expect(world.map.build[side]).toBe(Build.JibCrane);
     expect(walkableAt(world.map, jetty[jetty.length - 2])).toBe(false);
+    // Storage beside it to swing the crates into.
+    world.command({ type: 'store', tiles: [jetty[jetty.length - 2]], kind: 'crates', on: true });
     buildDepot(world);
     world.command({ type: 'buyMachine', kind: 'forklift' });
     expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(1);
@@ -993,6 +1007,130 @@ describe('Coastal Wharf tier', () => {
     }
     expect(craneWorked).toBe(true);
     expect(world.stats.cratesHandled).toBeGreaterThan(5);
+  });
+
+  it('has a jib crane with no crate storage beside it unload nothing, with a red mark saying why', () => {
+    const world = World.create(7, 96);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    const beside = jetty[jetty.length - 2];
+    world.drainEvents();
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    // Said as it goes up.
+    const said = world
+      .drainEvents()
+      .filter((e) => e.kind === 'message' && /jib crane unloads nothing/.test(e.text));
+    expect(said).toHaveLength(1);
+    const crane = world.cranes.get(tip)!;
+    const mark = () => problems(world).find((p) => p.type === 'crane' && p.idx === tip);
+    expect(mark()?.text).toMatch(/No crate storage in reach.*next to it/);
+    expect(world.snapshot().cranes.find((c) => c.idx === tip)!.trouble).toMatch(/No crate storage/);
+    expect(craneWhy(world, crane)).toMatch(/No crate storage in reach/);
+    // The harbour master sends no boat to a berth under it, with others free.
+    const m = world.map;
+    const under = (b: { berth: number }) =>
+      Math.max(Math.abs(m.xOf(b.berth) - m.xOf(tip)), Math.abs(m.yOf(b.berth) - m.yOf(tip))) <= 1;
+    // The only other berth on this short quay is too near the shore: it
+    // waits at anchor, saying why.
+    let waited = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      for (const b of world.boats) {
+        if (b.state === 'moored' || b.state === 'arriving') expect(under(b)).toBe(false);
+        if (b.state === 'anchored') {
+          expect(boatWhy(world, b)).toMatch(/jib crane with no room in crate storage/);
+          waited++;
+        }
+      }
+      expect(crane.busy).toBe(false);
+      expect(crane.stack).toHaveLength(0);
+    }
+    expect(waited).toBeGreaterThan(0);
+    // Storage marked out beside it clears the mark, and it unloads into that.
+    world.command({ type: 'store', tiles: [beside], kind: 'crates', on: true });
+    expect(mark()).toBeUndefined();
+    expect(world.snapshot().cranes.find((c) => c.idx === tip)!.trouble).toBeUndefined();
+    fireDockhands(world);
+    let stowed = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 3 && stowed === 0; t++) {
+      world.step();
+      expect(crane.stack).toHaveLength(0);
+      stowed = world.bays.get(beside)?.crates.length ?? 0;
+    }
+    expect(stowed).toBeGreaterThan(0);
+  });
+
+  it('reaches storage only right beside a jib crane, in the ground kept for machines', () => {
+    const world = World.create(7, 96);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    // Two tiles off: out of its reach.
+    world.command({ type: 'store', tiles: [jetty[jetty.length - 3]], kind: 'crates', on: true });
+    expect(world.bays.get(jetty[jetty.length - 3])).toBeDefined();
+    expect(problems(world).some((p) => p.type === 'crane' && p.idx === tip)).toBe(true);
+    world.command({ type: 'store', tiles: [jetty[jetty.length - 2]], kind: 'crates', on: true });
+    expect(problems(world).some((p) => p.type === 'crane' && p.idx === tip)).toBe(false);
+  });
+
+  it('has a jib crane wait while the storage beside it is full, and the boat under it wait too', () => {
+    const world = World.create(7, 96);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    const beside = jetty[jetty.length - 2];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    world.command({ type: 'store', tiles: [beside], kind: 'crates', on: true });
+    fireDockhands(world);
+    const crane = world.cranes.get(tip)!;
+    const m = world.map;
+    const under = () =>
+      world.boats.find(
+        (b) =>
+          b.state === 'moored' &&
+          Math.max(Math.abs(m.xOf(b.berth) - m.xOf(tip)), Math.abs(m.yOf(b.berth) - m.yOf(tip))) <=
+            1,
+      );
+    for (let t = 0; t < TICKS_PER_DAY * 3 && !under(); t++) world.step();
+    const boat = under()!;
+    expect(boat).toBeDefined();
+    // Filled to the top: no room for another crate.
+    const store = world.bays.get(beside)!;
+    while (bayRoom(store, false) > 0) store.crates.push(10);
+    const load = boat.crates;
+    for (let t = 0; t < 100; t++) {
+      world.step();
+      expect(crane.stack).toHaveLength(0);
+    }
+    expect(boat.crates).toBe(load);
+    expect(craneWhy(world, crane)).toMatch(/full: waiting for room/);
+    // Not a red mark: it works once there is room.
+    expect(problems(world).some((p) => p.type === 'crane' && p.idx === tip)).toBe(false);
+    store.crates.length = 0;
+    for (let t = 0; t < 100 && boat.crates === load; t++) world.step();
+    expect(boat.crates).toBeLessThan(load);
+  });
+
+  it('still has forklifts take away the crates an older game left at a jib crane, landing no more there', () => {
+    const world = World.create(7, 96);
+    const jetty = quayPort(world);
+    const tip = jetty[jetty.length - 1];
+    world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    world.command({ type: 'store', tiles: [jetty[jetty.length - 2]], kind: 'crates', on: true });
+    // A save from before jib cranes stopped setting crates down at their feet.
+    world.cranes.get(tip)!.stack.push(10, 10, 10, 10);
+    const loaded = World.fromSave(JSON.parse(JSON.stringify(world.toSave())));
+    const crane = loaded.cranes.get(tip)!;
+    expect(crane.stack).toHaveLength(4);
+    expect(craneWhy(loaded, crane)).toMatch(/collect the crates at its feet/);
+    loaded.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(loaded) });
+    let most = crane.stack.length;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      loaded.step();
+      // It only ever goes down.
+      expect(crane.stack.length).toBeLessThanOrEqual(most);
+      most = crane.stack.length;
+    }
+    expect(crane.stack).toHaveLength(0);
   });
 });
 

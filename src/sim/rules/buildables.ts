@@ -52,7 +52,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.JibCrane,
     label: 'Jib crane',
     cost: 2500,
-    hint: `Goes on a quay edge. Lifts crates off moored boats, straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto the quay for forklifts and dockhands. Boats would rather berth under one, and wait for one when there are no dockhands. The 3×3 round a crane is for port machines only: no dockhands, no hauliers' trucks. $${B.CRANE_RUNNING_COST}/day to run`,
+    hint: `Goes on a quay edge. Lifts crates off moored boats straight into crate storage for cargo coming in, which it needs right next to it, in the red machines-only 3×3 round it: it sets none down at its feet, so with none there, or all of it full, it unloads nothing. Boats would rather berth under one with room in its storage, and wait for one when there are no dockhands. That 3×3 is for port machines only: no dockhands, no hauliers' trucks. $${B.CRANE_RUNNING_COST}/day to run`,
     drag: false,
   },
   depot: {

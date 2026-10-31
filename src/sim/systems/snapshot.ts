@@ -77,6 +77,7 @@ import {
   carriedLooks,
   cleared,
   customsHold,
+  jibStore,
   jibStows,
   nextClear,
   pending,
@@ -115,7 +116,14 @@ export function boatWhy(w: World, b: Boat): string | undefined {
       return `No berth for a coaster: it needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water.`;
     }
     if (b.vessel !== 'feeder' && !hands && [...w.cranes.values()].some((c) => c.kind === 'jib')) {
-      return 'With no dockhands to unload by hand, boats wait for a berth under a jib crane. Hire dockhands, or build more jib cranes.';
+      return 'With no dockhands to unload by hand, boats wait for a berth under a jib crane with room in crate storage in its reach. Hire dockhands, mark out more storage for cargo coming in by the cranes, or build more jib cranes.';
+    }
+    // A berth under a jib crane with nowhere to swing crates into is no use.
+    const idle = [...w.cranes.values()].some(
+      (c) => c.kind === 'jib' && !jibStore(w, c) && !berthTrouble(w, c),
+    );
+    if (b.vessel !== 'feeder' && idle) {
+      return 'Every berth it fits is taken, or under a jib crane with no room in crate storage next to it, where it would not be unloaded. Mark out storage for cargo coming in beside the crane, or build more berths.';
     }
     return 'Every berth it fits is taken, or a boat is coming or going in the way. More berths help.';
   }
@@ -137,8 +145,10 @@ export function boatWhy(w: World, b: Boat): string | undefined {
       ? 'Dockhands cannot get to it: it lies by machines-only ground. Forklifts cannot unload boats.'
       : 'Nobody to unload it: forklifts cannot unload boats. Hire dockhands, or berth boats under a jib crane.';
   }
-  if (jib && jib.stack.length >= B.CRANE_STACK && !jibStows(w, jib)) {
-    return "The crane's landing stack is full: a forklift must take it away. Crate storage within reach would take crates straight in.";
+  if (jib && !jibStore(w, jib)) {
+    return jibStows(w, jib)
+      ? 'The crate storage in reach of the jib crane over it is full: the crane waits for room. Forklifts take crates on from storage the trucks cannot reach.'
+      : 'The jib crane over it has no crate storage for cargo coming in next to it to swing the crates into, and it sets none down at its feet.';
   }
   if (b.vessel === 'coaster' && !forklifts(w) && !(jib && jibStows(w, jib))) {
     return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
@@ -234,17 +244,17 @@ export function truckWhy(w: World, t: Truck): string | undefined {
 export function craneWhy(w: World, c: Crane): string {
   const full = stackFull(w, c);
   if (c.kind === 'jib') {
-    const stores = jibStores(w, c);
     if (c.busy) {
-      return stores.some((a) => bayRoom(a, false) > 0 && takesImports(w, a))
-        ? 'Swinging crates straight into crate storage.'
-        : 'Lifting crates onto its landing stack.';
+      return w.jibJobs.get(c)?.load
+        ? 'Swinging crates on board from storage.'
+        : 'Swinging crates straight into crate storage.';
     }
-    if (full) {
-      return 'Landing stack full: waiting for a forklift to take it away. Dockhands keep off the ground round a crane.';
-    }
-    if (c.stack.length > 0) return 'Waiting for a forklift to collect its landing stack.';
-    return berthTrouble(w, c) ? 'No boat can come alongside it.' : 'No boat lying under it.';
+    // Crates an older game left on the ground at its feet.
+    if (c.stack.length > 0) return 'Waiting for a forklift to collect the crates at its feet.';
+    if (berthTrouble(w, c)) return 'No boat can come alongside it.';
+    if (!jibStows(w, c)) return 'No crate storage in reach to swing crates into.';
+    if (!jibStore(w, c)) return 'Crate storage in reach is full: waiting for room.';
+    return 'No boat lying under it.';
   }
   if (c.busy) return 'Lifting containers off the ship.';
   // Nowhere for them to go: every yard with room has stopped taking them.
@@ -262,6 +272,24 @@ export function craneWhy(w: World, c: Crane): string {
     : berthTrouble(w, c)
       ? 'No container ship can come alongside it.'
       : 'No container ship alongside.';
+}
+
+/**
+ * Why a crane cannot work as it is built, for a red mark over it: no ship
+ * can come alongside it, or a jib crane has nowhere to swing crates into.
+ */
+export function craneTrouble(w: World, c: Crane): string | null {
+  return berthTrouble(w, c) ?? jibTrouble(w, c);
+}
+
+/**
+ * Why a jib crane cannot unload a boat, or null if it can: it swings crates
+ * only into crate storage for cargo coming in within its reach, never down
+ * at its feet.
+ */
+export function jibTrouble(w: World, c: Crane): string | null {
+  if (c.kind !== 'jib' || jibStows(w, c)) return null;
+  return 'No crate storage in reach to swing crates into: mark out storage for cargo coming in next to it, in the machines-only ground round it.';
 }
 
 /**
@@ -321,7 +349,7 @@ export function problems(w: World): ProblemView[] {
     y: tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length,
   });
   for (const c of w.cranes.values()) {
-    const text = berthTrouble(w, c);
+    const text = craneTrouble(w, c);
     const h = c.kind === 'jib' ? 1.7 : c.kind === 'gantry' ? 2.9 : 2.3;
     if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
   }
@@ -771,9 +799,9 @@ export function buildSnapshot(w: World): Snapshot {
       max: craneStack(c),
       angle: c.angle,
       busy: c.busy,
-      stores: c.kind === 'jib' ? jibStores(w, c).length : 0,
+      stores: c.kind === 'jib' ? jibStores(w, c).filter((a) => takesImports(w, a)).length : 0,
       why: craneWhy(w, c),
-      trouble: berthTrouble(w, c) ?? undefined,
+      trouble: craneTrouble(w, c) ?? undefined,
       ...craneWork(w, c, jibs),
     })),
     town: w.town && {

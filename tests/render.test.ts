@@ -380,10 +380,10 @@ describe('Dockhands handling crates', () => {
 });
 
 describe('Jib cranes', () => {
-  it('lift each crate off the boat on the hook and set it down on the stack, never showing it nowhere', () => {
-    // The starting jetty paved into a quay, a jib crane on its end, a
-    // forklift to take on what it lands, and no dockhands to unload the
-    // boats by hand.
+  it('lift each crate off the boat on the hook and set it down in the storage beside them, never showing it nowhere', () => {
+    // The starting jetty paved into a quay, a jib crane on its end with
+    // crate storage beside it to swing crates into, a forklift to take
+    // them on, and no dockhands to unload the boats by hand.
     const world = World.create(7, 96);
     world.boats.length = 0;
     world.tier = 1;
@@ -398,6 +398,8 @@ describe('Jib cranes', () => {
     world.command({ type: 'build', kind: 'office', tiles: [office] });
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
+    const store = jetty[jetty.length - 2];
+    world.command({ type: 'store', tiles: [store], kind: 'crates', on: true });
     const depot = m.build.findIndex((_, i) => !placementError(m, 'depot', i));
     world.command({ type: 'build', kind: 'depot', tiles: [depot] });
     world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
@@ -417,7 +419,8 @@ describe('Jib cranes', () => {
     scene.add(structures.group, entities.group);
     const parts = (structures as unknown as { cranes: Map<number, any> }).cranes.get(tip)!;
     const jib = parts.jib;
-    const place = (): Object3D => parts.stack[jib.place];
+    const stock = (structures as unknown as { stock: any }).stock;
+    const place = (): Object3D => stock.crateIn(jib.store, jib.pile, jib.place);
     const hook = new Vector3();
     const at = new Vector3();
     // How far the hook is from coming down square on top of a crate.
@@ -432,7 +435,8 @@ describe('Jib cranes', () => {
     let lifts = 0;
     let was = 0;
     let taken = '';
-    for (let tick = 0; tick < 120 && crane.stack.length < 9; tick++) {
+    const stored = () => world.bays.get(store)?.crates.length ?? 0;
+    for (let tick = 0; tick < 120 && stored() < 9; tick++) {
       world.step();
       const s = world.snapshot();
       entities.push(s.entities, now, s.tick);
@@ -447,7 +451,7 @@ describe('Jib cranes', () => {
         scene.updateMatrixWorld(true);
         if (!jib.work) continue;
         const deck: Object3D = entities.slotObject(jib.boat, jib.slot)!;
-        // On the boat, on the hook or on the stack: never on none of them.
+        // On the boat, on the hook or in storage: never on none of them.
         expect(deck.visible || jib.load.visible || place().visible).toBe(true);
         const p = jib.phase;
         if (was < CRANE_LIFT_TAKEN && p >= CRANE_LIFT_TAKEN) {
@@ -457,8 +461,8 @@ describe('Jib cranes', () => {
           taken = jib.key;
           lifts++;
         }
-        // Unless the forklift has taken from the stack meanwhile, and the
-        // next place on it has moved.
+        // Unless the forklift has taken from the storage meanwhile, and the
+        // next place in it has moved.
         if (was < CRANE_LIFT_SET && p >= CRANE_LIFT_SET && jib.key === taken) {
           expect(off(place())).toBeLessThan(0.02);
           expect(place().visible).toBe(true);

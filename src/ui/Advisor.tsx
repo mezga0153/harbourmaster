@@ -49,17 +49,17 @@ const TIPS: Record<string, Tip> = {
   },
   pallets: {
     title: 'Crates on pallets',
-    text: 'Coasters bring their crates on pallets. Dockhands or a jib crane lift them off, but only forklifts take them on from the quay, unless a jib crane swings them straight into crate storage.',
+    text: 'Coasters bring their crates on pallets. Dockhands lift them off onto the quay, where only forklifts take them on; a jib crane swings them straight into crate storage instead.',
     topic: 'boats',
   },
   cranes: {
     title: 'Machines only round a crane',
-    text: 'The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. What a crane lands, forklifts or reach stackers take on.',
+    text: `The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. A jib crane swings crates only into crate storage for cargo coming in right next to it, in that red ground: mark some out there, or it unloads nothing. What a container crane lands, reach stackers take on.`,
     topic: 'cranes',
   },
   forklifts: {
     title: 'Forklifts',
-    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats. Dockhands set crates down on the quay for them, and jib cranes stack them; the forklifts take it on to the bays and storage.`,
+    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats. Dockhands set crates down on the quay for them, and the forklifts take them on to the bays and storage, and empty storage by a jib crane that the trucks cannot reach.`,
     topic: 'machines',
   },
   stackers: {
@@ -79,7 +79,7 @@ const TIPS: Record<string, Tip> = {
   },
   storage: {
     title: 'Crate storage',
-    text: `Trucks load from inside the port, on a port road or quay beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane within ${B.JIB_REACH} tiles fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both.`,
+    text: `Trucks load from inside the port, on a port road or quay beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane right next to it fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both.`,
     topic: 'storage',
   },
   yardGantry: {
@@ -109,7 +109,7 @@ const TIPS: Record<string, Tip> = {
   },
   noHands: {
     title: 'Nobody to unload by hand',
-    text: 'With no dockhands, boats only take berths under a jib crane and wait at anchor for one. Hire dockhands, or build more jib cranes.',
+    text: 'With no dockhands, boats only take berths under a jib crane with room in crate storage in its reach, and wait at anchor for one. Hire dockhands, mark out more storage by the cranes, or build more jib cranes.',
     topic: 'boats',
   },
   roundTrip: {

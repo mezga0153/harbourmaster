@@ -36,7 +36,7 @@ const WHY_TOPIC: Record<string, string> = {
 const CRANE_NAME = { jib: 'Jib crane', harbour: 'Harbour crane', gantry: 'Gantry crane' };
 
 const CRANE_NOTE = {
-  jib: `Lifts crates off a boat lying under it: straight into crate storage up to ${B.JIB_REACH} tiles away, or else onto its landing stack for the forklifts. The ground round it is for port machines only, so dockhands keep off.`,
+  jib: `Lifts crates off a boat lying under it straight into crate storage for cargo coming in right next to it, in the machines-only ground round it, and never sets them down at its feet: with no such storage there, or all of it full, it unloads nothing. The ground round it is for port machines only, so dockhands keep off.`,
   harbour:
     'Lifts containers off a feeder ship alongside onto a stack beside it, for the reach stackers. Slow, but several can work one ship. The ground round it is for port machines only.',
   gantry:
@@ -329,15 +329,25 @@ function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => 
       <p class="muted">
         {CRANE_NOTE[c.kind]}{' '}
         {c.kind === 'jib'
-          ? 'Red on the map: machines only. Blue: as far as it reaches into storage.'
+          ? 'Red on the map: machines only, and as far as it reaches into storage.'
           : 'Red on the map: machines only.'}{' '}
         <More topic="cranes" />
       </p>
       <dl class="props">
-        <dt>{c.kind === 'gantry' ? 'Along the quay' : 'Landing stack'}</dt>
-        <dd>
-          {c.stack} / {c.max} {c.kind === 'jib' ? 'crates' : 'containers'}
-        </dd>
+        {c.kind !== 'jib' && (
+          <>
+            <dt>{c.kind === 'gantry' ? 'Along the quay' : 'Landing stack'}</dt>
+            <dd>
+              {c.stack} / {c.max} containers
+            </dd>
+          </>
+        )}
+        {c.kind === 'jib' && c.stack > 0 && (
+          <>
+            <dt>Left at its feet</dt>
+            <dd>{c.stack} crates, for the forklifts</dd>
+          </>
+        )}
         {c.out > 0 && (
           <>
             <dt>Exports set down for it</dt>
@@ -348,12 +358,12 @@ function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => 
         )}
         {c.kind === 'jib' && (
           <>
-            <dt>Crate storage in reach</dt>
+            <dt>Crate storage in reach, for cargo coming in</dt>
             <dd>{c.stores > 0 ? `${c.stores} area${c.stores === 1 ? '' : 's'}` : 'None'}</dd>
           </>
         )}
       </dl>
-      <Meter value={c.stack / c.max} />
+      {c.kind !== 'jib' && <Meter value={c.stack / c.max} />}
     </aside>
   );
 }

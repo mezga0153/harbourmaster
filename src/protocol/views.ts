@@ -138,7 +138,7 @@ export interface CraneView {
   max: number;
   angle: number;
   busy: boolean;
-  /** Jib cranes: crate storage areas in reach. */
+  /** Jib cranes: crate storage areas for cargo coming in, in reach. */
   stores: number;
   /** What it is doing, or why it is not. */
   why: string;

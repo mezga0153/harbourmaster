@@ -6,19 +6,11 @@ import type { World } from '../world';
 import { boatHalf, craneFront, mooredTiles, near } from './boats/berthing';
 import type { Bay, Boat, Crane, Dockhand, JibLift } from '../state';
 import * as B from '../balance';
-import {
-  aligned,
-  bayRoom,
-  boxLookOf,
-  craneStack,
-  craneStacks,
-  craneTicks,
-  deckPlace,
-} from '../helpers';
+import { aligned, boxLookOf, craneStack, craneStacks, craneTicks, deckPlace } from '../helpers';
 import type { CraneView } from '../../protocol/views';
 import { besideStack, crateSlot } from './yardGantry';
 import { loadShip, wantsLoad } from './cargo/exports';
-import { carriedLooks, outLooks, readyList, stackLooks, takesImports } from './cargo/stores';
+import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
 import { startHolds } from './cargo/customs';
 
 export function addCrane(w: World, i: number, kind: Crane['kind']): void {
@@ -26,8 +18,10 @@ export function addCrane(w: World, i: number, kind: Crane['kind']): void {
 }
 
 /**
- * Swing crates from a boat moored beside the crane onto its landing stack,
- * or for a jib crane with crate storage in reach, straight into that.
+ * Lift cargo off a boat moored beside the crane: a container crane onto
+ * its landing stack or a tractor under it, a jib crane only ever into crate
+ * storage for cargo coming in within its reach, never down at its feet.
+ * With none in reach, or all of it full, a jib crane unloads nothing.
  */
 export function updateCrane(w: World, c: Crane): void {
   c.busy = false;
@@ -45,18 +39,14 @@ export function updateCrane(w: World, c: Crane): void {
   }
   if (serveTractor(w, c)) return;
   const boxes = c.kind !== 'jib';
-  const store = boxes
-    ? undefined
-    : jibStores(w, c).find((a) => bayRoom(a, false) > 0 && takesImports(w, a));
-  if (!store && stackFull(w, c)) return loadShip(w, c);
+  const store = boxes ? undefined : jibStore(w, c);
+  if (boxes ? stackFull(w, c) : !store) return loadShip(w, c);
   const m = w.map;
   const reaches = (b: Boat) => craneReaches(w, c, b);
   const boat = w.boats.find(
     (b) =>
       b.state === 'moored' &&
       (b.vessel === 'feeder') === boxes &&
-      // One kind on the landing stack at a time: crates or pallets.
-      (store || c.stack.length === 0 || (b.vessel === 'coaster') === !!c.pallets) &&
       b.crates - b.reserved > 0 &&
       reaches(b),
   );
@@ -86,31 +76,26 @@ export function updateCrane(w: World, c: Crane): void {
     w.stats.cratesHandled++;
     return;
   }
-  c.pallets = boat.vessel === 'coaster';
   // Out of the slot on its deck the ship drew it in: onto a tractor
   // waiting under a gantry crane for one, or else its stack.
-  if (c.kind !== 'jib') {
-    const slot = c.liftSlot ?? boat.crates + (boat.lifted?.length ?? 0);
-    const look = boxLookOf(boat.id, slot);
-    (boat.lifted ??= []).push(slot);
-    c.liftSlot = undefined;
-    // Onto the one it had it for, or any other there for one now.
-    const tractor = handingTo(w, c) ?? directTo(w, c);
-    if (tractor) {
-      tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
-      tractor.timer = 1;
-    } else {
-      stackLooks(w, c).push(look);
-      c.stack.push(boat.fee);
-      (c.stackFrom ??= []).push(boat.id);
-    }
-    if (boat.crates === 0) {
-      boat.lifted = [];
-      shipUnloaded(w, boat);
-    }
-    return;
+  const slot = c.liftSlot ?? boat.crates + (boat.lifted?.length ?? 0);
+  const look = boxLookOf(boat.id, slot);
+  (boat.lifted ??= []).push(slot);
+  c.liftSlot = undefined;
+  // Onto the one it had it for, or any other there for one now.
+  const tractor = handingTo(w, c) ?? directTo(w, c);
+  if (tractor) {
+    tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
+    tractor.timer = 1;
+  } else {
+    stackLooks(w, c).push(look);
+    c.stack.push(boat.fee);
+    (c.stackFrom ??= []).push(boat.id);
   }
-  c.stack.push(boat.fee);
+  if (boat.crates === 0) {
+    boat.lifted = [];
+    shipUnloaded(w, boat);
+  }
 }
 
 /** Which container on a crane's stack a machine picking at it takes: the one it chose, or the top. */
@@ -865,21 +850,20 @@ export function craneReaches(w: World, c: Crane, b: Boat): boolean {
   );
 }
 
-/** Crate storage a jib crane can swing round to, nearest first. */
+/**
+ * Crate storage a jib crane can swing round to: right beside it, in the
+ * machines-only ground round it, never further.
+ */
 export function jibStores(w: World, c: Crane): Bay[] {
   const m = w.map;
-  const r = B.JIB_REACH;
   const found: Bay[] = [];
-  for (let d = 1; d <= r; d++) {
-    for (let dy = -d; dy <= d; dy++) {
-      for (let dx = -d; dx <= d; dx++) {
-        if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
-        const x = m.xOf(c.idx) + dx;
-        const y = m.yOf(c.idx) + dy;
-        if (!m.inBounds(x, y)) continue;
-        const a = w.bays.get(w.storeOf[m.idx(x, y)]);
-        if (a && !found.includes(a)) found.push(a);
-      }
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = m.xOf(c.idx) + dx;
+      const y = m.yOf(c.idx) + dy;
+      if ((dx === 0 && dy === 0) || !m.inBounds(x, y)) continue;
+      const a = w.bays.get(w.storeOf[m.idx(x, y)]);
+      if (a && !found.includes(a)) found.push(a);
     }
   }
   return found;
