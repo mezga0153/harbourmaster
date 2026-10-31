@@ -879,7 +879,12 @@ export class Entities {
         w.from = e.pose ?? drive;
       }
       const s = (this.sim - w.done) / HAND_SETTLE;
-      if (v.kind === 'dockhand') {
+      if (v.kind === 'dockhand' && !v.moving && s < 4 && e.pose) {
+        // Done, but not off anywhere yet: they stay where they worked, ready
+        // for the next crate there, rather than step back and in again.
+        pose = { ...e.pose, h: 0 };
+        e.stepping = false;
+      } else if (v.kind === 'dockhand') {
         // Walks back onto their way, catching up with it, or a step clear of
         // the others there if they stand about.
         const [bx, bz] = this.byBack(drive.x, drive.z);
