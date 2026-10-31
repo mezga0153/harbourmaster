@@ -19,3 +19,8 @@ export function cargoOf(fee: number, or: Cargo = 'fish'): Cargo {
   const k = Math.round((fee - Math.round(fee)) / TAG);
   return CARGO[k - 1] ?? or;
 }
+
+/** What a crate of `c` holds, in words: "crates of canned fish". */
+export function cargoName(c: Cargo): string {
+  return c === 'canned' ? 'canned fish' : c;
+}

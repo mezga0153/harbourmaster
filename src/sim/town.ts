@@ -1,4 +1,5 @@
 import * as B from './balance';
+import type { Cargo } from './cargo';
 import type { GameMap } from './map';
 import { fbm, hash01 } from './noise';
 import { MinHeap } from './path';
@@ -47,6 +48,8 @@ export interface Business {
   label: string;
   /** Takes containers rather than crates. */
   boxes: boolean;
+  /** The kinds of crate it takes; any other kind goes on out by road. None for containers. */
+  takes: Cargo[];
   /** Crates or containers it takes a day. */
   perDay: number;
   /** Out on the edge of town rather than in the middle. */
@@ -55,11 +58,36 @@ export interface Business {
 
 /** The town's shops and works, which the hauliers deliver some of the port's goods to. */
 export const BUSINESSES: Partial<Record<number, Business>> = {
-  [Build.FishMarket]: { label: 'fish market', boxes: false, perDay: 12, industry: false },
-  [Build.Restaurant]: { label: 'seafood restaurant', boxes: false, perDay: 6, industry: false },
-  [Build.Cannery]: { label: 'cannery', boxes: false, perDay: 24, industry: true },
-  [Build.Store]: { label: 'department store', boxes: false, perDay: 20, industry: false },
-  [Build.Factory]: { label: 'factory', boxes: true, perDay: 10, industry: true },
+  [Build.FishMarket]: {
+    label: 'fish market',
+    boxes: false,
+    takes: ['fish'],
+    perDay: 12,
+    industry: false,
+  },
+  [Build.Restaurant]: {
+    label: 'seafood restaurant',
+    boxes: false,
+    takes: ['lobster'],
+    perDay: 6,
+    industry: false,
+  },
+  [Build.Cannery]: { label: 'cannery', boxes: false, takes: ['fish'], perDay: 24, industry: true },
+  [Build.Store]: {
+    label: 'department store',
+    boxes: false,
+    takes: ['goods'],
+    perDay: 20,
+    industry: false,
+  },
+  [Build.BuildersYard]: {
+    label: "builders' yard",
+    boxes: false,
+    takes: ['timber'],
+    perDay: 10,
+    industry: true,
+  },
+  [Build.Factory]: { label: 'factory', boxes: true, takes: [], perDay: 10, industry: true },
 };
 
 /**
@@ -162,8 +190,12 @@ export interface Town {
   supplied: number;
   /** Delivered to them so far today. */
   local: number;
-  /** What the town's businesses will still take today. */
-  wants: { crates: number; boxes: number };
+  /**
+   * What the town's businesses will still take today, by the code of the
+   * building: so crates of one kind never use up what a business of another
+   * kind takes.
+   */
+  wants: Wants;
   /** Jobs at the port and with its hauliers, as of this morning. */
   jobs: number;
   /** Index into TOWN_STAGES; a town never shrinks back down a stage. */
@@ -423,12 +455,15 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
   return true;
 }
 
+/** Crates (or containers) each kind of business in town takes, by the code of its building. */
+export type Wants = Partial<Record<number, number>>;
+
 /** What the town's businesses take in a day. */
-export function townWants(map: GameMap): { crates: number; boxes: number } {
-  const wants = { crates: 0, boxes: 0 };
+export function townWants(map: GameMap): Wants {
+  const wants: Wants = {};
   for (let i = 0; i < map.build.length; i++) {
     const def = BUSINESSES[map.build[i]];
-    if (def) wants[def.boxes ? 'boxes' : 'crates'] += def.perDay;
+    if (def) wants[map.build[i]] = (wants[map.build[i]] ?? 0) + def.perDay;
   }
   return wants;
 }
@@ -677,7 +712,7 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
     today: 0,
     supplied: 0,
     local: 0,
-    wants: { crates: 0, boxes: 0 },
+    wants: {},
     jobs: 0,
     stage: 0,
     layout: TOWN_LAYOUT,

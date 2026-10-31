@@ -1,4 +1,4 @@
-import { cargoOf, withCargo, type Cargo } from './cargo';
+import { cargoName, cargoOf, withCargo, type Cargo } from './cargo';
 import type {
   BayView,
   Capacity,
@@ -80,6 +80,7 @@ import {
   townStageUp,
   townTarget,
   townWants,
+  type Business,
   landmarkDue,
   LANDMARKS,
   townCap,
@@ -558,6 +559,11 @@ interface Truck extends Agent {
   /** The way on into town, once round on the highway. */
   then?: number[];
   dropCount?: number;
+  /**
+   * The one kind of crate it loads, set by the first it takes: so in town
+   * it goes to a business that takes that kind, and no other.
+   */
+  kind?: Cargo;
   contractId: number;
   company: string;
   capacity: number;
@@ -1454,7 +1460,8 @@ export class World {
       ...old,
       supplied: old.supplied ?? 0,
       local: old.local ?? 0,
-      wants: old.wants ?? townWants(this.map),
+      // Older saves kept one count for all crates, and one for containers.
+      wants: old.wants && !('crates' in old.wants) ? old.wants : townWants(this.map),
       layout: old.layout ?? 1,
       gate: old.gate ?? -1,
       // A town from before its landmarks: as many done as it has, or a town
@@ -3013,15 +3020,33 @@ export class World {
 
   private businessViews(): TownView['businesses'] {
     const out = new Map<number, TownView['businesses'][number]>();
+    const wants = this.town?.wants ?? {};
     for (const code of this.map.build) {
       const def = BUSINESSES[code];
       if (!def) continue;
-      const v = out.get(code) ?? { label: def.label, count: 0, boxes: def.boxes, perDay: 0 };
+      const v = out.get(code) ?? {
+        label: def.label,
+        count: 0,
+        boxes: def.boxes,
+        perDay: 0,
+        takes: def.boxes ? 'containers' : def.takes.map(cargoName).join(' and '),
+        left: Math.max(0, Math.floor(wants[code] ?? 0)),
+      };
       v.count++;
       v.perDay += def.perDay;
       out.set(code, v);
     }
     return [...out.values()];
+  }
+
+  /** What the town's businesses will still take today, all crates and all containers together. */
+  private wantsView(): TownView['wants'] {
+    const out = { crates: 0, boxes: 0 };
+    for (const [code, n] of Object.entries(this.town?.wants ?? {})) {
+      const def = BUSINESSES[Number(code)];
+      if (def) out[def.boxes ? 'boxes' : 'crates'] += Math.max(0, Math.floor(n ?? 0));
+    }
+    return out;
   }
 
   /** People working at the port and driving for its hauliers. */
@@ -6126,10 +6151,12 @@ export class World {
     if (isBoxy(p) || p.outbound || p.truckId !== undefined || bay.tiles || p.carrying <= 0) {
       return undefined;
     }
+    // Only onto a truck that may take that kind of crate.
     return this.trucks.find(
       (t) =>
         t.state === 'loading' &&
         t.bayIdx === bay.idx &&
+        p.cargoFees.every(this.fitsTruck(t)) &&
         this.byHand(t, bay) &&
         t.cargo + (t.coming ?? 0) + p.carrying <= t.capacity,
     );
@@ -6169,10 +6196,7 @@ export class World {
       if (!bay || !this.byHand(t, bay)) continue;
       // Loaded from the stack till it is full or the stack is gone; crates
       // brought meanwhile go straight on while there is room on it.
-      const avail = Math.min(
-        t.capacity - t.cargo - (t.coming ?? 0),
-        bay.crates.length - (bay.reserved ?? 0),
-      );
+      const avail = Math.min(t.capacity - t.cargo - (t.coming ?? 0), this.cratesFor(t, bay));
       if (avail <= 0) continue;
       // Once the boats are seen to, nearest first, as crates in storage are.
       sources.push({ tile: this.crateTruckSpot(bay, t), avail, truck: t, load: true, rank: 1 });
@@ -6214,7 +6238,7 @@ export class World {
     const unload = !src.load;
     const room = unload
       ? t.cargo - (t.taking ?? 0)
-      : Math.min(t.capacity - t.cargo - (t.coming ?? 0), bay.crates.length - (bay.reserved ?? 0));
+      : Math.min(t.capacity - t.cargo - (t.coming ?? 0), this.cratesFor(t, bay));
     const n = Math.min(p.capacity, src.avail, room);
     if (n <= 0) return false;
     if (!this.headTo(p, src.tile)) return false;
@@ -6232,6 +6256,68 @@ export class World {
     p.craneIdx = -1;
     p.state = 'toPickup';
     return true;
+  }
+
+  /** Whether a business in town still takes crates of this kind today. */
+  private wantedToday(c: Cargo): boolean {
+    const wants = this.town?.wants ?? {};
+    for (const [code, n] of Object.entries(wants)) {
+      if ((n ?? 0) >= 1 && BUSINESSES[Number(code)]?.takes.includes(c)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Which crates a crate truck may take on: only those of its kind, so
+   * whatever it brings the town is all for one business; but any, once
+   * the town takes no more of its kind or theirs today, as then they all go
+   * out by road.
+   */
+  private fitsTruck(t: Truck): (fee: number) => boolean {
+    const kind = t.kind;
+    if (!kind) return () => true;
+    const mine = this.wantedToday(kind);
+    const wanted = new Map<Cargo, boolean>();
+    return (fee) => {
+      const c = cargoOf(fee);
+      if (c === kind) return true;
+      if (mine) return false;
+      if (!wanted.has(c)) wanted.set(c, this.wantedToday(c));
+      return !wanted.get(c);
+    };
+  }
+
+  /**
+   * Crates at a bay a crate truck could still have, of the kind it takes,
+   * that no dockhand or forklift is already going for.
+   */
+  private cratesFor(t: Truck, bay: Bay): number {
+    const free = bay.crates.length - (bay.reserved ?? 0);
+    if (!t.kind || free <= 0) return free;
+    const fits = this.fitsTruck(t);
+    let n = 0;
+    for (const f of bay.crates) if (fits(f)) n++;
+    return Math.min(free, n);
+  }
+
+  /**
+   * Up to `n` crates off a bay for a crate truck: those from `at` on, as
+   * long as it may take them all; else the first it may take. The first it
+   * ever takes sets its kind.
+   */
+  private cratesOff(t: Truck, bay: Bay, at: number, n: number): number[] {
+    if (n <= 0 || bay.crates.length === 0) return [];
+    if (at >= bay.crates.length) at = 0;
+    t.kind ??= cargoOf(bay.crates[at]);
+    const fits = this.fitsTruck(t);
+    const run = bay.crates.slice(at, at + n);
+    if (run.length === n && run.every(fits)) return bay.crates.splice(at, n);
+    const out: number[] = [];
+    for (let i = 0; i < bay.crates.length && out.length < n;) {
+      if (fits(bay.crates[i])) out.push(...bay.crates.splice(i, 1));
+      else i++;
+    }
+    return out;
   }
 
   /**
@@ -6267,7 +6353,7 @@ export class World {
         }
         bay.reserved = Math.max(0, (bay.reserved ?? 0) - p.planned);
         const n = Math.min(p.planned, bay.crates.length, this.onPallet(p, bay));
-        const fees = bay.crates.splice(bay.tiles ? this.takenFrom(p, bay, n) : 0, n);
+        const fees = this.cratesOff(t, bay, bay.tiles ? this.takenFrom(p, bay, n) : 0, n);
         // Fewer than it went for: the truck waits for none of the rest.
         t.coming = Math.max(0, (t.coming ?? 0) - (p.planned - fees.length));
         if (fees.length === 0) {
@@ -8795,6 +8881,7 @@ export class World {
         // Brought for a truck that has gone meanwhile, they go on the stack
         // however full it is.
         if (onto) {
+          onto.kind ??= cargoOf(p.cargoFees[0] ?? 0);
           onto.cargo += p.carrying;
           onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
           (onto.fees ??= []).push(...p.cargoFees);
@@ -12760,7 +12847,10 @@ export class World {
         // waits while one is on its way.
         // With nothing more here for it, it goes with what it has rather
         // than wait for more.
-        const done = (t.coming ?? 0) === 0 && this.unclaimed(bay, t.boxes, t) <= 0;
+        // None of the kind of crate it takes, either.
+        const none = () =>
+          this.unclaimed(bay, t.boxes, t) <= 0 || (!t.boxes && this.cratesFor(t, bay) <= 0);
+        const done = (t.coming ?? 0) === 0 && none();
         // Crates go on by hand: dockhands and forklifts load it, as
         // containers at a yard with no gantry go on by reach stacker.
         const hands = this.byHand(t, bay);
@@ -12769,7 +12859,7 @@ export class World {
           else t.idle += every;
           const full = t.cargo >= t.capacity;
           // With crates there for it, it waits as long as it would for any.
-          const waiting = hands && bay.crates.length > (bay.reserved ?? 0);
+          const waiting = hands && this.cratesFor(t, bay) > 0;
           const bored =
             t.cargo > 0 && !waiting ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
           if (full || bored || done) this.truckLeave(t);
@@ -12784,14 +12874,14 @@ export class World {
         // Crates its crew loads besides those dockhands and forklifts bring
         // it: none they are on their way for, nor more than it has room for
         // with theirs.
-        const spare = t.boxes ? stock.length : stock.length - (bay.reserved ?? 0);
+        const spare = t.boxes ? stock.length : this.cratesFor(t, bay);
         const coming = t.boxes ? 0 : (t.coming ?? 0);
         if (coming > 0) t.idle = 0;
         if (spare > 0 && at >= 0 && t.cargo + coming < t.capacity) {
           if (t.boxes && bay.yard) this.yardSlots(bay).boxes.splice(at, 1);
           if (t.boxes && bay.yard) this.readyList(bay).splice(at, 1);
           if (t.boxes && bay.yard) (t.looks ??= []).push(this.boxLooks(bay).splice(at, 1)[0]);
-          const fee = stock.splice(at, 1)[0];
+          const fee = t.boxes ? stock.splice(at, 1)[0] : this.cratesOff(t, bay, at, 1)[0];
           t.value += fee;
           if (!t.boxes) (t.fees ??= []).push(fee);
           t.cargo++;
@@ -12801,7 +12891,7 @@ export class World {
         }
         const full = t.cargo >= t.capacity;
         const bored = t.cargo > 0 ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
-        if (full || bored || (done && this.unclaimed(bay, t.boxes, t) <= 0)) this.truckLeave(t);
+        if (full || bored || (done && none())) this.truckLeave(t);
         return;
       }
       case 'toTown': {
@@ -12838,15 +12928,27 @@ export class World {
       case 'unloading': {
         const n = t.dropCount ?? 0;
         if (++t.timer < n * B.UNLOAD_TICKS) return;
+        // Just the crates the business takes come off; the rest go on by road.
+        const def = BUSINESSES[this.map.build[t.drop ?? -1]];
+        const fees = t.fees ?? [];
+        const off: number[] = [];
+        if (!t.boxes && def) {
+          for (let k = 0; k < fees.length && off.length < n;) {
+            if (def.takes.includes(cargoOf(fees[k]))) off.push(...fees.splice(k, 1));
+            else k++;
+          }
+        }
+        const worth =
+          off.length > 0 ? off.reduce((a, f) => a + f, 0) : (t.value * n) / Math.max(1, t.cargo);
         // The town pays a little extra for goods brought to its door.
-        const bonus = Math.round(((t.value * n) / Math.max(1, t.cargo)) * B.TOWN_DELIVERY_BONUS);
+        const bonus = Math.round(worth * B.TOWN_DELIVERY_BONUS);
         if (bonus > 0) {
           this.book('town', bonus);
           this.stats.earned += bonus;
           this.moneyAt(bonus, t.drop ?? this.tileOf(t));
         }
         if (this.town) this.town.local += t.boxes ? n * B.CONTAINER_GOODS : n;
-        t.value -= Math.round((t.value * n) / Math.max(1, t.cargo));
+        t.value -= Math.round(worth);
         t.cargo -= n;
         this.headOut(t);
         return;
@@ -13633,17 +13735,35 @@ export class World {
     this.headOut(t);
   }
 
+  /** What a crate truck is taking to town, in words: "crates of fish", or just "crates". */
+  private cratesOf(t: Truck): string {
+    const def = BUSINESSES[this.map.build[t.drop ?? -1]];
+    return def?.takes.length === 1 ? `crates of ${cargoName(def.takes[0])}` : 'crates';
+  }
+
+  /** How many of a truck's crates (or containers) a business takes. */
+  private takenBy(t: Truck, def: Business): number {
+    if (def.boxes !== t.boxes) return 0;
+    if (t.boxes) return t.cargo;
+    return (t.fees ?? []).filter((f) => def.takes.includes(cargoOf(f))).length;
+  }
+
   /**
    * Send a loaded truck by way of the town, when one of its businesses
-   * still wants what it carries today and the trucks can get there.
+   * takes what it carries and still wants some today, and the trucks can
+   * get there.
    */
   private deliverInTown(t: Truck): boolean {
     const town = this.town;
     if (!town) return false;
-    const kind = t.boxes ? 'boxes' : 'crates';
-    const count = Math.min(t.cargo, Math.floor(town.wants[kind]));
-    if (count <= 0) return false;
     const m = this.map;
+    const takes = new Map<number, number>();
+    for (const code of new Set(m.build)) {
+      const def = BUSINESSES[code];
+      const n = def ? Math.min(this.takenBy(t, def), Math.floor(town.wants[code] ?? 0)) : 0;
+      if (n > 0) takes.set(code, n);
+    }
+    if (takes.size === 0) return false;
     const here = this.tileOf(t);
     // Out to the highway and round to the town's road, unless the roads join up on the map.
     const out =
@@ -13654,8 +13774,7 @@ export class World {
     let best: { path: number[]; then?: number[]; len: number } | null = null;
     let drop = -1;
     for (let i = 0; i < m.build.length; i++) {
-      const def = BUSINESSES[m.build[i]];
-      if (!def || def.boxes !== t.boxes) continue;
+      if (!takes.has(m.build[i])) continue;
       // Delivered at the kerb, on the street the business faces.
       const front = frontOf(m, i, m.orient[i] & 3);
       if (front < 0 || !isPublicRoad(m.build[front])) continue;
@@ -13673,7 +13792,9 @@ export class World {
       }
     }
     if (!best) return false;
-    town.wants[kind] -= count;
+    const code = m.build[drop];
+    const count = takes.get(code)!;
+    town.wants[code] = (town.wants[code] ?? 0) - count;
     t.state = 'toTown';
     t.path = best.path;
     t.then = best.then;
@@ -14656,7 +14777,7 @@ export class World {
                       : t.state === 'loading'
                         ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}`
                         : t.state === 'toTown' || t.state === 'unloading'
-                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : 'crates'} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
+                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : this.cratesOf(t)} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
                           : 'Heading out to the highway',
         variant: t.variant,
         capacity: t.capacity,
@@ -14797,7 +14918,7 @@ export class World {
         jobs: this.town.jobs,
         goods: Math.round(this.town.goods),
         supplied: Math.round(this.town.supplied),
-        wants: { ...this.town.wants },
+        wants: this.wantsView(),
         businesses: this.businessViews(),
         ...this.landmarkView(this.town),
         x: this.map.xOf(this.town.centre),

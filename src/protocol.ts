@@ -512,7 +512,16 @@ export interface TownView {
   supplied: number;
   /** What the businesses will still take today. */
   wants: { crates: number; boxes: number };
-  businesses: { label: string; count: number; boxes: boolean; perDay: number }[];
+  businesses: {
+    label: string;
+    count: number;
+    boxes: boolean;
+    perDay: number;
+    /** The kinds of crate it takes, in words ("fish"), or "containers". */
+    takes: string;
+    /** How many more it will take today. */
+    left: number;
+  }[];
   /** People it may grow to, as far as its landmarks let it; null for no limit. */
   cap: number | null;
   /** Landmarks it has opened, and the next one with how far the port is towards it. */

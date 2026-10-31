@@ -116,8 +116,15 @@ export function TownPanel({ actions }: { actions: Actions }) {
                   {b.label[0].toUpperCase() + b.label.slice(1)}
                   {b.count > 1 ? 's' : ''}
                 </dt>
-                <dd>
-                  {b.count * b.perDay} {b.boxes ? 'containers' : 'crates'} a day
+                <dd
+                  title={
+                    b.left > 0
+                      ? `Takes ${b.left} more today`
+                      : `Has all it takes today: more ${b.takes} go on out by road`
+                  }
+                >
+                  {b.count * b.perDay} {b.boxes ? 'containers' : `crates of ${b.takes}`} a day
+                  {b.left === 0 ? ', all in today' : ''}
                 </dd>
               </Fragment>
             ))}
