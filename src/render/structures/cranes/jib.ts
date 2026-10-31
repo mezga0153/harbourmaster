@@ -1,8 +1,9 @@
 import { Group, Vector3, type Object3D } from 'three';
 import type { CraneView } from '../../../protocol';
+import type { Cargo } from '../../../sim/cargo';
 import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN, CRANE_TICKS } from '../../../sim/balance';
 import { TICKS_PER_SECOND } from '../../../sim/types';
-import { crate } from '../../models';
+import { crate, setCrateIcon } from '../../models';
 import { C } from '../../palette';
 import { box, cyl } from '../../parts';
 import { QUAY_Y } from '../../terrain';
@@ -236,6 +237,9 @@ export function runJib(site: CraneSite, c: CraneParts, j: JibParts, dt: number):
     // the hook takes it or lets go: here it goes as the hook does.
     if (p >= take) src.visible = false;
     if (p >= set) dst.visible = true;
+    // The crate on the hook is the one it took, with what it holds painted
+    // on it, not the fish every crate starts out showing.
+    if (p < take) setCrateIcon(j.load, src.userData.icon as Cargo | undefined);
     if (p < a) {
       const t = ease(p / a);
       angle = lerpAngle(j.start.angle, from.angle, t);
