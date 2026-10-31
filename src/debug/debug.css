@@ -96,24 +96,3 @@
 .dbg-word.bad {
   background: rgba(160, 20, 20, 0.85);
 }
-.dbg-chip {
-  position: fixed;
-  left: 8px;
-  top: 64px;
-  z-index: 60;
-  padding: 1px 5px;
-  font:
-    10px ui-monospace,
-    Menlo,
-    monospace;
-  color: #ff7ae0;
-  background: rgba(12, 18, 28, 0.6);
-  border: 1px solid #ff2bd6;
-  border-radius: 4px;
-  opacity: 0.6;
-  cursor: pointer;
-  pointer-events: auto;
-}
-.dbg-chip:hover {
-  opacity: 1;
-}

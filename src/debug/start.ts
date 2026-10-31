@@ -98,14 +98,6 @@ export function startDebug(hooks: DebugHooks): { receive(view: DebugView): void 
     if (e.key !== '`' || (e.target as HTMLElement)?.closest?.('input, textarea, select')) return;
     setOpt('open', !opts.peek().open);
   });
-  // A small handle to open it by when it is closed.
-  const chip = document.createElement('button');
-  chip.className = 'dbg-chip';
-  chip.textContent = 'dbg';
-  chip.title = 'Debug overlays (`)';
-  chip.onclick = () => setOpt('open', true);
-  hooks.ui.append(chip);
-
   const selectedId = () => {
     const s = selection.value;
     return s?.type === 'entity' ? s.id : null;
@@ -291,7 +283,6 @@ export function startDebug(hooks: DebugHooks): { receive(view: DebugView): void 
     const m = map();
     const o = opts.peek();
     group.visible = o.on;
-    chip.style.display = o.open ? 'none' : '';
     if (!m || !o.on) return;
     const id = selectedId();
     const fp = id === null ? null : finePlan(renderer, id);

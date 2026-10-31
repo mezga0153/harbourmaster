@@ -27,7 +27,7 @@ unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
 ## Debug overlays
 
 On the dev server only (never built), Settings > Debug overlays, the `
-key or the small "dbg" chip opens a menu (`src/debug/`) that draws over the
+key or the Debug button in the bottom bar opens a menu (`src/debug/`) that draws over the
 map: the selected worker's, machine's or truck's planned path and its job
 field by field, the view's own plan for a forklift or dockhand working a
 load, every agent's path and state, tile passability for dockhands,

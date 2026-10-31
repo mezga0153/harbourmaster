@@ -222,6 +222,19 @@ export function BuildBar() {
             <span class="tool-label">Staff</span>
             <span class="tool-cost">Hire</span>
           </button>
+          {import.meta.env.DEV && (
+            // src/debug/: paths, passability, slots and more drawn over the map.
+            <button
+              class="tool"
+              onClick={() => window.dispatchEvent(new Event('hm-debug'))}
+              title="Debug overlays (`)"
+            >
+              <kbd>`</kbd>
+              <Icon name="map" />
+              <span class="tool-label">Debug</span>
+              <span class="tool-cost">Overlays</span>
+            </button>
+          )}
         </div>
       </footer>
     </>
