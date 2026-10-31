@@ -12,7 +12,6 @@ import {
   FORKS_LOADED,
   CARRY_LOW,
   forklift,
-  headingOf,
   person,
   paintLoad,
   reachTo,
@@ -28,7 +27,10 @@ import {
 } from './models';
 import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
+import { approach, clamp01, ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
 import type { Trailer } from './vehicles';
+
+export { turnOf };
 
 const SNAPSHOT_MS = 100;
 
@@ -142,11 +144,6 @@ const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
 const CLEAR = 0.1;
 
-const ease = (t: number) => {
-  const c = Math.min(1, Math.max(0, t));
-  return c * c * (3 - 2 * c);
-};
-
 /** Straight across from one pose to another, turning as it goes, `a` of the way. */
 function slide(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
   return {
@@ -161,7 +158,7 @@ function slide(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
  * way there as they set off, and to stand as they are as they get there.
  */
 function walkTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
-  const c = Math.min(1, Math.max(0, a));
+  const c = clamp01(a);
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   if (Math.hypot(dx, dz) < 0.05) return slide(from, to, ease(c));
@@ -194,7 +191,7 @@ function walkVia(
   a: number,
 ): Omit<Pose, 'h'> {
   if (via.length === 0) return walkTo(from, to, a);
-  const c = Math.min(1, Math.max(0, a));
+  const c = clamp01(a);
   const points = [from, ...via, to];
   let left = length(points) * ease(c);
   for (let k = 1; k < points.length; k++) {
@@ -264,10 +261,7 @@ const DOWN_RATE = 4;
 const UP_RATE = 3;
 
 /** A wake barely shows while a boat is just getting under way. */
-function wakeStrength(way: number): number {
-  const w = Math.min(1, Math.max(0, way));
-  return w * w * (3 - 2 * w);
-}
+const wakeStrength = ease;
 
 /** How much of a patch of wake is left after `age` game seconds: it holds
  * for a while, then dies away. */
@@ -575,7 +569,7 @@ export class Entities {
         // The wake builds up slowly as the boat gathers way and lingers a
         // while once it stops.
         const rate = way > (e.way ?? 0) ? WAKE_RISE : WAKE_FALL;
-        e.way = (e.way ?? 0) + (way - (e.way ?? 0)) * (1 - Math.exp(-dt * rate));
+        e.way = approach(e.way ?? 0, way, dt, rate);
         // The wake starts at whichever end is leading: the bow, or the
         // stern while going astern. Only a clear move the other way counts,
         // not a pause or a nudge sideways. The old wake is left to settle
@@ -615,7 +609,7 @@ export class Entities {
         const swing = Math.min(1, Math.abs(turn) / (hull.turn * this.snapTicks));
         const busy = Math.min(1, Math.max(swing, way * 3));
         const wr = busy > (e.work ?? 0) ? WORK_RISE : WORK_FALL;
-        e.work = (e.work ?? 0) + (busy - (e.work ?? 0)) * (1 - Math.exp(-dt * wr));
+        e.work = approach(e.work ?? 0, busy, dt, wr);
         e.stir = {
           x,
           z: y,
@@ -740,7 +734,7 @@ export class Entities {
     }
     const { from } = e.dock!;
     const a = (this.sim - e.dock!.start) / PARK_TIME;
-    const part = (a0: number, a1: number) => ease(Math.max(0, Math.min(1, (a - a0) / (a1 - a0))));
+    const part = (a0: number, a1: number) => ease((a - a0) / (a1 - a0));
     // Turning about, it does so in the middle of the garage, the one place
     // there is room to.
     const spin = Math.abs(lerpAngle(from.dir, slot.dir, 1) - from.dir) > 0.3;
@@ -976,8 +970,7 @@ export class Entities {
         from !== undefined && from <= cur.handling
           ? from + (cur.handling - from) * t
           : cur.handling;
-      const f = Math.min(1, p / DOWN_BY);
-      goal = f * f * (3 - 2 * f);
+      goal = ease(p / DOWN_BY);
     }
     const was = e.down ?? 0;
     const step = dt * (goal > was ? DOWN_RATE : UP_RATE);
@@ -1817,22 +1810,4 @@ function aboutAt(about: About, x: number, y: number): [number, number, number] {
     y + uy * at.ahead + ux * at.right,
     about.dir + at.face,
   ];
-}
-
-function lerpAngle(a: number, b: number, t: number): number {
-  return a + wrapAngle(b - a) * t;
-}
-
-/** An angle brought into -π to π. */
-function wrapAngle(a: number): number {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a < -Math.PI) a += Math.PI * 2;
-  return a;
-}
-
-/** Which way an object's +x points in the world, as a turn about y. */
-export function turnOf(o: Object3D): number {
-  o.updateWorldMatrix(true, false);
-  const e = o.matrixWorld.elements;
-  return Math.atan2(-e[2], e[0]);
 }

@@ -1,6 +1,7 @@
 import { Group, type Object3D } from 'three';
 import { Rng } from '../sim/rng';
 import { box, cyl } from './parts';
+import { clamp01 } from './util/math';
 
 // Procedural dock workers. Each is built from a seed: skin, hair, build,
 // work clothes and headgear vary, so a crew is a crowd of individuals.
@@ -349,7 +350,7 @@ export function pose(
   const lean = Math.max(0, over) * stoop;
   const lift = Math.max(-0.3, Math.min(0.45, drop));
   // How far down it is: 1 on the ground (or below, off the edge), 0 at the height they carry it.
-  const low = Math.min(1, Math.max(0, (HELD.y - lift) / HELD.y));
+  const low = clamp01((HELD.y - lift) / HELD.y);
   const bend = BEND * low * stoop + LEAN_BEND * lean;
   const swing = moving ? Math.sin(phase) * 0.65 : 0;
   // The legs stay upright as the body bends over them.

@@ -1,5 +1,4 @@
 import {
-  BoxGeometry,
   ConeGeometry,
   Group,
   InstancedMesh,
@@ -59,11 +58,9 @@ import {
   YARD_GANTRY_TICKS,
 } from '../sim/balance';
 import { BOX_HEIGHT } from './assets';
-import { turnOf } from './entities';
 import {
   container,
   crate,
-  headingOf,
   paintCargo,
   paintContainer,
   PALLET_CRATE,
@@ -73,6 +70,8 @@ import {
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { bake, pavements, townBuilding } from './town';
+import { clamp01, headingOf, lerpAngle, syncPhase, turnOf, wrapAngle } from './util/math';
+import { unitBox } from './util/mesh';
 
 const LIGHT = 0xfff2b0;
 const BALLAST = 0x9b9284;
@@ -114,15 +113,7 @@ interface JibEnd {
   yaw: number;
 }
 
-/** From angle `from` part way, `t`, the shorter way round to `to`. */
-function turnBy(from: number, to: number, t: number): number {
-  let d = to - from;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return from + d * t;
-}
-
-/** As turnBy, for something square: the least way round to lie square with `to`. */
+/** As lerpAngle, for something square: the least way round to lie square with `to`. */
 function squareTurn(from: number, to: number, t: number): number {
   const q = Math.PI / 2;
   const d = ((((to - from) % q) + q * 1.5) % q) - q / 2;
@@ -140,7 +131,6 @@ function palletUnder(c: Object3D, size: number): Object3D {
 const GANTRY_RUN = 12;
 /** A yard gantry's lift with no running along its rails; see liftMarks. */
 const NO_RUN = [0, 0.5, 0, 0.5];
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 /**
  * A mobile harbour crane: how high its slewing deck stands on the tower,
  * where the boom's foot is on the deck (out along +x of it, and up), how
@@ -161,7 +151,6 @@ const SPREADER = 0.035;
  * the slewing deck.
  */
 const HOOK_UP = 1.42;
-const unitBox = new BoxGeometry(1, 1, 1);
 import { DECK_Y, MARGIN, QUAY_Y, SEABED, landTop } from './terrain';
 
 /** The pointed top of a green buoy. */
@@ -581,8 +570,7 @@ export class Structures {
       // A gantry waiting on a hand-over is let go once the game is on to its next lift.
       const waits = c.sts?.holding && v.workPhase !== undefined && v.workPhase >= CRANE_LIFT_TAKEN;
       if (v.workPhase !== undefined && !c.mhc?.held && !waits) {
-        const off = ((v.workPhase - g.phase + 1.5) % 1) - 0.5;
-        g.phase = Math.abs(off) > 0.15 ? v.workPhase : (g.phase + off * 0.5 + 1) % 1;
+        g.phase = syncPhase(g.phase, v.workPhase, { wrap: true });
       }
     }
   }
@@ -652,10 +640,7 @@ export class Structures {
         const out = c.busy ? 0.5 + 0.5 * Math.sin(time * 1.1) : 1;
         c.slew.position.z += (-0.5 + out * 2.7 - c.slew.position.z) * Math.min(1, dt * 4);
       } else {
-        let d = c.target - c.angle;
-        while (d > Math.PI) d -= Math.PI * 2;
-        while (d < -Math.PI) d += Math.PI * 2;
-        c.angle += d * Math.min(1, dt * 3);
+        c.angle = lerpAngle(c.angle, c.target, Math.min(1, dt * 3));
         c.slew.rotation.y = c.angle;
       }
       const drop = c.rest + (c.busy ? (0.5 + 0.5 * Math.sin(time * 3)) * c.reach : 0);
@@ -818,11 +803,7 @@ export class Structures {
     const key = [v.working, v.workBoat, v.workSlot, v.workStore, v.workPile, v.workPlace].join();
     if (key !== j.key) j.start = { angle: c.angle, out: j.out };
     if (v.workPhase !== undefined) {
-      const off = v.workPhase - j.phase;
-      j.phase =
-        key !== j.key || Math.abs(off) > 0.15
-          ? v.workPhase
-          : Math.min(JIB_END, j.phase + off * 0.5);
+      j.phase = key !== j.key ? v.workPhase : syncPhase(j.phase, v.workPhase, { most: JIB_END });
     }
     j.key = key;
   }
@@ -918,7 +899,7 @@ export class Structures {
       if (p >= set) dst.visible = true;
       if (p < a) {
         const t = ease(p / a);
-        angle = turnBy(j.start.angle, from.angle, t);
+        angle = lerpAngle(j.start.angle, from.angle, t);
         out = j.start.out + (from.out - j.start.out) * t;
       } else if (p < b) {
         angle = from.angle;
@@ -929,7 +910,7 @@ export class Structures {
         yaw = from.yaw;
       } else if (p < d) {
         const t = ease((p - b) / (d - b));
-        angle = turnBy(from.angle, to.angle, t);
+        angle = lerpAngle(from.angle, to.angle, t);
         out = from.out + (to.out - from.out) * t;
         carry = true;
         size = from.size + (to.size - from.size) * t;
@@ -944,7 +925,7 @@ export class Structures {
       }
     }
     const follow = this.follow(dt);
-    c.angle = turnBy(c.angle, angle, follow);
+    c.angle = lerpAngle(c.angle, angle, follow);
     c.slew.rotation.y = c.angle;
     this.reachOut(j, j.out + (out - j.out) * follow);
     // The hook comes down onto the top of the crate, which hangs below it.
@@ -1260,8 +1241,7 @@ export class Structures {
         // A new one starts where the game has it; the one it is at is
         // brought into step gently, never wrapped round into another.
         if (y.workPhase !== undefined && y.working) {
-          const off = y.workPhase - g.phase;
-          g.phase = !same || Math.abs(off) > 0.15 ? y.workPhase : g.phase + off * 0.5;
+          g.phase = !same ? y.workPhase : syncPhase(g.phase, y.workPhase);
         }
         // A new lift runs along the rails from wherever it stands now.
         if (!same) {
@@ -3138,9 +3118,7 @@ const FACES = new Set<number>([
  * rolling a little cannot send a crane swinging round the other way.
  */
 function swing(from: number, to: number, way = 0): number {
-  let d = (to - from) % (Math.PI * 2);
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
+  let d = wrapAngle(to - from);
   if (way * d < 0 && Math.abs(d) > Math.PI / 2) d += Math.PI * 2 * way;
   return d;
 }

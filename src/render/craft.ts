@@ -1,9 +1,10 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, type Object3D } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Vector3, type Object3D } from 'three';
 import { FEEDER_BAYS, FEEDER_ROWS, FEEDER_TIERS } from '../sim/balance';
 import { Rng } from '../sim/rng';
 import { BOX_WIDTH } from './assets';
 import { C } from './palette';
-import { box, cyl, mat } from './parts';
+import { box, cyl } from './parts';
+import { mesh } from './util/mesh';
 
 // Procedural boats and ships. Every one is built from a seed, so each boat
 // that sails in looks a little different: hull shape, paint, wheelhouse,
@@ -103,12 +104,6 @@ function loft(lower: Ring, y0: number, upper: Ring, y1: number, capTop = false):
   geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
   geo.computeVertexNormals();
   return geo;
-}
-
-function mesh(geo: BufferGeometry, color: number): Mesh {
-  const m = new Mesh(geo, mat(color));
-  m.castShadow = m.receiveShadow = true;
-  return m;
 }
 
 interface HullSpec {

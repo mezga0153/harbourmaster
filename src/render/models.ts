@@ -7,9 +7,7 @@ import {
   MeshBasicMaterial,
   MeshLambertMaterial,
   type Material,
-  Quaternion,
   SRGBColorSpace,
-  Vector3,
   type BufferGeometry,
   type Object3D,
 } from 'three';
@@ -19,6 +17,7 @@ import { coasterShip, feederShip, fishingBoat, lobsterBoat, tugBoat } from './cr
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { worker, type Limbs } from './people';
+import { headingOf } from './util/math';
 import { truckModel, type Trailer } from './vehicles';
 
 // Procedural low-poly models. All face +X; the root sits on the ground at y=0.
@@ -84,15 +83,7 @@ export function reachTo(r: Reach, h: number): void {
   r.ram.scale.x = Math.hypot(rx, ry);
 }
 
-const turned = new Quaternion();
-const lengthwise = new Vector3();
-
-/** Which way a container's length runs in the world, as a heading on the map. */
-export function headingOf(o: Object3D): number {
-  o.getWorldQuaternion(turned);
-  lengthwise.set(1, 0, 0).applyQuaternion(turned);
-  return Math.atan2(lengthwise.z, lengthwise.x);
-}
+export { headingOf };
 
 /** The crates on a pallet, as a forklift carries them and storage keeps them, two by two. */
 export const PALLET_CRATE = 0.15;
