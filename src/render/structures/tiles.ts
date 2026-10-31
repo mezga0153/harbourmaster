@@ -514,17 +514,28 @@ function truckBay(t: TileBuild): Object3D {
       }
     }
   }
-  g.add(cyl(0.02, 0.5, C.chassis, 0.92, y, 0.08));
-  g.add(baySign(0.92, y + 0.45));
+  baySign(g, y);
   parts.stack = { crates, boxes: [] };
   return g;
 }
 
-/** A truck bay's sign on its post, its designation on both faces; see labels.ts. */
-function baySign(x: number, y: number): Object3D {
-  const sign = box(0.04, 0.2, 0.27, C.sign, x, y, 0.08);
+/**
+ * A truck bay's sign on its post, its designation on both faces (see
+ * labels.ts): at the front corner by the road on the side away from the
+ * crates, beside the truck's cab and outside the lane line, where neither
+ * the truck, nor the stack, nor those who load it from behind the stack,
+ * along the bay's back or from the next bay along ever go; up high, over
+ * the trucks, the forklifts and the loads they carry.
+ */
+function baySign(g: Group, y: number): void {
+  const x = 0.015;
+  const post = cyl(0.02, 0.6, C.chassis, x, y, 0.9);
+  post.userData.baySignPost = true;
+  g.add(post);
+  // The board on it, out over the bay towards its back.
+  const sign = box(0.03, 0.2, 0.27, C.sign, x, y + 0.55, 0.79);
   sign.userData.baySign = true;
-  return sign;
+  g.add(sign);
 }
 
 function largeBay(t: TileBuild): Object3D {
@@ -553,8 +564,7 @@ function largeBay(t: TileBuild): Object3D {
     for (const z of [0.06, 0.94]) g.add(cyl(0.03, 0.8, C.chassis, x, y, z));
   }
   g.add(box(1, 0.04, 1, C.depotRoof, 1.5, y + 0.8, 0.5));
-  g.add(cyl(0.02, 0.5, C.chassis, 0.08, y, 0.08));
-  g.add(baySign(0.08, y + 0.45));
+  baySign(g, y);
   parts.stack = { crates, boxes: [] };
   return g;
 }
