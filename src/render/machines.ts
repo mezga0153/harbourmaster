@@ -1,7 +1,7 @@
 import { Group, type Object3D } from 'three';
 import { BOX_HEIGHT, BOX_LENGTH } from './assets';
 import type { Model } from './model';
-import { container, crate, PALLET_CRATE } from './models';
+import { container, crate, CRATE } from './models';
 import { C } from './palette';
 import { box, cyl } from './parts';
 
@@ -61,7 +61,9 @@ export const FORKS_LOADED = 0.12;
 export function forklift(): Model {
   const root = new Group();
   const body = new Group();
-  body.add(box(0.36, 0.14, 0.3, C.forklift, -0.04, 0.06));
+  // The body ends where the counterweight begins: were they to overlap, their
+  // sides would lie in the same plane and flicker as it drives.
+  body.add(box(0.28, 0.14, 0.3, C.forklift, 0, 0.06));
   body.add(box(0.12, 0.16, 0.3, C.chassis, -0.2, 0.06));
   for (const x of [-0.14, 0.1]) {
     for (const z of [-0.15, 0.15]) {
@@ -91,7 +93,7 @@ export function forklift(): Model {
   const crates: Object3D[] = [];
   for (let layer = 0; layer < 2; layer++) {
     for (const z of [-0.08, 0.08]) {
-      const c = crate(PALLET_CRATE, 0.3, 0.04 + layer * PALLET_CRATE, z);
+      const c = crate(CRATE, 0.3, 0.04 + layer * CRATE, z);
       c.visible = false;
       forks.add(c);
       crates.push(c);
