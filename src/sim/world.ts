@@ -102,7 +102,8 @@ import {
 } from './systems/workforce/dockhands';
 import { spawnShipments } from './systems/cargo/exports';
 import { shutStore } from './systems/cargo/stores';
-import { addBay, crossesRails, parkUp } from './systems/roads/bays';
+import { addBay, crossesRails, lots, parkUp } from './systems/roads/bays';
+import { nameBays } from './designations';
 import { noteTiles } from './systems/roads/traffic';
 import { spawnTrucks, steerPoints, updateTruck } from './systems/roads/trucks';
 import {
@@ -222,6 +223,8 @@ export class World {
   machineCache: Set<number> | null = null;
   /** The parking lots, and whether each works; see parkingLots. */
   lotsCache: ParkingLot[] | null = null;
+  /** Each parking tile's lot's designation, for the lots to keep theirs when redrawn; see nameLots. */
+  lotNames = new Map<number, string>();
   /** The town up the coast, which grows with the port. */
   town: Town | null = null;
   /** The step up the player has been told the town is big enough for. */
@@ -463,6 +466,9 @@ export class World {
         tiles: bay.tiles ? [...bay.tiles] : bay.warehouse ? [bay.idx] : undefined,
       });
     }
+    // Older saves' truck bays get their designations, lowest tile first.
+    nameBays(world.bays.values());
+    for (const [i, name] of s.lotNames ?? []) world.lotNames.set(i, name);
     for (const pile of s.piles ?? [])
       world.piles.set(pile.idx, { ...pile, crates: [...pile.crates] });
     for (const y of s.yards ?? []) {
@@ -607,6 +613,7 @@ export class World {
       tips: [...this.tipsSeen],
       departed: this.departed,
       unloaded: [...this.unloadedAt],
+      lotNames: lots(this).map((l) => [l.tiles[0], l.name!] as [number, string]),
     });
   }
 

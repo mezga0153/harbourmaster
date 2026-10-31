@@ -134,6 +134,11 @@ function DepotInfo({ depot, actions, onClose: close }: InfoProps & { depot: Depo
   );
 }
 
+/** A place's kind and its designation, as on its sign: "Truck bay B3". */
+function named(what: string, name: string | undefined): string {
+  return name ? `${what} ${name}` : what;
+}
+
 function BayInfo({ bay, actions, onClose: close }: InfoProps & { bay: Bay }) {
   return (
     <aside class="side panel">
@@ -141,10 +146,8 @@ function BayInfo({ bay, actions, onClose: close }: InfoProps & { bay: Bay }) {
         kicker={bay.tiles ? 'Storage' : 'Building'}
         title={
           bay.warehouse
-            ? `Crate storage${bay.byCrane ? ', by a crane' : bay.outgoing ? ': out' : ': in'}`
-            : bay.large
-              ? 'Large truck bay'
-              : 'Truck bay'
+            ? `${named('Crate storage', bay.name)}${bay.byCrane ? ', by a crane' : bay.outgoing ? ': out' : ': in'}`
+            : named(bay.large ? 'Large truck bay' : 'Truck bay', bay.name)
         }
         onClose={close}
       />
@@ -251,7 +254,7 @@ function ParkingInfo({ lot, onClose: close }: { lot: Lot; onClose: () => void })
     <aside class="side panel">
       <InfoHeader
         kicker="Truck parking"
-        title={lot.outside ? 'Parking outside the port' : 'Parking inside the port'}
+        title={`${named('Parking', lot.name)} ${lot.outside ? 'outside the port' : 'inside the port'}`}
         onClose={close}
       />
       <p class="muted">
@@ -373,7 +376,7 @@ function YardInfo({ yard, actions, onClose: close }: InfoProps & { yard: Yard })
     <aside class="side panel">
       <InfoHeader
         kicker="Storage"
-        title={`Container yard${yard.outgoing ? ': out' : ': in'}${yard.byCrane ? ', by a crane' : ''}`}
+        title={`${named('Container yard', yard.name)}${yard.outgoing ? ': out' : ': in'}${yard.byCrane ? ', by a crane' : ''}`}
         onClose={close}
       />
       {yard.outgoing && (

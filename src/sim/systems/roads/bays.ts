@@ -16,6 +16,7 @@ import { needsWideSpace, parkingLots } from '../../rules/parking';
 import type { ParkingLot, ParkingSpace } from '../../rules/parking';
 import { takesFrom } from '../cargo/stores';
 import { bayRoom } from '../../helpers';
+import { handOn, nameBays, PREFIX } from '../../designations';
 
 export function addBay(w: World, i: number): void {
   w.bays.set(i, {
@@ -28,6 +29,7 @@ export function addBay(w: World, i: number): void {
     nextTruckTick: 0,
     noAccess: false,
   });
+  nameBays(w.bays.values());
 }
 
 /** Where trucks stand to load: in a truck bay, or beside a storage area. */
@@ -634,8 +636,26 @@ export function oneWayLane(w: World, bay: Bay): boolean {
 }
 
 export function lots(w: World): ParkingLot[] {
-  w.lotsCache ??= parkingLots(w.map);
+  if (!w.lotsCache) {
+    w.lotsCache = parkingLots(w.map);
+    nameLots(w, w.lotsCache);
+  }
   return w.lotsCache;
+}
+
+/**
+ * Give each parking lot its designation: the one most of its tiles' lot
+ * had, the larger lot keeping it when one is split, or a new one.
+ */
+function nameLots(w: World, all: ParkingLot[]): void {
+  handOn(
+    all,
+    () => PREFIX.parking,
+    w.lotNames,
+    (lot, name) => (lot.name = name),
+  );
+  w.lotNames.clear();
+  for (const lot of all) for (const t of lot.tiles) w.lotNames.set(t, lot.name!);
 }
 
 /** The lot of parking tile `i` is in, if any. */

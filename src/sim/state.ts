@@ -245,6 +245,13 @@ export interface Boat extends Agent {
   crates: number;
   /** Crates promised to dockhands who are on their way. */
   reserved: number;
+  /**
+   * The dockhands found nowhere to carry its crates into, last they looked:
+   * no truck bay or crate storage for cargo coming in with room they can
+   * walk to (`room`), or for timber and goods no crate storage (`customs`).
+   * It waits meanwhile, as they set nothing down on the quay.
+   */
+  noRoom?: 'room' | 'customs';
   /** Exports taken on board, on their way to it, and ticks since one last came. */
   out?: number;
   outIncoming?: number;
@@ -438,6 +445,8 @@ export interface Truck extends Agent {
 
 export interface Bay {
   idx: number;
+  /** Its designation, on its sign or painted on the ground: B3, C2; see designations.ts. */
+  name?: string;
   /** Takes the big trucks: large bays and warehouses. */
   large: boolean;
   /** A warehouse: lots of room, and two loading docks that load fast. */
@@ -581,6 +590,8 @@ export interface SaveData {
   departed?: number;
   /** When container ships lately finished unloading; see unloadedAt. */
   unloaded?: [number, number][];
+  /** Each parking lot's designation, by its first tile. Older saves have none. */
+  lotNames?: [number, string][];
 }
 
 export interface GantryHeld {

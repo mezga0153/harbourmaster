@@ -86,6 +86,7 @@ import {
   takesImports,
 } from './cargo/stores';
 import { dest, holdsView } from './cargo/customs';
+import { placeOf } from '../designations';
 import {
   docked,
   inQueue,
@@ -168,6 +169,24 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
   return undefined;
 }
 
+/** Where a truck is headed or loading, by its designation, or `none` if it has none. */
+function truckPlace(w: World, t: Truck, none: string): string {
+  const bay = dest(w, t.bayIdx);
+  return bay?.name ? placeOf(bay) : none;
+}
+
+/** What a worker is up to, naming the storage or truck bay it carries cargo to. */
+function workerActivity(w: World, p: Dockhand): string {
+  const landing = w.piles.has(p.bayIdx);
+  const to =
+    p.state === 'toDrop' && !landing && !p.outbound && !p.restack && p.truckId === undefined;
+  const bay = to ? dest(w, p.bayIdx) : undefined;
+  if (!bay?.name) return activity(p, landing);
+  if (p.kind === 'stacker' || p.kind === 'tractor') return `Taking a container to ${placeOf(bay)}`;
+  if (p.kind === 'forklift') return `Carrying crates to ${placeOf(bay)}`;
+  return `Carrying a crate to ${placeOf(bay)}`;
+}
+
 /** What a truck waiting in the parking to load is waiting for. */
 export function parkedWords(w: World, t: Truck): string {
   const bay = dest(w, t.bayIdx);
@@ -206,7 +225,7 @@ export function truckWhy(w: World, t: Truck): string | undefined {
   if (t.state === 'parked' && !t.exports) {
     const bay = dest(w, t.bayIdx);
     if (!bay) return undefined;
-    const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage' : 'truck bay';
+    const what = placeOf(bay);
     if (bay.noAccess) return bay.noAccessWhy;
     if (oneWayLane(w, bay)) {
       const n = inQueue(w, bay);
@@ -217,8 +236,8 @@ export function truckWhy(w: World, t: Truck): string | undefined {
         (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || docked(w, o)),
       ).length;
       return w.freeDockSet(bay, lengthOf(w, t)).size === 0
-        ? `Every loading spot at the ${what} is taken: ${going} ${going === 1 ? 'truck is' : 'trucks are'} loading there or on the way.${bay.tiles ? ' A truck longer than a tile takes the spots either side of it too.' : ''}${bay.yard ? " A longer yard along the gantry's lane gives more spots." : ''}`
-        : `Spots at the ${what} are free, but trucks on their way in go first, so it would not stand in their way.`;
+        ? `Every loading spot at ${what} is taken: ${going} ${going === 1 ? 'truck is' : 'trucks are'} loading there or on the way.${bay.tiles ? ' A truck longer than a tile takes the spots either side of it too.' : ''}${bay.yard ? " A longer yard along the gantry's lane gives more spots." : ''}`
+        : `Spots at ${what} are free, but trucks on their way in go first, so it would not stand in their way.`;
     }
     const stackers = w.people.filter((p) => p.kind === 'stacker').length;
     return `This yard has no yard gantry: reach stackers load its trucks, and ${stackers === 0 ? 'there are none' : `all ${stackers} are busy`}. More reach stackers, or a yard gantry here, load trucks sooner.`;
@@ -385,7 +404,7 @@ export function problems(w: World): ProblemView[] {
       out.push({
         ...middle(lot.tiles),
         h: 0.9,
-        text: `Not in use: ${why}.`,
+        text: `${lot.name ? `Parking ${lot.name} is n` : 'N'}ot in use: ${why}.`,
         type: 'parking',
         idx: lot.tiles[0],
       });
@@ -505,10 +524,7 @@ export function buildSnapshot(w: World): Snapshot {
       handling: handlingPhase(w, p),
       sitting: p.state === 'resting' && p.hutIdx >= 0 && w.map.build[p.hutIdx] === Build.BreakHut,
       name: p.name,
-      activity:
-        p.blocked > 3
-          ? 'Waiting for someone to get out of the way'
-          : activity(p, w.piles.has(p.bayIdx)),
+      activity: p.blocked > 3 ? 'Waiting for someone to get out of the way' : workerActivity(w, p),
       variant: 0,
       capacity: p.capacity,
       alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
@@ -527,7 +543,7 @@ export function buildSnapshot(w: World): Snapshot {
       wage: p.wage,
       energy: Math.round(p.energy),
       morale: Math.round(p.morale),
-      activity: activity(p, w.piles.has(p.bayIdx)),
+      activity: workerActivity(w, p),
       thought: thought({
         blocked: p.blocked > 3,
         energy: p.energy,
@@ -659,7 +675,7 @@ export function buildSnapshot(w: World): Snapshot {
                   ? `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
                   : `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
           : t.exports && t.state === 'toBay'
-            ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
+            ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ${truckPlace(w, t, 'storage')}, to ship`
             : t.state === 'delivering'
               ? `Unloading ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship`
               : t.state === 'toPark'
@@ -667,9 +683,9 @@ export function buildSnapshot(w: World): Snapshot {
                 : t.state === 'parked'
                   ? parkedWords(w, t)
                   : t.state === 'toBay'
-                    ? 'Driving to the truck bay'
+                    ? `Driving to ${truckPlace(w, t, 'the truck bay')}`
                     : t.state === 'loading'
-                      ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
+                      ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
                       : t.state === 'toTown' || t.state === 'unloading'
                         ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
                         : 'Heading out to the highway',
@@ -682,6 +698,7 @@ export function buildSnapshot(w: World): Snapshot {
   }
   const bays: BayView[] = [...w.bays.values()].map((b) => ({
     idx: b.idx,
+    name: b.name ?? '',
     stock: b.crates.length + moved(b).set,
     boxes: b.boxes.length,
     capacity: bayCap(b),
@@ -744,6 +761,7 @@ export function buildSnapshot(w: World): Snapshot {
     bays,
     yards: [...w.yards.values()].map((y) => ({
       idx: y.idx,
+      name: y.name ?? '',
       boxes: y.boxes.length,
       exports: y.exports?.length ?? 0,
       ...yardLooks(w, y, lifts),
@@ -765,6 +783,7 @@ export function buildSnapshot(w: World): Snapshot {
       const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
       return {
         tiles: lot.tiles,
+        name: lot.name ?? '',
         outside: lot.outside,
         wide: lot.wide,
         spaces: lot.spaces.length,

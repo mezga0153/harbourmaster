@@ -91,6 +91,7 @@ import { settleGantry } from './yardGantry';
 import { jibStows, readyList, removePile } from './cargo/stores';
 import { dest } from './cargo/customs';
 import { addBay, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
+import { handOn, prefixOf } from '../designations';
 
 export function build(w: World, kind: BuildKind, tiles: number[], facing?: number): void {
   const def = BUILDABLES[kind];
@@ -597,6 +598,10 @@ export function rebuildStores(w: World): void {
   // Any container on a gantry's spreader goes down first, with the rest.
   for (const y of w.yards.values()) settleGantry(w, y);
   const old = [...w.bays.values(), ...w.yards.values()].filter((b) => b.tiles);
+  // Each tile's area's designation, for the areas laid out afresh to keep.
+  const had = new Map<number, string>();
+  for (const a of old) for (const t of a.tiles!) if (a.name) had.set(t, a.name);
+  const areas: Bay[] = [];
   const held = new Map<number, number[]>();
   const ready = new Map<number, number[]>();
   const lost = { crates: 0, boxes: 0 };
@@ -662,7 +667,9 @@ export function rebuildStores(w: World): void {
     }
     lost[yard ? 'boxes' : 'crates'] -= goods.length;
     (yard ? w.yards : w.bays).set(i, area);
+    areas.push(area);
   }
+  handOn(areas as (Bay & { tiles: number[] })[], prefixOf, had, (a, name) => (a.name = name));
   // Loads on their way, and trucks loading, go to the area their old one became.
   const remap = new Map<number, number>();
   for (const a of old) {

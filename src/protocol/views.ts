@@ -248,6 +248,8 @@ export interface Capacity {
 
 export interface BayView {
   idx: number;
+  /** Its designation: B3 for a truck bay, C2 or CX1 for crate storage. */
+  name: string;
   stock: number;
   /** Containers waiting. */
   boxes: number;
@@ -283,6 +285,8 @@ export interface BayView {
 
 export interface YardView {
   idx: number;
+  /** Its designation: Y1, or YX1 for one for containers going out. */
+  name: string;
   boxes: number;
   /** How each container looks, then each export. */
   looks: number[];
@@ -341,6 +345,8 @@ export interface YardView {
 
 export interface ParkingView {
   tiles: number[];
+  /** Its designation: P1, P2… */
+  name: string;
   outside: boolean;
   wide: boolean;
   spaces: number;

@@ -47,6 +47,8 @@ export interface ParkingLot {
   why: string | null;
   /** Which way trucks drive through it, once laid out right. */
   flow: ParkingFlow | null;
+  /** Its designation, P1, P2…; see nameLots. */
+  name?: string;
 }
 
 /**
