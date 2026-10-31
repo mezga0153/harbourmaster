@@ -1,3 +1,4 @@
+import { landError } from './land';
 import type { GameMap } from './map';
 import { Build, Deco, Terrain } from './types';
 
@@ -183,6 +184,9 @@ export function exitError(map: GameMap, y: number): string | null {
       return `Exits must be at least ${EXIT_SPACING} tiles apart along the highway`;
   }
   const beside = map.idx(HIGHWAY_COLUMNS, y);
+  // The town opens its own exits past the port's land.
+  const land = map.buildable(beside) ? landError(map, beside) : null;
+  if (land) return land;
   const b = map.build[beside];
   if (b === Build.Road) return null;
   if (b !== Build.None) return 'Clear the tile beside the highway for the road off it';

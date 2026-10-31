@@ -440,3 +440,9 @@ export const TOWN_BUILD_TICKS = 25; // the town's builders finish one job this o
 export const TOWN_PER_LOCAL = 3; // more people per crate a day delivered to the town's businesses
 export const TOWN_DELIVERY_BONUS = 0.25; // of a load's fees, paid when it is delivered in town
 export const UNLOAD_TICKS = 4; // per crate or container, unloading at a town business
+
+// The port's land, bought a plot at a time. See land.ts.
+export const PLOT_SIZE = 16; // tiles along each side of a plot
+export const PLOT_PRICE = 2000; // the first plot bought; the free ones the port starts with never count
+export const PLOT_PRICE_RISE = 1.25; // each plot bought costs this many times the one before
+export const SEA_PLOT_SHARE = 0.6; // a plot all of sea is a seabed lease, this share of the price of land

@@ -33,6 +33,8 @@ export type Command =
   | { type: 'roundabout'; tile: number }
   /** Dredge (dig the seabed deeper, or the shore out into sea) or reclaim (fill it in). */
   | { type: 'terraform'; tiles: number[]; raise: boolean }
+  /** Buy plot `plot` of the port's land (see land.ts), beside land it owns. */
+  | { type: 'buyPlot'; plot: number }
   | { type: 'hire'; candidateId: number }
   | { type: 'fire'; id: number }
   | { type: 'loan'; amount: number }
@@ -658,7 +660,14 @@ export interface TileChange {
 
 export type WorkerMessage =
   | { type: 'init'; map: MapData; seed: number }
-  | { type: 'frame'; snapshot: Snapshot; tiles: TileChange[]; events: SimEvent[] }
+  | {
+      type: 'frame';
+      snapshot: Snapshot;
+      tiles: TileChange[];
+      events: SimEvent[];
+      /** The port's plots, owned or not, and how many bought: only when that changes. */
+      plots?: { plots: number[]; bought: number };
+    }
   /** Dev server only: the game as a save, for the debug bridge. */
   | { type: 'dump'; save: SaveData }
   /** The game as a save, to keep in a file; see exportSave. */

@@ -8,5 +8,5 @@ export default defineConfig({
   // Which version this is, for the play log (src/log/).
   define: { __VERSION__: JSON.stringify(version()) },
   worker: { format: 'es' },
-  test: { environment: 'node' },
+  test: { environment: 'node', setupFiles: ['tests/setup.ts'] },
 });

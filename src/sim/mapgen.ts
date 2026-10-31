@@ -1,4 +1,5 @@
 import { BOAT_DRAFT, MAX_JETTY_DEPTH, MAX_QUAY_DEPTH } from './balance';
+import { ownOnly, startPlots } from './land';
 import { GameMap } from './map';
 import { fbm } from './noise';
 import { Rng } from './rng';
@@ -191,6 +192,8 @@ function layoutStart(map: GameMap): number {
     map.depth[i] = Math.min(map.depth[i], MAX_JETTY_DEPTH - 0.5);
   }
   map.entry = map.idx(HIGHWAY_COLUMNS - 1, row);
+  // The port starts owning the land round its jetty; the rest it buys.
+  ownOnly(map, startPlots(map, row, shoreX));
 
   return map.idx(shoreX, row);
 }
@@ -215,6 +218,8 @@ export function extendMap(old: GameMap, seed: number): GameMap {
     map.orient[i] = 0;
   }
   map.entry = old.entry;
+  map.plots.set(old.plots);
+  map.plotsBought = old.plotsBought;
   return map;
 }
 

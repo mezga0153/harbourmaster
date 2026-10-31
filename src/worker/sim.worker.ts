@@ -24,6 +24,7 @@ function start(w: World): void {
   ctx.postMessage({ type: 'init', map: w.map.toData(), seed: w.seed });
   // Clear the pending changes; the init message already carries them.
   w.drainTileChanges();
+  w.drainPlotChanges();
 }
 
 /** Tell the page something went wrong here, for the play log. */
@@ -108,6 +109,7 @@ function postFrame(extra: ReturnType<World['drainEvents']> = []): void {
     type: 'frame',
     snapshot: world.snapshot(),
     tiles: world.drainTileChanges(),
+    plots: world.drainPlotChanges(),
     events: [...world.drainEvents(), ...extra],
   });
 }

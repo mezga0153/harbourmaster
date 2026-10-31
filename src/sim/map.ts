@@ -1,3 +1,4 @@
+import { PLOT_SIZE } from './balance';
 import { FORKLIFT_ONLY } from './rules';
 import { Build, Terrain } from './types';
 
@@ -15,6 +16,10 @@ export interface MapData {
   entry: number;
   /** Rows the player may build on; older saves have none past them. */
   limit?: number;
+  /** 1 for each plot of the port's land the port owns, row by row; older saves have none. */
+  plots?: number[];
+  /** Plots bought so far, not counting those the port was given. */
+  plotsBought?: number;
 }
 
 /**
@@ -38,6 +43,14 @@ export class GameMap {
   readonly store: Uint8Array;
   /** Road tile on the map edge where trucks enter and leave. */
   entry = 0;
+  /**
+   * The port's land in plots of PLOT_SIZE square, row by row: 1 where the
+   * port owns it and may build. All owned unless a new game or a save says
+   * otherwise; see land.ts.
+   */
+  readonly plots: Uint8Array;
+  /** Plots bought so far, which sets the price of the next; see land.ts. */
+  plotsBought = 0;
 
   constructor(
     readonly w: number,
@@ -53,6 +66,29 @@ export class GameMap {
     this.build = new Uint8Array(n);
     this.orient = new Uint8Array(n);
     this.store = new Uint8Array(n);
+    this.plots = new Uint8Array(this.plotsWide * this.plotsHigh).fill(1);
+  }
+
+  /** Plots across the map, and down the port's land. */
+  get plotsWide(): number {
+    return Math.ceil(this.w / PLOT_SIZE);
+  }
+
+  get plotsHigh(): number {
+    return Math.ceil(this.limit / PLOT_SIZE);
+  }
+
+  /** The plot tile `i` lies in, or -1 past the port's land. */
+  plotOf(i: number): number {
+    const y = this.yOf(i);
+    if (y >= this.limit || i < 0) return -1;
+    return Math.floor(y / PLOT_SIZE) * this.plotsWide + Math.floor(this.xOf(i) / PLOT_SIZE);
+  }
+
+  /** On land the port owns, where the player may build. */
+  owns(i: number): boolean {
+    const p = this.plotOf(i);
+    return p >= 0 && this.plots[p] === 1;
   }
 
   idx(x: number, y: number): number {
@@ -116,6 +152,8 @@ export class GameMap {
       store: Array.from(this.store),
       entry: this.entry,
       limit: this.limit,
+      plots: Array.from(this.plots),
+      plotsBought: this.plotsBought,
     };
   }
 
@@ -128,6 +166,9 @@ export class GameMap {
     m.build.set(d.build);
     m.orient.set(d.orient);
     if (d.store) m.store.set(d.store);
+    // Older saves own it all; World.fromSave keeps just what they built on.
+    if (d.plots?.length === m.plots.length) m.plots.set(d.plots);
+    m.plotsBought = d.plotsBought ?? 0;
     // Old forklift lanes are port roads marked forklift-only.
     for (let i = 0; i < m.build.length; i++) {
       if (m.build[i] === Build.ForkliftLane) {

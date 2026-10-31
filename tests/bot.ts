@@ -4,6 +4,7 @@
  */
 import * as B from '../src/sim/balance';
 import { fisheryDailyCrates, type FisheryTerms } from '../src/sim/contracts';
+import { buyable, landError, plotPrice } from '../src/sim/land';
 import { placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
@@ -241,6 +242,8 @@ function newJetty(w: World): boolean {
     let x = 0;
     while (x < m.w - 1 && m.ocean[m.idx(x, row)] !== 1) x++;
     const tiles = [0, 1, 2].map((k) => m.idx(x + k, row));
+    // Past the port's land, buy the plot the jetty would go on, as a player would.
+    if (!tiles.every((t) => buyLand(w, t, 2500))) continue;
     const pending = new Set<number>();
     const ok = tiles.every((t) => {
       const fine = !placementError(m, 'jetty', t, pending);
@@ -254,6 +257,19 @@ function newJetty(w: World): boolean {
   return false;
 }
 
+/**
+ * Make sure the port owns tile `t`: buy its plot if it is for sale and
+ * there is `spare` cash left over after. False if the port cannot build there.
+ */
+function buyLand(w: World, t: number, spare: number): boolean {
+  const m = w.map;
+  if (!landError(m, t)) return true;
+  const p = m.plotOf(t);
+  if (!buyable(m, p) || w.cash < plotPrice(m, p) + spare) return false;
+  w.command({ type: 'buyPlot', plot: p });
+  return m.owns(t);
+}
+
 /** Add one jetty tile beyond the current tip of the starting pier. */
 function extendJetty(w: World): boolean {
   const m = w.map;
@@ -261,13 +277,14 @@ function extendJetty(w: World): boolean {
   let x = 0;
   while (x < m.w - 1 && m.build[m.idx(x + 1, row)] !== Build.None) x++;
   const next = m.idx(x + 1, row);
-  if (m.build[m.idx(x, row)] !== Build.Jetty || placementError(m, 'jetty', next)) return false;
+  if (m.build[m.idx(x, row)] !== Build.Jetty || !buyLand(w, next, 800)) return false;
+  if (placementError(m, 'jetty', next)) return false;
   w.command({ type: 'build', kind: 'jetty', tiles: [next] });
   return m.build[next] === Build.Jetty;
 }
 
 export function playthrough(seed: number, days: number) {
-  const w = World.create(seed);
+  const w = World.create(seed, undefined, false);
   const log: string[] = [];
   for (let d = 1; d <= days && !w.bankrupt; d++) {
     for (let t = 0; t < TICKS_PER_DAY; t++) w.step();

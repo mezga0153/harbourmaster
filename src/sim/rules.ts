@@ -1,4 +1,5 @@
 import * as B from './balance';
+import { landError, OUTSIDE } from './land';
 import type { GameMap } from './map';
 import type { CostFn } from './path';
 import {
@@ -214,12 +215,12 @@ export function forkliftOnly(map: GameMap, i: number): boolean {
   return (map.orient[i] & FORKLIFT_ONLY) !== 0;
 }
 
-/** Shown for the country past the port's land. */
-export const OUTSIDE = 'Beyond the port’s land';
+export { OUTSIDE } from './land';
 
 /** Only port roads and plain quay can be marked for port machines only. */
 export function forkliftOnlyError(map: GameMap, i: number): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   if (forkliftOnly(map, i) && gantryOver(map, i, true) >= 0) {
     return 'Kept for port machines round a gantry crane’s rails';
   }
@@ -269,7 +270,8 @@ export function storeKindAt(map: GameMap, i: number): StoreKind | null {
 
 /** Whether a tile can be marked out as storage, or cleared of it, with `on` false. */
 export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   const code = STORE_CODE[kind];
   if (!on)
     return map.store[i] === code ? null : `Not marked out as ${STORE_LABEL[kind].toLowerCase()}`;
@@ -291,7 +293,7 @@ export function unmarkable(
   map: GameMap,
   i: number,
 ): { store: boolean; machines: boolean; road: boolean; parking: boolean } {
-  if (!map.buildable(i)) return { store: false, machines: false, road: false, parking: false };
+  if (!map.owns(i)) return { store: false, machines: false, road: false, parking: false };
   return {
     store: map.store[i] !== 0,
     machines: forkliftOnly(map, i) && gantryOver(map, i, true) < 0,
@@ -331,7 +333,8 @@ function parkingError(map: GameMap, i: number): string | null {
 
 /** Why tile `i` cannot be made one way, or null. */
 export function oneWayError(map: GameMap, i: number): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   const b = map.build[i];
   if (isHighway(b)) return 'The highway is one way each side already';
   if (!canBeOneWay(b)) return 'Only public roads and port roads can be made one way';
@@ -361,7 +364,8 @@ export function junctionAt(map: GameMap, i: number, road: CostFn = truckCost(map
 
 /** Why traffic lights cannot go up (or come down) at tile `i`, or null. */
 export function lightsError(map: GameMap, i: number): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   if (isHighway(map.build[i]))
     return 'Nobody waits on the highway: trucks out there pass through each other';
   if (!canBeOneWay(map.build[i])) return 'Traffic lights go at a road junction';
@@ -392,8 +396,10 @@ export function roundaboutError(map: GameMap, c: number): string | null {
   const cy = map.yOf(c);
   const tiles = [[0, 0], ...ROUNDABOUT_RING].map(([dx, dy]) => [cx + dx, cy + dy]);
   for (const [x, y] of tiles) {
-    if (!map.inBounds(x, y) || !map.buildable(map.idx(x, y))) return OUTSIDE;
+    if (!map.inBounds(x, y)) return OUTSIDE;
     const i = map.idx(x, y);
+    const land = landError(map, i);
+    if (land) return land;
     const b = map.build[i];
     if (isHighway(b)) return 'Too near the highway';
     if (b === Build.Rail || b === Build.Crossing) return 'The railway is in the way';
@@ -619,7 +625,13 @@ export function placementError(
   pending?: ReadonlySet<number>,
   facing: number = bestFacing(map, kind, i, pending),
 ): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
+  // A building over two plots needs both.
+  for (const f of footprint(map, kind, i, facing)) {
+    const off = f >= 0 && f !== i ? landError(map, f) : null;
+    if (off) return off;
+  }
   const t = map.terrain[i];
   if ((kind === 'harbourCrane' || kind === 'jibCrane') && map.store[i]) {
     return 'Clear the storage marked out here first';
@@ -627,7 +639,7 @@ export function placementError(
   if (kind === 'gantryCrane') {
     const tiles = footprint(map, kind, i, facing);
     const quay = (t: number) =>
-      t >= 0 && map.buildable(t) && map.build[t] === Build.Quay && !map.store[t];
+      t >= 0 && map.owns(t) && map.build[t] === Build.Quay && !map.store[t];
     if (!tiles.every(quay)) return 'A gantry crane stands on 2×2 of clear quay';
     const sea = (t: number) => {
       const n = frontOf(map, t, facing);
@@ -751,7 +763,7 @@ export function placementError(
   if (t === Terrain.Rock) return 'Rock is in the way';
   const clear = (n: number) =>
     n >= 0 &&
-    map.buildable(n) &&
+    map.owns(n) &&
     !pending?.has(n) &&
     map.build[n] === Build.None &&
     map.terrain[n] !== Terrain.Water &&
@@ -882,7 +894,8 @@ export function bulldozeTiles(map: GameMap, i: number): number[] {
 }
 
 export function bulldozeError(map: GameMap, i: number): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   const empty = map.build[i] === Build.None && map.deco[i] === Deco.None;
   if (empty && map.terrain[i] !== Terrain.Rock) return 'Nothing to clear';
   if (isHighway(map.build[i])) {
@@ -925,7 +938,8 @@ export function terraformError(
   raise: boolean,
   pending?: ReadonlySet<number>,
 ): string | null {
-  if (!map.buildable(i)) return OUTSIDE;
+  const land = landError(map, i);
+  if (land) return land;
   if (map.build[i] !== Build.None) return 'Clear what is built here first';
   const t = map.terrain[i];
   if (raise) {

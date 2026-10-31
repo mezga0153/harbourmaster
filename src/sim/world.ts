@@ -41,6 +41,15 @@ import {
   type ShipperTerms,
   type Terms,
 } from './contracts';
+import {
+  isLandError,
+  nextPrice,
+  ownBuilt,
+  ownedPlots,
+  plotBounds,
+  plotError,
+  plotPrice,
+} from './land';
 import { GameMap, type MapData } from './map';
 import { extendMap, generateMap } from './mapgen';
 import { randomName, townName } from './names';
@@ -1280,6 +1289,8 @@ export class World {
   /** Workers per tile and lane (tile * 4 + lane), rebuilt every tick. Not saved. */
   private occupancy: Uint8Array;
   private dirty = new Set<number>();
+  /** A plot was bought since the main thread was last told. */
+  private plotsChanged = false;
 
   private constructor(
     readonly seed: number,
@@ -1298,9 +1309,20 @@ export class World {
     this.town = foundTown(this.map, townName(this.scenery), () => {});
   }
 
-  /** A new game; `size`, the port's land, for a map as big as they were before. */
-  static create(seed: number, size?: number): World {
+  /**
+   * New games own all the port's land, as before land was bought, rather
+   * than the few plots round the jetty: for tests whose ports spread
+   * anywhere. See ownAll in create.
+   */
+  static ownAllLand = false;
+
+  /**
+   * A new game; `size`, the port's land, for a map as big as they were
+   * before; `ownAll` owns every plot of it from the start.
+   */
+  static create(seed: number, size?: number, ownAll = World.ownAllLand): World {
     const { map, spawn } = generateMap(seed, size);
+    if (ownAll) map.plots.fill(1);
     const world = new World(seed, map, new Rng(seed));
     world.settle();
     for (let i = 0; i < map.build.length; i++) {
@@ -1418,6 +1440,8 @@ export class World {
       m.build[i] = m.orient[i] & ON_QUAY ? Build.Quay : Build.PortRoad;
       m.orient[i] = 0;
     }
+    // Saves from before land was bought own every plot they built on, free.
+    if (!s.map.plots) ownBuilt(m, generateMap(s.seed, m.w).map);
     for (const bay of s.bays) {
       world.bays.set(bay.idx, {
         ...bay,
@@ -1628,6 +1652,8 @@ export class World {
         return this.sailNow(cmd.id);
       case 'terraform':
         return this.terraform(cmd.tiles, cmd.raise);
+      case 'buyPlot':
+        return this.buyPlot(cmd.plot);
       case 'hire':
         return this.hire(cmd.candidateId);
       case 'fire':
@@ -1753,6 +1779,30 @@ export class World {
       const trouble = lot && this.lotTrouble(lot);
       if (trouble) this.message(`This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
     } else if (firstError) this.message(firstError, 'bad');
+  }
+
+  /** Buy plot `p` of the port's land, beside the land it owns, if there is cash for it. */
+  private buyPlot(p: number): void {
+    const m = this.map;
+    const err = plotError(m, p);
+    if (err) return this.message(err, 'bad');
+    const price = plotPrice(m, p);
+    if (price > this.cash) {
+      return this.message(
+        `Not enough money: this plot costs $${price.toLocaleString('en-US')}.`,
+        'bad',
+      );
+    }
+    this.book('construction', -price);
+    m.plots[p] = 1;
+    m.plotsBought++;
+    this.plotsChanged = true;
+    const b = plotBounds(m, p);
+    this.moneyAt(-price, m.idx((b.x0 + b.x1) >> 1, (b.y0 + b.y1) >> 1));
+    this.message(
+      `The plot is the port’s to build on: ${ownedPlots(m)} plots owned. The next plot of land costs $${nextPrice(m).toLocaleString('en-US')}.`,
+      'good',
+    );
   }
 
   private boatInTheWay(kind: BuildKind, i: number): string | null {
@@ -14346,6 +14396,8 @@ export class World {
 
   private message(text: string, tone: 'info' | 'good' | 'bad'): void {
     this.events.push({ kind: 'message', text, tone });
+    // Refused for want of land: the advisor says how land is bought, once.
+    if (tone === 'bad' && isLandError(text)) this.tip('land');
   }
 
   /**
@@ -14421,6 +14473,13 @@ export class World {
     }));
     this.dirty.clear();
     return out;
+  }
+
+  /** The port's plots and how many were bought, when that has changed since last asked. */
+  drainPlotChanges(): { plots: number[]; bought: number } | undefined {
+    if (!this.plotsChanged) return undefined;
+    this.plotsChanged = false;
+    return { plots: Array.from(this.map.plots), bought: this.map.plotsBought };
   }
 
   // ── Explanations ──────────────────────────────────────────
