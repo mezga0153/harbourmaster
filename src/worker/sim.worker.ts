@@ -6,6 +6,8 @@ import { loadSave, writeSave } from './storage';
 // The sim worker owns the game state. See plan.md §11, Threads.
 
 const LOOP_MS = 100;
+/** How soon after the player does something the game is saved. */
+const SAVE_AFTER_MS = 2000;
 
 const ctx = self as unknown as {
   postMessage(msg: WorkerMessage): void;
@@ -14,6 +16,7 @@ const ctx = self as unknown as {
 
 let world: World | null = null;
 const queued: Command[] = [];
+let saveSoon: ReturnType<typeof setTimeout> | undefined;
 
 function randomSeed(): number {
   return Math.floor(Math.random() * 1_000_000);
@@ -100,6 +103,12 @@ function handle(cmd: Command): void {
     }
   } else {
     world.command(cmd);
+    // What the player did is saved soon after, not only at the end of the
+    // day: an upgrade or a plot bought is not lost if the page goes.
+    saveSoon ??= setTimeout(() => {
+      saveSoon = undefined;
+      save(false);
+    }, SAVE_AFTER_MS);
   }
 }
 
