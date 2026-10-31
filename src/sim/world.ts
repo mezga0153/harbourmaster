@@ -5001,6 +5001,8 @@ export class World {
     const cost = this.boatCostFor(b.draft);
     if (b.castOff === undefined || b.castDock === undefined) {
       b.undock = undefined;
+      b.backOut = undefined;
+      b.comeRound = undefined;
       return false;
     }
     const bx = m.xOf(b.castOff) + 0.5;
