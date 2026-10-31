@@ -31,6 +31,12 @@ export interface HaulierTerms {
   dailyFee: number;
   /** Container hauliers carry containers instead of crates. */
   cargo?: 'container';
+  /**
+   * Pickups, the Fishing Jetty's hauliers' trucks: an open bed of one
+   * layer of crates, loaded by hand from the road beside a truck bay.
+   * Without it, small or big trucks.
+   */
+  pickup?: boolean;
 }
 
 /**
@@ -222,8 +228,9 @@ export const STARTER_HAULIER: HaulierTerms = {
   name: "Pip's Haulage",
   color: 0,
   fleet: 2,
-  capacity: B.TRUCK_CAPACITY,
+  capacity: B.PICKUP_CAPACITY,
   dailyFee: B.STARTER_HAULIER_FEE,
+  pickup: true,
 };
 
 /** Average crates a fishery lands per day. */
@@ -381,8 +388,14 @@ export function makeOffer(
   }
 
   const fleet = rng.int(1, 3);
-  // Big trucks come with the Coastal Wharf, which unlocks large truck bays.
-  const capacity = tier >= 1 && rng.next() < 0.4 ? B.BIG_TRUCK_CAPACITY : B.TRUCK_CAPACITY;
+  // Pickups at the Fishing Jetty; small trucks, which forklifts load too,
+  // and big ones for large truck bays with the Coastal Wharf.
+  const pickup = tier < 1;
+  const capacity = pickup
+    ? B.PICKUP_CAPACITY
+    : rng.next() < 0.4
+      ? B.BIG_TRUCK_CAPACITY
+      : B.TRUCK_CAPACITY;
   const perTruck = capacity === B.BIG_TRUCK_CAPACITY ? 30 : 20;
   const terms: HaulierTerms = {
     kind,
@@ -391,6 +404,7 @@ export function makeOffer(
     fleet,
     capacity,
     dailyFee: fleet * perTruck + rng.int(0, 2) * 5,
+    ...(pickup ? { pickup } : {}),
   };
   return { id, terms, signingFee: fleet * 150, expires };
 }

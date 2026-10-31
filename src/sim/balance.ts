@@ -34,6 +34,8 @@ export const QUIT_DAYS = 2; // days in a row below QUIT_MORALE before quitting
 export const CRATE_FEE = 20; // paid when a truck leaves with the crate
 export const TRUCK_CAPACITY = 6;
 export const BIG_TRUCK_CAPACITY = 8;
+/** A pickup's open bed: one layer of crates, three by two, loaded by hand. */
+export const PICKUP_CAPACITY = 6;
 export const STARTER_HAULIER_FEE = 20; // per day
 export const TRUCK_PATIENCE = 120; // ticks a part-loaded truck waits for more crates
 /** Ticks a cleared container waits for a full truckload before a truck comes for it anyway. */

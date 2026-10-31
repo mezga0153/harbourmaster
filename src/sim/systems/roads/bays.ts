@@ -16,6 +16,7 @@ import { needsWideSpace, parkingLots } from '../../rules/parking';
 import type { ParkingLot, ParkingSpace } from '../../rules/parking';
 import { takesFrom } from '../cargo/stores';
 import { bayRoom } from '../../helpers';
+import { frontOf } from '../../rules/footprint';
 import { handOn, nameBays, PREFIX } from '../../designations';
 
 export function addBay(w: World, i: number): void {
@@ -32,9 +33,56 @@ export function addBay(w: World, i: number): void {
   nameBays(w.bays.values());
 }
 
-/** Where trucks stand to load: in a truck bay, or beside a storage area. */
-export function loadingDocks(w: World, bay: Bay): number[] {
-  return bay.tiles ? w.storeSpots(bay) : [bay.idx];
+/**
+ * Where trucks stand to load: in a truck bay, or beside a storage area. A
+ * pickup never backs into a truck bay: it pulls up on the road beside it.
+ */
+export function loadingDocks(w: World, bay: Bay, pickup = false): number[] {
+  if (bay.tiles) return w.storeSpots(bay);
+  return pickup ? roadside(w, bay) : [bay.idx];
+}
+
+/**
+ * The road tiles beside a truck bay a pickup can pull up on, to be loaded
+ * from its side by dockhands at the bay: the one in front of it first,
+ * then those along the road at its corners, so bays round one end of a
+ * road each have somewhere to load a pickup.
+ */
+export function roadside(w: World, bay: Bay): number[] {
+  const m = w.map;
+  const reach = truckReaches(w);
+  const front = frontOf(m, bay.idx, m.orient[bay.idx] & 3);
+  const [x, y] = [m.xOf(bay.idx), m.yOf(bay.idx)];
+  const out: number[] = [];
+  for (const [dx, dy] of [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ]) {
+    if (!m.inBounds(x + dx, y + dy)) continue;
+    const n = m.idx(x + dx, y + dy);
+    if (reach[n] >= 0 && m.build[n] !== Build.Parking) out.push(n);
+  }
+  return out.sort((a, b) => (b === front ? 1 : 0) - (a === front ? 1 : 0));
+}
+
+/**
+ * Another truck bay whose trucks back in from this road tile, a pickup
+ * standing on it would be in their way: the bay, or undefined.
+ */
+export function frontFor(w: World, tile: number, but: Bay): Bay | undefined {
+  const m = w.map;
+  for (const n of m.neighbors4(tile)) {
+    const b = w.bays.get(n);
+    if (!b || b === but || b.tiles) continue;
+    if (frontOf(m, n, m.orient[n] & 3) === tile) return b;
+  }
+  return undefined;
 }
 
 /**
@@ -151,6 +199,7 @@ export function dockFor(
   bay: Bay,
   route: (dock: number, avoid: ReadonlySet<number>) => number[] | null,
   len = 1,
+  pickup = false,
 ): { dock: number; path: number[] } | null {
   if (oneWayLane(w, bay)) return joinQueue(w, bay, route, len);
   const m = w.map;
@@ -166,8 +215,8 @@ export function dockFor(
       if ((onTheirWay.get(i) ?? Infinity) > k) onTheirWay.set(i, k);
     });
   }
-  const open = w.freeDockSet(bay, len);
-  const free = w.loadingDocks(bay).filter((d) => open.has(d));
+  const open = w.freeDockSet(bay, len, pickup);
+  const free = w.loadingDocks(bay, pickup).filter((d) => open.has(d));
   w.dockRouted = false;
   // The furthest in first, so those that come after stop short of it
   // rather than having to get past.
@@ -362,7 +411,7 @@ export function avoiding(_w: World, cost: CostFn, avoid: ReadonlySet<number>): C
  * along the lane to one that is that a truck `len` long would not fit
  * between: a long truck at a spot reaches over the next.
  */
-export function freeDockSet(w: World, bay: Bay, len = 1): Set<number> {
+export function freeDockSet(w: World, bay: Bay, len = 1, pickup = false): Set<number> {
   const m = w.map;
   // At a yard gantry, those on their way in to its queue hold no spot.
   const queue = oneWayLane(w, bay);
@@ -391,7 +440,17 @@ export function freeDockSet(w: World, bay: Bay, len = 1): Set<number> {
       const across = Math.abs(dy * Math.cos(dir) - dx * Math.sin(dir));
       return across < 0.5 && along < (len + lengthOf(w, o)) / 2 - 0.05;
     });
-  return new Set(w.loadingDocks(bay).filter((d) => !taken.has(d) && !crowds(d)));
+  // Nor, for a pickup, in front of another bay a truck is on its way to or at.
+  const theirs = (d: number) => {
+    const o = pickup ? frontFor(w, d, bay) : undefined;
+    return (
+      !!o &&
+      w.trucks.some((t) => t.bayIdx === o.idx && !t.pickup && (t.state === 'toBay' || docked(w, t)))
+    );
+  };
+  return new Set(
+    w.loadingDocks(bay, pickup).filter((d) => !taken.has(d) && !crowds(d) && !theirs(d)),
+  );
 }
 
 /** The lane tiles of a yard its terminal tractors stand at for the gantry, or are on their way to. */
@@ -409,7 +468,7 @@ export function tractorsIn(w: World, yard: Bay): number[] {
     .filter((i) => lane.has(i));
 }
 
-export function freeDock(w: World, bay: Bay): number {
+export function freeDock(w: World, bay: Bay, pickup = false): number {
   const taken = new Set(
     w.trucks
       .filter(
@@ -419,7 +478,7 @@ export function freeDock(w: World, bay: Bay): number {
       )
       .map((t) => t.goal),
   );
-  return w.loadingDocks(bay).find((d) => !taken.has(d)) ?? -1;
+  return w.loadingDocks(bay, pickup).find((d) => !taken.has(d)) ?? -1;
 }
 
 export function removeBay(w: World, i: number): void {

@@ -65,6 +65,7 @@ import {
   refreshCandidates,
   sailNow,
   signContract,
+  smallTrucks,
   takeLoan,
   upgrade,
 } from './systems/economy';
@@ -725,7 +726,10 @@ export class World {
       this.cash += cmd.cash;
       message(this, `Debug: +$${cmd.cash.toLocaleString('en-US')}`, 'good');
     }
-    if (cmd.tier !== undefined) this.tier = cmd.tier;
+    if (cmd.tier !== undefined) {
+      this.tier = cmd.tier;
+      smallTrucks(this);
+    }
     if (cmd.town !== undefined && this.town) {
       // Build the town up to size at once.
       const t = this.town;
@@ -938,12 +942,12 @@ export class World {
     return this.town ? population(this.town, this.map) : 0;
   }
 
-  loadingDocks(bay: Bay): number[] {
-    return loadingDocksOf(this, bay);
+  loadingDocks(bay: Bay, pickup = false): number[] {
+    return loadingDocksOf(this, bay, pickup);
   }
 
-  freeDockSet(bay: Bay, len = 1): Set<number> {
-    return freeDockSetOf(this, bay, len);
+  freeDockSet(bay: Bay, len = 1, pickup = false): Set<number> {
+    return freeDockSetOf(this, bay, len, pickup);
   }
 
   drivePath(from: number, cameFrom: number, goal: number, cost: CostFn): number[] | null {

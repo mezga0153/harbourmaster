@@ -196,6 +196,8 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
 /** Where a truck is headed or loading, by its designation, or `none` if it has none. */
 function truckPlace(w: World, t: Truck, none: string): string {
   const bay = dest(w, t.bayIdx);
+  // A pickup pulls up on the road beside a truck bay.
+  if (t.pickup && bay?.name && !bay.tiles) return `the road beside ${placeOf(bay)}`;
   return bay?.name ? placeOf(bay) : none;
 }
 
@@ -788,6 +790,7 @@ export function buildSnapshot(w: World): Snapshot {
       capacity: t.capacity,
       alert: false,
       boxes: t.boxes,
+      pickup: t.pickup,
       why: truckWhy(w, t),
     });
   }

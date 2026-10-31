@@ -2,7 +2,7 @@
 // the port and the town, and how they drive.
 
 import type { World } from '../../world';
-import { book, hauliers } from '../economy';
+import { book, hauliers, smallTrucks } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
 import { bayCap, boxLookOf, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
@@ -11,6 +11,7 @@ import {
   avoiding,
   dockFor,
   freeDock,
+  frontFor,
   goDeeper,
   intoSpace,
   noWayIn,
@@ -56,6 +57,8 @@ import { cargoOf } from '../../cargo';
 
 export function spawnTrucks(w: World): void {
   const m = w.map;
+  // Pickups give way to small trucks once the port is a Coastal Wharf.
+  smallTrucks(w);
   const firms = hauliers(w);
   const out = new Map<number, number>();
   // A truck that has left the port is away on its round, and back for
@@ -80,8 +83,9 @@ export function spawnTrucks(w: World): void {
         cutOff(w, b);
         return false;
       }
-      // With every spot taken, more trucks queue in the parking, a few at a time.
-      if (freeDock(w, b) >= 0) return true;
+      // With every spot taken, more trucks queue in the parking, a few at a
+      // time; a pickup pulls up beside a truck bay instead.
+      if (freeDock(w, b) >= 0 || freeDock(w, b, true) >= 0) return true;
       return queuedAt(w, b) < w.loadingDocks(b).length && !!w.freeParking(b);
     })
     .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
@@ -129,6 +133,7 @@ export function spawnTrucks(w: World): void {
     // reach stacker is there to load it; otherwise it waits in parking
     // inside the port, or is not sent yet.
     const boxy = haulier.terms.cargo === 'container';
+    const pickup = !!haulier.terms.pickup;
     const served = !boxy || w.handlerFree(bay);
     const len = B.truckLength(haulier.terms.capacity, boxy);
     const to = dockFor(
@@ -136,17 +141,18 @@ export function spawnTrucks(w: World): void {
       bay,
       (d, avoid) => w.drivePath(from.tile, -1, d, avoiding(w, truckCostFor(w, bay.idx), avoid)),
       len,
+      pickup,
     );
     // No way to any free spot at all, rather than only past a truck there:
     // not sent, even to wait, as none could ever load there. Free for a
     // truck as long as this one: with none, dockFor tried no way at all.
-    if (!to && !w.dockRouted && w.freeDockSet(bay, len).size > 0) {
+    if (!to && !w.dockRouted && w.freeDockSet(bay, len, pickup).size > 0) {
       cutOff(w, bay, w.dockTurn);
       continue;
     }
     const spot = served && to ? to.dock : -1;
     // Waiting for a reach stacker, as for a spot, only a few queue in the parking.
-    if (spot < 0 && queuedAt(w, bay) >= w.loadingDocks(bay).length) continue;
+    if (spot < 0 && queuedAt(w, bay) >= w.loadingDocks(bay, pickup).length) continue;
     const wide = needsWideSpace(haulier.terms.capacity, boxy);
     const space = spot >= 0 ? null : w.freeParking(bay, false, wide);
     // A bay beside it may have just sent a truck to the spot they share.
@@ -183,6 +189,7 @@ export function spawnTrucks(w: World): void {
       cargo: 0,
       value: 0,
       boxes: haulier.terms.cargo === 'container',
+      ...(pickup ? { pickup } : {}),
       idle: 0,
       timer: 0,
       variant: haulier.terms.color,
@@ -268,11 +275,12 @@ export function updateTruck(w: World, t: Truck): void {
         bay,
         (d, avoid) => w.routeFrom(t, d, avoiding(w, truckCostFor(w, bay.idx, -1, t), avoid)),
         lengthOf(w, t),
+        !!t.pickup,
       );
       if (!to) {
         // No free spot it could get to and drive away from again: it
         // gives up in a while, and the bay shows why.
-        if (!w.dockRouted && w.freeDockSet(bay, lengthOf(w, t)).size > 0) {
+        if (!w.dockRouted && w.freeDockSet(bay, lengthOf(w, t), !!t.pickup).size > 0) {
           cutOff(w, bay, w.dockTurn);
           leavePark(w, t);
         }
@@ -375,8 +383,10 @@ export function updateTruck(w: World, t: Truck): void {
         // Loaded by hand, it takes all there is for it before the trucks
         // behind it, and waits a while for crates being carried here: it
         // goes as full as it can.
+        // Not a pickup in front of another bay, though: it is in the way there.
+        const inWay = t.pickup && !!frontFor(w, t.goal, bay);
         const empty =
-          (t.coming ?? 0) === 0 && cratesFor(w, t, bay) <= 0 && (bay.incoming ?? 0) <= 0;
+          (t.coming ?? 0) === 0 && cratesFor(w, t, bay) <= 0 && ((bay.incoming ?? 0) <= 0 || inWay);
         if (full || bored || (hands ? empty : done)) w.truckLeave(t);
         return;
       }

@@ -160,6 +160,79 @@ function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Model
 }
 
 /**
+ * A pickup: a bonneted cab and a low open bed behind it with a tailgate,
+ * for one layer of crates, two by two, loaded by hand over its sides.
+ */
+function pickupTruck(rng: Rng, company: number, capacity: number, crate: Crate): Model {
+  const root = new Group();
+  const s = style(rng, company);
+  const paint = s.paint;
+  const cols = Math.ceil(capacity / 2);
+  const bedLen = cols * 0.19 + 0.03;
+  const front = 0.38;
+  const y = 0.08;
+  const w = 0.3;
+  // Bonnet, grille and bumper.
+  root.add(box(0.15, 0.08, w * 0.9, paint, front - 0.075, y, 0));
+  root.add(box(0.012, 0.05, w * 0.6, DARK, front + 0.001, y + 0.015, 0));
+  root.add(box(0.025, 0.035, w + 0.02, DARK, front, y - 0.015, 0));
+  for (const z of [-1, 1]) root.add(box(0.01, 0.02, 0.05, LAMP, front + 0.014, y + 0.03, z * 0.1));
+  // The cab, its windscreen raked back over the bonnet.
+  const cabFront = front - 0.15;
+  const cabLen = 0.17;
+  root.add(box(cabLen, 0.17, w, paint, cabFront - cabLen / 2, y, 0));
+  root.add(box(0.012, 0.07, w * 0.86, C.window, cabFront + 0.001, y + 0.09, 0));
+  for (const z of [-1, 1]) {
+    root.add(
+      box(
+        cabLen * 0.5,
+        0.06,
+        0.012,
+        C.window,
+        cabFront - cabLen * 0.4,
+        y + 0.095,
+        z * (w / 2 + 0.001),
+      ),
+    );
+    root.add(
+      box(
+        cabLen + 0.15,
+        0.02,
+        0.014,
+        s.trim,
+        front - (cabLen + 0.15) / 2,
+        y + 0.035,
+        z * (w / 2 + 0.001),
+      ),
+    );
+  }
+  if (s.beacon) root.add(box(0.03, 0.02, 0.06, 0xf5a623, cabFront - cabLen * 0.5, y + 0.17, 0));
+  // The bed, low and open, in the cab's paint, with a tailgate.
+  const back = cabFront - cabLen - 0.015;
+  const tail = back - bedLen;
+  const bedY = 0.1;
+  root.add(box(front - tail, 0.03, 0.2, DARK, (front + tail) / 2, 0.05, 0));
+  root.add(box(bedLen, 0.02, w, paint, tail + bedLen / 2, bedY - 0.02, 0));
+  for (const z of [-1, 1])
+    root.add(box(bedLen, 0.045, 0.015, paint, tail + bedLen / 2, bedY, z * (w / 2 - 0.0075)));
+  root.add(box(0.015, 0.045, w, paint, tail + 0.0075, bedY, 0));
+  root.add(box(0.015, 0.06, w, paint, back - 0.0075, bedY, 0));
+  tailLights(root, tail, bedY - 0.01);
+  axle(root, front - 0.1, 0.055, 0.28);
+  axle(root, tail + 0.1, 0.055, 0.28);
+  const slots: Object3D[] = [];
+  for (let k = 0; k < cols; k++) {
+    for (const z of [-0.075, 0.075]) {
+      const c = crate(CRATE, back - 0.02 - 0.09 - k * 0.19, bedY, z);
+      c.visible = false;
+      root.add(c);
+      slots.push(c);
+    }
+  }
+  return { root, crates: slots.slice(0, capacity) };
+}
+
+/**
  * A tractor unit pulling a trailer: a flatbed for crates or a skeletal
  * chassis with twist-locks for containers. The trailer is a group of its
  * own, to swing behind the tractor about the fifth wheel.
@@ -322,8 +395,10 @@ export function truckModel(
   boxes: boolean,
   crate: Crate,
   container: Box,
+  pickup = false,
 ): Model {
   const rng = new Rng(seed * 48271 + 101);
+  if (pickup && !boxes) return pickupTruck(rng, company, capacity, crate);
   if (boxes || capacity > 6) {
     return articulated(rng, company, seed, capacity, boxes, crate, container);
   }

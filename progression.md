@@ -37,6 +37,11 @@ bought own every plot they built on, free.
 
 ## Fishing Jetty: village to town (cap 100 → 300+)
 
+The hauliers send **pickups** (`pickup` in `HaulierTerms`, `src/sim/contracts.ts`):
+an open bed of one layer of six crates that never backs into a truck bay but
+pulls up on the road beside it (`roadside` in `src/sim/systems/roads/bays.ts`),
+out of the way of the trucks of the bay beside it, and is loaded by hand.
+
 **In the game** (`LANDMARKS` in `src/sim/town.ts`): these three steps, with
 the goals measured as crates of a kind trucked out (fish: 12 a day for 3 days
 running; lobster: 15 in all, as lobster boats call only every day or two) or
@@ -52,6 +57,11 @@ past the 300 the Coastal Wharf needs.
 | 3 | **Seafood restaurant** | lobster trucked out, 15 crates in all | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf** | 400 |
 
 ## Coastal Wharf: town to large town (cap 400 → 800+)
+
+With forklifts come **small trucks**: the hauliers that sent pickups send
+small trucks instead (`smallTrucks` in `src/sim/systems/economy.ts`), and
+haulier offers are for small trucks, or big ones for large truck bays. They
+back into the bays, and forklifts load them as well as dockhands.
 
 Goods come in now, not only the catch. Each step's goal uses what the step
 before opened, and none counts till the port is a Coastal Wharf (the town

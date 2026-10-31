@@ -280,6 +280,13 @@ export const TOPICS: Record<TopicId, Topic> = {
             before its haulier can send it again, so the size of the fleet matters.
           </li>
           <li>
+            At the {TIERS[0].name} hauliers send pickups ({B.PICKUP_CAPACITY} crates): they never
+            back into a truck bay, but pull up on the road beside it, or beside storage, and
+            dockhands load them by hand over the side. From the {TIERS[1].name} they send small
+            trucks ({B.TRUCK_CAPACITY} crates) instead, which back into the bays and forklifts load
+            too.
+          </li>
+          <li>
             Big trucks ({B.BIG_TRUCK_CAPACITY} crates) only fit a large truck bay or crate storage.
           </li>
           <li>Container trucks only take containers, from container yards.</li>

@@ -46,6 +46,8 @@ export interface EntityView {
   vessel?: string;
   /** Carries containers rather than crates. */
   boxes?: boolean;
+  /** Trucks: a pickup, with a low open bed. */
+  pickup?: boolean;
   /** Containers carried: how each looks, in load order. */
   looks?: number[];
   /** A feeder's deck: the slot each container in `looks` is in; without it, the first `load`. */

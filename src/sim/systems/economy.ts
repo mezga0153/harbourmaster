@@ -128,6 +128,32 @@ export function upgrade(w: World): void {
   message(w, `The port is now a ${next.name}! New buildings and machines are unlocked.`, 'good');
   tip(w, `tier${w.tier}`);
   addOffer(w, 'fishery');
+  smallTrucks(w);
+}
+
+/**
+ * From the Coastal Wharf on, hauliers that sent pickups send small trucks,
+ * which forklifts load as well as dockhands; those on their way keep on.
+ */
+export function smallTrucks(w: World): void {
+  if (w.tier < 1) return;
+  // Those still on offer too.
+  for (const o of w.offers) {
+    if (o.terms.kind !== 'haulier' || !o.terms.pickup) continue;
+    o.terms.pickup = undefined;
+    o.terms.capacity = Math.max(o.terms.capacity, B.TRUCK_CAPACITY);
+  }
+  for (const c of w.contracts) {
+    const t = c.terms;
+    if (t.kind !== 'haulier' || !t.pickup) continue;
+    t.pickup = undefined;
+    t.capacity = Math.max(t.capacity, B.TRUCK_CAPACITY);
+    message(
+      w,
+      `${t.name} sends small trucks now, of ${B.TRUCK_CAPACITY} crates, which forklifts load as well as dockhands.`,
+      'good',
+    );
+  }
 }
 
 export function hire(w: World, candidateId: number): void {

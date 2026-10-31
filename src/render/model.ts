@@ -48,8 +48,22 @@ export function boat(variant: number, vessel = 'smack', id = 0, lobster = false)
 }
 
 /** A haulier's truck in company colours, unique to its id. */
-export function truck(variant: number, capacity: number, boxes = false, id = 0): Model {
-  return truckModel(id, variant, capacity, boxes, crate, (k, x, y, z) => container(k, x, y, z));
+export function truck(
+  variant: number,
+  capacity: number,
+  boxes = false,
+  id = 0,
+  pickup = false,
+): Model {
+  return truckModel(
+    id,
+    variant,
+    capacity,
+    boxes,
+    crate,
+    (k, x, y, z) => container(k, x, y, z),
+    pickup,
+  );
 }
 
 /** The model for an entity as the game describes it. */
@@ -66,6 +80,6 @@ export function modelFor(v: EntityView): Model {
     case 'boat':
       return boat(v.variant, v.vessel, v.id, v.catch === 'lobster');
     default:
-      return truck(v.variant, v.capacity, v.boxes, v.id);
+      return truck(v.variant, v.capacity, v.boxes, v.id, v.pickup);
   }
 }

@@ -45,7 +45,9 @@ export function bayStand(
   if (!m.inBounds(Math.floor(v.x), Math.floor(v.y)) || m.build[tile] !== Build.TruckBay) {
     return null;
   }
-  const onTruck = at.truck !== undefined && site.entry(at.truck)?.view.kind === 'truck';
+  // Not to a pickup, which stands on the road beside the bay, not in it.
+  const truck = at.truck === undefined ? undefined : site.entry(at.truck)?.view;
+  const onTruck = truck?.kind === 'truck' && !truck.pickup;
   if (at.bay !== tile && !onTruck) return null;
   const f = bayFrame(site, tile);
   if (!f) return null;
@@ -153,11 +155,14 @@ export function clearOfTruck(
   const across = -(p.x - ox) * s + (p.z - oz) * c;
   const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
   const gap = 0.1;
-  // Either side, abreast of the crate's place, or at the tail; never the cab.
+  // Either side, abreast of the crate's place, or at the tail; never the
+  // cab. A pickup's bed only over its sides, its tailgate shut.
   const spots: [number, number][] = [
     [lie(along, box.min.x, box.max.x), box.min.z - gap],
     [lie(along, box.min.x, box.max.x), box.max.z + gap],
-    [box.min.x - gap, lie(across, box.min.z, box.max.z)],
+    ...(truck.view.pickup
+      ? []
+      : [[box.min.x - gap, lie(across, box.min.z, box.max.z)] as [number, number]]),
   ];
   let best: [number, number] | undefined;
   let least = Infinity;
@@ -285,13 +290,17 @@ export function aroundTrucks(
         hi - lo > 1e-3
       );
     };
-    // Through it, or across the ground ahead of its cab.
+    // Through it, or across the ground ahead of its cab; but people walk
+    // past the front of a pickup standing at the roadside to load.
     const front = box.max.x + pad;
+    const clear = truck.view.pickup ? 0 : FRONT_CLEAR;
     const ahead = (a: number, b: number) =>
-      a > front && a < front + FRONT_CLEAR && b > box.min.z - pad && b < box.max.z + pad;
+      a > front && a < front + clear && b > box.min.z - pad && b < box.max.z + pad;
     const crosses = (f: number[], t: number[]) =>
       through(f, t, box.min.x - pad, front) ||
-      (!(ahead(f[0], f[1]) && ahead(t[0], t[1])) && through(f, t, front, front + FRONT_CLEAR));
+      (clear > 0 &&
+        !(ahead(f[0], f[1]) && ahead(t[0], t[1])) &&
+        through(f, t, front, front + clear));
     if (!crosses([fa, fb], [ta, tb])) continue;
     const out = pad + 0.05;
     const corners: [number, number][] = [
@@ -320,6 +329,7 @@ export function aroundTrucks(
       ]);
     // Never from one front corner to the other, past the cab.
     const pastFront = (path: number[]) =>
+      !truck.view.pickup &&
       path.some((k, n) => n > 0 && k + path[n - 1] === 3 && k !== 0 && k !== 3);
     const [p, q] = ways;
     const best =

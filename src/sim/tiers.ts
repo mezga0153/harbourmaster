@@ -28,6 +28,7 @@ export const TIERS: Tier[] = [
     unlocks: [
       'Wooden jetties',
       'Truck bays',
+      'Hauliers with pickups, loaded by hand from the road beside a truck bay',
       'Break huts',
       "Harbourmaster's huts, each for 3 more jetties",
       'Fishery contracts',
@@ -43,6 +44,7 @@ export const TIERS: Tier[] = [
       'The harbour office, for quays and more docks',
       'Truck parking, for shippers’ trucks waiting on their paperwork',
       'Forklifts (4 crates a trip), forklift depots, port roads and machines-only areas',
+      'Small trucks in place of pickups, backing into truck bays, loaded by hand or by forklift',
       'Crate storage marked out on port roads and quays',
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',

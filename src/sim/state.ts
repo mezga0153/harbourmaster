@@ -421,6 +421,8 @@ export interface Truck extends Agent {
   value: number;
   /** Carries containers instead of crates. */
   boxes: boolean;
+  /** A pickup: loaded by hand only, one layer, at the roadside beside a truck bay. */
+  pickup?: boolean;
   /** Has left the port, and counts as away on its round until its haulier's return is due. */
   away?: boolean;
   /** Ticks it has not moved for, with somewhere to go, and where it was; see pace. */

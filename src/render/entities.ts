@@ -833,8 +833,9 @@ export class Entities {
     dt: number,
     leaving = false,
   ): Omit<Pose, 'h'> {
-    // Just come into view, or a long way on (the tab was in the background).
-    if (!e.pose || Math.hypot(x - e.pose.x, z - e.pose.z) > 2) return { x, z, dir };
+    // Just come into view, or a long way on (the tab was in the background):
+    // further than from the far side of a pickup at the roadside to its bay.
+    if (!e.pose || Math.hypot(x - e.pose.x, z - e.pose.z) > 3) return { x, z, dir };
     // Going on from a truck they loaded, where the game has them walk
     // through it: they make for where they come out the other side, round it.
     for (let k = 0; leaving && k < 30 && inTruck(this.trucks, x, z); k++) {

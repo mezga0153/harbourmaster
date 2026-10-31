@@ -220,3 +220,15 @@ export function shutIn(world: Any): number {
   for (const t of road) expect(m.build[t]).toBe(Build.None);
   return m.idx(x0, y0);
 }
+
+/**
+ * Hauliers sending small trucks, which back into a truck bay, in place of
+ * the pickups a new game's send, which pull up on the road beside it.
+ */
+export function smallTruckHauliers(world: Any): void {
+  for (const c of world.contracts) {
+    if (c.terms.kind !== 'haulier' || !c.terms.pickup) continue;
+    c.terms.pickup = undefined;
+    c.terms.capacity = B.TRUCK_CAPACITY;
+  }
+}

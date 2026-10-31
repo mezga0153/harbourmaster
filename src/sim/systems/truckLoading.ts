@@ -62,11 +62,12 @@ export function straightOnto(w: World, p: Dockhand, bay: Bay): Truck | undefined
   if (isBoxy(p) || p.outbound || p.truckId !== undefined || bay.tiles || p.carrying <= 0) {
     return undefined;
   }
-  // Only onto a truck with room for them all.
+  // Only onto a truck with room for them all; a pickup only by hand.
   return w.trucks.find(
     (t) =>
       t.state === 'loading' &&
       t.bayIdx === bay.idx &&
+      !(t.pickup && isMachine(p)) &&
       byHand(w, t, bay) &&
       t.cargo + (t.coming ?? 0) + p.carrying <= t.capacity,
   );
@@ -178,6 +179,8 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
     return false;
   }
   if (isMachine(p) && nearerMachine(w, p, src.tile)) return false;
+  // A pickup is loaded by hand, over its side: no forklift loads it.
+  if (src.load && isMachine(p) && t.pickup) return false;
   // One forklift at a time unloads a truck, a pallet a trip: two would
   // stand in each other's way at it.
   if (

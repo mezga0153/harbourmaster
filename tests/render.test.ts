@@ -11,7 +11,7 @@ import { surfaceY } from '../src/render/terrain';
 import { boat, person, truck } from '../src/render/model';
 import { forklift } from '../src/render/machines';
 import { CRATE } from '../src/render/models';
-import { shutIn, wharf } from './wharf';
+import { shutIn, smallTruckHauliers, wharf } from './wharf';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -129,6 +129,7 @@ describe('Dockhands handling crates', () => {
 
   it('set each crate down in its place, up on a stack or a truck, and take it from there', () => {
     const world = World.create(7, 96);
+    smallTruckHauliers(world);
     const m = world.map;
     const structures = new Structures(m, true);
     const entities = new Entities(m);
@@ -198,6 +199,7 @@ describe('Dockhands handling crates', () => {
 
   it('unload the near side of a boat first, and load the far side of a truck first', () => {
     const world = World.create(7, 96);
+    smallTruckHauliers(world);
     const m = world.map;
     const structures = new Structures(m, true);
     const entities = new Entities(m);
@@ -483,6 +485,7 @@ describe('Jib cranes', () => {
 describe('Trucks at a truck bay', () => {
   it('back in to stand away from the crates, and are loaded from beside them, never through them', () => {
     const world = World.create(7, 96);
+    smallTruckHauliers(world);
     const m = world.map;
     const entities = new Entities(world.map);
     const structures = new Structures(m, true);
@@ -564,6 +567,7 @@ describe('Trucks at a truck bay', () => {
 
   it('are walked round by dockhands, never through, who set each crate down in its place on the bed', () => {
     const world = World.create(7, 96);
+    smallTruckHauliers(world);
     const m = world.map;
     const entities = new Entities(m);
     const structures = new Structures(m, true);

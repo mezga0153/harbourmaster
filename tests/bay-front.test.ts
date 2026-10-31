@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { FACING } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY, Terrain } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { smallTruckHauliers } from './wharf';
 
 describe('A truck bay with road down a side as well as in front', () => {
   it('has its trucks back in from the front and stand square in it, facing the road', () => {
     const world = World.create(7, 96);
+    smallTruckHauliers(world);
     world.cash = 100_000;
     const m = world.map;
     const r = m.yOf(m.entry);

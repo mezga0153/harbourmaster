@@ -35,7 +35,13 @@ function mood(satisfaction: number): { label: string; tone: string } {
 }
 
 function kindLabel(t: Terms): string {
-  if (t.kind === 'haulier') return t.cargo === 'container' ? 'Container haulier' : 'Haulier';
+  if (t.kind === 'haulier') {
+    return t.cargo === 'container'
+      ? 'Container haulier'
+      : t.pickup
+        ? 'Haulier, pickups'
+        : 'Haulier';
+  }
   if (t.kind === 'shipper') {
     return t.cargo === 'container'
       ? 'Container shipper'
@@ -151,14 +157,16 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   if (t.kind === 'haulier') {
     return [
       ['Fleet', `${t.fleet} truck${t.fleet > 1 ? 's' : ''}`],
-      ['Per truck', `${t.capacity} ${unit(t)}`],
+      [t.pickup ? 'Per pickup' : 'Per truck', `${t.capacity} ${unit(t)}`],
       [
         'Needs',
         t.cargo
           ? 'Container yards'
-          : t.capacity > B.TRUCK_CAPACITY
-            ? 'Large truck bays or crate storage'
-            : 'Any truck bay',
+          : t.pickup
+            ? 'Road beside a truck bay, and dockhands to load it by hand'
+            : t.capacity > B.TRUCK_CAPACITY
+              ? 'Large truck bays or crate storage'
+              : 'Any truck bay',
       ],
     ];
   }
