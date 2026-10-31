@@ -1,4 +1,3 @@
-import { signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { railColumn } from '../sim/railway';
@@ -24,55 +23,14 @@ import {
 } from './mix';
 import { Music } from './music';
 import { roadPitch, Synth, type Loop } from './synth';
+import { soundSettings, type SoundSettings } from '../ui/prefs';
+
+// The player's sound settings live with the other preferences, in ui/prefs.ts.
+export { soundSettings, type SoundSettings };
 
 // The port's soundscape. Zoomed out, the hum of a busy port heard from
 // afar and the sea; zoomed in, the particular sounds of what is in
 // view: containers landing, engines, reversing beeps, ships' horns.
-
-export interface SoundSettings {
-  on: boolean;
-  /** 0 to 1. */
-  volume: number;
-  /** The sea, 0 to 1 of the volume. */
-  ambience: number;
-  /** The work: engines, cranes, containers and crates, horns, the port's hum, 0 to 1 of the volume. */
-  effects: number;
-  /** The music, 0 to 1 of the volume; none at 0. */
-  music: number;
-}
-
-const DEFAULTS: SoundSettings = { on: true, volume: 0.6, ambience: 1, effects: 1, music: 0.5 };
-const share = (v: unknown, or: number) =>
-  typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : or;
-
-const KEY = 'harbourmaster.sound';
-
-function loadSettings(): SoundSettings {
-  try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (s && typeof s.on === 'boolean') {
-      return {
-        on: s.on,
-        volume: share(s.volume, DEFAULTS.volume),
-        ambience: share(s.ambience, DEFAULTS.ambience),
-        effects: share(s.effects, DEFAULTS.effects),
-        music: share(s.music, DEFAULTS.music),
-      };
-    }
-  } catch {
-    // No storage here: the defaults.
-  }
-  return { ...DEFAULTS };
-}
-
-export const soundSettings = signal<SoundSettings>(loadSettings());
-soundSettings.subscribe((s) => {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s));
-  } catch {
-    // Kept for this visit only.
-  }
-});
 
 /** How loud each kind of one-off sound is, before distance. */
 const LEVEL: Record<CueKind, number> = {

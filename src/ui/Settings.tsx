@@ -1,9 +1,8 @@
 import { useRef } from 'preact/hooks';
-import { soundSettings, type SoundSettings } from '../audio/sound';
 import type { Graphics } from '../render/graphics';
 import type { Actions } from './actions';
 import { Icon } from './icons';
-import { graphics } from './prefs';
+import { graphics, soundSettings, type SoundSettings } from './prefs';
 import { newGameOpen, panel, pushMessage } from './store';
 import { InfoHeader } from './widgets';
 

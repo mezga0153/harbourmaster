@@ -5,7 +5,7 @@ import { BUILDABLES } from '../sim/rules';
 import type { BuildKind } from '../sim/types';
 import { money } from './format';
 import { Icon } from './icons';
-import { land, narrow, openCategory, panel, snapshot, togglePanel, tool } from './store';
+import { land, narrow, openCategory, panel, tier, togglePanel, tool, trayTabs } from './store';
 import {
   BULLDOZE_TOOL,
   CATEGORIES,
@@ -58,9 +58,6 @@ function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
   );
 }
 
-/** The tab last open in each category of the build menu. */
-const trayTabs = new Map<string, string>();
-
 /** One thing on offer in the build menu: its picture, name and price. */
 function ToolCard({
   t,
@@ -102,12 +99,11 @@ function ToolCard({
 function CategoryTray({ cat }: { cat: Category }) {
   const current = tool.value;
   const [hovered, setHovered] = useState<ToolDef | null>(null);
-  const [, redraw] = useState(0);
   // Only what the port has come to: the rest are not shown at all.
-  const tools = toolsAt(cat, snapshot.value?.progress.tier ?? 0);
+  const tools = toolsAt(cat, tier.value);
   const tabs = [...new Set(tools.map((t) => t.group ?? cat.label))];
   const inHand = tools.find((t) => t.tool === current);
-  const kept = trayTabs.get(cat.id);
+  const kept = trayTabs.value[cat.id];
   const tab =
     (kept && tabs.includes(kept) ? kept : undefined) ??
     (inHand ? (inHand.group ?? cat.label) : undefined) ??
@@ -116,9 +112,8 @@ function CategoryTray({ cat }: { cat: Category }) {
   const about = hovered ?? inHand ?? null;
   const info = about && toolInfo(about);
   const pick = (g: string) => {
-    trayTabs.set(cat.id, g);
+    trayTabs.value = { ...trayTabs.value, [cat.id]: g };
     setHovered(null);
-    redraw((n) => n + 1);
   };
   return (
     <div class="tray panel" role="toolbar" aria-label={cat.label}>
@@ -175,9 +170,9 @@ function CategoryTray({ cat }: { cat: Category }) {
 
 export function BuildBar() {
   const current = tool.value;
-  const tier = snapshot.value?.progress.tier ?? 0;
+  const at = tier.value;
   // Menus with nothing in them yet are not shown at all.
-  const categories = CATEGORIES.filter((c) => toolsAt(c, tier).length > 0);
+  const categories = CATEGORIES.filter((c) => toolsAt(c, at).length > 0);
   const open = categories.find((c) => c.id === openCategory.value);
   return (
     <>
@@ -188,7 +183,7 @@ export function BuildBar() {
         </div>
         <div class="dock-group">
           {categories.map((c) => {
-            const tools = toolsAt(c, tier);
+            const tools = toolsAt(c, at);
             const using = tools.find((t) => t.tool === current);
             const isOpen = openCategory.value === c.id;
             return (

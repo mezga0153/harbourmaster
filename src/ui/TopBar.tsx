@@ -1,12 +1,22 @@
 import type { ComponentChildren } from 'preact';
 import type { Snapshot } from '../protocol';
-import { soundSettings } from '../audio/sound';
 import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './actions';
 import { dayProgress, formatDate, money } from './format';
 import { Icon, type IconName } from './icons';
 import { SoundControl } from './Sound';
-import { menuOpen, panel, type PanelName, selection, snapshot, togglePanel } from './store';
+import { soundSettings } from './prefs';
+import {
+  cash,
+  costsPerDay,
+  menuOpen,
+  panel,
+  type PanelName,
+  selection,
+  snapshot,
+  togglePanel,
+  town,
+} from './store';
 
 export const SPEEDS = [
   { speed: 1, label: '1×' },
@@ -14,11 +24,6 @@ export const SPEEDS = [
   { speed: 4, label: '4×' },
   { speed: 8, label: '8×' },
 ];
-
-/** What the port pays out a day: wages, haulier fees and loan interest. */
-function dailyCosts(s: Snapshot): number {
-  return s.wages + s.contractFees + s.interest;
-}
 
 function Stat({
   icon,
@@ -99,7 +104,7 @@ const MENU: {
 export function TopBar({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
-  const costs = dailyCosts(s);
+  const t = town.value;
   const waiting = MENU.some((m) => m.badge(s) !== null);
   return (
     <header class="topbar panel">
@@ -133,8 +138,8 @@ export function TopBar({ actions }: { actions: Actions }) {
           }
           title="Finance and statistics: charts, loans, the daily statement, and where the cargo is (M)"
         >
-          <Stat label="Cash" title="" tone={s.cash < 0 ? 'neg' : 'pos'}>
-            {money(s.cash)}
+          <Stat label="Cash" title="" tone={cash.value < 0 ? 'neg' : 'pos'}>
+            {money(cash.value)}
             {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
           </Stat>
           {s.daysInRed > 0 && <span class="count">!</span>}
@@ -145,7 +150,7 @@ export function TopBar({ actions }: { actions: Actions }) {
           title="Daily wages, haulier fees and loan interest"
           priority={2}
         >
-          {money(-costs)}
+          {money(-costsPerDay.value)}
         </Stat>
         <Stat icon="users" label="Staff" title="Dockhands employed" priority={3}>
           {s.staff}
@@ -153,18 +158,18 @@ export function TopBar({ actions }: { actions: Actions }) {
         <Stat icon="box" label="Crates" title="Crates handled so far" priority={3}>
           {s.stats.cratesHandled.toLocaleString('en-US')}
         </Stat>
-        {s.town && (
+        {t && (
           <button
             class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
             onClick={() => openTown()}
-            title={`${s.town.name}, ${TOWN_STAGES[s.town.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow`}
+            title={`${t.name}, ${TOWN_STAGES[t.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow`}
           >
-            <Stat icon="town" label={s.town.name} title="">
-              {s.town.population.toLocaleString('en-US')}
+            <Stat icon="town" label={t.name} title="">
+              {t.population.toLocaleString('en-US')}
             </Stat>
-            {s.town.next && (
-              <span class="task-bar" title={`Next: ${s.town.next.name.toLowerCase()}`}>
-                <span style={{ width: `${Math.round(landmarkProgress(s.town.next) * 100)}%` }} />
+            {t.next && (
+              <span class="task-bar" title={`Next: ${t.next.name.toLowerCase()}`}>
+                <span style={{ width: `${Math.round(landmarkProgress(t.next) * 100)}%` }} />
               </span>
             )}
           </button>
@@ -211,7 +216,7 @@ function landmarkProgress(n: NonNullable<NonNullable<Snapshot['town']>['next']>)
 
 /** Show the town, or put it away again: the view flies over to it and back (see main.ts). */
 function openTown(): void {
-  if (!snapshot.value?.town) return;
+  if (!town.value) return;
   selection.value = selection.value?.type === 'town' ? null : { type: 'town' };
 }
 
@@ -228,7 +233,7 @@ export function MobileMenu({ actions }: { actions: Actions }) {
     close();
     panel.value = id;
   };
-  const costs = dailyCosts(s);
+  const t = town.value;
   const sound = soundSettings.value;
   const item = (id: PanelName, icon: IconName, label: string, badge: string | number | null) => (
     <button
@@ -258,12 +263,12 @@ export function MobileMenu({ actions }: { actions: Actions }) {
         <div class="drawer-stats">
           <button class="drawer-stat" onClick={() => open('finance')}>
             <span class="stat-label">Cash</span>
-            <span class={`stat-value ${s.cash < 0 ? 'neg' : 'pos'}`}>{money(s.cash)}</span>
+            <span class={`stat-value ${cash.value < 0 ? 'neg' : 'pos'}`}>{money(cash.value)}</span>
             {s.loan > 0 && <span class="loan-tag">loan {money(s.loan)}</span>}
           </button>
           <div class="drawer-stat">
             <span class="stat-label">Costs / day</span>
-            <span class="stat-value">{money(-costs)}</span>
+            <span class="stat-value">{money(-costsPerDay.value)}</span>
           </div>
           <div class="drawer-stat">
             <span class="stat-label">Staff</span>
@@ -273,7 +278,7 @@ export function MobileMenu({ actions }: { actions: Actions }) {
             <span class="stat-label">Crates</span>
             <span class="stat-value">{s.stats.cratesHandled.toLocaleString('en-US')}</span>
           </div>
-          {s.town && (
+          {t && (
             <button
               class="drawer-stat wide"
               onClick={() => {
@@ -281,16 +286,16 @@ export function MobileMenu({ actions }: { actions: Actions }) {
                 openTown();
               }}
             >
-              <span class="stat-label">{s.town.name}</span>
+              <span class="stat-label">{t.name}</span>
               <span class="stat-value">
-                {s.town.population.toLocaleString('en-US')}{' '}
-                <span class="muted">{TOWN_STAGES[s.town.stage].name.toLowerCase()}</span>
+                {t.population.toLocaleString('en-US')}{' '}
+                <span class="muted">{TOWN_STAGES[t.stage].name.toLowerCase()}</span>
               </span>
             </button>
           )}
         </div>
         <div class="drawer-list">
-          {s.town && (
+          {t && (
             <button
               class={`drawer-item ${selection.value?.type === 'town' ? 'on' : ''}`}
               onClick={() => {

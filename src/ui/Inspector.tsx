@@ -7,7 +7,7 @@ import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
 import { StaffDetails } from './Staff';
-import { selection, snapshot } from './store';
+import { cash, selected, selection, snapshot, tier } from './store';
 import { RailwayPanel, TownPanel } from './Town';
 import { InfoHeader, Meter, More, Why } from './widgets';
 
@@ -43,43 +43,52 @@ const CRANE_NOTE = {
     'Ship-to-shore crane: runs along the ship lifting containers off quickly, and sets them down at the shipside along its rails, with exports brought for it to put on board. Reach stackers collect from there, from the quay behind, and it lifts them onto terminal tractors waiting under it; never the hauliers’ trucks. The ground round it is for port machines only.',
 };
 
-/** What each kind of thing selected needs to show itself. */
+type Depot = Snapshot['depots'][number];
+type Bay = Snapshot['bays'][number];
+type Yard = Snapshot['yards'][number];
+type Crane = Snapshot['cranes'][number];
+type Lot = Snapshot['parking'][number];
+type Entity = Snapshot['entities'][number];
+
+/** Closing the panel, and the game, for what is selected to act on. */
 interface InfoProps {
-  s: Snapshot;
-  idx: number;
   actions: Actions;
   onClose: () => void;
 }
 
 export function InfoPanel({ actions }: { actions: Actions }) {
   const sel = selection.value;
-  const s = snapshot.value;
-  if (!sel || !s) return null;
+  if (!sel) return null;
   const close = () => (selection.value = null);
 
   if (sel.type === 'town') return <TownPanel actions={actions} />;
   if (sel.type === 'railway') return <RailwayPanel />;
-  if (sel.type === 'depot')
-    return <DepotInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
-  if (sel.type === 'bay') return <BayInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
-  if (sel.type === 'yardGantry') {
-    return <YardGantryInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
+  if (sel.type === 'yardGantry') return <YardGantryInfo idx={sel.idx} onClose={close} />;
+  if (sel.type === 'office') return <OfficeInfo hut={!!sel.hut} onClose={close} />;
+  // The rest are things in the snapshot, found there; gone, nothing shows.
+  const found = selected.value;
+  if (!found) return null;
+  switch (found.type) {
+    case 'depot':
+      return found.item && <DepotInfo depot={found.item} actions={actions} onClose={close} />;
+    case 'bay':
+      return found.item && <BayInfo bay={found.item} actions={actions} onClose={close} />;
+    case 'parking':
+      return found.item && <ParkingInfo lot={found.item} onClose={close} />;
+    case 'crane':
+      return found.item && <CraneInfo crane={found.item} onClose={close} />;
+    case 'yard':
+      return found.item && <YardInfo yard={found.item} actions={actions} onClose={close} />;
+    case 'entity':
+      return found.item && <EntityInfo entity={found.item} actions={actions} onClose={close} />;
   }
-  if (sel.type === 'parking') {
-    return <ParkingInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
-  }
-  if (sel.type === 'office') return <OfficeInfo s={s} hut={!!sel.hut} onClose={close} />;
-  if (sel.type === 'crane')
-    return <CraneInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
-  if (sel.type === 'yard')
-    return <YardInfo s={s} idx={sel.idx} actions={actions} onClose={close} />;
-  return <EntityInfo s={s} id={sel.id} actions={actions} onClose={close} />;
 }
 
-function DepotInfo({ s, idx, actions, onClose: close }: InfoProps) {
-  const depot = s.depots.find((d) => d.idx === idx);
-  if (!depot) return null;
-  const fleet = s.people.filter((p) => p.kind !== 'dockhand' && p.home === idx);
+function DepotInfo({ depot, actions, onClose: close }: InfoProps & { depot: Depot }) {
+  const idx = depot.idx;
+  const fleet = (snapshot.value?.people ?? []).filter(
+    (p) => p.kind !== 'dockhand' && p.home === idx,
+  );
   return (
     <aside class="side panel">
       <InfoHeader kicker="Building" title="Forklift depot" onClose={close} />
@@ -105,13 +114,13 @@ function DepotInfo({ s, idx, actions, onClose: close }: InfoProps) {
       ))}
       <div class="actions">
         {(Object.keys(MACHINES) as MachineKind[])
-          .filter((k) => MACHINE_TIER[k] <= s.progress.tier)
+          .filter((k) => MACHINE_TIER[k] <= tier.value)
           .map((k) => (
             <button
               key={k}
               class="btn primary"
               disabled={
-                depot.forklifts + MACHINES[k].room > B.DEPOT_SLOTS || s.cash < MACHINES[k].price
+                depot.forklifts + MACHINES[k].room > B.DEPOT_SLOTS || cash.value < MACHINES[k].price
               }
               onClick={() => actions.send({ type: 'buyMachine', kind: k, tile: idx })}
             >
@@ -123,9 +132,7 @@ function DepotInfo({ s, idx, actions, onClose: close }: InfoProps) {
   );
 }
 
-function BayInfo({ s, idx, actions, onClose: close }: InfoProps) {
-  const bay = s.bays.find((b) => b.idx === idx);
-  if (!bay) return null;
+function BayInfo({ bay, actions, onClose: close }: InfoProps & { bay: Bay }) {
   return (
     <aside class="side panel">
       <InfoHeader
@@ -215,8 +222,8 @@ function BayInfo({ s, idx, actions, onClose: close }: InfoProps) {
   );
 }
 
-function YardGantryInfo({ s, idx, onClose: close }: InfoProps) {
-  const trouble = s.problems.find((p) => p.type === 'yardGantry' && p.idx === idx);
+function YardGantryInfo({ idx, onClose: close }: { idx: number; onClose: () => void }) {
+  const trouble = snapshot.value?.problems.find((p) => p.type === 'yardGantry' && p.idx === idx);
   return (
     <aside class="side panel">
       <InfoHeader kicker="Crane" title="Yard gantry" onClose={close} />
@@ -237,9 +244,7 @@ function YardGantryInfo({ s, idx, onClose: close }: InfoProps) {
   );
 }
 
-function ParkingInfo({ s, idx, onClose: close }: InfoProps) {
-  const lot = s.parking.find((l) => l.tiles.includes(idx));
-  if (!lot) return null;
+function ParkingInfo({ lot, onClose: close }: { lot: Lot; onClose: () => void }) {
   return (
     <aside class="side panel">
       <InfoHeader
@@ -268,16 +273,9 @@ function ParkingInfo({ s, idx, onClose: close }: InfoProps) {
   );
 }
 
-function OfficeInfo({
-  s,
-  hut,
-  onClose: close,
-}: {
-  s: Snapshot;
-  hut: boolean;
-  onClose: () => void;
-}) {
-  const d = s.docks;
+function OfficeInfo({ hut, onClose: close }: { hut: boolean; onClose: () => void }) {
+  const d = snapshot.value?.docks;
+  if (!d) return null;
   const idle = d.total - d.coordinated;
   return (
     <aside class="side panel">
@@ -317,9 +315,7 @@ function OfficeInfo({
   );
 }
 
-function CraneInfo({ s, idx, onClose: close }: InfoProps) {
-  const c = s.cranes.find((k) => k.idx === idx);
-  if (!c) return null;
+function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => void }) {
   return (
     <aside class="side panel">
       <InfoHeader kicker="Crane" title={CRANE_NAME[c.kind]} onClose={close} />
@@ -360,9 +356,7 @@ function CraneInfo({ s, idx, onClose: close }: InfoProps) {
   );
 }
 
-function YardInfo({ s, idx, actions, onClose: close }: InfoProps) {
-  const yard = s.yards.find((y) => y.idx === idx);
-  if (!yard) return null;
+function YardInfo({ yard, actions, onClose: close }: InfoProps & { yard: Yard }) {
   return (
     <aside class="side panel">
       <InfoHeader
@@ -439,19 +433,7 @@ function YardInfo({ s, idx, actions, onClose: close }: InfoProps) {
 }
 
 /** A boat, truck, dockhand or machine: what it is doing, and why it is held up if it is. */
-function EntityInfo({
-  s,
-  id,
-  actions,
-  onClose: close,
-}: {
-  s: Snapshot;
-  id: number;
-  actions: Actions;
-  onClose: () => void;
-}) {
-  const e = s.entities.find((x) => x.id === id);
-  if (!e) return null;
+function EntityInfo({ entity: e, actions, onClose: close }: InfoProps & { entity: Entity }) {
   return (
     <aside class="side panel">
       <InfoHeader kicker={KIND_LABEL[e.kind]} title={e.name} onClose={close} />

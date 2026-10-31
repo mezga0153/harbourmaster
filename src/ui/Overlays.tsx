@@ -1,8 +1,12 @@
+import { useEffect, useState } from 'preact/hooks';
 import * as B from '../sim/balance';
 import { Terrain } from '../sim/types';
 import { money } from './format';
 import { Icon } from './icons';
 import { hover, messages, openCategory, preview, snapshot } from './store';
+
+/** How long a message shows before it fades. */
+const MESSAGE_MS = 9000;
 
 // What floats over the map without a panel of its own: the cost of what is
 // being built, what is under the pointer, the game's messages and the bank's
@@ -34,10 +38,18 @@ export function BankBanner() {
 }
 
 export function Messages() {
-  const now = Date.now();
-  // Re-rendered by snapshot updates, which keeps the fade timer moving.
-  void snapshot.value;
-  const live = messages.value.filter((m) => now - m.at < 9000);
+  const all = messages.value;
+  const [now, setNow] = useState(Date.now());
+  // Redrawn when the oldest message still showing is due to go, not with
+  // every snapshot.
+  useEffect(() => {
+    const due = all.map((m) => m.at + MESSAGE_MS).filter((t) => t > now);
+    if (due.length === 0) return;
+    const wait = Math.max(0, Math.min(...due) - Date.now()) + 1;
+    const timer = setTimeout(() => setNow(Date.now()), wait);
+    return () => clearTimeout(timer);
+  }, [all, now]);
+  const live = all.filter((m) => now - m.at < MESSAGE_MS);
   return (
     <div class="messages" aria-live="polite">
       {live.map((m) => (

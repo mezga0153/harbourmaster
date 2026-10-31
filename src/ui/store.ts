@@ -1,47 +1,20 @@
-import { signal } from '@preact/signals';
+import { computed, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
-import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
+import type { Tool } from './tools';
 
-/** Tools that mark port roads and quays out as storage. */
-export const STORE_TOOLS = {
-  crateStore: 'crates',
-  crateOutStore: 'cratesOut',
-  boxStore: 'boxes',
-  boxOutStore: 'boxesOut',
-} as const satisfies Record<string, StoreKind>;
-export type StoreTool = keyof typeof STORE_TOOLS;
+// The UI's shared state: what the sim last sent, what the player has in
+// hand, selected and open, and the game's messages. The other layers
+// (debug/bridge.ts, log/) read some of these from here.
 
-export function isStoreTool(t: string): t is StoreTool {
-  return t in STORE_TOOLS;
-}
-
-export type Tool =
-  | 'select'
-  | BuildKind
-  | MachineKind
-  | 'tug'
-  | StoreTool
-  | 'bulldoze'
-  | 'unmark'
-  | 'forkliftOnly'
-  | 'dredge'
-  | 'reclaim'
-  /** Buying plots of land for the port; see land.ts. */
-  | 'land'
-  | RoadTool;
-
-/** Tools for the rules of the road rather than for building. */
-export type RoadTool = 'highwayExit' | 'oneWay' | 'lights' | 'roundabout' | 'gateWay';
-export const ROAD_TOOLS: readonly RoadTool[] = [
-  'highwayExit',
-  'oneWay',
-  'lights',
-  'roundabout',
-  'gateWay',
-];
-export function isRoadTool(t: Tool): t is RoadTool {
-  return (ROAD_TOOLS as readonly string[]).includes(t);
-}
+export {
+  isRoadTool,
+  isStoreTool,
+  ROAD_TOOLS,
+  STORE_TOOLS,
+  type RoadTool,
+  type StoreTool,
+  type Tool,
+} from './tools';
 
 export type Selection =
   | { type: 'entity'; id: number }
@@ -105,6 +78,53 @@ export const land = signal<{
 export const landOffer = signal<{ plot: number; price: number; sea: boolean } | null>(null);
 /** The build category whose tools are showing above the bar. */
 export const openCategory = signal<string | null>(null);
+/** The tab last open in each category of the build menu, by the category's id. */
+export const trayTabs = signal<Readonly<Record<string, string>>>({});
+
+// Slices of the snapshot that change far less often than the snapshot
+// itself, so what shows them need not redraw ten times a second.
+
+/** The port's cash in hand. */
+export const cash = computed(() => snapshot.value?.cash ?? 0);
+/** The port's step, see TIERS: 0 before the first. */
+export const tier = computed(() => snapshot.value?.progress.tier ?? 0);
+/** The town up the coast, once there is one. */
+export const town = computed(() => snapshot.value?.town ?? null);
+/** What the port pays out a day: wages, haulier fees and loan interest. */
+export const costsPerDay = computed(() => {
+  const s = snapshot.value;
+  return s ? s.wages + s.contractFees + s.interest : 0;
+});
+/**
+ * What the player has selected, found in the snapshot: the depot, bay,
+ * yard, crane, parking lot or entity itself, with the kind of selection, or
+ * null for nothing, the town, the railway or something no longer there.
+ */
+export const selected = computed(() => {
+  const sel = selection.value;
+  const s = snapshot.value;
+  if (!sel || !s) return null;
+  switch (sel.type) {
+    case 'depot':
+      return { type: sel.type, item: s.depots.find((d) => d.idx === sel.idx) ?? null } as const;
+    case 'bay':
+      return { type: sel.type, item: s.bays.find((b) => b.idx === sel.idx) ?? null } as const;
+    case 'yard':
+      return { type: sel.type, item: s.yards.find((y) => y.idx === sel.idx) ?? null } as const;
+    case 'crane':
+      return { type: sel.type, item: s.cranes.find((c) => c.idx === sel.idx) ?? null } as const;
+    case 'parking':
+      return {
+        type: sel.type,
+        item: s.parking.find((l) => l.tiles.includes(sel.idx)) ?? null,
+      } as const;
+    case 'entity':
+      return { type: sel.type, item: s.entities.find((e) => e.id === sel.id) ?? null } as const;
+    default:
+      return null;
+  }
+});
+
 /** Which management panel is open on the right. */
 export type PanelName =
   | 'contracts'
