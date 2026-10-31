@@ -5569,6 +5569,14 @@ export class World {
       return { store: b.idx, place };
     };
     const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
+    // Ice off the back of an ice works' truck, onto the bay's stack.
+    const iceTruck =
+      p.truckId !== undefined && !p.truckLoad && this.trucks.find((q) => q.id === p.truckId);
+    if (iceTruck) {
+      const bay = this.bays.get(p.bayIdx);
+      if (pick) return { truck: iceTruck.id, slot: iceTruck.cargo - 1 };
+      return bay ? { bay: bay.idx, slot: heldIn(bay) } : undefined;
+    }
     if (pick) {
       const crane = this.cranes.get(p.craneIdx);
       if (crane?.kind === 'jib') return { crane: crane.idx, slot: crane.stack.length - 1 };
@@ -6008,9 +6016,21 @@ export class World {
     );
   }
 
-  /** Crate trucks waiting to be loaded, for dockhands and forklifts. */
+  /**
+   * Crate trucks waiting to be loaded, for dockhands and forklifts; and ice
+   * works' trucks waiting in a truck bay to be unloaded, their ice set on its
+   * stack for the fishing boats.
+   */
   private crateTruckSources(sources: Source[]): void {
     for (const t of this.trucks) {
+      if (t.state === 'delivering' && this.iceTruck(t)) {
+        const bay = this.dest(t.bayIdx);
+        const avail = t.cargo - (t.taking ?? 0);
+        if (bay && truckBay(bay) && avail > 0) {
+          sources.push({ tile: bay.idx, avail, truck: t, load: false, rank: 1 });
+        }
+        continue;
+      }
       if (t.state !== 'loading') continue;
       const bay = this.dest(t.bayIdx);
       if (!bay || !this.byHand(t, bay)) continue;
@@ -6057,17 +6077,21 @@ export class World {
       return false;
     }
     if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
-    const room = Math.min(
-      t.capacity - t.cargo - (t.coming ?? 0),
-      bay.crates.length - (bay.reserved ?? 0),
-    );
+    // Off an ice works' truck onto the bay's stack: as many as it carries.
+    const unload = !src.load;
+    const room = unload
+      ? t.cargo - (t.taking ?? 0)
+      : Math.min(t.capacity - t.cargo - (t.coming ?? 0), bay.crates.length - (bay.reserved ?? 0));
     const n = Math.min(p.capacity, src.avail, room);
     if (n <= 0) return false;
     if (!this.headTo(p, src.tile)) return false;
-    bay.reserved = (bay.reserved ?? 0) + n;
-    t.coming = (t.coming ?? 0) + n;
+    if (unload) t.taking = (t.taking ?? 0) + n;
+    else {
+      bay.reserved = (bay.reserved ?? 0) + n;
+      t.coming = (t.coming ?? 0) + n;
+    }
     p.truckId = t.id;
-    p.truckLoad = true;
+    p.truckLoad = !unload;
     p.bayIdx = bay.idx;
     p.stockIdx = bay.idx;
     p.planned = n;
@@ -6084,7 +6108,10 @@ export class World {
   private crateTruckJob(p: Dockhand): boolean {
     const t = this.trucks.find((q) => q.id === p.truckId);
     const bay = this.dest(p.bayIdx);
-    const live = !!t && !!bay && t.bayIdx === bay.idx && t.state === 'loading';
+    const unload = !p.truckLoad;
+    const live =
+      !!t && !!bay && t.bayIdx === bay.idx && t.state === (unload ? 'delivering' : 'loading');
+    if (unload) return this.iceTruckJob(p, t, bay, live);
     switch (p.state) {
       case 'toPickup': {
         if (!live) {
@@ -6130,6 +6157,73 @@ export class World {
       }
     }
     return false;
+  }
+
+  /**
+   * A dockhand or forklift unloading an ice works' truck: to the truck in
+   * the bay, takes the ice off its back, and sets it on the bay's stack for
+   * the fishing boats. True while it is at it.
+   */
+  private iceTruckJob(
+    p: Dockhand,
+    t: Truck | undefined,
+    bay: Bay | undefined,
+    live: boolean,
+  ): boolean {
+    switch (p.state) {
+      case 'toPickup': {
+        if (!live) {
+          this.releaseTruckJob(p);
+          return true;
+        }
+        const r = this.walk(p);
+        if (r === 'blocked') this.releaseTruckJob(p);
+        else if (r === 'arrived' && !this.bayTaken(p, bay!)) {
+          p.state = 'picking';
+          p.timer = this.handlingTicks(p, B.PICK_TICKS);
+        }
+        return true;
+      }
+      case 'picking': {
+        if (--p.timer > 0) return true;
+        if (!live) {
+          this.releaseTruckJob(p);
+          return true;
+        }
+        const n = Math.min(p.planned, t!.cargo);
+        t!.taking = Math.max(0, (t!.taking ?? 0) - p.planned);
+        t!.cargo -= n;
+        if (n === 0) {
+          this.endTruckJob(p);
+          return true;
+        }
+        p.planned = n;
+        p.carrying = n;
+        p.cargoFees = Array(n).fill(t!.value);
+        // The bay's stack is right beside the truck.
+        p.state = 'dropping';
+        p.timer = this.handlingTicks(p, B.DROP_TICKS);
+        return true;
+      }
+      case 'dropping': {
+        if (--p.timer > 0) return true;
+        this.landIce(p, bay);
+        this.endTruckJob(p);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Ice a dockhand or forklift has off an ice works' truck: onto the bay's stack, for the boats. */
+  private landIce(p: Dockhand, bay: Bay | undefined): void {
+    if (p.carrying <= 0 || !bay) return;
+    for (const fee of p.cargoFees) {
+      this.exportLooks(bay).push(boxLookOf(p.id, 0));
+      (bay.exports ??= []).push(fee);
+    }
+    bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
+    this.tip('exports');
   }
 
   /** Crates a dockhand or forklift has for a truck: on it if it is still loading, else back where they came from. */
@@ -6320,6 +6414,12 @@ export class World {
   private releaseTruckJob(p: Dockhand): void {
     if (p.truckId === undefined) return;
     const t = this.trucks.find((q) => q.id === p.truckId);
+    if (!isBoxy(p) && !p.truckLoad) {
+      // Ice off a truck: on the stack anyway, or the promise given back.
+      if (p.carrying > 0) this.landIce(p, this.dest(p.bayIdx));
+      else if (t) t.taking = Math.max(0, (t.taking ?? 0) - p.planned);
+      return this.endTruckJob(p);
+    }
     if (!isBoxy(p)) {
       // Crates for a truck: back where they came from, or the promise given back.
       const bay = this.dest(p.bayIdx);
@@ -8758,7 +8858,13 @@ export class World {
     // others only once its crates are all spoken for, or its spots taken.
     // A crate truck is loaded by whoever is nearest it, boats or no: one
     // standing at its bay sees it full before going back to the boats.
-    const moored = (s: Source) => s.boat?.mooredTicks ?? -1;
+    // Exports count as long as the ship waiting for them has been alongside,
+    // so a ship unloaded and waiting for its exports is not passed over.
+    const loading = Math.max(
+      -1,
+      ...this.boats.filter((b) => this.wantsLoad(b)).map((b) => b.mooredTicks),
+    );
+    const moored = (s: Source) => s.boat?.mooredTicks ?? (s.out ? loading : -1);
     const near = (s: Source) => !!s.truck && !s.truck.boxes && this.dist(here, s.tile) <= 2;
     const ordered = sources.sort(
       (a, b) =>
@@ -9524,6 +9630,13 @@ export class World {
     // Every truck bay full, or none it can get to: it comes a little later.
     if (!to) {
       c.nextBoatTick = this.tick + 60;
+      if (![...this.bays.values()].some((b) => this.iceBay(b))) {
+        this.nag(
+          'iceBayFree',
+          `${c.terms.name}'s ice waits for a truck bay of its own: the catch and the ice never share one. Build another truck bay.`,
+          'bad',
+        );
+      }
       return;
     }
     c.nextBoatTick = this.tick + Math.round((TICKS_PER_DAY * c.terms.capacity) / c.terms.perDay);
@@ -9540,9 +9653,11 @@ export class World {
    */
   private exportStore(t: Truck): { store: Bay; dock: number; path: number[] } | null {
     const from = this.tileOf(t);
+    // Ice to a bay that holds ice already before another, keeping the rest for the catch.
+    const iced = (b: Bay) => (this.iceTruck(t) && this.holdsIce(b) ? 0 : 1);
     const stores = [...(t.boxes ? this.yards : this.bays).values()]
       .filter((b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo)
-      .sort((a, b) => this.distTo(from, a) - this.distTo(from, b));
+      .sort((a, b) => iced(a) - iced(b) || this.distTo(from, a) - this.distTo(from, b));
     for (const store of stores) {
       const to = this.dockFor(
         store,
@@ -9812,7 +9927,8 @@ export class World {
    * for cargo coming in, by a crane or not.
    */
   private takesImports(b: Bay): boolean {
-    return !b.tiles || (!b.outgoing && !b.shut);
+    if (!b.tiles) return !this.holdsIce(b);
+    return !b.outgoing && !b.shut;
   }
 
   /** Whether exports may go here: only storage marked out for cargo going out, and not shut. */
@@ -9825,7 +9941,35 @@ export class World {
    * fishing boats; the rest into outgoing storage.
    */
   private takesFrom(b: Bay, t: Truck): boolean {
-    return this.iceTruck(t) ? truckBay(b) && !b.large : this.takesExports(b);
+    return this.iceTruck(t) ? this.iceBay(b) : this.takesExports(b);
+  }
+
+  /**
+   * A truck bay the ice may go into: never one holding the catch, or with
+   * any on its way, nor with a truck in it loading: ice and catch keep to
+   * bays of their own.
+   */
+  private iceBay(b: Bay): boolean {
+    if (
+      !truckBay(b) ||
+      b.large ||
+      b.crates.length > 0 ||
+      b.incoming > 0 ||
+      (b.reserved ?? 0) > 0 ||
+      this.trucks.some((q) => q.bayIdx === b.idx && !q.exports)
+    ) {
+      return false;
+    }
+    // One holding ice already, or a free one while another is left for the catch.
+    return (
+      this.holdsIce(b) ||
+      [...this.bays.values()].some((o) => o !== b && truckBay(o) && !this.holdsIce(o))
+    );
+  }
+
+  /** A truck bay given over to ice for the boats, with some in it or on its way. */
+  private holdsIce(b: Bay): boolean {
+    return truckBay(b) && ((b.exports?.length ?? 0) > 0 || (b.exportIncoming ?? 0) > 0);
   }
 
   /** A shipper's truck bringing ice. */
@@ -12405,7 +12549,7 @@ export class World {
       case 'toBay': {
         if (!bay) return t.exports ? this.headOut(t) : this.truckLeave(t);
         if (t.backing) {
-          if (this.backIn(t, bay)) t.state = 'loading';
+          if (this.backIn(t, bay)) t.state = t.exports ? 'delivering' : 'loading';
           return;
         }
         if (bay.tiles && (this.tick + t.id) % 10 === 0) this.goDeeper(t, bay);
@@ -12429,6 +12573,11 @@ export class World {
       case 'delivering': {
         // Unloading a shipper's goods into storage, for the ships.
         if (!bay) return this.headOut(t);
+        // Ice in a truck bay comes off by hand, dockhands' and forklifts'.
+        if (this.iceTruck(t) && truckBay(bay)) {
+          if (t.cargo <= 0 && (t.taking ?? 0) === 0) this.headOut(t);
+          return;
+        }
         // Containers at a yard with no gantry come off by reach stacker.
         if (this.byStacker(t, bay)) {
           if (t.cargo <= 0) {
@@ -13425,7 +13574,14 @@ export class World {
    * swings its nose round across the entrance and backs in from there.
    */
   private startBacking(t: Truck, bay: Bay): void {
-    if (bay.tiles || t.exports || t.path.length !== 1 || t.path[0] !== bay.idx) return;
+    if (
+      bay.tiles ||
+      (t.exports && !this.iceTruck(t)) ||
+      t.path.length !== 1 ||
+      t.path[0] !== bay.idx
+    ) {
+      return;
+    }
     const from = t.trail?.[1];
     if (from === undefined || from < 0 || from === bay.idx) return;
     const m = this.map;

@@ -505,13 +505,16 @@ function OfferCard({
     const boats = (s?.contracts ?? []).some(
       (c) => c.terms.kind === 'fishery' && c.terms.vessel === 'smack',
     );
-    const bays = (s?.bays ?? []).some((b) => !b.tiles && !b.large);
+    // Ice and the catch keep to truck bays of their own: one for each.
+    const bays = (s?.bays ?? []).filter((b) => !b.tiles && !b.large).length;
     checks.push(
       <Check ok={boats}>
         {boats ? 'Fishing boats call to take it on board' : 'No fishing boats call yet to take it'}
       </Check>,
-      <Check ok={bays}>
-        {bays ? 'A truck bay for its trucks to unload into' : 'Needs a truck bay to unload into'}
+      <Check ok={bays >= 2}>
+        {bays >= 2
+          ? 'A truck bay of its own to unload into, besides one for the catch'
+          : 'Needs a truck bay of its own: ice and the catch never share one. Build another'}
       </Check>,
     );
   } else if (t.kind === 'shipper') {
