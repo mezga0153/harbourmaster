@@ -155,7 +155,7 @@ import {
   nextParkWay,
   gantryYard,
 } from './rules';
-import { MACHINES } from './machines';
+import { MACHINES, parkPoses, type ParkPose } from './machines';
 import { BUILD_TIER, MACHINE_TIER, TIERS } from './tiers';
 import {
   Build,
@@ -1457,7 +1457,27 @@ export class World {
     // Parked trucks stand the way their lot's spaces lean, as it now runs one way.
     for (const t of world.trucks) if (t.state === 'parked' && t.lot) world.parkUp(t);
     world.rebuildStores();
+    world.rehomeOverfull();
     return world;
+  }
+
+  /**
+   * A reach stacker takes two of a depot's places since they came to park
+   * side by side in it: machines of a depot fuller than that from an older
+   * save move to another with room, if there is one, the newest first.
+   */
+  private rehomeOverfull(): void {
+    const machines = this.people.filter((q) => isMachine(q)).sort((a, b) => b.id - a.id);
+    for (const p of machines) {
+      if (p.home < 0 || this.depotRoom(p.home) >= 0) continue;
+      const room = MACHINES[p.kind as MachineKind].room;
+      for (let i = 0; i < this.map.build.length; i++) {
+        if (this.map.build[i] === Build.Depot && this.depotRoom(i) >= room) {
+          p.home = i;
+          break;
+        }
+      }
+    }
   }
 
   /** The landmarks an older town has open already, by what stands in it and how big it is. */
@@ -8078,8 +8098,12 @@ export class World {
     return p;
   }
 
+  /** Places left in a depot; a reach stacker takes two (see MACHINES). */
   private depotRoom(depot: number): number {
-    return B.DEPOT_SLOTS - this.people.filter((q) => q.home === depot).length;
+    let used = 0;
+    for (const q of this.people)
+      if (q.home === depot && isMachine(q)) used += MACHINES[q.kind as MachineKind].room;
+    return B.DEPOT_SLOTS - used;
   }
 
   /** Buy a forklift at a depot: the one at `tile`, or any with room. */
@@ -8093,7 +8117,9 @@ export class World {
     let depot = tile ?? -1;
     if (tile === undefined) {
       for (let i = 0; i < this.map.build.length && depot < 0; i++) {
-        if (this.map.build[i] === Build.Depot && this.depotRoom(i) > 0) depot = i;
+        if (this.map.build[i] === Build.Depot && this.depotRoom(i) >= MACHINES[kind].room) {
+          depot = i;
+        }
       }
       if (depot < 0)
         return this.message('Build a forklift depot first. Forklifts live there.', 'bad');
@@ -8104,8 +8130,11 @@ export class World {
           : 'Off the map';
       if (err) return this.message(err, 'bad');
     }
-    if (this.depotRoom(depot) <= 0) {
-      return this.message(`That depot is full. Each houses ${B.DEPOT_SLOTS} forklifts.`, 'bad');
+    if (this.depotRoom(depot) < MACHINES[kind].room) {
+      return this.message(
+        `That depot is full. Each houses ${B.DEPOT_SLOTS} forklifts or tractors, a reach stacker taking two places.`,
+        'bad',
+      );
     }
     const spec = MACHINES[kind];
     if (this.cash < spec.price) return this.message('Not enough money', 'bad');
@@ -8125,6 +8154,34 @@ export class World {
     this.message(`A new ${spec.label.toLowerCase()} is ready at the depot.`, 'good');
   }
 
+  /**
+   * Where each machine standing in its depot is parked, side by side in
+   * the garage, out of each other's way (see parkPoses): by id, for the
+   * view. The game has them in the middle of the tile.
+   */
+  private parkedPoses(): Map<number, ParkPose> {
+    const out = new Map<number, ParkPose>();
+    const homes = new Map<number, Dockhand[]>();
+    for (const q of this.people) {
+      if (!isMachine(q) || q.home < 0 || this.map.build[q.home] !== Build.Depot) continue;
+      homes.set(q.home, [...(homes.get(q.home) ?? []), q]);
+    }
+    for (const [depot, fleet] of homes) {
+      fleet.sort((a, b) => a.id - b.id);
+      const m = this.map;
+      const poses = parkPoses(
+        fleet.map((q) => q.kind as MachineKind),
+        m.xOf(depot),
+        m.yOf(depot),
+        m.orient[depot] & 3,
+      );
+      fleet.forEach((q, k) => {
+        if (q.path.length === 0 && this.tileOf(q) === depot) out.set(q.id, poses[k]);
+      });
+    }
+    return out;
+  }
+
   /** Send a forklift home for fuel, repairs or to park. False if it cannot get there. */
   private goToDepot(p: Dockhand, task: 'refuel' | 'repair' | 'park'): boolean {
     if (p.home < 0 || this.map.build[p.home] !== Build.Depot) p.home = this.findDepot(p);
@@ -8137,7 +8194,12 @@ export class World {
   /** A depot with room this forklift can reach, for one whose home is gone. */
   private findDepot(p: Dockhand): number {
     for (let i = 0; i < this.map.build.length; i++) {
-      if (this.map.build[i] !== Build.Depot || this.depotRoom(i) <= 0) continue;
+      if (
+        this.map.build[i] !== Build.Depot ||
+        this.depotRoom(i) < MACHINES[p.kind as MachineKind].room
+      ) {
+        continue;
+      }
       if (this.pathFor(p, this.tileOf(p), i)) return i;
     }
     return -1;
@@ -8170,7 +8232,16 @@ export class World {
   }
 
   /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
-  private walkCost: CostFn = (i) => (walkableAt(this.map, i) ? 1 : Infinity);
+  private walkCost: CostFn = (i, from) =>
+    walkableAt(this.map, i) && this.throughDoor(i, from) ? 1 : Infinity;
+
+  /** Into and out of a depot only through its door, from the tile it faces, not through its walls. */
+  private throughDoor(i: number, from: number | undefined): boolean {
+    if (from === undefined || from < 0 || from === i) return true;
+    const m = this.map;
+    if (m.build[i] === Build.Depot && frontOf(m, i, m.orient[i] & 3) !== from) return false;
+    return m.build[from] !== Build.Depot || frontOf(m, from, m.orient[from] & 3) === i;
+  }
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
   /** Where port machines may be at all: port roads and quays, off the stacks in a container yard. */
@@ -8186,6 +8257,7 @@ export class World {
   private driveCost: CostFn = (i, from) => {
     // Never across a yard gantry's rails, as trucks never do.
     if (from !== undefined && from >= 0 && this.crossesRails(from, i)) return Infinity;
+    if (!this.throughDoor(i, from)) return Infinity;
     return this.groundCost(i) + (this.craneStackTiles().has(i) ? B.CRANE_STACK_DETOUR : 0);
   };
 
@@ -10425,8 +10497,9 @@ export class World {
       }
     }
     while (queue.length > 0) {
-      for (const n of m.neighbors4(queue.pop()!)) {
-        if (seen.has(n) || !Number.isFinite(this.driveCost(n))) continue;
+      const from = queue.pop()!;
+      for (const n of m.neighbors4(from)) {
+        if (seen.has(n) || !Number.isFinite(this.driveCost(n, from))) continue;
         seen.add(n);
         queue.push(n);
       }
@@ -14711,13 +14784,16 @@ export class World {
     const lifts = this.gantryLifts();
     const jibs = this.jibLifts();
     const moved = (where: object) => this.jibMoved(jibs, where);
+    const parked = this.parkedPoses();
     for (const p of this.people) {
+      const park = parked.get(p.id);
       entities.push({
         id: p.id,
         kind: p.kind,
-        x: p.x,
-        y: p.y,
-        dir: p.dir,
+        x: park?.x ?? p.x,
+        y: park?.y ?? p.y,
+        dir: park?.dir ?? p.dir,
+        parked: park ? true : undefined,
         ...this.servedLoad(
           p,
           this.liftedLoad(

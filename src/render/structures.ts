@@ -22,6 +22,7 @@ import {
   parkingLots,
   type ParkingFlow,
 } from '../sim/rules';
+import { DEPOT_BACK } from '../sim/machines';
 import { hash01 } from '../sim/noise';
 import { crossingClosed, railColumn, type Train } from '../sim/railway';
 import {
@@ -146,6 +147,8 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
  */
 const HARBOUR_TOWER = 1.62;
 const BOOM_FOOT = { x: 0.02, y: 0.3 };
+/** A depot's walls, inside up to its roof: clear of a forklift's mast. */
+const DEPOT_HEIGHT = 0.56;
 const BOOM_LENGTH = 2.5;
 const LUFF_LOW = 0.12;
 const LUFF_HIGH = 1.48;
@@ -2434,26 +2437,52 @@ export class Structures {
         return g;
       }
       case Build.Depot: {
-        // Concrete apron, a garage with its door at the front (+z), a pump.
+        // A garage over the whole tile, its front (+z) open under a rolled-up
+        // door, tall enough for a forklift's mast, with the machines parked
+        // side by side inside (see parkPoses), backs to the back wall. Its
+        // side walls stand on the tile's edges, so three fit across.
         // Depots side by side, facing the same way, make one long garage
-        // with a door for each bay and a pump at the end.
+        // with a door for each bay and a fuel tank on the roof at the end.
         const { left, right } = this.joins(i);
         g.add(box(1, 0.05, 1, C.concrete, 0.5, top, 0.5));
         const y = top + 0.05;
-        const [x0, x1] = [left ? 0 : 0.08, right ? 1 : 0.92];
-        g.add(box(x1 - x0, 0.36, 0.56, C.depotWall, (x0 + x1) / 2, y, 0.32));
-        const [r0, r1] = [left ? 0 : 0.06, right ? 1 : 0.94];
-        g.add(box(r1 - r0, 0.04, 0.6, C.depotRoof, (r0 + r1) / 2, y + 0.36, 0.32));
-        g.add(box(0.46, 0.28, 0.02, C.chassis, 0.5, y, 0.6));
-        for (let k = 0; k < 4; k++) {
-          g.add(box(0.46, 0.012, 0.024, C.quayWall, 0.5, y + 0.04 + k * 0.065, 0.6));
+        const [x0, x1] = [left ? 0 : -0.005, right ? 1 : 1.005];
+        const mid = (x0 + x1) / 2;
+        g.add(
+          box(
+            x1 - x0,
+            DEPOT_HEIGHT,
+            DEPOT_BACK - 0.005,
+            C.depotWall,
+            mid,
+            y,
+            (DEPOT_BACK - 0.005) / 2,
+          ),
+        );
+        for (const [x, on] of [
+          [0, !left],
+          [1, !right],
+        ] as const) {
+          if (!on) continue;
+          g.add(box(0.01, DEPOT_HEIGHT, 1, C.depotWall, x, y, 0.5));
+          // A strip of windows high up along the side.
+          g.add(box(0.014, 0.06, 0.6, C.window, x, y + DEPOT_HEIGHT - 0.14, 0.5));
         }
-        // Hazard stripe across the apron and a red fuel pump.
-        const [s0, s1] = [left ? 0 : 0.05, right ? 1 : 0.95];
-        g.add(box(s1 - s0, 0.008, 0.05, C.stripe, (s0 + s1) / 2, y, 0.9));
+        g.add(box(x1 - x0, 0.04, 1, C.depotRoof, mid, y + DEPOT_HEIGHT, 0.5));
+        // Over the door: the lintel, and the door rolled up under it.
+        g.add(box(x1 - x0, 0.03, 0.03, C.depotWall, mid, y + DEPOT_HEIGHT - 0.03, 0.985));
+        g.add(box(x1 - x0 - 0.02, 0.02, 0.025, C.chassis, mid, y + DEPOT_HEIGHT - 0.05, 0.98));
+        // Hazard stripe across the doorway.
+        g.add(box(1, 0.004, 0.03, C.stripe, 0.5, y, 0.975));
         if (!right) {
-          g.add(box(0.1, 0.22, 0.08, C.funnel, 0.88, y, 0.8));
-          g.add(box(0.11, 0.05, 0.09, C.cabin, 0.88, y + 0.16, 0.8));
+          // The fuel tank on the roof, red, with its pipe down the side.
+          const tank = cyl(0.07, 0.3, C.funnel, 0, 0, 0, 10);
+          tank.rotation.x = Math.PI / 2;
+          tank.position.set(0.82, y + DEPOT_HEIGHT + 0.11, 0.2);
+          g.add(tank);
+          for (const z of [0.1, 0.3])
+            g.add(box(0.1, 0.05, 0.03, C.chassis, 0.82, y + DEPOT_HEIGHT + 0.04, z));
+          g.add(box(0.02, DEPOT_HEIGHT, 0.02, C.chassis, 1.012, y, 0.12));
         }
         return g;
       }

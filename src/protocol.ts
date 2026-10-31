@@ -85,6 +85,8 @@ export interface EntityView {
   /** Crates carried. */
   load: number;
   moving: boolean;
+  /** Machines standing in their depot: x, y and dir are where it is parked in the garage. */
+  parked?: boolean;
   /**
    * Workers picking a load up or setting one down: how far through, 0 to 1.
    * The load leaves where it was, or shows where it goes, as it ends.
@@ -619,6 +621,7 @@ export interface Snapshot {
   cranes: CraneView[];
   /** Things that cannot work as they are, for red marks on the map. */
   problems: ProblemView[];
+  /** Each depot, and how many of its places its machines take (a reach stacker takes two). */
   depots: { idx: number; forklifts: number }[];
   /** Jetty and quay structures, and how many the harbour office coordinates. */
   docks: {

@@ -90,7 +90,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.Depot,
     label: 'Forklift depot',
     cost: 1200,
-    hint: `Houses ${B.DEPOT_SLOTS} forklifts. They refuel, get repaired and park here. The door faces a port road or quay`,
+    hint: `Houses ${B.DEPOT_SLOTS} machines, a reach stacker taking two places. They refuel, get repaired and park here, and drive in and out by the door, which faces a port road or quay`,
     drag: false,
   },
   office: {

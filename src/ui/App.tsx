@@ -522,7 +522,7 @@ function InfoPanel({ actions }: { actions: Actions }) {
           <More topic="machines" />
         </p>
         <dl class="props">
-          <dt>Forklifts</dt>
+          <dt>Places taken</dt>
           <dd>
             {depot.forklifts} / {B.DEPOT_SLOTS}
           </dd>
@@ -544,7 +544,9 @@ function InfoPanel({ actions }: { actions: Actions }) {
               <button
                 key={k}
                 class="btn primary"
-                disabled={depot.forklifts >= B.DEPOT_SLOTS || s.cash < MACHINES[k].price}
+                disabled={
+                  depot.forklifts + MACHINES[k].room > B.DEPOT_SLOTS || s.cash < MACHINES[k].price
+                }
                 onClick={() => actions.send({ type: 'buyMachine', kind: k, tile: sel.idx })}
               >
                 {MACHINES[k].label} · {money(MACHINES[k].price)}

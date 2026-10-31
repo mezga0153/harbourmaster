@@ -60,8 +60,13 @@ function terminal(world: World): number {
   const turn = [corner - 2, corner - 2 - m.w];
   world.command({ type: 'bulldoze', tiles: turn });
   world.command({ type: 'build', kind: 'portRoad', tiles: turn });
-  const depot = m.idx(start, r - 3);
-  world.command({ type: 'bulldoze', tiles: [depot] });
+  // A port road from the pier round the far side of the yard, with the
+  // depot's door onto it.
+  const link = m.idx(start, r - 3);
+  const depot = link - m.w;
+  world.command({ type: 'bulldoze', tiles: [link, depot] });
+  world.command({ type: 'build', kind: 'portRoad', tiles: [link] });
+  world.command({ type: 'forkliftOnly', tiles: [link], on: true });
   world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
   const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
   world.command({ type: 'build', kind: 'office', tiles: [office] });
@@ -261,7 +266,9 @@ function watch(world: World, kind: 'stacker' | 'tractor', days: number, speed: n
         if (frame === 3) wasUnder.set(v.id, now);
         const onTrailer = crate.visible;
         const onSpreader = gantry.load.visible;
-        if (under && onTrailer && onSpreader) seen.doubled++;
+        // Unless the gantry is busy with a truck's, while the tractor waits.
+        const truck = s.yards.find((y) => y.idx === yard.idx)?.workTruck !== undefined;
+        if (under && onTrailer && onSpreader && !truck) seen.doubled++;
         if (under && shown.get(v.id) && !onTrailer) {
           if (!onSpreader) seen.dropped++;
           // Against where it last showed on the trailer: the tractor may

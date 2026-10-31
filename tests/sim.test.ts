@@ -2287,8 +2287,13 @@ describe('Container Port tier', () => {
     const turn = [corner - 2, corner - 2 - m.w];
     world.command({ type: 'bulldoze', tiles: turn });
     world.command({ type: 'build', kind: 'portRoad', tiles: turn });
-    const depot = m.idx(start, r - 3);
-    world.command({ type: 'bulldoze', tiles: [depot] });
+    // The machines drive out of the depot's door onto the pier, and on from
+    // there round the far side of the yard.
+    const link = m.idx(start, r - 3);
+    const depot = link + 1;
+    world.command({ type: 'bulldoze', tiles: [link, depot] });
+    world.command({ type: 'build', kind: 'portRoad', tiles: [link] });
+    world.command({ type: 'forkliftOnly', tiles: [link], on: true });
     world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
     const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
     world.command({ type: 'build', kind: 'office', tiles: [office] });
@@ -2296,6 +2301,18 @@ describe('Container Port tier', () => {
     if (m.build[crane] !== Build.HarbourCrane || !world.yards.has(yard)) return null;
     if (!world.people.some((p) => p.kind === 'stacker')) return null;
     return { crane, yard };
+  }
+
+  /**
+   * Another depot beside the terminal's, `k` along, for another reach
+   * stacker: each takes two of a depot's three places.
+   */
+  function besideDepot(world: World, k = 1): number {
+    const at = world.map.build.findIndex((b) => b === Build.Depot) + k;
+    world.command({ type: 'bulldoze', tiles: [at] });
+    world.command({ type: 'build', kind: 'depot', tiles: [at], facing: 1 });
+    expect(world.map.build[at]).toBe(Build.Depot);
+    return at;
   }
 
   /**
@@ -2453,8 +2470,7 @@ describe('Container Port tier', () => {
     );
     const earned = world.stats.earned;
     // With no yard gantry, the stackers load the trucks too: a second one.
-    const depot = world.map.build.findIndex((c) => c === Build.Depot);
-    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: besideDepot(world) });
     // A feeder takes a while to come alongside.
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) world.step();
     expect(world.stats.containers).toBeGreaterThan(0);
@@ -2637,8 +2653,9 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    const depot = world.map.build.findIndex((c) => c === Build.Depot);
-    for (let k = 0; k < 2; k++) world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    for (let k = 1; k <= 2; k++) {
+      world.command({ type: 'buyMachine', kind: 'stacker', tile: besideDepot(world, k) });
+    }
     // Each on the right-hand side of the road, as it is shown.
     const lane = (o: { x: number; y: number; dir: number }, d: number) => [
       o.x - Math.sin(o.dir) * d,
@@ -4088,7 +4105,7 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     const depot = world.map.build.findIndex((b) => b === Build.Depot);
-    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: besideDepot(world) });
     const [far, near] = world.people.filter((p) => p.kind === 'stacker');
     // One has just dropped a load beside the crane, the other waits at home.
     const m = world.map;

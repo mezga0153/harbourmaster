@@ -50,12 +50,22 @@ function terminal(world: World): number {
   const round = [corner - 1 - m.w, corner - m.w, corner + 1 - m.w];
   world.command({ type: 'bulldoze', tiles: round });
   world.command({ type: 'build', kind: 'portRoad', tiles: round });
-  const depot = m.idx(start, r - 3);
-  world.command({ type: 'bulldoze', tiles: [depot] });
+  // The machines drive out of the depot's door onto the pier, and on from
+  // there round the far side of the yard.
+  const link = m.idx(start, r - 3);
+  const depot = link + 1;
+  world.command({ type: 'bulldoze', tiles: [link, depot] });
+  world.command({ type: 'build', kind: 'portRoad', tiles: [link] });
+  world.command({ type: 'forkliftOnly', tiles: [link], on: true });
   world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 1 });
   const office = m.build.findIndex((_, i) => !placementError(m, 'office', i));
   world.command({ type: 'build', kind: 'office', tiles: [office] });
-  for (let k = 0; k < 3; k++) world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+  // A reach stacker takes two of a depot's three places: a depot each, side by side.
+  for (let k = 0; k < 3; k++) {
+    world.command({ type: 'bulldoze', tiles: [depot + k] });
+    world.command({ type: 'build', kind: 'depot', tiles: [depot + k], facing: 1 });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot + k });
+  }
   return crane;
 }
 

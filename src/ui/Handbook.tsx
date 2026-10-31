@@ -153,9 +153,9 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          Machines live at a depot, {B.DEPOT_SLOTS} to a depot, where they refuel, are repaired and
-          park. They drive only on port roads and quays: never on wooden jetties, port paths or
-          public roads.
+          Machines live at a depot, {B.DEPOT_SLOTS} to a depot (a reach stacker takes two of the
+          places), where they refuel, are repaired and park, side by side inside. They drive only on
+          port roads and quays: never on wooden jetties, port paths or public roads.
         </p>
         <p>
           <b>Forklifts</b> carry {B.FORKLIFT_CAPACITY} crates a trip, but cannot unload boats. They
