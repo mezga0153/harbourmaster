@@ -8,3 +8,6 @@ coverage/
 
 # local wrangler state
 .wrangler/
+
+# Other sessions' worktrees
+.claude/worktrees/

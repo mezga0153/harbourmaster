@@ -1,4 +1,6 @@
-// What the view sees of the game each frame (see protocol/views.ts): the snapshot, and the words that explain why a boat, worker, truck, crane or berth is held up.
+// What the view sees of the game each frame (see protocol/views.ts): the
+// snapshot, and the words that explain why a boat, worker, truck, crane or
+// berth is held up.
 
 import type { World } from '../world';
 import type { Boat, CargoStats, Crane, Dockhand, Truck } from '../state';

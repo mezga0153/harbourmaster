@@ -1,4 +1,6 @@
-// What the game tells the player as it goes: messages, the advisor's tips, money floating up off the map, and the changes to the tiles and plots the view is sent each frame.
+// What the game tells the player as it goes: messages, the advisor's tips,
+// money floating up off the map, and the changes to the tiles and plots the
+// view is sent each frame.
 
 import type { World } from '../world';
 

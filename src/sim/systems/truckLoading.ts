@@ -1,4 +1,6 @@
-// Loading and unloading trucks by hand and by machine: which crates a truck may take, the dockhands' and forklifts' jobs to and from the trucks, ice coming in, and the stackers at the container yards.
+// Loading and unloading trucks by hand and by machine: which crates a truck may
+// take, the dockhands' and forklifts' jobs to and from the trucks, ice coming
+// in, and the stackers at the container yards.
 
 import type { World } from '../world';
 import { handlingTicks } from './workforce/crowding';

@@ -1,4 +1,5 @@
-// Cargo going out: the shippers' goods coming in by truck, waiting in storage and on the quay, and going on board the ships.
+// Cargo going out: the shippers' goods coming in by truck, waiting in storage
+// and on the quay, and going on board the ships.
 
 import type { World } from '../../world';
 import {

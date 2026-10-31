@@ -1,4 +1,5 @@
-// Harbour tugs: which ships need them, buying one, and how they lie at their berth, go out to a ship, keep station alongside and come back.
+// Harbour tugs: which ships need them, buying one, and how they lie at their
+// berth, go out to a ship, keep station alongside and come back.
 
 import type { World } from '../world';
 

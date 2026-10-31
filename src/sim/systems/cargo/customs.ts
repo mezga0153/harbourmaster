@@ -1,4 +1,5 @@
-// Customs and export papers on crates, and the jobs that move them: what waits and what is cleared, and giving a job up.
+// Customs and export papers on crates, and the jobs that move them: what waits
+// and what is cleared, and giving a job up.
 
 import type { World } from '../../world';
 import type { Bay, Dockhand, Truck } from '../../state';

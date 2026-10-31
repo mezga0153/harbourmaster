@@ -1,4 +1,6 @@
-// Cranes at the quay: jib cranes lifting crates, and harbour and gantry cranes lifting containers off the ships and exports on, their landing stacks, and the tractors they hand to.
+// Cranes at the quay: jib cranes lifting crates, and harbour and gantry cranes
+// lifting containers off the ships and exports on, their landing stacks, and
+// the tractors they hand to.
 
 import type { World } from '../world';
 import { boatHalf, craneFront, mooredTiles, near } from './boats/berthing';

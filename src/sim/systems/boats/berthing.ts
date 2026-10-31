@@ -1,4 +1,6 @@
-// Boats coming and going: the fisheries' and lines' boats setting out, the way in by the buoys to the anchorage, berths and which boats they take, coming alongside, and each boat's turn.
+// Boats coming and going: the fisheries' and lines' boats setting out, the way
+// in by the buoys to the anchorage, berths and which boats they take, coming
+// alongside, and each boat's turn.
 
 import type { World } from '../../world';
 import { fisheries } from '../economy';

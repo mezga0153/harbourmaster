@@ -1,4 +1,5 @@
-// Storage and the cargo in it: bays, yards and piles, what goes where, who can reach it, and how containers are stacked and found.
+// Storage and the cargo in it: bays, yards and piles, what goes where, who can
+// reach it, and how containers are stacked and found.
 
 import type { World } from '../../world';
 import { dest, holds, nextHold, readyIn, takeReady } from './customs';

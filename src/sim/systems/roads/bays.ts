@@ -1,4 +1,5 @@
-// Truck bays, storage trucks load at, container yards' lanes and truck parking: the ways to them, queues at them, and the costs trucks drive by.
+// Truck bays, storage trucks load at, container yards' lanes and truck parking:
+// the ways to them, queues at them, and the costs trucks drive by.
 
 import type { World } from '../../world';
 import { behind, departure, lengthOf } from './traffic';

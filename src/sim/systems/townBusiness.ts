@@ -1,4 +1,6 @@
-// The town as the port serves it: its builders keeping up with the people moving in, its businesses and what they take, the jobs the port gives, and the landmarks it opens as the port supplies it.
+// The town as the port serves it: its builders keeping up with the people
+// moving in, its businesses and what they take, the jobs the port gives, and
+// the landmarks it opens as the port supplies it.
 
 import type { World } from '../world';
 

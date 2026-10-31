@@ -1,4 +1,7 @@
-// Money, staff and the port's tier: the ledger and the loan, hiring and firing and the dockhands' wages and raises, contracts and the offers on the board, how a ship's visit is judged, what the port can handle a day, and the day's accounts at its end.
+// Money, staff and the port's tier: the ledger and the loan, hiring and firing
+// and the dockhands' wages and raises, contracts and the offers on the board,
+// how a ship's visit is judged, what the port can handle a day, and the day's
+// accounts at its end.
 
 import type { World } from '../world';
 import { jobs, openLandmark } from './townBusiness';

@@ -1,4 +1,6 @@
-// Yard gantries: the crane spanning a container yard that loads its trucks and tractors and takes containers off them, its lifts, and the places in the yard it sets them down.
+// Yard gantries: the crane spanning a container yard that loads its trucks and
+// tractors and takes containers off them, its lifts, and the places in the yard
+// it sets them down.
 
 import type { World } from '../world';
 import { straightOnto } from './truckLoading';

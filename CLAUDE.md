@@ -72,3 +72,26 @@ How the town and the port grow, step by step (landmarks the town opens as
 the port supplies it, each lifting the town's size cap and unlocking
 contracts, cargo or buildings), is in `progression.md`. Keep it up to date
 when changing tiers, town growth, contracts or what unlocks what.
+
+## How the code is laid out
+
+- `src/sim/world.ts` is the `World`: its state (typed in `state.ts`), making
+  and saving, `step()`, `command()`, and a page of one-line queries the
+  systems answer through it so a test can stand in for one. The rules that
+  move it are functions over it in `src/sim/systems/`, one file a subject
+  (`boats/`, `cranes`, `roads/`, `workforce/`, `cargo/`, `economy`,
+  `building`, `townBusiness`, `tugs`, `output`, `snapshot`), each taking the
+  world as its first argument. Nothing is private: the systems reach what
+  they need.
+- The rules of the map (what may be built where, how it stands, how trucks
+  find their way) are pure functions in `src/sim/rules/`, exported from
+  `rules.ts`; tuning numbers are in `balance.ts`; the bits of a tile's
+  `orient` in `orient.ts`.
+- `src/protocol.ts` exports the messages between the threads
+  (`protocol/messages.ts`) and what the view sees (`protocol/views.ts`).
+- The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
+  `entities/` and `motion.ts` for moving things, `util/` for shared maths,
+  `keyed.ts` for keeping keyed objects (and disposing what they own).
+- The UI: one file a panel in `src/ui/`, styles by area in `src/ui/styles/`,
+  input in `src/input/`, build previews as pure functions in `src/preview/`,
+  `main.ts` wiring only.

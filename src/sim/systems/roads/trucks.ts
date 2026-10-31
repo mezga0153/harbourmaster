@@ -1,4 +1,5 @@
-// The hauliers' and shippers' trucks: setting out, each truck's turn through the port and the town, and how they drive.
+// The hauliers' and shippers' trucks: setting out, each truck's turn through
+// the port and the town, and how they drive.
 
 import type { World } from '../../world';
 import { book, hauliers } from '../economy';

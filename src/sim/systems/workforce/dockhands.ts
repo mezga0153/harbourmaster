@@ -1,4 +1,5 @@
-// Dockhands and port machines: hiring them in, depots, fuel and repairs, walking and driving, each one's turn, and the jobs they take.
+// Dockhands and port machines: hiring them in, depots, fuel and repairs,
+// walking and driving, each one's turn, and the jobs they take.
 
 import type { World } from '../../world';
 import { exportSources, loadSpot, takeExportJob, wantsLoad } from '../cargo/exports';

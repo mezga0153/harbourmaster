@@ -1,4 +1,5 @@
-// Boats among boats: giving way, squeezing past, plotting courses, open water and fairways, pulling out of a berth, departing and coming into sight.
+// Boats among boats: giving way, squeezing past, plotting courses, open water
+// and fairways, pulling out of a berth, departing and coming into sight.
 
 import type { World } from '../../world';
 import { boatCostFor, buoyStops, byDocks, docks, planRunOut, seaEdgeTiles, via } from './berthing';

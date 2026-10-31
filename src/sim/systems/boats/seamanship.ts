@@ -1,4 +1,6 @@
-// How a boat handles: gathering way and slowing, swinging round in an arc, casting off and coming round for the sea, going astern, and keeping its hull clear of the shore, the docks and other boats.
+// How a boat handles: gathering way and slowing, swinging round in an arc,
+// casting off and coming round for the sea, going astern, and keeping its hull
+// clear of the shore, the docks and other boats.
 
 import type { World } from '../../world';
 import {
