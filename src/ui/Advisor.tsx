@@ -49,7 +49,7 @@ const TIPS: Record<string, Tip> = {
   },
   pallets: {
     title: 'Crates on pallets',
-    text: 'Coasters bring their crates on pallets. Dockhands lift them off onto the quay, where only forklifts take them on; a jib crane swings them straight into crate storage instead.',
+    text: 'Coasters bring their crates on pallets, and a lot of them. Dockhands carry each straight into crate storage or a truck bay, never setting one down on the quay, so mark out crate storage near the berth; a jib crane swings them straight into storage beside it instead.',
     topic: 'boats',
   },
   cranes: {
@@ -59,7 +59,7 @@ const TIPS: Record<string, Tip> = {
   },
   forklifts: {
     title: 'Forklifts',
-    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats. Dockhands set crates down on the quay for them, and the forklifts take them on to the bays and storage, and empty storage by a jib crane that the trucks cannot reach.`,
+    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats: dockhands carry the crates off themselves. Forklifts empty storage the trucks cannot reach, like that by a jib crane, to the bays and other storage, and load crate trucks.`,
     topic: 'machines',
   },
   stackers: {
@@ -73,8 +73,8 @@ const TIPS: Record<string, Tip> = {
     topic: 'machines',
   },
   landed: {
-    title: 'Cargo landed on the quay',
-    text: 'With forklifts about, dockhands set what they lift off a boat down on the quay beside it, and the forklifts take it on four at a time.',
+    title: 'Cargo left on the quay',
+    text: 'Crates an older game left on the quay are taken on to storage by the forklifts, or the dockhands. Nothing sets crates down there now: dockhands carry each straight into storage or a truck bay.',
     topic: 'dockhands',
   },
   storage: {

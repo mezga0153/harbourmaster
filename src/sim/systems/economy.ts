@@ -493,10 +493,10 @@ export function capacity(w: World): Capacity {
   for (let i = 0; i < m.build.length && !hasHut; i++) hasHut = m.build[i] === Build.BreakHut;
   // Share of the day spent working rather than resting.
   const uptime = hasHut ? 0.88 : 0.72;
-  // Dockhands carrying crates all the way to a bay, or setting them down on
-  // the quay beside the boat for the forklifts.
+  // Dockhands carrying crates all the way to a bay or crate storage: they
+  // set none down on the quay. Forklifts move them on from storage the
+  // trucks cannot reach, as by a jib crane.
   let carrying = 0;
-  let landing = 0;
   let forklifting = 0;
   if (bays.length && jetties.length) {
     for (const p of w.people) {
@@ -513,7 +513,6 @@ export function capacity(w: World): Capacity {
       const pace = paceFactor(p.skill, p.morale, 100);
       const tripTicks = (2 * avgWalk * 1.2) / (B.WALK_SPEED * pace) + handling;
       carrying += (TICKS_PER_DAY * uptime) / tripTicks;
-      landing += (TICKS_PER_DAY * uptime) / (handling + 2 / (B.WALK_SPEED * pace));
     }
   }
   // Jib cranes lift while a boat lies alongside, a good part of the day
@@ -527,12 +526,11 @@ export function capacity(w: World): Capacity {
     lifting += rate;
     if (jibStows(w, c)) stowing += rate;
   }
-  // Off the boats and on to the bays: with forklifts about, dockhands land
-  // the cargo and the forklifts take it on; without, dockhands carry it all
-  // the way, and what the cranes stack too. Pallets always go by forklift.
-  const forks = forklifting > 0;
-  const off = (forks ? landing : carrying) + lifting;
-  const on = forks ? forklifting + stowing : carrying + stowing;
+  // Off the boats and on to the bays: dockhands carry it all the way, and
+  // jib cranes swing it into storage beside them, which the forklifts
+  // empty where the trucks cannot reach it.
+  const off = carrying + lifting;
+  const on = carrying + Math.min(stowing, forklifting);
 
   // One truck trip: highway to bay and back, plus loading. A bay loads one
   // truck at a time, so trucks beyond the number of bays add nothing.
@@ -552,9 +550,7 @@ export function capacity(w: World): Capacity {
     deepBerths: berthCount(w, B.COASTER_DRAFT, true),
     pallets: {
       demand: Math.round(palletDemand),
-      unloading: Math.round(
-        Math.min(landing + lifting, forklifting + stowing) * (1 - w.congestion),
-      ),
+      unloading: Math.round(Math.min(off, on) * (1 - w.congestion)),
     },
     boxes: containerCapacity(w),
   };

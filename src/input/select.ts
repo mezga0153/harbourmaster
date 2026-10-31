@@ -25,6 +25,8 @@ export function selectionAt(
   picked: Picked,
 ): Selection | null {
   const i = at !== null && map ? anchorOf(map, at) : at;
+  // A boat's mark picks the boat, by its id.
+  if (picked.problem?.type === 'boat') return { type: 'entity', id: picked.problem.idx };
   if (picked.problem) return { type: picked.problem.type, idx: picked.problem.idx };
   if (picked.entity) return { type: 'entity', id: picked.entity.id };
   // A storage area is picked from any of its tiles.

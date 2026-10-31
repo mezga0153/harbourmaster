@@ -333,7 +333,7 @@ export const FORKLIFT_ACTIVITY: Partial<Record<DockhandState, string>> = {
   picking: 'Lifting crates',
 };
 
-/** What a worker is up to; `landing` when setting a load down on the quay. */
+/** What a worker is up to; `landing` when setting a load down on the quay, as in an older game. */
 export function activity(p: Dockhand, landing: boolean): string {
   if (p.state === 'idle' && p.stuck) return p.stuck;
   if (p.truckId !== undefined && !isBoxy(p)) {
@@ -366,4 +366,9 @@ export function activity(p: Dockhand, landing: boolean): string {
 /** Authoritative game state. Runs inside the sim worker and in tests. */
 
 /** The dockhand states in which one is at work on a crate. */
-export const WORKING: ReadonlySet<DockhandState> = new Set(['toPickup', 'picking', 'toDrop', 'dropping']);
+export const WORKING: ReadonlySet<DockhandState> = new Set([
+  'toPickup',
+  'picking',
+  'toDrop',
+  'dropping',
+]);

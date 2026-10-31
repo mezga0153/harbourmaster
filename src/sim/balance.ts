@@ -250,7 +250,7 @@ export const SELL_SHARE = 0.5;
 export const CRANE_RUNNING_COST = 30; // per day
 export const CRANE_TICKS = 10; // per crate lifted
 export const CRANE_STACK = 10;
-/** Crates dockhands set down on one quay tile beside a boat, for the forklifts. */
+/** Crates an older game left on one quay tile beside a boat, for the forklifts. */
 export const PILE_CRATES = 8;
 
 // Container Port.

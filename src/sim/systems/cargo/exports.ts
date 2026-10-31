@@ -21,12 +21,12 @@ import { holds, readyIn, takeReady } from './customs';
 import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
 import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
-import { bayIncoming, bayRoom, clamp, craneTicks, isBoxy, outCap, truckBay } from '../../helpers';
+import { bayRoom, clamp, craneTicks, isBoxy, outCap, truckBay } from '../../helpers';
 import type { Source } from '../../helpers';
 import { craneSpot, palletTile } from '../yardGantry';
 import type { CostFn } from '../../path';
 import * as B from '../../balance';
-import { costFor, headTo, pileAt } from '../workforce/dockhands';
+import { costFor, headTo } from '../workforce/dockhands';
 import {
   cranePlaces,
   craneReaches,
@@ -50,9 +50,9 @@ import { TICKS_PER_DAY } from '../../types';
 
 /**
  * Exports waiting to go on a ship being loaded: dockhands carry crates on
- * board from storage or the quay, forklifts bring them from storage to the
- * quay beside the ship, stackers take containers to the crane that lifts
- * them on board.
+ * board from storage, forklifts bring them from storage to storage by a
+ * jib crane over the ship, stackers take containers to the crane that
+ * lifts them on board. Those an older game left on the quay are taken too.
  */
 export function exportSources(w: World, p: Dockhand, here: number, sources: Source[]): void {
   // Exports left on the quay with nothing to put them on board: forklifts
@@ -117,10 +117,6 @@ export function takeExportJob(w: World, p: Dockhand, src: Source, cost: CostFn):
   } else if (target.crane) {
     target.crane.outReserved = (target.crane.outReserved ?? 0) + planned;
     p.toCrane = target.crane.idx;
-  } else if (target.pile) {
-    if (!w.piles.has(target.pile.idx)) w.piles.set(target.pile.idx, target.pile);
-    bayIncoming(target.pile, false, planned);
-    p.bayIdx = target.pile.idx;
   } else if (target.store) {
     target.store.exportIncoming = (target.store.exportIncoming ?? 0) + planned;
     p.bayIdx = target.store.idx;
@@ -137,15 +133,15 @@ export function takeExportJob(w: World, p: Dockhand, src: Source, cost: CostFn):
 /**
  * Where a worker takes exports picked up at `from`: a stacker to a crane
  * over a feeder being loaded; a dockhand on board a coaster being loaded;
- * a forklift down on the quay beside one, for the dockhands or a jib
- * crane to put on board.
+ * a forklift into storage by a jib crane over one, for it to lift on
+ * board. Nobody sets them down on the bare quay.
  */
 export function exportTarget(
   w: World,
   p: Dockhand,
   from: number,
   source?: Bay,
-): { boat?: Boat; crane?: Crane; pile?: Bay; store?: Bay; room: number } | null {
+): { boat?: Boat; crane?: Crane; store?: Bay; room: number } | null {
   if (isBoxy(p)) {
     for (const c of w.cranes.values()) {
       if (c.kind === 'jib') continue;
@@ -174,13 +170,13 @@ export function exportTarget(
   }
   for (const b of w.boats) {
     if (b.vessel !== 'coaster' || !wantsLoad(w, b)) continue;
-    let room = outCap(b) - (b.out ?? 0) - (b.outIncoming ?? 0);
+    const room = outCap(b) - (b.out ?? 0) - (b.outIncoming ?? 0);
     if (p.kind === 'dockhand') {
       if (loadSpot(w, p, b, from) >= 0) return { boat: b, room };
       continue;
     }
     // Forklifts cannot put cargo on board: they take it to storage by the
-    // jib crane over the ship for it to lift on, or leave it by the ship.
+    // jib crane over the ship for it to lift on.
     const cranes = [...w.cranes.values()].filter(
       (c) => c.kind === 'jib' && near(w, c.idx, b.berth),
     );
@@ -191,18 +187,6 @@ export function exportTarget(
         const at = dropAt(w, p, store, from);
         if (at >= 0) return { store, room: space };
       }
-    }
-    // What is already set down for it counts against what it takes.
-    for (const q of w.piles.values()) {
-      if (q !== source && pileFor(w, b, q.idx)) room -= q.crates.length + q.incoming;
-    }
-    if (room <= 0) continue;
-    for (const t of pickupSpots(w, b)) {
-      // With no dockhands to carry it on board, only where a crane reaches.
-      if (!pileFor(w, b, t)) continue;
-      const pile = pileAt(w, t, false, true);
-      if (pile && w.pathFor(p, from, t))
-        return { pile, room: Math.min(room, bayRoom(pile, false)) };
     }
   }
   return null;
@@ -238,7 +222,7 @@ export function exportHome(
   w: World,
   p: Dockhand,
   from: number,
-): { boat?: Boat; crane?: Crane; pile?: Bay; store?: Bay; room: number } | null {
+): { boat?: Boat; crane?: Crane; store?: Bay; room: number } | null {
   // Ice goes back into a truck bay.
   const ice = p.cargoFees.some((f) => cargoOf(f, 'goods') === 'ice');
   const stores = [...w.bays.values()]

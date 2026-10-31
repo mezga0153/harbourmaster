@@ -318,7 +318,7 @@ function Summary({ cap }: { cap: Capacity }) {
         ? 'Bottleneck: lifting cargo off the boats, and workers are queueing on narrow walkways. More staff will not help much: widen jetties and paths, add berths, or build jib cranes.'
         : 'Bottleneck: lifting cargo off the boats. Hire dockhands, or build jib cranes. Forklifts cannot unload boats.'
       : cap.demand > cap.moved
-        ? 'Bottleneck: moving cargo on from the quay. Buy forklifts to take what is landed to the bays, or mark out crate storage within reach of the jib cranes.'
+        ? 'Bottleneck: moving cargo on from the jib cranes. Buy forklifts to empty the storage beside them, or mark out more of it.'
         : cap.demand > cap.trucking
           ? 'Bottleneck: trucking. Sign a haulier, or add a truck bay if trucks are spare. Trucks are away a while on each round.'
           : cap.demand > Math.min(cap.unloading, cap.trucking) * 0.9
@@ -342,7 +342,7 @@ function Summary({ cap }: { cap: Capacity }) {
           label="Moved on"
           value={cap.moved}
           demand={cap.demand}
-          hint="Forklifts take what is landed to the bays and storage; without forklifts, dockhands carry it all the way"
+          hint="Dockhands carry crates all the way to the bays and storage; forklifts empty storage the trucks cannot reach, as by a jib crane"
           below={stock && `${stock.stored} in store`}
         />
         <Kpi
@@ -591,7 +591,7 @@ function OfferCard({
         <Check ok={forks >= pallets} warn={forks > 0 && forks < pallets}>
           {forks > 0
             ? `Pallets: ${pallets} crates a day, ${forks} can be unloaded`
-            : 'Crates come on pallets: dockhands or jib cranes lift them off, then forklifts take them on, or a jib crane swings them into crate storage'}
+            : 'Crates come on pallets: dockhands carry them off into crate storage or a truck bay, or a jib crane swings them into crate storage beside it'}
         </Check>,
       );
     }

@@ -68,7 +68,7 @@ import {
 import { gantries, gantryLifts, handView, liftedLoad, palletPlaces, yardLooks } from './yardGantry';
 import { byHand } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
-import { forklifts, parkedPoses } from './workforce/dockhands';
+import { parkedPoses } from './workforce/dockhands';
 import { exportsWaiting, readyWords, truckCargo } from './cargo/exports';
 import {
   buriedCount,
@@ -77,6 +77,7 @@ import {
   carriedLooks,
   cleared,
   customsHold,
+  dropRoom,
   jibStore,
   jibStows,
   nextClear,
@@ -151,10 +152,22 @@ export function boatWhy(w: World, b: Boat): string | undefined {
       ? 'The crate storage in reach of the jib crane over it is full: the crane waits for room. Forklifts take crates on from storage the trucks cannot reach.'
       : 'The jib crane over it has no crate storage for cargo coming in next to it to swing the crates into, and it sets none down at its feet.';
   }
-  if (b.vessel === 'coaster' && !forklifts(w) && !(jib && jibStows(w, jib))) {
-    return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
+  return b.noRoom ? noRoomWords(w, b.noRoom) : undefined;
+}
+
+/**
+ * Why the dockhands are not unloading a boat, for its panel and the red
+ * mark over it: nowhere to carry its crates into, as they set none down
+ * on the quay.
+ */
+export function noRoomWords(w: World, why: 'room' | 'customs'): string {
+  if (why === 'customs') {
+    return 'Its timber and goods wait in crate storage for customs, and no crate storage for cargo coming in that the dockhands can walk to has room: they set nothing down on the quay, so it waits. Mark out more crate storage for cargo coming in near the quay.';
   }
-  return undefined;
+  const room = [...w.bays.values()].some((s) => takesImports(w, s) && dropRoom(w, s, false) > 0);
+  return room
+    ? 'Dockhands cannot walk from it to any truck bay or crate storage with room: they carry each crate straight into one and set none down on the quay, so it waits. Join the quay to them with footpaths or quay.'
+    : 'Every truck bay and crate storage for cargo coming in is full: dockhands carry each crate straight into one and set none down on the quay, so it waits. Mark out more crate storage near the quay, or build more truck bays.';
 }
 
 export function workerWhy(w: World, p: Dockhand): string | undefined {
@@ -397,6 +410,11 @@ export function problems(w: World): ProblemView[] {
     if (m.build[i] !== Build.Depot) continue;
     const why = depotDoorTrouble(m, i, m.orient[i] & 3);
     if (why) out.push({ ...middle([i]), h: 1, text: why, type: 'depot', idx: i });
+  }
+  // Boats the dockhands have nowhere to unload into.
+  for (const b of w.boats) {
+    if (b.state !== 'moored' || !b.noRoom || b.crates === 0) continue;
+    out.push({ x: b.x, y: b.y, h: 1.6, text: noRoomWords(w, b.noRoom), type: 'boat', idx: b.id });
   }
   for (const lot of lots(w)) {
     const why = lotTrouble(w, lot);

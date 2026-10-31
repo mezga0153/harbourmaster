@@ -20,7 +20,7 @@ export const MACHINES: Record<
     wage: B.FORKLIFT_WAGE,
     capacity: B.FORKLIFT_CAPACITY,
     room: 1,
-    hint: `Carries ${B.FORKLIFT_CAPACITY} crates a trip from a crane or the quay to a truck bay or storage. Forklifts cannot unload boats: dockhands and jib cranes land the cargo for them`,
+    hint: `Carries ${B.FORKLIFT_CAPACITY} crates a trip from storage the trucks cannot reach, like that by a jib crane, to a truck bay or storage, and loads crate trucks. Forklifts cannot unload boats: dockhands carry the crates off`,
   },
   stacker: {
     label: 'Reach stacker',

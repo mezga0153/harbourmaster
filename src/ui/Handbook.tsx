@@ -46,8 +46,9 @@ export const TOPICS: Record<TopicId, Topic> = {
             <b>Lifted off the boat</b> by dockhands or a crane.
           </li>
           <li>
-            <b>Moved on</b> to a truck bay or storage: carried by dockhands, or landed on the quay
-            for forklifts to take.
+            <b>Moved on</b> to a truck bay or storage: carried there by dockhands, who never set
+            crates down on the quay, or swung into storage by a jib crane. Forklifts move crates on
+            from storage the trucks cannot reach.
           </li>
           <li>
             <b>Waits</b> in the bay or storage. Containers, and crates of timber and goods, also
@@ -75,8 +76,9 @@ export const TOPICS: Record<TopicId, Topic> = {
         <ul>
           <li>Fishing boats fit any berth.</li>
           <li>
-            Coasters need a quay two tiles wide in {B.COASTER_DRAFT} m of water. Their crates come
-            on pallets, which only forklifts take on from the quay.
+            Coasters need a quay two tiles wide in {B.COASTER_DRAFT} m of water. They bring a lot:
+            mark out crate storage near their berths, for cargo coming in and going out, or the
+            dockhands carry every crate a long way.
           </li>
           <li>
             Feeder ships need a harbour or gantry crane on a quay two tiles wide in {B.FEEDER_DRAFT}{' '}
@@ -101,9 +103,10 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          Dockhands lift cargo off the boats, the only staff who can. With forklifts about they set
-          it down on the quay beside the boat for the forklifts, which is quick. Without, they carry
-          it all the way to a truck bay or storage.
+          Dockhands lift cargo off the boats, the only staff who can, and carry each crate straight
+          into crate storage or a truck bay: never down on the quay. With nowhere in reach with
+          room, the boat waits, and says why. Crate storage marked out near the berths keeps their
+          walk short.
         </p>
         <ul>
           <li>They walk on port paths, port roads, jetties and quays, never grass or roads.</li>
@@ -163,8 +166,8 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <p>
           <b>Forklifts</b> carry {B.FORKLIFT_CAPACITY} crates a trip, but cannot unload boats. They
-          take what dockhands land on the quay, and empty crate storage the trucks cannot reach,
-          like that by a jib crane, to a truck bay or storage they can.
+          empty crate storage the trucks cannot reach, like that by a jib crane, to a truck bay or
+          storage they can, bring exports to storage by a jib crane, and load crate trucks.
         </p>
         <p>
           <b>Reach stackers</b> take containers from the harbour and gantry cranes to the container

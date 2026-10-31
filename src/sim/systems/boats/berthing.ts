@@ -1075,14 +1075,6 @@ export function updateBoat(w: World, b: Boat): void {
           message(w, `A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
         }
         if (b.vessel === 'coaster') tip(w, 'pallets');
-        if (b.vessel === 'coaster' && !w.people.some((p) => p.kind === 'forklift')) {
-          nag(
-            w,
-            'pallets',
-            'Pallets wait on the quay until a forklift takes them on. Buy one at a depot.',
-            'bad',
-          );
-        }
       }
       return;
     }

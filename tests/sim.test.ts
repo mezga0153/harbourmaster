@@ -70,12 +70,7 @@ import {
   yardLooks,
 } from '../src/sim/systems/yardGantry';
 import { pathFor, roomToTurn, tileBehind } from '../src/sim/systems/workforce/crowding';
-import {
-  assignJob,
-  craneStackTiles,
-  pileAt,
-  spawnDockhand,
-} from '../src/sim/systems/workforce/dockhands';
+import { assignJob, craneStackTiles, spawnDockhand } from '../src/sim/systems/workforce/dockhands';
 import { outgoingFull, shipOut, stillLoading, stranded } from '../src/sim/systems/cargo/exports';
 import {
   byCrane,
@@ -111,6 +106,7 @@ import {
   truckLeave,
 } from '../src/sim/systems/roads/traffic';
 import { cutOff, updateTruck } from '../src/sim/systems/roads/trucks';
+import { oldPile } from './wharf';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -837,7 +833,7 @@ describe('Coastal Wharf tier', () => {
     }
   }
 
-  it('never lets forklifts unload a boat: dockhands land the crates on the quay for them', () => {
+  it('never lets forklifts unload a boat: dockhands carry the crates off it themselves', () => {
     const world = World.create(7, 96);
     quayPort(world);
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
@@ -852,17 +848,13 @@ describe('Coastal Wharf tier', () => {
     for (let t = 0; t < 200; t++) world.step();
     expect(boat.crates).toBe(load);
     expect(world.stats.cratesHandled).toBe(0);
-    // A dockhand lifts them off onto the quay, and the forklift takes them on.
+    // A dockhand lifts them off and carries each straight to the truck bay,
+    // setting none down on the quay for the forklift.
     world.command({ type: 'hire', candidateId: world.candidates[0].id });
-    let landed = false;
-    let forked = false;
     for (let t = 0; t < TICKS_PER_DAY && world.stats.cratesHandled < 4; t++) {
       world.step();
-      landed ||= world.piles.size > 0;
-      forked ||= world.people.some((p) => p.kind === 'forklift' && p.carrying > 0);
+      expect(world.piles.size).toBe(0);
     }
-    expect(landed).toBe(true);
-    expect(forked).toBe(true);
     expect(world.stats.cratesHandled).toBeGreaterThanOrEqual(4);
   });
 
@@ -4177,11 +4169,9 @@ describe('Container Port tier', () => {
     world.command({ type: 'store', tiles: store, kind: 'cratesOut', on: true });
     const depot = m.build.findIndex((b) => b === Build.Depot);
     world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
-    // Crates set down for a coaster that has sailed without them.
+    // Crates an older game set down for a coaster that has sailed without them.
     const quay = m.build.findIndex((b, i) => b === Build.Quay && !m.store[i]);
-    const pile = pileAt(world, quay, false, true)!;
-    pile.crates.push(...Array(6).fill(20));
-    world.piles.set(quay, pile);
+    const pile = oldPile(world, quay, Array(6).fill(20), true);
     expect(stranded(world, pile)).toBe(true);
     const out = world.bays.get(store[0])!;
     for (let k = 0; k < TICKS_PER_DAY && (out.exports?.length ?? 0) < 6; k++) world.step();

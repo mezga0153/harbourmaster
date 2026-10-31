@@ -40,7 +40,7 @@ import { mayEnter, toStopLine } from '../roads/traffic';
 import { drive } from '../roads/trucks';
 import { paceFactor } from '../../staff';
 import type { Candidate } from '../../staff';
-import type { Bay, Dockhand } from '../../state';
+import type { Bay, Boat, Dockhand } from '../../state';
 import * as B from '../../balance';
 import {
   bayIncoming,
@@ -674,7 +674,7 @@ export function diagnose(w: World, p: Dockhand): void {
   for (const c of w.cranes.values()) {
     if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(pickTile(w, c));
   }
-  // Forklifts take what the dockhands land on the quay.
+  // Crates an older game left on the quay, for the forklifts to take on.
   if (!boxy) for (const pile of w.piles.values()) if (pile.crates.length) sources.push(pile.idx);
   let stuck: string | null = null;
   const dests = [...(boxy ? w.yards : w.bays).values()].filter((d) => servesYard(w, p, d));
@@ -769,16 +769,17 @@ export function wander(w: World, p: Dockhand): void {
 }
 
 /**
- * Crane landing stacks first (they free the crane), then moored boats, then
- * cargo landed on the quay. Only dockhands unload boats: forklifts take on
- * what the dockhands and jib cranes have landed.
+ * Crane landing stacks first (they free the crane), then moored boats.
+ * Only dockhands unload boats, carrying each crate straight into crate
+ * storage or a truck bay: forklifts move crates on from storage the trucks
+ * cannot reach, and take away what an older game left on the quay.
  */
 export function assignJob(w: World, p: Dockhand): boolean {
   const here = w.tileOf(p);
   const cost = costFor(w, p);
   // Reach stackers handle containers, everyone else crates.
   const boxy = isBoxy(p);
-  // Pallets off a coaster need the forks of a forklift.
+  // Pallets an older game left need the forks of a forklift.
   const forks = p.kind === 'forklift';
   const hands = p.kind === 'dockhand';
   const sources: Source[] = [];
@@ -801,7 +802,8 @@ export function assignJob(w: World, p: Dockhand): boolean {
       for (const tile of pickupSpots(w, boat)) sources.push({ tile, avail, boat, rank: 1 });
     }
   }
-  // What is landed on the quay waits for the forklifts, if there are any.
+  // Crates an older game left on the quay: the forklifts take them on, or
+  // the dockhands if there are none. Nothing sets any down there now.
   if (forks || (hands && !forklifts(w))) {
     for (const pile of w.piles.values()) {
       const avail = pile.crates.length - (pile.reserved ?? 0);
@@ -859,8 +861,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
     } else if (workersAt(w, src.tile) >= B.WORKERS_PER_SPOT) continue;
     // A machine leaves the job to a free one nearer the pick-up.
     if (isMachine(p) && nearerMachine(w, p, src.tile)) continue;
-    // Containers go to a container yard, crates to a truck bay or storage,
-    // or off a boat onto the quay.
+    // Containers go to a container yard, crates to a truck bay or storage.
     // Timber and goods go through crate storage, for customs.
     const held =
       !boxy &&
@@ -872,21 +873,20 @@ export function assignJob(w: World, p: Dockhand): boolean {
     const bay = boxy
       ? yardWithRoom(w, p, src.tile)
       : src.boat
-        ? landing(w, p, src.tile, src.boat.vessel === 'coaster', held)
+        ? landing(w, p, src.tile, held)
         : bayWithRoom(w, p, src.tile, !!src.pile?.tiles, held);
     if (!bay) {
-      if (held) noCustomsStore(w);
+      // The boat waits, and says why (see boatWhy).
+      if (src.boat) noRoomFor(w, src.boat, held);
+      else if (held) noCustomsStore(w);
       continue;
     }
     if (!headTo(w, p, src.tile)) continue;
+    if (src.boat) src.boat.noRoom = undefined;
     const planned = Math.min(p.capacity, src.avail, dropRoom(w, bay, boxy));
     if (src.crane) src.crane.reserved += planned;
     if (src.boat) src.boat.reserved += planned;
     if (src.pile) src.pile.reserved = (src.pile.reserved ?? 0) + planned;
-    if (bay.pile) {
-      if (bay.crates.length + bay.incoming === 0) bay.pallets = src.boat?.vessel === 'coaster';
-      w.piles.set(bay.idx, bay);
-    }
     bayIncoming(bay, boxy, planned);
     p.planned = planned;
     p.boatId = src.boat ? src.boat.id : -1;
@@ -1024,24 +1024,32 @@ export function forklifts(w: World): boolean {
 
 /**
  * Where a dockhand takes what they lift off a boat from dock tile `t`:
- * into crate storage marked out right there, else down on the quay for
- * the forklifts when there are any (pallets always wait for them), else
- * carried on to a truck bay or storage.
+ * into crate storage marked out right there, else carried straight on to
+ * the nearest truck bay or crate storage for cargo coming in with room.
+ * Never down on the quay: with nowhere to take it, the boat waits.
  */
-export function landing(
-  w: World,
-  p: Dockhand,
-  t: number,
-  pallets: boolean,
-  held = false,
-): Bay | null {
+export function landing(w: World, p: Dockhand, t: number, held = false): Bay | null {
   const store = w.bays.get(w.storeOf[t]);
   if (store && bayRoom(store, false) > 0 && takesImports(w, store)) return store;
-  if (pallets || forklifts(w)) {
-    const pile = pileAt(w, t, pallets);
-    if (pile || pallets) return pile;
-  }
   return bayWithRoom(w, p, t, false, held);
+}
+
+/**
+ * A boat the dockhands found nowhere to carry its crates into: it waits,
+ * saying why (see boatWhy), and the player is told once in a while.
+ */
+export function noRoomFor(w: World, b: Boat, held: boolean): void {
+  b.noRoom = held ? 'customs' : 'room';
+  if (held) return noCustomsStore(w);
+  const room = [...w.bays.values()].some((s) => takesImports(w, s) && dropRoom(w, s, false) > 0);
+  nag(
+    w,
+    'noLanding',
+    room
+      ? 'Dockhands cannot walk from a boat to any truck bay or crate storage with room: they carry each crate straight there, and never set one down on the quay. Join the quay to them with footpaths or quay.'
+      : 'Every truck bay and crate storage for cargo coming in is full: dockhands carry each crate straight into one, and never set one down on the quay, so the boats wait. Mark out more crate storage near the quay, or build more truck bays.',
+    'bad',
+  );
 }
 
 /**
@@ -1059,31 +1067,4 @@ export function noCustomsStore(w: World): void {
     'Timber and goods wait in crate storage for customs, and none has room: the coasters cannot be unloaded. Mark out more crate storage for cargo coming in.',
     'bad',
   );
-}
-
-/**
- * The cargo landed on quay tile `t`, or a new heap there (not yet put
- * down), if it has room for this kind; null where forklifts could not
- * get to it: on a wooden jetty or under a crane.
- */
-export function pileAt(w: World, t: number, pallets: boolean, out = false): Bay | null {
-  if (w.map.build[t] !== Build.Quay || w.map.store[t]) return null;
-  const pile = w.piles.get(t) ?? {
-    idx: t,
-    large: false,
-    pile: true,
-    pallets,
-    out,
-    reserved: 0,
-    boxes: [],
-    boxIncoming: 0,
-    crates: [],
-    incoming: 0,
-    nextTruckTick: 0,
-    noAccess: false,
-  };
-  const empty = pile.crates.length + pile.incoming === 0;
-  if (!empty && (!!pile.pallets !== pallets || !!pile.out !== out)) return null;
-  if (empty) pile.out = out;
-  return bayRoom(pile, false) > 0 ? pile : null;
 }
