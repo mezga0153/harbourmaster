@@ -1,4 +1,4 @@
-import { computed, signal } from '@preact/signals';
+import { computed, effect, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { Preview } from '../preview/types';
 import type { Tool } from './tools';
@@ -160,6 +160,16 @@ export function openHandbook(topic: string): void {
 export function togglePanel(name: PanelName): void {
   panel.value = panel.value === name ? null : name;
 }
+
+// One panel open at a time: opening one puts away what was selected, and
+// selecting something puts away the panel, rather than leaving it to come
+// back when the other is closed.
+effect(() => {
+  if (panel.value) selection.value = null;
+});
+effect(() => {
+  if (selection.value) panel.value = null;
+});
 
 /** The menu behind the hamburger, on a phone: open or not. */
 export const menuOpen = signal(false);
