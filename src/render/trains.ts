@@ -24,7 +24,7 @@ const RAIL_TOP = 0.105;
 const LEN = CAR_LENGTH - 0.12;
 
 /** A wagon or locomotive, along +z with its middle at the origin. */
-function car(kind: CarKind, v: number, k: number): Object3D {
+export function trainCar(kind: CarKind, v: number, k: number): Object3D {
   const g = new Group();
   const y = 0.07;
   for (const z of [-LEN / 2 + 0.2, LEN / 2 - 0.2]) g.add(box(0.34, 0.07, 0.3, BOGIE, 0, 0, z));
@@ -127,7 +127,7 @@ export class Trains {
     const m = new Group();
     m.position.set(this.x + 0.5, this.ground + RAIL_TOP, train.head);
     train.cars.forEach((kind, k) => {
-      const c = car(kind, train.variant, k);
+      const c = trainCar(kind, train.variant, k);
       // Cars trail behind the head; the locomotive faces the way it is going.
       c.position.z = -train.dir * (k + 0.5) * CAR_LENGTH;
       if (train.dir < 0) c.rotation.y = Math.PI;

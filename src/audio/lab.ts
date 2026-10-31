@@ -1,6 +1,8 @@
-// The sound lab (sounds.html, on the dev server): every sound in the game
-// on a button, and every engine on a switch, to try out and tune by ear.
+// The sound lab (sounds.html on the dev server, and the Sounds tab of the
+// dev page, dev.html): every sound in the game on a button, and every
+// engine on a switch, to try out and tune by ear.
 
+import './lab.css';
 import { VESSEL_SIZE, type Hull, type RoadEngine } from './mix';
 import { Music } from './music';
 import type { Band } from './score';
@@ -228,74 +230,77 @@ function musicRow(): HTMLElement {
   );
 }
 
-const lab = document.getElementById('lab')!;
-lab.append(
-  el('h1', {}, 'Sound lab'),
-  el(
-    'p',
-    { className: 'lead' },
-    'Every sound in the game, made in code. Click anything to hear it; engines and beds run until switched off. ',
-    'The distance slider plays them as from across the water.',
-  ),
-  section(
-    'Where you are listening from',
+/** Build the sound lab into `lab`. */
+export function soundLab(lab: HTMLElement): void {
+  lab.classList.add('sound-lab');
+  lab.append(
+    el('h1', {}, 'Sound lab'),
     el(
-      'div',
-      { className: 'row' },
-      slider('Distance', 0, (v) => (far = v)),
-      slider('Left / right', 0, (v) => (pan = v), -1, 1),
-      slider('Volume', 0.7, (v) => (live().master.gain.value = v)),
+      'p',
+      { className: 'lead' },
+      'Every sound in the game, made in code. Click anything to hear it; engines and beds run until switched off. ',
+      'The distance slider plays them as from across the water.',
     ),
-  ),
-  section('Music', musicRow()),
-  section('Containers (steel)', ...containerRows()),
-  section(
-    'Crates and pallets (wood)',
-    el(
-      'div',
-      { className: 'row' },
-      button('Set down', (s) => s.thunk(0.45, pan, far)),
-      button('A busy quay', busyQuay),
+    section(
+      'Where you are listening from',
+      el(
+        'div',
+        { className: 'row' },
+        slider('Distance', 0, (v) => (far = v)),
+        slider('Left / right', 0, (v) => (pan = v), -1, 1),
+        slider('Volume', 0.7, (v) => (live().master.gain.value = v)),
+      ),
     ),
-  ),
-  section(
-    'Horns, as each ship sails',
-    el(
-      'div',
-      { className: 'row' },
-      ...hulls.map(([h, name]) => button(name, (s) => s.horn(0.55, pan, far, VESSEL_SIZE[h]))),
-      button('Train', (s) => s.trainHorn(0.35, pan, far)),
+    section('Music', musicRow()),
+    section('Containers (steel)', ...containerRows()),
+    section(
+      'Crates and pallets (wood)',
+      el(
+        'div',
+        { className: 'row' },
+        button('Set down', (s) => s.thunk(0.45, pan, far)),
+        button('A busy quay', busyQuay),
+      ),
     ),
-  ),
-  section(
-    'Ships’ engines under way',
-    ...hulls.map(([h, name]) => loopRow(name, (s) => s.shipEngine(h), 0.35)),
-  ),
-  section(
-    'Engines on land',
-    roadRow('truck', 'Truck', 0.3),
-    roadRow('tractor', 'Terminal tractor', 0.5),
-    roadRow('stacker', 'Reach stacker', 0.8),
-    loopRow('Forklift', (s) => s.electric(), 0.06),
-    loopRow('Crane winch', (s) => s.winch(), 0.26),
-  ),
-  section(
-    'Other sounds',
-    el(
-      'div',
-      { className: 'row' },
-      button('Reversing beep', (s) => s.beep(0.16, pan, far)),
-      button('Air brakes', (s) => s.hiss(0.22, pan, far)),
+    section(
+      'Horns, as each ship sails',
+      el(
+        'div',
+        { className: 'row' },
+        ...hulls.map(([h, name]) => button(name, (s) => s.horn(0.55, pan, far, VESSEL_SIZE[h]))),
+        button('Train', (s) => s.trainHorn(0.35, pan, far)),
+      ),
     ),
-  ),
-  section(
-    'The port from afar',
-    loopRow('Port hum', (s) => s.hum(), 0.4),
-    loopRow('Sea', (s) => s.sea().wash, 0.15),
-    loopRow('Waves at the quay', (s) => s.sea().lap, 0.3),
-    loopRow('Train going by', (s) => s.rumble(), 0.4),
-  ),
-);
+    section(
+      'Ships’ engines under way',
+      ...hulls.map(([h, name]) => loopRow(name, (s) => s.shipEngine(h), 0.35)),
+    ),
+    section(
+      'Engines on land',
+      roadRow('truck', 'Truck', 0.3),
+      roadRow('tractor', 'Terminal tractor', 0.5),
+      roadRow('stacker', 'Reach stacker', 0.8),
+      loopRow('Forklift', (s) => s.electric(), 0.06),
+      loopRow('Crane winch', (s) => s.winch(), 0.26),
+    ),
+    section(
+      'Other sounds',
+      el(
+        'div',
+        { className: 'row' },
+        button('Reversing beep', (s) => s.beep(0.16, pan, far)),
+        button('Air brakes', (s) => s.hiss(0.22, pan, far)),
+      ),
+    ),
+    section(
+      'The port from afar',
+      loopRow('Port hum', (s) => s.hum(), 0.4),
+      loopRow('Sea', (s) => s.sea().wash, 0.15),
+      loopRow('Waves at the quay', (s) => s.sea().lap, 0.3),
+      loopRow('Train going by', (s) => s.rumble(), 0.4),
+    ),
+  );
+}
 
 /**
  * For tuning without ears: render each one-off sound offline and report

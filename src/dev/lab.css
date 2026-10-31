@@ -1,0 +1,321 @@
+/* The dev lab (dev.html, src/dev/): the tab bar and each tab's page. */
+
+#devlab {
+  --bar: 44px;
+  --lab-bg: #0f1a24;
+  --lab-panel: #172533;
+  --lab-line: #2a3d4f;
+  --lab-text: #e6eef5;
+  --lab-text-2: #93a7b8;
+  --lab-accent: #f2b84b;
+  position: fixed;
+  inset: 0;
+  color: var(--lab-text);
+  background: var(--lab-bg);
+  font:
+    14px/1.45 system-ui,
+    sans-serif;
+}
+
+#devlab .lab-tabs {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--bar);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  background: #0b141c;
+  border-bottom: 1px solid var(--lab-line);
+  z-index: 20;
+}
+
+#devlab .lab-tabs strong {
+  margin-right: 12px;
+}
+
+#devlab .lab-tabs button,
+#devlab .lab-drawer button,
+#devlab .lab-gallery button,
+#devlab .lab-sounds button {
+  background: #22364a;
+  color: var(--lab-text);
+  border: 1px solid var(--lab-line);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+#devlab .lab-tabs button:hover,
+#devlab .lab-drawer button:hover,
+#devlab .lab-gallery button:hover {
+  border-color: var(--lab-accent);
+}
+
+#devlab .lab-tabs button.on,
+#devlab .lab-gallery .lab-list button.on,
+#devlab .lab-gallery button.on,
+#devlab .lab-drawer button.lab-primary {
+  background: var(--lab-accent);
+  color: #1b1405;
+  border-color: var(--lab-accent);
+}
+
+#devlab .lab-tabs .lab-game-link {
+  margin-left: auto;
+  color: var(--lab-text-2);
+}
+
+#devlab .lab-pages {
+  position: absolute;
+  top: var(--bar);
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+#devlab .lab-page {
+  position: absolute;
+  inset: 0;
+}
+
+/* The sound lab scrolls on its own. */
+#devlab .lab-sounds {
+  overflow: auto;
+}
+
+/* Galleries: a list down the side, the stage and its controls beside it. */
+#devlab .lab-gallery {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+#devlab .lab-gallery .lab-side {
+  overflow: auto;
+  border-right: 1px solid var(--lab-line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#devlab .lab-gallery .lab-side .lab-lead {
+  color: var(--lab-text-2);
+  font-size: 12px;
+}
+
+#devlab .lab-gallery input[type='search'] {
+  flex: none;
+  background: #0b141c;
+  color: inherit;
+  border: 1px solid var(--lab-line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+#devlab .lab-gallery .lab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#devlab .lab-gallery .lab-list h3 {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--lab-text-2);
+}
+
+#devlab .lab-gallery .lab-list button {
+  text-align: left;
+  padding: 5px 8px;
+  background: none;
+  border-color: transparent;
+}
+
+#devlab .lab-gallery .lab-list button:hover {
+  background: #22364a;
+}
+
+#devlab .lab-gallery .lab-view {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  min-width: 0;
+}
+
+#devlab .lab-gallery .lab-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* The canvas sits over the stage rather than in its flow, so its size never sets the stage's. */
+#devlab .lab-gallery .lab-stage canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+
+#devlab .lab-gallery .lab-controls {
+  border-top: 1px solid var(--lab-line);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--lab-panel);
+}
+
+#devlab .lab-gallery .lab-info {
+  padding: 4px 14px 8px;
+  color: var(--lab-text-2);
+  font-size: 12px;
+  background: var(--lab-panel);
+}
+
+#devlab .lab-params,
+#devlab .lab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+#devlab label.lab-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--lab-text-2);
+  font-size: 13px;
+}
+
+#devlab label.lab-ctl input[type='range'] {
+  width: 130px;
+}
+
+#devlab label.lab-ctl output {
+  min-width: 3ch;
+  color: var(--lab-text);
+  font-variant-numeric: tabular-nums;
+}
+
+#devlab label.lab-ctl select {
+  background: #0b141c;
+  color: var(--lab-text);
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+}
+
+/* Scenes: the game fills the page under the bar, the lab's drawer over it. */
+#devlab .lab-scenes #game,
+#devlab .lab-scenes #ui {
+  position: absolute;
+  inset: 0;
+}
+
+#devlab .lab-scenes .lab-drawer {
+  position: absolute;
+  right: 12px;
+  top: 56px;
+  width: 360px;
+  max-height: calc(100% - 70px);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  font-size: 13px;
+}
+
+#devlab .lab-scenes .lab-drawer .lab-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--lab-line);
+}
+
+#devlab .lab-scenes .lab-drawer .lab-body {
+  overflow: auto;
+  padding: 4px 12px 12px;
+}
+
+#devlab .lab-scenes .lab-drawer.lab-shut .lab-body {
+  display: none;
+}
+
+#devlab .lab-scenes .lab-drawer section {
+  margin: 10px 0;
+}
+
+#devlab .lab-scenes .lab-drawer h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--lab-text-2);
+  margin: 0 0 6px;
+}
+
+#devlab .lab-scenes .lab-drawer .lab-note {
+  color: var(--lab-text-2);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+#devlab .lab-scenes .lab-drawer .lab-params {
+  margin: 6px 0;
+}
+
+#devlab .lab-scenes .lab-drawer .lab-status {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: #0b141c;
+  border-radius: 6px;
+  color: var(--lab-accent);
+}
+
+#devlab .lab-scenes .lab-drawer .lab-tick {
+  color: var(--lab-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+#devlab .lab-scenes .lab-drawer input[type='file'] {
+  font-size: 12px;
+  max-width: 180px;
+}
+
+#devlab .lab-scenes .lab-boats {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+#devlab .lab-scenes .lab-boats th {
+  text-align: left;
+  color: var(--lab-text-2);
+  font-weight: 500;
+  padding: 2px 4px;
+}
+
+#devlab .lab-scenes .lab-boats td {
+  padding: 3px 4px;
+  border-top: 1px solid var(--lab-line);
+  vertical-align: top;
+}
+
+#devlab .lab-scenes .lab-boats tr:not(:first-child) {
+  cursor: pointer;
+}
+
+#devlab .lab-scenes .lab-boats tr.on td {
+  color: var(--lab-accent);
+}
+
+#devlab .lab-scenes .lab-boats .lab-why {
+  color: var(--lab-text-2);
+}

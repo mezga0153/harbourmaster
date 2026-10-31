@@ -59,6 +59,34 @@ hash, `scripts/version.mjs`). `server/` (the Worker beside the game's files, see
 - `tests/play-log.test.ts` checks the game sends what the server takes; a
   new column goes in a new migration, `server/api/`, `src/log/` and there
 
+## The dev lab
+
+`dev.html` on the dev server (http://localhost:5199/dev.html, never built)
+shows the game's parts on their own, `src/dev/`:
+
+- Models: everything drawn, each built from its seed, on a turntable
+  (`models.ts`, `stage.ts`): boats and ships with their load, trucks, people,
+  machines, every tool on its patch of shore as its build menu card pictures
+  it (`render/thumbs.ts` `stage()`), the town's buildings, the train's cars,
+  the Kenney scenery and the cargo. `#models/<group>/<name>` opens one.
+- Animations: what moves in place, run by the game's own code with its
+  inputs on sliders (`animations.ts`): a dockhand's pose, fidgets and seat, a
+  forklift's forks, a reach stacker's boom, a trailer's fold, a boat under
+  way, cranes slewing, the gate, the lights, a buoy, a train going by.
+- Scenes: the whole game with the sim run on the page (`scenes.ts`), started
+  from a preset (`situations.ts`: a new port, a busy harbour, a port the
+  playthrough bot built; `#scenes/busy` starts one), the dev game's
+  `.debug/save.json` or a save file; paused, sped up or stepped a tick at a
+  time, with fishing, lobster, coaster and feeder boats, a tug and the train
+  sent in on a button, every boat's course drawn and a table of what each is
+  doing and held up by. The build bar and panels are the game's own.
+- Sounds: the sound lab (`src/audio/lab.ts`, also `sounds.html`).
+
+`window.__lab` (the gallery's stage and item) and `window.__scene` (the
+runner: `world`, `renderer`, `step(ticks)`, `send(cmd)`) are there for the
+console or a driver; `__lab.stage.png()` and `__scene.renderer.picture()`
+give pictures, which headless Chrome's `--screenshot` does not of a canvas.
+
 ## Running simulations
 
 Run the game's simulation in a Node process (vitest, as above, or a script

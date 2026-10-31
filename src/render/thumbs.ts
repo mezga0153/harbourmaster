@@ -194,6 +194,39 @@ function machine(tool: string): Object3D | null {
   }
 }
 
+/** The tools that have a picture, and so a stage. */
+export const PICTURED: readonly string[] = [
+  'road',
+  'footpath',
+  'portRoad',
+  'portGate',
+  'parking',
+  'forkliftOnly',
+  'crateStore',
+  'crateOutStore',
+  'boxStore',
+  'boxOutStore',
+  'yardGantry',
+  'jetty',
+  'quay',
+  'buoyIn',
+  'buoyOut',
+  'tugBerth',
+  'jibCrane',
+  'harbourCrane',
+  'gantryCrane',
+  'office',
+  'harbourHut',
+  'depot',
+  'breakHut',
+  'truckBay',
+  'largeBay',
+  'forklift',
+  'stacker',
+  'tractor',
+  'tug',
+];
+
 let gl: WebGLRenderer | null = null;
 
 function renderer(): WebGLRenderer {
@@ -213,9 +246,6 @@ function shoot(content: Object3D, box: Box3): string {
   const sun = new DirectionalLight(0xfff1dc, 2.4);
   sun.position.set(-4, 8, 3);
   s.add(sun, content);
-  // Fit what matters, seen as the game sees it: never the quay walls down
-  // to the seabed.
-  box.min.y = Math.max(box.min.y, -0.05);
   const centre = box.getCenter(new Vector3());
   const size = box.getSize(new Vector3());
   const cam = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -248,7 +278,17 @@ function shoot(content: Object3D, box: Box3): string {
   return r.domElement.toDataURL('image/png');
 }
 
-function picture(tool: string): string | null {
+/** A tool laid out on its patch of shore, as `thumbnail` pictures it; the dev page (src/dev/) shows it live. */
+export interface Staged {
+  content: Group;
+  /** What matters, from its ground to its top. */
+  box: Box3;
+  structures: Structures;
+  map: GameMap;
+}
+
+/** `tool` on a little patch of shore, as its build menu card shows it, or null for a tool with no picture. */
+export function stage(tool: string): Staged | null {
   const one = machine(tool);
   // A machine stands on a patch of port road; a tug lies off the quay.
   const p: Patch | null = one
@@ -291,7 +331,15 @@ function picture(tool: string): string | null {
     const obj = structures.tileObject(t);
     if (obj) box.expandByObject(obj);
   }
-  return shoot(content, box.isEmpty() ? new Box3().setFromObject(structures.group) : box);
+  if (box.isEmpty()) box.setFromObject(structures.group);
+  // Seen as the game sees it: never the quay walls down to the seabed.
+  box.min.y = Math.max(box.min.y, -0.05);
+  return { content, box, structures, map: p.map };
+}
+
+function picture(tool: string): string | null {
+  const s = stage(tool);
+  return s ? shoot(s.content, s.box) : null;
 }
 
 const cache = new Map<string, string | null>();
