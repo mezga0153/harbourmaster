@@ -99,7 +99,6 @@ import {
   stackedAt,
   toPallet,
 } from '../yardGantry';
-import { cargoOf } from '../../cargo';
 import { claimDrop, setDown } from '../cargo/places';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
@@ -636,7 +635,6 @@ export function updateDockhand(w: World, p: Dockhand): void {
       // Brought for a truck that has gone meanwhile, they go on the stack
       // however full it is.
       if (onto) {
-        onto.kind ??= cargoOf(p.cargoFees[0] ?? 0);
         onto.cargo += p.carrying;
         onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
         (onto.fees ??= []).push(...p.cargoFees);

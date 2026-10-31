@@ -48,7 +48,6 @@ function truckWith(world: Any, kinds: Cargo[]): Any {
     value: fees.reduce((a, f) => a + f, 0),
     fees,
     boxes: false,
-    kind: kinds[0],
     idle: 0,
     timer: 0,
   };
@@ -96,9 +95,8 @@ describe('Deliveries in town', () => {
 
   it('drop off only the crates the business takes, the rest going on by road', () => {
     const world = townWith([Build.FishMarket]);
-    // A mixed load, as from an older save.
+    // A mixed load: the market has no use for the lobster.
     const t = truckWith(world, ['fish', 'lobster', 'fish', 'lobster']);
-    t.kind = undefined;
     expect(deliverInTown(world, t)).toBe(true);
     expect(t.dropCount).toBe(2);
     t.state = 'unloading';
@@ -112,8 +110,7 @@ describe('Deliveries in town', () => {
 });
 
 describe('Crate trucks', () => {
-  it('load one kind of crate at a time', () => {
-    // With a market for the fish and a restaurant for the lobster.
+  it('load any crates ready for them, of whatever kinds, till they are full', () => {
     const world: Any = townWith([Build.FishMarket, Build.Restaurant]);
     const bay = [...world.bays.values()][0];
     bay.crates = [
@@ -121,20 +118,52 @@ describe('Crate trucks', () => {
       withCargo(40, 'lobster'),
       withCargo(30, 'fish'),
       withCargo(40, 'lobster'),
+      withCargo(50, 'timber'),
     ];
     const t = truckWith(world, []);
-    t.kind = undefined;
     t.cargo = 0;
-    expect(cratesFor(world, t, bay)).toBe(4);
-    const off = cratesOff(world, t, bay, 0, 3);
-    expect(off.map((f: number) => cargoOf(f))).toEqual(['fish', 'fish']);
-    expect(t.kind).toBe('fish');
-    expect(cratesFor(world, t, bay)).toBe(0);
-    expect(bay.crates.map((f: number) => cargoOf(f))).toEqual(['lobster', 'lobster']);
-    // Once the town takes no more fish or lobster today, they all go out
-    // by road, so it may as well take the lobster too.
-    world.town.wants = {};
-    expect(cratesFor(world, t, bay)).toBe(2);
+    expect(cratesFor(world, t, bay)).toBe(5);
+    const off = cratesOff(world, t, bay, 4, 4);
+    expect(off).toHaveLength(4);
+    expect(new Set(off.map((f: number) => cargoOf(f))).size).toBeGreaterThan(1);
+    expect(cratesFor(world, t, bay)).toBe(1);
+  });
+
+  it('stop at each business in town that takes some of a mixed load, nearest next', () => {
+    const world = townWith([Build.FishMarket, Build.Restaurant, Build.BuildersYard]);
+    const wants = { ...world.town.wants };
+    const t = truckWith(world, ['fish', 'fish', 'fish', 'lobster', 'timber', 'goods']);
+    world.trucks.push(t);
+    expect(deliverInTown(world, t)).toBe(true);
+    // What each takes is kept for it as it sets off.
+    expect(world.town.wants[Build.FishMarket]).toBe(wants[Build.FishMarket] - 3);
+    expect(world.town.wants[Build.Restaurant]).toBe(wants[Build.Restaurant] - 1);
+    expect(world.town.wants[Build.BuildersYard]).toBe(wants[Build.BuildersYard] - 1);
+    const visited: number[] = [];
+    for (let k = 0; k < 20_000 && t.state !== 'leaving' && world.trucks.includes(t); k++) {
+      if (t.state === 'unloading' && t.drop !== undefined && !visited.includes(t.drop)) {
+        visited.push(t.drop);
+      }
+      updateTruck(world, t);
+    }
+    expect(visited.map((i) => world.map.build[i]).sort()).toEqual(
+      [Build.FishMarket, Build.Restaurant, Build.BuildersYard].sort(),
+    );
+    // Dropped what each took; the goods went on out by road.
+    expect(t.fees.map((f: number) => cargoOf(f))).toEqual(['goods']);
+    expect(t.cargo).toBe(1);
+    expect(world.town.wants[Build.FishMarket]).toBe(wants[Build.FishMarket] - 3);
+  });
+
+  it('say where they deliver what', () => {
+    const world = townWith([Build.FishMarket, Build.BuildersYard]);
+    const t = truckWith(world, ['fish', 'fish', 'fish', 'timber']);
+    world.trucks.push(t);
+    expect(deliverInTown(world, t)).toBe(true);
+    const words = world.snapshot().entities.find((e: Any) => e.id === t.id)?.activity ?? '';
+    expect(words).toMatch(
+      /^Delivering (3 crates of fish at the fish market .*, then timber at the builders' yard|1 crates of timber at the builders' yard .*, then fish at the fish market)$/,
+    );
   });
 
   it('take fish to the market and lobster to the restaurant, nothing else', () => {

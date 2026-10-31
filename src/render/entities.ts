@@ -544,10 +544,12 @@ export class Entities {
         // Round a truck in the way, not through it.
         w.via ??= aroundTrucks(this.trucks, w.from, goal);
         const d = length([w.from, ...w.via, goal]);
-        w.walk ??= Math.min(0.7, Math.max(0.1, d / (WALK_SPEED * left)));
+        // Never faster than they walk, though it leaves them less time to
+        // bend to it, or none: a truck backed in where they stood, say.
+        w.walk ??= Math.max(0.1, d / (WALK_SPEED * left));
         e.stepping = phase < w.walk;
         w.at = phase;
-        pose = { ...walkVia(w.from, w.via, goal, phase / w.walk), h: 0 };
+        pose = { ...walkVia(w.from, w.via, goal, Math.min(1, phase / w.walk)), h: 0 };
         place(this.map, e, pose);
         return;
       }

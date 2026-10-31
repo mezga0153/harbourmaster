@@ -4,7 +4,6 @@
 // in protocol/views.ts.
 
 import type * as B from './balance';
-import type { Cargo } from './cargo';
 import type { Contract, Offer } from './contracts';
 import type { MapData } from './map';
 import type { RailState } from './railway';
@@ -408,10 +407,11 @@ export interface Truck extends Agent {
   then?: number[];
   dropCount?: number;
   /**
-   * The one kind of crate it loads, set by the first it takes: so in town
-   * it goes to a business that takes that kind, and no other.
+   * The businesses in town it goes on to after this one, nearest first as
+   * it goes, each with how many of its crates it drops there: those it
+   * has that each takes and still wants today, kept for it as it set off.
    */
-  kind?: Cargo;
+  stops?: { code: number; count: number }[];
   contractId: number;
   company: string;
   capacity: number;

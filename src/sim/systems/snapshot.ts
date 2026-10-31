@@ -100,7 +100,7 @@ import {
   stagedFor,
   stagingSpace,
 } from './roads/bays';
-import { backingPose, cratesOf, lanePos, lengthOf } from './roads/traffic';
+import { backingPose, cratesOf, lanePos, laterStops, lengthOf } from './roads/traffic';
 
 /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
 export function arrivingWords(w: World, b: Boat): string {
@@ -782,7 +782,7 @@ export function buildSnapshot(w: World): Snapshot {
                       : t.state === 'loading'
                         ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
                         : t.state === 'toTown' || t.state === 'unloading'
-                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}`
+                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}${laterStops(w, t)}`
                           : 'Heading out to the highway',
       variant: t.variant,
       capacity: t.capacity,

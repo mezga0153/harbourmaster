@@ -26,6 +26,7 @@ import {
   backIn,
   driveRound,
   entryClear,
+  nextStop,
   leavePark,
   lengthOf,
   mayEnter,
@@ -357,7 +358,6 @@ export function updateTruck(w: World, t: Truck): void {
       // waits while one is on its way.
       // With nothing more here for it, it goes with what it has rather
       // than wait for more.
-      // None of the kind of crate it takes, either.
       const none = () =>
         unclaimed(w, bay, t.boxes, t) <= 0 || (!t.boxes && cratesFor(w, t, bay) <= 0);
       const done = (t.coming ?? 0) === 0 && none();
@@ -372,7 +372,12 @@ export function updateTruck(w: World, t: Truck): void {
         const waiting = hands && cratesFor(w, t, bay) > 0;
         const bored =
           t.cargo > 0 && !waiting ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
-        if (full || bored || done) w.truckLeave(t);
+        // Loaded by hand, it takes all there is for it before the trucks
+        // behind it, and waits a while for crates being carried here: it
+        // goes as full as it can.
+        const empty =
+          (t.coming ?? 0) === 0 && cratesFor(w, t, bay) <= 0 && (bay.incoming ?? 0) <= 0;
+        if (full || bored || (hands ? empty : done)) w.truckLeave(t);
         return;
       }
       const stock = t.boxes ? bay.boxes : bay.crates;
@@ -419,8 +424,17 @@ export function updateTruck(w: World, t: Truck): void {
       }
       const cost = truckCostFor(w, t.goal, t.bayIdx);
       const r = w.move(t, cost, false, pace(w, t, cost), mayEnter(w, t), truckReroute(w, t));
-      if (r === 'blocked') w.headOut(t);
-      else if (r === 'arrived' && t.then && w.town) {
+      if (r === 'blocked') {
+        // What it was bringing them is wanted still.
+        const town = w.town;
+        const stops =
+          t.drop === undefined ? [] : [{ code: w.map.build[t.drop], count: t.dropCount ?? 0 }];
+        for (const s of town ? [...stops, ...(t.stops ?? [])] : []) {
+          town!.wants[s.code] = (town!.wants[s.code] ?? 0) + s.count;
+        }
+        t.stops = undefined;
+        w.headOut(t);
+      } else if (r === 'arrived' && t.then && w.town) {
         // Out on the highway: round past the edge of the map and in on the town's road.
         const m = w.map;
         const gate = w.town.gate;
@@ -440,17 +454,19 @@ export function updateTruck(w: World, t: Truck): void {
       const n = t.dropCount ?? 0;
       if (++t.timer < n * B.UNLOAD_TICKS) return;
       // Just the crates the business takes come off; the rest go on by road.
-      const def = BUSINESSES[w.map.build[t.drop ?? -1]];
+      const code = w.map.build[t.drop ?? -1];
+      const def = BUSINESSES[code];
       const fees = t.fees ?? [];
       const off: number[] = [];
       if (!t.boxes && def) {
-        for (let k = 0; k < fees.length && off.length < n;) {
+        for (let k = fees.length - 1; k >= 0 && off.length < n; k--) {
           if (def.takes.includes(cargoOf(fees[k]))) off.push(...fees.splice(k, 1));
-          else k++;
         }
       }
-      const worth =
-        off.length > 0 ? off.reduce((a, f) => a + f, 0) : (t.value * n) / Math.max(1, t.cargo);
+      const got = t.boxes ? n : off.length;
+      // Fewer than were kept for it: the rest are wanted still.
+      if (got < n && w.town) w.town.wants[code] = (w.town.wants[code] ?? 0) + n - got;
+      const worth = t.boxes ? (t.value * n) / Math.max(1, t.cargo) : off.reduce((a, f) => a + f, 0);
       // The town pays a little extra for goods brought to its door.
       const bonus = Math.round(worth * B.TOWN_DELIVERY_BONUS);
       if (bonus > 0) {
@@ -458,9 +474,12 @@ export function updateTruck(w: World, t: Truck): void {
         w.stats.earned += bonus;
         moneyAt(w, bonus, t.drop ?? w.tileOf(t));
       }
-      if (w.town) w.town.local += t.boxes ? n * B.CONTAINER_GOODS : n;
+      if (w.town) w.town.local += t.boxes ? got * B.CONTAINER_GOODS : got;
       t.value -= Math.round(worth);
-      t.cargo -= n;
+      t.cargo -= got;
+      // On to the next business that takes some of the rest, else away.
+      if (t.cargo > 0 && nextStop(w, t)) return;
+      t.stops = undefined;
       w.headOut(t);
       return;
     }

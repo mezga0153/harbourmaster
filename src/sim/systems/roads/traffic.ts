@@ -811,6 +811,21 @@ export function cratesOf(w: World, t: Truck): string {
   return def?.takes.length === 1 ? `crates of ${cargoName(def.takes[0])}` : 'crates';
 }
 
+/**
+ * Where a truck delivering in town goes after the stop it is on its way
+ * to, in words: ", then timber at the builders' yard, then goods at the
+ * department store"; or nothing.
+ */
+export function laterStops(_w: World, t: Truck): string {
+  return (t.stops ?? [])
+    .map(({ code }) => {
+      const def = BUSINESSES[code];
+      const what = def?.takes.length === 1 ? cargoName(def.takes[0]) : 'crates';
+      return `, then ${what} at the ${def?.label ?? 'town'}`;
+    })
+    .join('');
+}
+
 /** How many of a truck's crates (or containers) a business takes. */
 export function takenBy(_w: World, t: Truck, def: Business): number {
   if (def.boxes !== t.boxes) return 0;
@@ -819,32 +834,76 @@ export function takenBy(_w: World, t: Truck, def: Business): number {
 }
 
 /**
- * Send a loaded truck by way of the town, when one of its businesses
- * takes what it carries and still wants some today, and the trucks can
- * get there.
+ * Which businesses in town a loaded truck stops at, and how many of its
+ * crates (or containers) each: as many as each takes of what it carries
+ * and still wants today, no crate counted for two.
+ */
+export function townStops(w: World, t: Truck): { code: number; count: number }[] {
+  const town = w.town;
+  if (!town) return [];
+  // What it has of each kind, given out as businesses take them.
+  const left = new Map<string, number>();
+  if (t.boxes) left.set('box', t.cargo);
+  else for (const f of t.fees ?? []) left.set(cargoOf(f), (left.get(cargoOf(f)) ?? 0) + 1);
+  const out: { code: number; count: number }[] = [];
+  for (const code of new Set(w.map.build)) {
+    const def = BUSINESSES[code];
+    if (!def || def.boxes !== t.boxes) continue;
+    let want = Math.floor(town.wants[code] ?? 0);
+    let count = 0;
+    for (const kind of t.boxes ? ['box'] : def.takes) {
+      const n = Math.min(want, left.get(kind) ?? 0);
+      if (n <= 0) continue;
+      left.set(kind, (left.get(kind) ?? 0) - n);
+      want -= n;
+      count += n;
+    }
+    if (count > 0) out.push({ code, count });
+  }
+  return out;
+}
+
+/**
+ * Send a loaded truck by way of the town, when businesses there take what
+ * it carries and still want some today, and the trucks can get there: to
+ * each in turn, the nearest next, dropping there what that one takes; the
+ * rest go on out by road. What each takes is kept for it as it sets off.
  */
 export function deliverInTown(w: World, t: Truck): boolean {
   const town = w.town;
   if (!town) return false;
+  const stops = townStops(w, t);
+  if (stops.length === 0) return false;
+  for (const { code, count } of stops) town.wants[code] = (town.wants[code] ?? 0) - count;
+  t.stops = stops;
+  return nextStop(w, t);
+}
+
+/**
+ * On to the nearest of the businesses in town a truck still has crates
+ * for; false, giving back what those it cannot get to wanted, if none.
+ */
+export function nextStop(w: World, t: Truck): boolean {
+  const town = w.town;
+  const stops = t.stops ?? [];
+  t.stops = undefined;
+  t.drop = undefined;
+  t.dropCount = undefined;
+  if (!town || stops.length === 0) return false;
   const m = w.map;
-  const takes = new Map<number, number>();
-  for (const code of new Set(m.build)) {
-    const def = BUSINESSES[code];
-    const n = def ? Math.min(takenBy(w, t, def), Math.floor(town.wants[code] ?? 0)) : 0;
-    if (n > 0) takes.set(code, n);
-  }
-  if (takes.size === 0) return false;
+  const codes = new Set(stops.map((s) => s.code));
   const here = w.tileOf(t);
   // Out to the highway and round to the town's road, unless the roads join up on the map.
+  const inTown = m.yOf(here) > m.limit;
   const out =
-    town.gate >= 0
+    town.gate >= 0 && !inTown
       ? w.drivePath(here, behind(w, t), m.entry, truckCostFor(w, m.entry, t.bayIdx))
       : null;
   const round = Math.abs(m.yOf(town.gate) - m.yOf(m.entry)) + 2 * Math.abs(HIGHWAY_X);
   let best: { path: number[]; then?: number[]; len: number } | null = null;
   let drop = -1;
   for (let i = 0; i < m.build.length; i++) {
-    if (!takes.has(m.build[i])) continue;
+    if (!codes.has(m.build[i])) continue;
     // Delivered at the kerb, on the street the business faces.
     const front = frontOf(m, i, m.orient[i] & 3);
     if (front < 0 || !isPublicRoad(m.build[front])) continue;
@@ -861,16 +920,21 @@ export function deliverInTown(w: World, t: Truck): boolean {
       drop = i;
     }
   }
-  if (!best) return false;
+  if (!best) {
+    // None it can get to: what they wanted is theirs again.
+    for (const { code, count } of stops) town.wants[code] = (town.wants[code] ?? 0) + count;
+    return false;
+  }
   const code = m.build[drop];
-  const count = takes.get(code)!;
-  town.wants[code] = (town.wants[code] ?? 0) - count;
+  const stop = stops.find((s) => s.code === code)!;
+  const rest = stops.filter((s) => s !== stop);
   t.state = 'toTown';
   t.path = best.path;
   t.then = best.then;
   t.goal = best.path.length > 0 ? best.path[best.path.length - 1] : here;
   t.drop = drop;
-  t.dropCount = count;
+  t.dropCount = stop.count;
+  t.stops = rest.length > 0 ? rest : undefined;
   return true;
 }
 

@@ -34,9 +34,6 @@ import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
 import { boxLookOf, isBoxy, isMachine, loadTicks } from '../helpers';
 import type { Source } from '../helpers';
-import { cargoOf } from '../cargo';
-import type { Cargo } from '../cargo';
-import { BUSINESSES } from '../town';
 import { tip } from './output';
 
 /** Ticks a truck takes to load or unload one at a bay or yard: a yard gantry lifts at its own pace. */
@@ -65,12 +62,11 @@ export function straightOnto(w: World, p: Dockhand, bay: Bay): Truck | undefined
   if (isBoxy(p) || p.outbound || p.truckId !== undefined || bay.tiles || p.carrying <= 0) {
     return undefined;
   }
-  // Only onto a truck that may take that kind of crate.
+  // Only onto a truck with room for them all.
   return w.trucks.find(
     (t) =>
       t.state === 'loading' &&
       t.bayIdx === bay.idx &&
-      p.cargoFees.every(fitsTruck(w, t)) &&
       byHand(w, t, bay) &&
       t.cargo + (t.coming ?? 0) + p.carrying <= t.capacity,
   );
@@ -128,84 +124,27 @@ export function unloadWaiting(w: World, t: Truck): boolean {
   return !!bay && byHand(w, t, bay) && !w.people.some((p) => p.truckId === t.id);
 }
 
-/** Whether a business in town still takes crates of this kind today. */
-export function wantedToday(w: World, c: Cargo): boolean {
-  const wants = w.town?.wants ?? {};
-  for (const [code, n] of Object.entries(wants)) {
-    if ((n ?? 0) >= 1 && BUSINESSES[Number(code)]?.takes.includes(c)) return true;
-  }
-  return false;
-}
-
 /**
- * Which crates a crate truck may take on: only those of its kind, so
- * whatever it brings the town is all for one business; but any, once
- * the town takes no more of its kind or theirs today, as then they all go
- * out by road.
+ * Crates at a bay a crate truck could still have, of any kind, that no
+ * dockhand or forklift is already going for: it takes whatever is ready
+ * till it is full, and in town drops at each business what that takes.
  */
-export function fitsTruck(w: World, t: Truck): (fee: number) => boolean {
-  const kind = t.kind;
-  if (!kind) return () => true;
-  const mine = wantedToday(w, kind);
-  const wanted = new Map<Cargo, boolean>();
-  return (fee) => {
-    const c = cargoOf(fee);
-    if (c === kind) return true;
-    if (mine) return false;
-    if (!wanted.has(c)) wanted.set(c, wantedToday(w, c));
-    return !wanted.get(c);
-  };
-}
-
-/**
- * Crates at a bay a crate truck could still have, of the kind it takes,
- * that no dockhand or forklift is already going for.
- */
-export function cratesFor(w: World, t: Truck, bay: Bay): number {
+export function cratesFor(w: World, _t: Truck, bay: Bay): number {
   // Crates still in customs wait: no truck may have them yet.
-  const free = readyIn(w, bay, false) - (bay.reserved ?? 0);
-  if (!t.kind || free <= 0) return free;
-  const fits = fitsTruck(w, t);
-  const wait = waitMask(w, bay, false);
-  let n = 0;
-  bay.crates.forEach((f, i) => {
-    if (!wait[i] && fits(f)) n++;
-  });
-  return Math.min(free, n);
+  return readyIn(w, bay, false) - (bay.reserved ?? 0);
 }
 
 /**
  * Up to `n` crates off a bay for a crate truck: those from `at` on, as
- * long as it may take them all; else the first it may take. The first it
- * ever takes sets its kind.
+ * far as they may go, else the top ones that may.
  */
-export function cratesOff(w: World, t: Truck, bay: Bay, at: number, n: number): number[] {
+export function cratesOff(w: World, _t: Truck, bay: Bay, at: number, n: number): number[] {
   if (n <= 0 || bay.crates.length === 0) return [];
   // Never one still in customs: the top one that is not, if those are.
   const wait = waitMask(w, bay, false);
   if (at < 0 || at >= bay.crates.length || wait[at]) at = wait.lastIndexOf(false);
   if (at < 0) return [];
-  t.kind ??= fullestKind(w, bay, wait) ?? cargoOf(bay.crates[at]);
-  return takeReady(w, bay, false, at, n, fitsTruck(w, t));
-}
-
-/**
- * The kind of crate there is most of ready at a bay, of those the town
- * still takes today if any: what an empty truck there loads, so it goes
- * full rather than with the one crate of another kind that lay on top.
- */
-function fullestKind(w: World, bay: Bay, wait: boolean[]): Cargo | undefined {
-  const count = new Map<Cargo, number>();
-  bay.crates.forEach((f, i) => {
-    if (!wait[i]) count.set(cargoOf(f), (count.get(cargoOf(f)) ?? 0) + 1);
-  });
-  let best: Cargo | undefined;
-  let most = -1;
-  for (const [c, n] of count) {
-    const score = n + (wantedToday(w, c) ? 1000 : 0);
-    if (score > most) [best, most] = [c, score];
-  }
-  return best;
+  return takeReady(w, bay, false, at, n);
 }
 
 /**
