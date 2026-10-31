@@ -4,6 +4,7 @@ import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN } from '../src/sim/balance';
 import { depotDoorTrouble, FACING, frontOf, placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { cargoOf, withCargo } from '../src/sim/cargo';
 import { Entities, turnAbout } from '../src/render/entities';
 import { settle, Structures } from '../src/render/structures';
 import { surfaceY } from '../src/render/terrain';
@@ -840,4 +841,65 @@ describe('Forklifts handling crates', () => {
     expect(inCrates).toBe(0);
     expect(inTrucks).toBe(0);
   }, 120_000);
+});
+
+describe('Crates stacked at a truck bay or in crate storage', () => {
+  /**
+   * Run `world` on, drawn, with each crate set down at bay `at` painted
+   * with one kind or another by turns: each crate shown stays where it is,
+   * showing what it holds, as others are taken off the top or set on it.
+   * Returns how many times crates were taken from where they were watched.
+   */
+  function watch(world: World, at: number, ticks: number): number {
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const bay = world.bays.get(at)!;
+    const kinds = ['timber', 'goods', 'canned'] as const;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stacks = (structures as any).stock as { areas: Map<number, number[]> };
+    const crates = () => {
+      const out: Object3D[] = [];
+      for (const t of stacks.areas.get(at) ?? [at]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        out.push(...((structures as any).stackAt(t)?.crates ?? []));
+      }
+      return out;
+    };
+    let painted = false;
+    let was = new Map<Object3D, string>();
+    let held = 0;
+    let taken = 0;
+    for (let t = 0; t < ticks; t++) {
+      world.step();
+      // Each new crate one kind or another, by turns.
+      bay.crates = bay.crates.map((f, k) =>
+        (kinds as readonly string[]).includes(cargoOf(f)) ? f : withCargo(f % 1000, kinds[k % 3]),
+      );
+      painted ||= bay.crates.length > 0;
+      structures.setBays(world.snapshot().bays);
+      if (!painted) continue;
+      const now = new Map<Object3D, string>();
+      for (const c of crates()) if (c.visible) now.set(c, c.userData.icon);
+      const n = bay.crates.length + (bay.exports?.length ?? 0);
+      if (n < held) taken++;
+      // Those still shown are where they were, as they were; but for one a
+      // jib crane lowers in, which shows before it is set down and painted.
+      if (n <= held) for (const [c, icon] of now) if (was.has(c)) expect(icon).toBe(was.get(c));
+      was = now;
+      held = n;
+    }
+    return taken;
+  }
+
+  it('leaves the rest of a truck bay stack as it was as crates are taken off the top', () => {
+    const world = World.create(7, 96);
+    const at = [...world.bays.values()].find((b) => world.map.build[b.idx] === Build.TruckBay)!.idx;
+    expect(watch(world, at, 2500)).toBeGreaterThan(3);
+  }, 60_000);
+
+  it('leaves the rest of the crates in crate storage as they were as dockhands and forklifts take them away', () => {
+    const world = forkPort(true);
+    const at = [...world.bays.values()].find((b) => b.tiles)!.idx;
+    expect(watch(world, at, TICKS_PER_DAY * 5)).toBeGreaterThan(3);
+  }, 60_000);
 });

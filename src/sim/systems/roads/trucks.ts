@@ -378,7 +378,15 @@ export function updateTruck(w: World, t: Truck): void {
       // are: under a gantry, the one it took up.
       const lifted = t.lifting === undefined ? -1 : boxLooks(w, bay).indexOf(t.lifting);
       t.lifting = undefined;
-      const at = t.boxes && bay.yard ? (lifted >= 0 ? lifted : clearTop(w, bay)) : 0;
+      // Crates off the top of the stack.
+      const at =
+        t.boxes && bay.yard
+          ? lifted >= 0
+            ? lifted
+            : clearTop(w, bay)
+          : t.boxes
+            ? 0
+            : bay.crates.length - 1;
       // Crates its crew loads besides those dockhands and forklifts bring
       // it: none they are on their way for, nor more than it has room for
       // with theirs.

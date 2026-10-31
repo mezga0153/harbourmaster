@@ -162,9 +162,9 @@ export function cratesFor(w: World, t: Truck, bay: Bay): number {
  */
 export function cratesOff(w: World, t: Truck, bay: Bay, at: number, n: number): number[] {
   if (n <= 0 || bay.crates.length === 0) return [];
-  // Never one still in customs.
+  // Never one still in customs: the top one that is not, if those are.
   const wait = waitMask(w, bay, false);
-  if (at >= bay.crates.length || wait[at]) at = wait.indexOf(false);
+  if (at < 0 || at >= bay.crates.length || wait[at]) at = wait.lastIndexOf(false);
   if (at < 0) return [];
   t.kind ??= cargoOf(bay.crates[at]);
   return takeReady(w, bay, false, at, n, fitsTruck(w, t));
@@ -258,7 +258,13 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       }
       bay.reserved = Math.max(0, (bay.reserved ?? 0) - p.planned);
       const n = Math.min(p.planned, bay.crates.length, onPallet(w, p, bay));
-      const fees = cratesOff(w, t, bay, bay.tiles ? takenFrom(w, p, bay, n) : 0, n);
+      const fees = cratesOff(
+        w,
+        t,
+        bay,
+        bay.tiles ? takenFrom(w, p, bay, n) : bay.crates.length - n,
+        n,
+      );
       // Fewer than it went for: the truck waits for none of the rest.
       t.coming = Math.max(0, (t.coming ?? 0) - (p.planned - fees.length));
       if (fees.length === 0) {

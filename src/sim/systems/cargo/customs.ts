@@ -119,8 +119,10 @@ export function takeReady(
     pick = Array.from({ length: n }, (_, k) => at + k);
     if (!pick.every(ok)) pick = [];
   }
+  // Else the top ones that may go, so none is taken from under another
+  // that need not be.
   if (pick.length === 0) {
-    for (let i = 0; i < list.length && pick.length < n; i++) if (ok(i)) pick.push(i);
+    for (let i = list.length - 1; i >= 0 && pick.length < n; i--) if (ok(i)) pick.unshift(i);
   }
   const fees: number[] = [];
   for (let k = pick.length - 1; k >= 0; k--) {

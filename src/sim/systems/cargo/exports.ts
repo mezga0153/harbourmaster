@@ -424,7 +424,7 @@ export function loadShip(w: World, c: Crane): void {
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
       take = () =>
-        takeReady(w, store, true, 0, 1, undefined, {
+        takeReady(w, store, true, (store.exports?.length ?? 1) - 1, 1, undefined, {
           from: exportLooks(w, store),
           to: [],
         })[0];

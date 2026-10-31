@@ -139,7 +139,10 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
     }
     p.cargoFrom = crane.kind === 'jib' ? undefined : (crane.stackFrom ?? []).splice(0, n);
     p.cargoLooks = crane.kind === 'jib' ? undefined : stackLooks(w, crane).splice(0, n);
-    return crane.stack.splice(0, n);
+    // A jib crane's landing stack, off the top.
+    return crane.kind === 'jib'
+      ? crane.stack.splice(crane.stack.length - n, n)
+      : crane.stack.splice(0, n);
   }
   if (p.stockIdx >= 0) {
     const pile = stock(w, p.stockIdx);
@@ -176,7 +179,7 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
     // have cleared, wherever they go.
     const fees = pile.tiles
       ? takeReady(w, pile, false, takenFrom(w, p, pile, n), n)
-      : pile.crates.splice(0, n);
+      : pile.crates.splice(pile.crates.length - n, n);
     if (pile.tiles) p.cleared = true;
     tidyPile(w, at);
     return fees;

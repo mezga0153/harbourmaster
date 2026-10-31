@@ -462,7 +462,9 @@ export function takenFrom(w: World, p: Dockhand, b: Bay, n: number): number {
   p.takeAt = undefined;
   const places = palletPlaces(w, b);
   const at = j * per - skip;
-  if (j < 0 || j === places.length - 1 || n !== per || at < 0 || at + n > list.length) return 0;
+  if (j < 0 || j === places.length - 1 || n !== per || at < 0 || at + n > list.length) {
+    return Math.max(0, list.length - n);
+  }
   places.splice(j, 1);
   return at;
 }
