@@ -100,6 +100,10 @@ export interface Dockhand extends Agent {
    */
   dropAt?: number;
   dropIn?: number;
+  /** Loading a crate truck: the places on its bed kept for the load it brings; see beds.ts. */
+  bedAt?: number[];
+  /** Just loaded a crate truck from round its far side: ticks to come back, before the next. */
+  back?: { truck: number; ticks: number };
   /** Why it is waiting where it is to set its load down, if it is. */
   waitingWhy?: string;
   /** A tractor under a gantry crane: what the crane set straight on it off the ship. */
@@ -445,6 +449,10 @@ export interface Truck extends Agent {
   looks?: number[];
   /** Crate trucks: each crate on board, as its fee, in load order; see cargo.ts. */
   fees?: number[];
+  /** Crate trucks: the place on its bed of each crate in `fees`; see beds.ts. */
+  bed?: number[];
+  /** Crate trucks: the side of it loaded first, away from those who load it; see farSide. */
+  far?: 0 | 1;
   /** How the container a yard gantry is lifting onto it looks, from when it took it up. */
   lifting?: number;
   taking?: number;

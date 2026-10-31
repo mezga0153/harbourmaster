@@ -191,7 +191,15 @@ export class Entities {
       if (this.prev.get(v.id)?.parked && !v.parked) this.prev.set(v.id, v);
       e.view = v;
       if (v.deck) showDeck(e.model, v.deck, v.looks ?? []);
-      else {
+      else if (v.bed) {
+        // A crate truck's crates each in its place on the bed, as the game keeps it.
+        const shown = new Set(v.bed.slice(0, v.load));
+        e.model.crates.forEach((c, k) => (c.visible = shown.has(k)));
+        v.cargo?.forEach((c, k) => {
+          const slot = e.model.crates[v.bed![k]];
+          if (slot) setCrateIcon(slot, c);
+        });
+      } else {
         this.reorder(e);
         if (e.order) {
           const shown = new Set(e.order.slice(0, v.load));
@@ -200,6 +208,7 @@ export class Entities {
         if (v.looks) paintLoad(e.model, v.looks);
         // Each crate painted with what it holds, in the order they go on.
         v.cargo?.forEach((c, k) => setCrateIcon(e.model.crates[e.order?.[k] ?? k], c));
+        if (v.kind === 'forklift') this.onForks(e);
       }
     }
   }
@@ -734,7 +743,9 @@ export class Entities {
       const pick = v.handStage === 'pick';
       const n = pick ? Math.min(v.handCount ?? v.capacity, k + 1) : Math.max(1, v.load);
       const first = pick ? k - n + 1 : k;
-      for (let s = first; s < first + n; s++) {
+      // Onto a truck's bed, the places its whole load goes.
+      const places = at.slots ?? Array.from({ length: n }, (_, j) => first + j);
+      for (const s of places) {
         const turn = this.handSlot({ ...at, slot: s }, p);
         if (turn === null) continue;
         heading ??= turn;
@@ -745,10 +756,15 @@ export class Entities {
       const bay = at.bay === undefined ? null : bayFrame(this.trucks, at.bay);
       const along = heading;
       if (truck?.view.kind === 'truck') {
-        // Side on, or at its tail; never through its cab.
+        // Side on, from whichever side the places are on: never at its
+        // tail, nor through its cab.
+        const side = this.sideOf(truck, crates);
+        const facing = -truck.model.root.rotation.y;
         prefer = (face) => {
-          const c = Math.cos(face - along);
-          return Math.abs(c) < 0.5 ? 0 : c > 0 ? 0.8 : Infinity;
+          if (Math.abs(Math.cos(face - along)) >= 0.5) return Infinity;
+          // From the side the places are on, where there is ground to
+          // stand on; else reaching over from the other.
+          return side * Math.sin(face - facing) > 0 ? 0 : 1;
         };
       } else if (bay) {
         const way = Math.atan2(bay.uz, bay.ux);
@@ -971,6 +987,41 @@ export class Entities {
     return headingOf(slot);
   }
 
+  /**
+   * How a forklift carries its load, in the shape it goes down in: two by
+   * two, or, onto the last column of a truck's bed with an odd number, one
+   * crate on the other.
+   */
+  private onForks(e: Entry): void {
+    const v = e.view;
+    const at = v.handAt;
+    const truck = at?.truck === undefined ? undefined : this.entries.get(at.truck)?.view;
+    const per = truck?.bed ? truck.capacity : 0;
+    const cols = new Set((at?.slots ?? []).map((s) => Math.floor((s % per) / 2)));
+    const upright =
+      per > 0 && v.handStage === 'drop' && (at?.slots?.length ?? 0) > 1 && cols.size === 1;
+    e.model.crates.forEach((c, k) => {
+      if (upright) c.position.set(0.3, 0.04 + k * CRATE, 0);
+      else c.position.set(0.3, 0.04 + Math.floor(k / 2) * CRATE, k % 2 ? 0.08 : -0.08);
+    });
+  }
+
+  /**
+   * Which side of a truck these places on its bed are: 1 for its left as
+   * it faces (its -z), the side a forklift going in towards +z comes from;
+   * -1 for its right.
+   */
+  private sideOf(truck: Entry, crates: { x: number; z: number }[]): number {
+    const r = truck.model.root;
+    const dir = -r.rotation.y;
+    const across =
+      crates.reduce(
+        (n, c) => n - (c.x - r.position.x) * Math.sin(dir) + (c.z - r.position.z) * Math.cos(dir),
+        0,
+      ) / Math.max(1, crates.length);
+    return across < 0 ? 1 : -1;
+  }
+
   /** Wakes still showing, strongest first, for the water to draw. */
   wakes(): Wake[] {
     const laid: Track[] = [];
@@ -1020,6 +1071,8 @@ export class Entities {
    */
   private slotOf(id: number, k: number): Object3D | undefined {
     const e = this.entries.get(id);
+    // On a crate truck's bed, `k` is the place itself.
+    if (e?.view.bed) return e.model.crates[k];
     return e?.model.crates[e.order?.[k] ?? k];
   }
 
@@ -1031,7 +1084,7 @@ export class Entities {
    */
   private reorder(e: Entry): void {
     const v = e.view;
-    if (v.deck || (v.kind !== 'boat' && (v.kind !== 'truck' || v.boxes))) return;
+    if (v.deck || v.bed || (v.kind !== 'boat' && (v.kind !== 'truck' || v.boxes))) return;
     const root = e.model.root;
     const slots = e.model.crates;
     if (slots.length < 2) return;

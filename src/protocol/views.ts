@@ -48,6 +48,12 @@ export interface EntityView {
   boxes?: boolean;
   /** Trucks: a pickup, with a low open bed. */
   pickup?: boolean;
+  /**
+   * Hauliers' crate trucks: the place on the bed of each crate in `cargo`,
+   * layer by layer, two to a row from the cab back (see beds.ts); `handAt`
+   * slots on such a truck are places on its bed.
+   */
+  bed?: number[];
   /** Containers carried: how each looks, in load order. */
   looks?: number[];
   /** A feeder's deck: the slot each container in `looks` is in; without it, the first `load`. */
@@ -114,6 +120,8 @@ export interface HandAt {
   yard?: number;
   truck?: number;
   slot?: number;
+  /** On a truck's bed: the places a forklift's whole load goes, `slot` the first of them. */
+  slots?: number[];
   look?: number;
   along?: number;
   /** In a yard: the place it is stacked in, or goes; see YardView.slots. */

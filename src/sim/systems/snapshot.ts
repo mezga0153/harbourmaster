@@ -88,6 +88,7 @@ import {
   takesFrom,
   takesImports,
 } from './cargo/stores';
+import { bedCap, bedSlots } from './cargo/beds';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
 import {
@@ -756,6 +757,8 @@ export function buildSnapshot(w: World): Snapshot {
         lifts.get(t.id),
       ),
       cargo: t.boxes ? undefined : truckCargo(w, t),
+      // Where each of a hauliers' crate truck's crates stands on its bed.
+      bed: t.boxes || t.exports || !t.fees ? undefined : [...bedSlots(w, t)],
       moving: t.path.length > 0,
       name: t.company,
       activity:
@@ -782,7 +785,7 @@ export function buildSnapshot(w: World): Snapshot {
                     : t.state === 'toBay'
                       ? `Driving to ${truckPlace(w, t, 'the truck bay')}`
                       : t.state === 'loading'
-                        ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
+                        ? `Loading at ${truckPlace(w, t, 'the bay')}, ${t.cargo}/${bedCap(w, t)} ${t.boxes ? 'containers' : 'crates'}${customsHold(w, t)}`
                         : t.state === 'toTown' || t.state === 'unloading'
                           ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : cratesOf(w, t)} at the ${BUSINESSES[w.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${w.town?.name ?? 'town'}${laterStops(w, t)}`
                           : 'Heading out to the highway',

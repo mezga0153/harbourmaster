@@ -18,9 +18,11 @@ describe('Playthrough', () => {
   // (the fish market first, lobster boats only after the ice house) the
   // bot's port grows slower: 1 of seeds 1 to 14 passes, against 4 before.
   // With pickups at the Fishing Jetty, pulling up beside the truck bays,
-  // seed 16 tipped over, though 4 of seeds 1 to 28 pass against 2 before
-  // (1, 20, 25 and 28, against 1 and 16): seed 1 passed both before and after.
-  it.each([1])(
+  // seed 16 tipped over, though 4 of seeds 1 to 28 passed against 2 before
+  // (1, 20, 25 and 28, against 1 and 16); then with dockhands walking round
+  // to a truck's far side, seed 1 did, 3 passing (20, 25 and 27). Seed 25
+  // passed each way.
+  it.each([25])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);

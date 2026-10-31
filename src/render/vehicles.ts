@@ -147,16 +147,20 @@ function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Model
   tailLights(root, tail, bedY - 0.02);
   axle(root, front - 0.12, 0.065, 0.3);
   axle(root, tail + 0.12, 0.065, 0.3, true);
+  // Its bed's places, two layers of them, as beds.ts numbers them.
   const slots: Object3D[] = [];
-  for (let k = 0; k < cols; k++) {
-    for (const z of [-0.08, 0.08]) {
-      const c = crate(CRATE, back - 0.04 - 0.1 - k * 0.19, bedY, z);
-      c.visible = false;
-      root.add(c);
-      slots.push(c);
+  for (let layer = 0; layer < 2; layer++) {
+    for (let k = 0; k < cols; k++) {
+      for (const z of [-0.08, 0.08]) {
+        if (k * 2 + (z > 0 ? 1 : 0) >= capacity) continue;
+        const c = crate(CRATE, back - 0.04 - 0.1 - k * 0.19, bedY + layer * CRATE, z);
+        c.visible = false;
+        root.add(c);
+        slots.push(c);
+      }
     }
   }
-  return { root, crates: slots.slice(0, capacity) };
+  return { root, crates: slots };
 }
 
 /**
@@ -299,12 +303,15 @@ function articulated(
     }
     trailer.add(box(0.015, 0.14, 0.34, color, head - 0.01, deckY, 0));
     const cols = Math.ceil(capacity / 2);
-    for (let k = 0; k < cols; k++) {
-      for (const z of [-0.08, 0.08]) {
-        const c = crate(CRATE, head - 0.13 - k * 0.19, deckY, z);
-        c.visible = false;
-        trailer.add(c);
-        slots.push(c);
+    for (let layer = 0; layer < 2; layer++) {
+      for (let k = 0; k < cols; k++) {
+        for (const z of [-0.08, 0.08]) {
+          if (k * 2 + (z > 0 ? 1 : 0) >= capacity) continue;
+          const c = crate(CRATE, head - 0.13 - k * 0.19, deckY + layer * CRATE, z);
+          c.visible = false;
+          trailer.add(c);
+          slots.push(c);
+        }
       }
     }
   }
@@ -316,7 +323,11 @@ function articulated(
   for (const x of axles) axle(trailer, x, 0.065, 0.3, true);
   tailLights(trailer, tail, deckY - 0.04);
   const length = -axles.reduce((n, x) => n + x, 0) / axles.length;
-  return { root, crates: slots.slice(0, capacity), trailer: { root: trailer, hitch, length } };
+  return {
+    root,
+    crates: boxes ? slots.slice(0, capacity) : slots,
+    trailer: { root: trailer, hitch, length },
+  };
 }
 
 /** Gap between one container trailer's tail and the next one's front, over the coupling. */

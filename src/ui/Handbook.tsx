@@ -167,7 +167,9 @@ export const TOPICS: Record<TopicId, Topic> = {
         <p>
           <b>Forklifts</b> carry {B.FORKLIFT_CAPACITY} crates a trip, but cannot unload boats. They
           empty crate storage the trucks cannot reach, like that by a jib crane, to a truck bay or
-          storage they can, bring exports to storage by a jib crane, and load crate trucks.
+          storage they can, bring exports to storage by a jib crane, and load crate trucks: by hand
+          a truck takes one layer of crates, the far side first, while forklifts set a second on
+          top, two crates along a side at a time, only on a whole layer.
         </p>
         <p>
           <b>Reach stackers</b> take containers from the harbour and gantry cranes to the container
@@ -283,8 +285,8 @@ export const TOPICS: Record<TopicId, Topic> = {
             At the {TIERS[0].name} hauliers send pickups ({B.PICKUP_CAPACITY} crates): they never
             back into a truck bay, but pull up on the road beside it, or beside storage, and
             dockhands load them by hand over the side. From the {TIERS[1].name} they send small
-            trucks ({B.TRUCK_CAPACITY} crates) instead, which back into the bays and forklifts load
-            too.
+            trucks ({B.TRUCK_CAPACITY} crates a layer) instead, which back into the bays and
+            forklifts load too, two layers high.
           </li>
           <li>
             Big trucks ({B.BIG_TRUCK_CAPACITY} crates) only fit a large truck bay or crate storage.

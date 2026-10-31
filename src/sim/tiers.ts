@@ -44,7 +44,7 @@ export const TIERS: Tier[] = [
       'The harbour office, for quays and more docks',
       'Truck parking, for shippers’ trucks waiting on their paperwork',
       'Forklifts (4 crates a trip), forklift depots, port roads and machines-only areas',
-      'Small trucks in place of pickups, backing into truck bays, loaded by hand or by forklift',
+      'Small trucks in place of pickups, backing into truck bays: a layer of crates by hand, two by forklift',
       'Crate storage marked out on port roads and quays',
       'Jib cranes',
       'Shipping lines with coasters (need a 2-wide quay)',

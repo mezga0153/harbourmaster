@@ -61,7 +61,9 @@ past the 300 the Coastal Wharf needs.
 With forklifts come **small trucks**: the hauliers that sent pickups send
 small trucks instead (`smallTrucks` in `src/sim/systems/economy.ts`), and
 haulier offers are for small trucks, or big ones for large truck bays. They
-back into the bays, and forklifts load them as well as dockhands.
+back into the bays, and forklifts load them as well as dockhands: by hand a
+truck takes one layer of crates, forklifts set a second on top, so with
+forklifts in the port a truck carries twice as much (`src/sim/systems/cargo/beds.ts`).
 
 Goods come in now, not only the catch. Each step's goal uses what the step
 before opened, and none counts till the port is a Coastal Wharf (the town

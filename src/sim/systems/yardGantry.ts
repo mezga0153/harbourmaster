@@ -44,6 +44,7 @@ import { cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './c
 import * as B from '../balance';
 import { tip } from './output';
 import type { EntityView, HandAt } from '../../protocol/views';
+import { roundTicks, slotsFor } from './cargo/beds';
 import { pickTile } from './boats/berthing';
 
 /** A yard gantry stands beside this container yard, to load its trucks. */
@@ -352,7 +353,16 @@ export function handView(
   const crates = p.kind === 'forklift' || p.kind === 'dockhand';
   const at = crates ? crateAt(w, p, pick) : handAt(w, p, pick);
   if (crates && !at) return {};
-  const ticks = handlingTicks(w, p, pick ? B.PICK_TICKS : B.DROP_TICKS);
+  // Onto a crate truck, round to its far side first.
+  const onto =
+    !pick && crates && p.truckLoad ? w.trucks.find((t) => t.id === p.truckId) : undefined;
+  // Coming back from its far side, picking up the next.
+  const back =
+    pick && crates && p.truckLoad && p.back?.truck === p.truckId ? (p.back?.ticks ?? 0) : 0;
+  const ticks =
+    handlingTicks(w, p, pick ? B.PICK_TICKS : B.DROP_TICKS) +
+    (onto ? roundTicks(w, onto, p) : 0) +
+    back;
   return {
     handStage: pick ? 'pick' : 'drop',
     handPhase: clamp(1 - p.timer / ticks, 0, 1),
@@ -562,9 +572,14 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     const top = topSlots(bay, !!p.outbound, Math.max(1, p.planned));
     return top.length > 0 ? { bay: bay.idx, slot: top[0] } : undefined;
   }
-  // Onto a truck it is loading.
+  // Onto a truck it is loading: the places on its bed kept for the load.
+  const onBed = (t: Truck): HandAt => {
+    if (t.boxes || t.exports || !t.fees) return { truck: t.id, slot: t.cargo };
+    const slots = p.bedAt?.length ? p.bedAt : slotsFor(w, t, p, Math.max(1, p.carrying));
+    return slots.length > 0 ? { truck: t.id, slot: slots[0], slots } : { truck: t.id, slot: -1 };
+  };
   const truck = p.truckId !== undefined && w.trucks.find((q) => q.id === p.truckId);
-  if (truck) return { truck: truck.id, slot: truck.cargo };
+  if (truck) return onBed(truck);
   const boat = p.toBoat !== undefined && p.toBoat >= 0 && w.boats.find((b) => b.id === p.toBoat);
   if (boat) return onBoat(boat);
   const pile = w.piles.get(p.bayIdx);
@@ -572,7 +587,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   const bay = w.bays.get(p.bayIdx);
   if (!bay) return undefined;
   const onto = straightOnto(w, p, bay);
-  if (onto) return { truck: onto.id, slot: onto.cargo };
+  if (onto) return onBed(onto);
   return bay.tiles ? store(bay) : { bay: bay.idx, slot: dropSlot(w, p, bay) };
 }
 

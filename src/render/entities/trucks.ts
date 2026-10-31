@@ -155,15 +155,18 @@ export function clearOfTruck(
   const across = -(p.x - ox) * s + (p.z - oz) * c;
   const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
   const gap = 0.1;
-  // Either side, abreast of the crate's place, or at the tail; never the
-  // cab. A pickup's bed only over its sides, its tailgate shut.
-  const spots: [number, number][] = [
-    [lie(along, box.min.x, box.max.x), box.min.z - gap],
-    [lie(along, box.min.x, box.max.x), box.max.z + gap],
-    ...(truck.view.pickup
-      ? []
-      : [[box.min.x - gap, lie(across, box.min.z, box.max.z)] as [number, number]]),
-  ];
+  // At its side, abreast of the crate's place, on the side that is on if
+  // they can stand there, round its back to it if need be; never at the
+  // tail or the cab.
+  const mine = across < 0 ? box.min.z - gap : box.max.z + gap;
+  const other = across < 0 ? box.max.z + gap : box.min.z - gap;
+  const abreast = lie(along, box.min.x, box.max.x);
+  const ok = (b: number) => {
+    const x = ox + abreast * c - b * s;
+    const z = oz + abreast * s + b * c;
+    return surfaceY(site.map, x, z) > 0 && !inTruck(site, x, z, id);
+  };
+  const spots: [number, number][] = [[abreast, ok(mine) ? mine : other]];
   let best: [number, number] | undefined;
   let least = Infinity;
   for (const [a, b] of spots) {

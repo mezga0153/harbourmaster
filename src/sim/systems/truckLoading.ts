@@ -29,6 +29,7 @@ import {
   waitMask,
 } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
+import { bedRoom, keepSlots, onBed, roundTicks, slotsFor } from './cargo/beds';
 import type { Bay, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
@@ -69,7 +70,7 @@ export function straightOnto(w: World, p: Dockhand, bay: Bay): Truck | undefined
       t.bayIdx === bay.idx &&
       !(t.pickup && isMachine(p)) &&
       byHand(w, t, bay) &&
-      t.cargo + (t.coming ?? 0) + p.carrying <= t.capacity,
+      slotsFor(w, t, p, p.carrying).length === p.carrying,
   );
 }
 
@@ -108,7 +109,7 @@ export function crateTruckSources(w: World, sources: Source[]): void {
     if (!bay || !byHand(w, t, bay)) continue;
     // Loaded from the stack till it is full or the stack is gone; crates
     // brought meanwhile go straight on while there is room on it.
-    const avail = Math.min(t.capacity - t.cargo - (t.coming ?? 0), cratesFor(w, t, bay));
+    const avail = Math.min(bedRoom(w, t), cratesFor(w, t, bay));
     if (avail <= 0) continue;
     // Once the boats are seen to, nearest first, as crates in storage are.
     sources.push({ tile: crateTruckSpot(w, bay, t), avail, truck: t, load: true, rank: 1 });
@@ -193,9 +194,11 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
   // Off a shipper's truck into storage, or ice onto the bay's stack: as
   // many as it carries.
   const unload = !src.load;
+  // Onto the bed as many as fit where it may set them: a dockhand's on
+  // the bottom layer, a forklift's level.
   const room = unload
     ? t.cargo - (t.taking ?? 0)
-    : Math.min(t.capacity - t.cargo - (t.coming ?? 0), cratesFor(w, t, bay));
+    : Math.min(slotsFor(w, t, p, p.capacity).length, cratesFor(w, t, bay));
   const n = Math.min(p.capacity, src.avail, room);
   if (n <= 0) return false;
   if (!headTo(w, p, src.tile)) return false;
@@ -203,6 +206,7 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
   else {
     bay.reserved = (bay.reserved ?? 0) + n;
     t.coming = (t.coming ?? 0) + n;
+    keepSlots(w, t, p, n);
   }
   p.truckId = t.id;
   p.truckLoad = !unload;
@@ -236,12 +240,15 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       if (r === 'blocked') cancelJob(w, p);
       else if (r === 'arrived' && !bayTaken(w, p, bay)) {
         p.state = 'picking';
-        p.timer = handlingTicks(w, p, B.PICK_TICKS);
+        // Back from the far side of the truck it loaded last, first.
+        if (p.back?.truck !== t.id) p.back = undefined;
+        p.timer = handlingTicks(w, p, B.PICK_TICKS) + (p.back?.ticks ?? 0);
       }
       return true;
     }
     case 'picking': {
       if (--p.timer > 0) return true;
+      p.back = undefined;
       if (!live) {
         cancelJob(w, p);
         return true;
@@ -264,15 +271,19 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       p.planned = fees.length;
       p.carrying = fees.length;
       p.cargoFees = fees;
-      // The truck is right beside it.
+      // Fewer than it went for: only the first of the places kept for them.
+      if (p.bedAt) p.bedAt = p.bedAt.slice(0, fees.length);
+      // The truck is right beside it: round to its far side, though.
       p.state = 'dropping';
-      p.timer = handlingTicks(w, p, B.DROP_TICKS);
+      p.timer = handlingTicks(w, p, B.DROP_TICKS) + roundTicks(w, t, p);
       return true;
     }
     case 'dropping': {
       if (--p.timer > 0) return true;
+      const back = t ? roundTicks(w, t, p) : 0;
       landCrates(w, p, t, bay, live);
       endTruckJob(w, p);
+      if (t && back > 0) p.back = { truck: t.id, ticks: back };
       return true;
     }
   }
@@ -426,6 +437,7 @@ export function landCrates(
     t.cargo += p.carrying;
     t.value += p.cargoFees.reduce((n, f) => n + f, 0);
     (t.fees ??= []).push(...p.cargoFees);
+    onBed(w, t, p.cargoFees.length, p);
     t.idle = 0;
   } else if (bay) {
     bay.crates.push(...p.cargoFees);
@@ -634,6 +646,7 @@ export function releaseTruckJob(w: World, p: Dockhand): void {
 
 export function endTruckJob(_w: World, p: Dockhand): void {
   p.truckId = undefined;
+  p.bedAt = undefined;
   p.truckLoad = undefined;
   p.carrying = 0;
   p.cargoFees = [];

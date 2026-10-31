@@ -1,6 +1,7 @@
 // Customs and export papers on crates, and the jobs that move them: what waits
 // and what is cleared, and giving a job up.
 
+import { bedCap } from './beds';
 import type { World } from '../../world';
 import type { Bay, Dockhand, Truck } from '../../state';
 import { bayIncoming, bayRoom, isBoxy, needsCustoms, needsPapers } from '../../helpers';
@@ -179,7 +180,7 @@ export function unclaimed(w: World, b: Bay, boxes: boolean, except?: Truck): num
     ) {
       continue;
     }
-    claimed += Math.max(0, t.capacity - t.cargo - (t.coming ?? 0));
+    claimed += Math.max(0, bedCap(w, t) - t.cargo - (t.coming ?? 0));
   }
   return ready - claimed;
 }

@@ -4,7 +4,7 @@
 import type { World } from '../../world';
 import { book, hauliers, smallTrucks } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
-import { bayCap, boxLookOf, wrapAngle } from '../../helpers';
+import { bayCap, boxLookOf, isMachine, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
 import { dest, unclaimed } from '../cargo/customs';
 import {
@@ -52,6 +52,7 @@ import { needsWideSpace } from '../../rules/parking';
 import { Build } from '../../types';
 import { outgoingFull } from '../cargo/exports';
 import { byHand, byStacker, cratesFor, cratesOff, truckTicks } from '../truckLoading';
+import { bedCap, bottomFull, offBed, topFirst } from '../cargo/beds';
 import { BUSINESSES, HIGHWAY_X } from '../../town';
 import { cargoOf } from '../../cargo';
 
@@ -375,9 +376,13 @@ export function updateTruck(w: World, t: Truck): void {
       if (byStacker(w, t, bay) || hands) {
         if ((t.coming ?? 0) > 0) t.idle = 0;
         else t.idle += every;
-        const full = t.cargo >= t.capacity;
-        // With crates there for it, it waits as long as it would for any.
-        const waiting = hands && cratesFor(w, t, bay) > 0;
+        // By hand one layer; two where forklifts load it too.
+        const full = t.cargo >= (hands ? bedCap(w, t) : t.capacity);
+        // With crates there for it, it waits as long as it would for any;
+        // its bottom layer full, only while a forklift is coming to put
+        // another on top.
+        const lifting = w.people.some((q) => isMachine(q) && q.truckId === t.id);
+        const waiting = hands && cratesFor(w, t, bay) > 0 && (!bottomFull(w, t) || lifting);
         const bored =
           t.cargo > 0 && !waiting ? t.idle >= B.TRUCK_PATIENCE : t.idle >= B.TRUCK_GIVE_UP;
         // Loaded by hand, it takes all there is for it before the trucks
@@ -469,9 +474,13 @@ export function updateTruck(w: World, t: Truck): void {
       const fees = t.fees ?? [];
       const off: number[] = [];
       if (!t.boxes && def) {
-        for (let k = fees.length - 1; k >= 0 && off.length < n; k--) {
-          if (def.takes.includes(cargoOf(fees[k]))) off.push(...fees.splice(k, 1));
+        // Off the top of the bed first.
+        const picks: number[] = [];
+        for (const i of topFirst(w, t)) {
+          if (picks.length < n && def.takes.includes(cargoOf(fees[i]))) picks.push(i);
         }
+        offBed(w, t, picks);
+        for (const i of [...picks].sort((a, b) => b - a)) off.push(...fees.splice(i, 1));
       }
       const got = t.boxes ? n : off.length;
       // Fewer than were kept for it: the rest are wanted still.

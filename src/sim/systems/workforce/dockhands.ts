@@ -1,6 +1,7 @@
 // Dockhands and port machines: hiring them in, depots, fuel and repairs,
 // walking and driving, each one's turn, and the jobs they take.
 
+import { onBed } from '../cargo/beds';
 import type { World } from '../../world';
 import { exportSources, loadSpot, takeExportJob, wantsLoad } from '../cargo/exports';
 import {
@@ -638,6 +639,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
         onto.cargo += p.carrying;
         onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
         (onto.fees ??= []).push(...p.cargoFees);
+        onBed(w, onto, p.cargoFees.length, p);
         onto.idle = 0;
       } else if (boxy) bay.boxes.push(...p.cargoFees);
       else {
