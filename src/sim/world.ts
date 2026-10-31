@@ -25,9 +25,12 @@ import * as B from './balance';
 import {
   fisheryDailyCrates,
   isIce,
+  makeCannedOffer,
   makeIceOffer,
   makeLobsterOffer,
   makeOffer,
+  makeTownLineOffer,
+  townTrade,
   paysPerContainer,
   STARTER_FISHERY,
   STARTER_HAULIER,
@@ -82,6 +85,8 @@ import {
   townWants,
   type Business,
   landmarkDue,
+  landmarkGoal,
+  landmarksByPopulation,
   LANDMARKS,
   townCap,
   type Landmark,
@@ -176,6 +181,15 @@ export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
 /** The advisor's first steps, one each time a boat leaves; see departTips. */
 const FIRST_STEPS = ['speed', 'jetty', 'contract', 'screens'];
+
+/** The advisor's tip as the town opens each of these landmarks; see Advisor.tsx. */
+const LANDMARK_TIPS: Partial<Record<number, string>> = {
+  [Build.Restaurant]: 'restaurant',
+  [Build.Cannery]: 'cannery',
+  [Build.BuildersYard]: 'buildersYard',
+  [Build.School]: 'school',
+  [Build.TownHall]: 'townHall',
+};
 
 interface Agent {
   id: number;
@@ -1448,7 +1462,8 @@ export class World {
 
   /** The landmarks an older town has open already, by what stands in it and how big it is. */
   private landmarksOf(old: Town): number {
-    if (population(old, this.map) >= 300) return LANDMARKS.length;
+    const pop = population(old, this.map);
+    if (pop >= 300) return landmarksByPopulation(pop);
     let n = 0;
     while (n < LANDMARKS.length && this.map.build.includes(LANDMARKS[n].code)) n++;
     return n;
@@ -1465,8 +1480,14 @@ export class World {
       layout: old.layout ?? 1,
       gate: old.gate ?? -1,
       // A town from before its landmarks: as many done as it has, or a town
-      // already past 300 people has them all.
-      landmarks: old.landmarks ?? this.landmarksOf(old),
+      // already past 300 people has its restaurant, and so on, a step for
+      // each cap it is past (towns with the restaurant grew on unchecked).
+      landmarks:
+        old.landmarks === undefined
+          ? this.landmarksOf(old)
+          : old.landmarks >= 3
+            ? Math.max(old.landmarks, landmarksByPopulation(population(old, this.map)))
+            : old.landmarks,
       streak: old.streak ?? 0,
       goal: old.goal ?? 0,
     };
@@ -2436,6 +2457,17 @@ export class World {
     );
   }
 
+  /**
+   * The landmark the town must open before it can grow big enough for the
+   * port's next tier, if its cap holds it short of that.
+   */
+  private tierWaitsOn(): string | undefined {
+    const next = TIERS[this.tier + 1];
+    const t = this.town;
+    if (!next || next.comingSoon || !t || townCap(t) >= next.town) return undefined;
+    return LANDMARKS.slice(t.landmarks).find((l) => l.cap >= next.town)?.name;
+  }
+
   canUpgrade(): boolean {
     const next = TIERS[this.tier + 1];
     if (!next || next.comingSoon) return false;
@@ -2543,7 +2575,7 @@ export class World {
     }
     // An ice works offering its ice for the fishing boats, while none has a
     // contract: besides the other offers, drawn apart so they come as ever.
-    const others = this.offers.filter((o) => !isIce(o.terms));
+    const others = this.offers.filter((o) => !isIce(o.terms) && !townTrade(o.terms));
     // Once the town has its fish market, which wants ice for its fish.
     const market = (this.town?.landmarks ?? 0) >= 1;
     // Once it has its ice house, a lobsterman too, while none has a contract.
@@ -2571,6 +2603,7 @@ export class World {
       const offer = makeIceOffer(new Rng(this.tick * 7919 + 17), -1 - this.tick, this.tick, taken);
       if (offer) this.offers.push(offer);
     }
+    this.townTradeOffers();
     if (others.length < B.MAX_OFFERS && this.rng.next() < 0.7) {
       // Keep at least one offer of each kind on the board.
       const has = (k: Terms['kind']) => others.some((o) => o.terms.kind === k);
@@ -2596,6 +2629,36 @@ export class World {
         this.message(`New contract offer from ${this.offers.at(-1)!.terms.name}.`, 'info');
       }
     }
+  }
+
+  /**
+   * What the Coastal Wharf's landmarks bring, each on the board from the
+   * day it opens till one is signed: the cannery's canned fish, then the
+   * timber coasters for the builders' yard, then coasters of goods for the
+   * department store that comes with the school.
+   */
+  private townTradeOffers(): void {
+    const opened = this.town?.landmarks ?? 0;
+    const trades: ['canned' | 'timber' | 'goods', number][] = [
+      ['canned', Build.Cannery],
+      ['timber', Build.BuildersYard],
+      ['goods', Build.School],
+    ];
+    trades.forEach(([trade, code], k) => {
+      const at = LANDMARKS.findIndex((l) => l.code === code);
+      if (at < 0 || opened <= at) return;
+      const has = (t: Terms) => townTrade(t) === trade;
+      if (this.offers.some((o) => has(o.terms)) || this.contracts.some((c) => has(c.terms))) return;
+      const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
+      const rng = new Rng(this.tick * 4099 + 31 * k + 7);
+      // Apart from the ice works' and lobstermen's ids, below them.
+      const id = -1e9 - this.tick * 4 - k;
+      const offer =
+        trade === 'canned'
+          ? makeCannedOffer(rng, id, this.tick, taken, this.town?.name)
+          : makeTownLineOffer(rng, id, this.tick, taken, trade);
+      if (offer) this.offers.push(offer);
+    });
   }
 
   private signContract(offerId: number): void {
@@ -3106,7 +3169,7 @@ export class World {
       if (this.tick - at > TICKS_PER_DAY * 3) this.unloadedAt.delete(id);
     }
     if (this.town) {
-      this.openLandmark(landmarkDue(this.town, true));
+      this.openLandmark(landmarkDue(this.town, true, this.tier));
       townDay(this.town, this.jobs(), this.map);
     }
     this.townGrownEnough();
@@ -9661,11 +9724,12 @@ export class World {
     this.stats.earned += total;
     this.stats.exported = (this.stats.exported ?? 0) + fees.length;
     this.moneyAt(total, b.berth);
-    // Ice on board a fishing boat, towards the town's ice house.
-    const goal = this.town && LANDMARKS[this.town.landmarks]?.goal;
+    // Ice on board a fishing boat, towards the town's ice house, or canned
+    // fish on a coaster, towards its builders' yard.
+    const goal = this.town && landmarkGoal(this.town, this.tier)?.goal;
     if (goal?.aboard && this.town) {
       this.town.goal += fees.filter((f) => cargoOf(f, 'goods') === goal.cargo).length;
-      this.openLandmark(landmarkDue(this.town, false));
+      this.openLandmark(landmarkDue(this.town, false, this.tier));
     }
   }
 
@@ -9684,20 +9748,77 @@ export class World {
         need: l.goal.total ?? l.goal.perDay ?? 0,
         days: l.goal.days === undefined ? undefined : { done: t.streak, need: l.goal.days },
         cap: finite(l.cap),
+        waiting: this.tier < (l.tier ?? 0) ? TIERS[l.tier ?? 0].name : undefined,
+        hint: this.landmarkHint(l),
       },
     };
+  }
+
+  /**
+   * Why the port is getting nowhere towards the town's next landmark, if
+   * something it needs is missing: coasters, a berth for them, or the
+   * contract the landmark before brought.
+   */
+  private landmarkHint(l: Landmark): string | undefined {
+    if (this.tier < (l.tier ?? 0)) {
+      return `Upgrade the port to a ${TIERS[l.tier ?? 0].name} in the Port panel (P): nothing counts towards it till then`;
+    }
+    const coasters = this.fisheries().some((c) => c.terms.vessel === 'coaster');
+    const berth = this.berthCount(B.COASTER_DRAFT, true) > 0;
+    const signed = (trade: 'canned' | 'timber' | 'goods') =>
+      this.contracts.some((c) => townTrade(c.terms) === trade);
+    const offer = (trade: 'canned' | 'timber' | 'goods') =>
+      this.offers.find((o) => townTrade(o.terms) === trade)?.terms.name;
+    const sign = (trade: 'canned' | 'timber' | 'goods', what: string) =>
+      `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
+    const noBerth = `Coasters need a berth: build a quay 2 wide, in ${B.COASTER_DRAFT} m of water`;
+    switch (l.code) {
+      case Build.Cannery:
+        if (!coasters) return 'Needs coasters: build a quay 2 wide and sign a shipping line';
+        if (!berth) return noBerth;
+        break;
+      case Build.BuildersYard:
+        if (!signed('canned')) return sign('canned', 'the cannery');
+        if (!coasters) return 'The canned fish goes out on coasters: sign a shipping line';
+        if (!berth) return noBerth;
+        break;
+      case Build.School:
+        if (!signed('timber')) return sign('timber', 'the timber line');
+        if (!berth) return noBerth;
+        break;
+      case Build.TownHall:
+        if (!signed('goods')) return sign('goods', 'the goods line');
+        if (!berth) return noBerth;
+        break;
+    }
+    // Crates trucked out need hauliers to take them.
+    if (!l.goal.aboard && !this.contracts.some((c) => c.terms.kind === 'haulier')) {
+      return 'Needs a haulier to truck the crates out: sign one on the contracts board (C)';
+    }
+    return undefined;
   }
 
   /** The town opens a landmark: it goes up in town, and says what it brings. */
   private openLandmark(l: Landmark | null): void {
     if (!l || !this.town) return;
     const next = LANDMARKS[this.town.landmarks];
+    const later =
+      next && this.tier < (next.tier ?? 0)
+        ? `, once the port is a ${TIERS[next.tier ?? 0].name}`
+        : '';
     const then = next
-      ? ` Next it wants a ${next.name.toLowerCase()}: ${next.aim.toLowerCase()}.`
+      ? ` Next it wants a ${next.name.toLowerCase()}: ${next.aim.toLowerCase()}${later}.`
       : '';
     this.message(`${this.town.name} opens its ${l.name.toLowerCase()}. ${l.opens}.${then}`, 'good');
-    // Its builders put it up straight away.
-    growTown(this.town, this.map, (i) => this.dirty.add(i));
+    // The advisor says what it brings and what comes next.
+    const tip = LANDMARK_TIPS[l.code];
+    if (tip) this.tip(tip);
+    // Its builders put it up straight away, and the school's department store.
+    for (let k = l.code === Build.School ? 2 : 1; k > 0; k--) {
+      growTown(this.town, this.map, (i) => this.dirty.add(i));
+    }
+    // The offer it brings goes up on the board at once.
+    this.townTradeOffers();
   }
 
   /**
@@ -13720,10 +13841,10 @@ export class World {
     if (t.cargo > 0) {
       if (this.town) this.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
       // Towards the town's next landmark, crates of what it wants sent out.
-      const goal = this.town && LANDMARKS[this.town.landmarks]?.goal;
+      const goal = this.town && landmarkGoal(this.town, this.tier)?.goal;
       if (goal && !goal.aboard && !t.boxes && this.town) {
         this.town.goal += (t.fees ?? []).filter((f) => cargoOf(f) === goal.cargo).length;
-        this.openLandmark(landmarkDue(this.town, false));
+        this.openLandmark(landmarkDue(this.town, false, this.tier));
       }
       const income = t.value;
       this.book(t.boxes ? 'containers' : 'cargo', income);
@@ -14896,7 +15017,12 @@ export class World {
         idle: this.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
       },
       depots: this.depotViews(),
-      progress: { tier: this.tier, town: this.townSize(), canUpgrade: this.canUpgrade() },
+      progress: {
+        tier: this.tier,
+        town: this.townSize(),
+        canUpgrade: this.canUpgrade(),
+        waitsOn: this.tierWaitsOn(),
+      },
       cranes: [...this.cranes.values()].map((c) => ({
         idx: c.idx,
         kind: c.kind,

@@ -17,7 +17,7 @@ export interface FisheryTerms {
   /** Paid per crate when it leaves the port on a truck. */
   fee: number;
   /** What its boats land: fish unless said otherwise. */
-  catch?: 'fish' | 'lobster';
+  catch?: 'fish' | 'lobster' | 'timber' | 'goods';
 }
 
 export interface HaulierTerms {
@@ -49,7 +49,7 @@ export interface ShipperTerms {
   /** Paid for each crate or container as it goes on board a ship. */
   fee: number;
   /** What its crates hold: goods unless said otherwise. */
-  goods?: 'ice' | 'goods';
+  goods?: 'ice' | 'goods' | 'canned';
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms;
@@ -121,6 +121,20 @@ const SHIPPING_LINES = [
   'Harbour Line',
 ];
 
+/** The town's cannery, sending its cans out on the coasters. */
+const CANNERIES = ['Northshore Cannery', 'Silver Tin Cannery', 'Harbour Pack Co.', 'Fisher & Tinn'];
+
+/** Timber by coaster for the town's builders' yard: Valley Timber Co. first. */
+const TIMBER_LINES = ['Valley Timber Co.', 'Pinewood Coasters', 'Northern Sawmills Line'];
+
+/** Coasters of goods for the town's department store. */
+const GOODS_LINES = [
+  'Merchant Coasters',
+  'Harbour Goods Line',
+  'Coastal Traders',
+  'Bale & Box Shipping',
+];
+
 const CONTAINER_LINES = [
   'Maersk-ish Feeders',
   'Blue Box Line',
@@ -134,7 +148,7 @@ const CONTAINER_HAULIERS = ['Box Haul Ltd', 'Twenty Foot Transport', 'Steel Box 
 const SHIPPERS = [
   'Harbour Mills',
   'Northshore Canning',
-  'Valley Timber Co.',
+  'Fenwick Pottery',
   'Brightwater Brewery',
   'Saltworks Ltd',
   'Copperhill Works',
@@ -433,6 +447,76 @@ export function makeLobsterOffer(
   const expires = tick + Math.round(rng.range(4, 8) * 600);
   const signingFee = Math.round((fisheryDailyValue(terms) * 1.5) / 50) * 50;
   return { id, terms, signingFee, expires };
+}
+
+/**
+ * The town's cannery's offer, put on the board as it opens: its trucks
+ * bring canned fish to the port, to go out on the coasters.
+ */
+export function makeCannedOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+  town?: string,
+): Offer | null {
+  // Named after its town, as long as that is free.
+  const free = [...(town ? [`${town} Cannery`] : []), ...CANNERIES].filter(
+    (n) => !takenNames.has(n),
+  );
+  if (free.length === 0) return null;
+  const terms: ShipperTerms = {
+    kind: 'shipper',
+    name: free[0],
+    color: rng.int(0, 4),
+    perDay: rng.int(8, 12),
+    capacity: B.TRUCK_CAPACITY,
+    fee: rng.int(14, 20),
+    goods: 'canned',
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
+/**
+ * A shipping line whose coasters bring the town something it wants, put on
+ * the board as a landmark opens: timber for the builders' yard, or goods
+ * for the department store. Each is the first of its names not taken.
+ */
+export function makeTownLineOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+  cargo: 'timber' | 'goods',
+): Offer | null {
+  const free = (cargo === 'timber' ? TIMBER_LINES : GOODS_LINES).filter((n) => !takenNames.has(n));
+  if (free.length === 0) return null;
+  const goods = cargo === 'goods';
+  const cratesMin = goods ? rng.int(16, 20) : rng.int(14, 18);
+  const terms: FisheryTerms = {
+    kind: 'fishery',
+    vessel: 'coaster',
+    name: free[0],
+    color: rng.int(0, 3),
+    // Goods come oftener: the store wants some every day.
+    boatEvery: Math.round((goods ? rng.range(0.7, 0.9) : rng.range(1, 1.5)) * 20) / 20,
+    cratesMin,
+    cratesMax: Math.min(B.COASTER_MAX_LOAD, cratesMin + rng.int(3, 6)),
+    fee: rng.int(22, 30),
+    catch: cargo,
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
+/** An offer or contract the town's landmarks bring: kept on the board till signed. */
+export function townTrade(t: Terms): 'canned' | 'timber' | 'goods' | null {
+  if (t.kind === 'shipper' && t.goods === 'canned') return 'canned';
+  if (t.kind === 'fishery' && (t.catch === 'timber' || t.catch === 'goods')) return t.catch;
+  return null;
 }
 
 /** An ice works, rather than a shipper of goods. */

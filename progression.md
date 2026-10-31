@@ -28,26 +28,36 @@ thing to aim for.
 the goals measured as crates of a kind trucked out (fish: 12 a day for 3 days
 running; lobster: 15 in all, as lobster boats call only every day or two) or
 put on board fishing boats in all (ice: 20). The landmark goes up as soon as its
-goal is met (no scaffolding yet). After the restaurant the town has no cap
-until the Coastal Wharf's steps are built.
+goal is met (no scaffolding yet). The restaurant lets the town grow to 400,
+past the 300 the Coastal Wharf needs.
 
 | # | Landmark | Goal | Opens | Cap after |
 |---|---|---|---|---|
 | 0 | Fishing village | | fishery (fish) contracts | 100 |
-| 1 | **Fish market** | fish delivered to town, 12 crates/day for 3 days | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 150 |
-| 2 | **Ice house** | ice put on board fishing boats, 20 crates over 5 days | boats with ice stay out longer and go further: **shellfish and lobster boats** | 200 |
-| 3 | **Seafood restaurant** | lobster and shellfish delivered to town, 6 crates/day for 3 days | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf** | 400 |
+| 1 | **Fish market** | fish trucked out, 12 crates/day for 3 days | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 150 |
+| 2 | **Ice house** | ice put on board fishing boats, 20 crates in all | boats with ice stay out longer and go further: **lobster boats** (a lobsterman's offer stays on the board till one is signed) | 200 |
+| 3 | **Seafood restaurant** | lobster trucked out, 15 crates in all | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf** | 400 |
 
 ## Coastal Wharf: town to large town (cap 400 → 800+)
 
-Goods come in now, not only the catch. More steps, each a clear landmark:
+Goods come in now, not only the catch. Each step's goal uses what the step
+before opened, and none counts till the port is a Coastal Wharf (the town
+panel says to upgrade till then).
+
+**In the game**: the goals are crates trucked out (or, for canned fish, put
+on board ships), and the offer each landmark brings stays on the contracts
+board till one is signed (`townTradeOffers` in `src/sim/world.ts`, the makers
+in `src/sim/contracts.ts`). The Next step card says what is missing when the
+goal cannot move (no coasters, no berth for them, the offer not signed, no
+haulier). Saves from before count the steps a town is past by its size: 500+
+has its cannery, 600+ its builders' yard, 700+ its school.
 
 | # | Landmark | Goal | Opens | Cap after |
 |---|---|---|---|---|
-| 4 | **Cannery** | fish for canning, 24 crates/day for 3 days | **canned fish** as an export (the first goods made in town that leave by sea) | 500 |
-| 5 | **Builders' yard** | timber delivered (Valley Timber Co. by coaster) | the town builds faster and bigger homes: **flats** | 600 |
-| 6 | **School** | the town has 500 people and the builders' yard is supplied | families settle: growth speeds up; **goods** contracts (department store) | 700 |
-| 7 | **Town hall** | goods to the department store, 20 crates/day for 5 days, and canned fish exported | the town charter: grows past 800, which lets the port become a **Container Port** | 900 |
+| 4 | **Cannery** | fish trucked out, 30 crates/day for 3 days (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500 |
+| 5 | **Builders' yard** | canned fish put on board ships, 40 crates in all | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats** | 600 |
+| 6 | **School** | timber trucked out, 40 crates in all | families settle; the **department store** opens, and a coaster line offers **goods** for it | 700 |
+| 7 | **Town hall** | goods trucked out, 20 crates/day for 5 days | the town charter: grows past 800, which lets the port become a **Container Port** | no limit |
 
 ## Container Port and on (sketch)
 
@@ -80,4 +90,4 @@ when the container port's own goods chain is.
 - Cargo kinds per crate already exist (`src/sim/cargo.ts`): goals count
   deliveries of a kind to the town, or on board boats.
 - Saves: a save from before this counts the steps its town already has as
-  done (a town past 300 has its restaurant).
+  done (a town past 300 has its restaurant, past 500 its cannery, and so on).

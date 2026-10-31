@@ -100,11 +100,11 @@ export interface Landmark {
   name: string;
   /**
    * What the port must do: crates of `cargo` trucked out, `perDay` for
-   * `days` days running or `total` in all; `aboard`, put on board fishing
-   * boats rather than trucked out.
+   * `days` days running or `total` in all; `aboard`, put on board ships
+   * rather than trucked out.
    */
   goal: {
-    cargo: 'fish' | 'ice' | 'lobster';
+    cargo: Cargo;
     perDay?: number;
     days?: number;
     total?: number;
@@ -116,6 +116,8 @@ export interface Landmark {
   opens: string;
   /** People the town may grow to once it is open. */
   cap: number;
+  /** The port tier the goal waits on: nothing counts towards it before then. */
+  tier?: number;
 }
 
 export const LANDMARKS: Landmark[] = [
@@ -144,9 +146,68 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Truck out 15 crates of lobster',
     opens:
       'Visitors come for the seafood: the town grows past 300, so the port may become a Coastal Wharf',
+    cap: 400,
+  },
+  // The Coastal Wharf's: coasters bring more than the fishing boats can.
+  {
+    code: Build.Cannery,
+    name: 'Cannery',
+    goal: { cargo: 'fish', perDay: 30, days: 3 },
+    aim: 'Truck out 30 crates of fish a day, 3 days running',
+    opens:
+      'The cannery sends its canned fish to the port by truck, to go out on the coasters: its offer is on the contracts board',
+    cap: 500,
+    tier: 1,
+  },
+  {
+    code: Build.BuildersYard,
+    name: "Builders' yard",
+    goal: { cargo: 'canned', total: 40, aboard: true },
+    aim: 'Put 40 crates of canned fish on board coasters',
+    opens:
+      "Valley Timber Co.'s coasters bring timber for the builders' yard, and the town builds flats",
+    cap: 600,
+    tier: 1,
+  },
+  {
+    code: Build.School,
+    name: 'School',
+    goal: { cargo: 'timber', total: 40 },
+    aim: 'Truck out 40 crates of timber',
+    opens:
+      'Families settle, and a department store opens: a shipping line offers its coasters of goods for it',
+    cap: 700,
+    tier: 1,
+  },
+  {
+    code: Build.TownHall,
+    name: 'Town hall',
+    goal: { cargo: 'goods', perDay: 20, days: 5 },
+    aim: 'Truck out 20 crates of goods a day, 5 days running',
+    opens: 'The town gets its charter: it grows past 800, so the port may become a Container Port',
     cap: Infinity,
+    tier: 1,
   },
 ];
+
+/** How many of LANDMARKS a town of `pop` people from an older save is past, at least. */
+export function landmarksByPopulation(pop: number): number {
+  // A town past 300 has its restaurant; past each later cap, that step.
+  if (pop < 300) return 0;
+  let n = 3;
+  while (n < LANDMARKS.length && Number.isFinite(LANDMARKS[n].cap) && pop >= LANDMARKS[n].cap) n++;
+  return n;
+}
+
+/** The landmark the town is working towards, if the port's tier lets its goal count yet. */
+export function landmarkGoal(t: Town, tier: number): Landmark | null {
+  const l = LANDMARKS[t.landmarks];
+  return l && tier >= (l.tier ?? 0) ? l : null;
+}
+
+/** Where the builders' yard and the school come in LANDMARKS. */
+const YARD = LANDMARKS.findIndex((l) => l.code === Build.BuildersYard);
+const SCHOOL = LANDMARKS.findIndex((l) => l.code === Build.School);
 
 /** People a village with none of its landmarks yet may grow to. */
 export const VILLAGE_CAP = 100;
@@ -156,14 +217,14 @@ export function townCap(t: Town): number {
   return t.landmarks > 0 ? LANDMARKS[t.landmarks - 1].cap : VILLAGE_CAP;
 }
 
-/** Businesses a town has by each stage, besides its landmarks. */
+/**
+ * Businesses a town has by each stage, besides its landmarks (the cannery
+ * is one, and the department store opens with the school).
+ */
 const WANTED: readonly (readonly [number, number])[][] = [
   [],
   [],
-  [
-    [Build.Cannery, 1],
-    [Build.Store, 1],
-  ],
+  [],
   [
     [Build.Cannery, 1],
     [Build.Store, 1],
@@ -306,7 +367,8 @@ export function townSpread(pop: number): number {
 function maxLevel(t: Town, pop: number, r: number): number {
   const core = Math.sqrt(pop) / 5.5;
   if (t.stage >= 4 && r <= core * 0.4) return 4;
-  if (t.stage >= 3 && r <= core * 0.7) return 3;
+  // Flats once the builders' yard is open.
+  if ((t.stage >= 3 || t.landmarks > YARD) && r <= core * 0.7) return 3;
   if (t.stage >= 2 && r <= core) return 2;
   return t.stage >= 1 ? 1 : 0;
 }
@@ -432,6 +494,8 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
 
   const wanted: (readonly [number, number])[] = [
     ...LANDMARKS.slice(0, t.landmarks).map((l) => [l.code, 1] as const),
+    // The department store opens with the school.
+    ...(t.landmarks > SCHOOL ? [[Build.Store, 1] as const] : []),
     ...WANTED[t.stage],
   ];
   const missing = wanted.find(([code, n]) => (have.get(code) ?? 0) < n);
@@ -485,8 +549,8 @@ export function townDay(t: Town, jobs: number, map: GameMap): void {
  * At the end of a day, or as crates go on board: whether the town's next
  * landmark's goal is met. Returns the landmark it opens, if it does.
  */
-export function landmarkDue(t: Town, endOfDay: boolean): Landmark | null {
-  const next = LANDMARKS[t.landmarks];
+export function landmarkDue(t: Town, endOfDay: boolean, tier = Infinity): Landmark | null {
+  const next = landmarkGoal(t, tier);
   if (!next) return null;
   const g = next.goal;
   if (g.total !== undefined) {

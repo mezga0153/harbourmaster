@@ -144,8 +144,7 @@ export function isBuoy(code: number): boolean {
 export function isTownBuilding(code: number): boolean {
   return (
     (code >= Build.Cottage && code <= Build.Factory) ||
-    code === Build.IceHouse ||
-    code === Build.Restaurant
+    (code >= Build.IceHouse && code <= Build.TownHall)
   );
 }
 

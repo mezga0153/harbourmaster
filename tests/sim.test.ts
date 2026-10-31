@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { GameMap } from '../src/sim/map';
-import { makeOffer } from '../src/sim/contracts';
+import { makeOffer, townTrade } from '../src/sim/contracts';
+import { withCargo } from '../src/sim/cargo';
+import { growTown, LANDMARKS, landmarkDue, townCap } from '../src/sim/town';
 import { generateMap } from '../src/sim/mapgen';
 import { isExit } from '../src/sim/roads';
 import { findDrivePath, findPath } from '../src/sim/path';
@@ -4433,5 +4435,186 @@ describe('Container Port tier', () => {
     );
     for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
     expect(bay.boxes.length).toBe(0);
+  });
+});
+
+describe('The Coastal Wharf’s landmarks', () => {
+  const at = (code: number) => LANDMARKS.findIndex((l) => l.code === code);
+
+  /** A game whose town has its seafood restaurant, and room to grow. */
+  function wharfTown(tier: number): World {
+    const world = World.create(7, 96);
+    world.tier = tier;
+    world.cash = 100_000;
+    opened(world, at(Build.Restaurant) + 1);
+    return world;
+  }
+
+  /** The town with its first `n` landmarks open and standing. */
+  function opened(world: World, n: number): void {
+    const t = world.town!;
+    t.landmarks = n;
+    for (const l of LANDMARKS.slice(0, n)) {
+      if (!world.map.build.includes(l.code)) growTown(t, world.map, () => {});
+    }
+  }
+
+  /** As a truck leaving the port with `n` crates of `cargo`. */
+  function truckOut(world: World, cargo: 'fish' | 'timber' | 'goods', n: number): void {
+    world['truckLeave']({
+      id: 999_999,
+      contractId: -1,
+      company: 'Test',
+      capacity: n,
+      x: 0,
+      y: 0,
+      dir: 0,
+      path: [],
+      goal: 0,
+      state: 'leaving',
+      bayIdx: -1,
+      cargo: n,
+      value: 20 * n,
+      fees: Array(n).fill(withCargo(20, cargo)),
+      boxes: false,
+      idle: 0,
+      timer: 0,
+      variant: 0,
+    } as never);
+  }
+
+  it('come after the restaurant, each lifting the cap, the last letting the town grow past 800', () => {
+    const codes = LANDMARKS.slice(at(Build.Restaurant)).map((l) => l.code);
+    expect(codes).toEqual([
+      Build.Restaurant,
+      Build.Cannery,
+      Build.BuildersYard,
+      Build.School,
+      Build.TownHall,
+    ]);
+    const caps = LANDMARKS.map((l) => l.cap);
+    for (let k = 1; k < caps.length; k++) expect(caps[k]).toBeGreaterThan(caps[k - 1]);
+    expect(caps[at(Build.Restaurant)]).toBe(400);
+    expect(caps[at(Build.School)]).toBeLessThan(TIERS[2].town);
+    expect(caps.at(-1)).toBe(Infinity);
+  });
+
+  it('count nothing towards the cannery till the port is a Coastal Wharf, and say so', () => {
+    const world = wharfTown(0);
+    truckOut(world, 'fish', 40);
+    expect(world.town!.goal).toBe(0);
+    const next = world.snapshot().town!.next!;
+    expect(next.name).toBe('Cannery');
+    expect(next.waiting).toBe('Coastal Wharf');
+    expect(next.hint).toMatch(/Coastal Wharf/);
+    // Nor does a day of it count.
+    world.town!.goal = 40;
+    expect(landmarkDue(world.town!, true, world.tier)).toBeNull();
+    // The port panel says the town hall is what the Container Port waits on.
+    world.tier = 1;
+    expect(world.snapshot().progress.waitsOn).toBe('Town hall');
+  });
+
+  it('open the cannery on fish kept up for days, then its offer of canned fish', () => {
+    const world = wharfTown(1);
+    const t = world.town!;
+    // No coasters yet: the panel says what is missing.
+    expect(world.snapshot().town!.next!.hint).toMatch(/coasters/i);
+    const goal = LANDMARKS[at(Build.Cannery)].goal;
+    for (let d = 0; d < goal.days!; d++) {
+      truckOut(world, 'fish', goal.perDay!);
+      // Timber does not count towards fish.
+      truckOut(world, 'timber', 5);
+      expect(t.landmarks).toBe(at(Build.Cannery));
+      world['newDay']();
+    }
+    expect(t.landmarks).toBe(at(Build.Cannery) + 1);
+    expect(townCap(t)).toBe(LANDMARKS[at(Build.Cannery)].cap);
+    expect(world.map.build.some((b) => b === Build.Cannery)).toBe(true);
+    const offer = world.offers.find((o) => townTrade(o.terms) === 'canned');
+    expect(offer).toBeDefined();
+    // Still there when it runs out, till one is signed.
+    world.offers = world.offers.filter((o) => o !== offer);
+    world['refreshOffers']();
+    const again = world.offers.find((o) => townTrade(o.terms) === 'canned')!;
+    expect(again).toBeDefined();
+    world.command({ type: 'signContract', id: again.id });
+    expect(world.contracts.some((c) => townTrade(c.terms) === 'canned')).toBe(true);
+    world['refreshOffers']();
+    expect(world.offers.some((o) => townTrade(o.terms) === 'canned')).toBe(false);
+  });
+
+  it('open the builders’ yard on canned fish put on board, then timber coasters and flats', () => {
+    const world = wharfTown(1);
+    const t = world.town!;
+    opened(world, at(Build.BuildersYard));
+    const boat = { out: 0, berth: world.map.entry } as never;
+    const need = LANDMARKS[at(Build.BuildersYard)].goal.total!;
+    world['shipOut'](boat, Array(need - 1).fill(withCargo(15, 'canned')));
+    // Fish on board does not count.
+    world['shipOut'](boat, [withCargo(15, 'fish')]);
+    expect(t.landmarks).toBe(at(Build.BuildersYard));
+    world['shipOut'](boat, [withCargo(15, 'canned')]);
+    expect(t.landmarks).toBe(at(Build.BuildersYard) + 1);
+    const timber = world.offers.find((o) => townTrade(o.terms) === 'timber')!;
+    expect(timber.terms.name).toBe('Valley Timber Co.');
+    expect(timber.terms.kind === 'fishery' && timber.terms.vessel).toBe('coaster');
+    // A big enough town builds flats in the middle now.
+    world.debug({ type: 'debug', town: 600 });
+    expect(world.map.build.some((b) => b === Build.Flats)).toBe(true);
+  });
+
+  it('builds no flats in a town of 600 without its builders’ yard', () => {
+    const world = wharfTown(1);
+    world.debug({ type: 'debug', town: 600 });
+    expect(world.map.build.some((b) => b === Build.Flats)).toBe(false);
+  });
+
+  it('open the school on timber trucked out, then the department store and coasters of goods', () => {
+    const world = wharfTown(1);
+    const t = world.town!;
+    opened(world, at(Build.School));
+    truckOut(world, 'timber', LANDMARKS[at(Build.School)].goal.total!);
+    expect(t.landmarks).toBe(at(Build.School) + 1);
+    expect(world.map.build.some((b) => b === Build.School)).toBe(true);
+    expect(world.map.build.some((b) => b === Build.Store)).toBe(true);
+    const goods = world.offers.find((o) => townTrade(o.terms) === 'goods')!;
+    expect(goods.terms.kind === 'fishery' && goods.terms.catch).toBe('goods');
+    // Until it is signed the panel says to.
+    expect(world.snapshot().town!.next!.hint).toMatch(new RegExp(goods.terms.name));
+  });
+
+  it('land the crates a town line’s coasters bring as what they carry', () => {
+    const world = wharfTown(1);
+    opened(world, at(Build.School) + 1);
+    world['refreshOffers']();
+    const goods = world.offers.find((o) => townTrade(o.terms) === 'goods')!;
+    world.command({ type: 'signContract', id: goods.id });
+    const c = world.contracts.find((k) => townTrade(k.terms) === 'goods')!;
+    c.nextBoatTick = world.tick;
+    let fee: number | undefined;
+    for (let k = 0; k < TICKS_PER_DAY && fee === undefined; k++) {
+      world.step();
+      const boat = world.boats.find((b) => b.contractId === c.id);
+      fee = boat?.fee;
+    }
+    expect(fee).toBeDefined();
+    expect(Math.round((fee! % 1) * 1e6)).toBe(4); // goods
+  });
+
+  it('are counted from an older save by how big its town is', () => {
+    const world = World.create(5, 96);
+    world.debug({ type: 'debug', town: 650 });
+    const save = world.toSave();
+    // A town that had its restaurant and grew on unchecked, as towns did.
+    const loaded = World.fromSave({ ...save, town: { ...save.town!, landmarks: 3 } });
+    expect(loaded.town!.landmarks).toBe(at(Build.School));
+    // From before landmarks at all, the same.
+    const { landmarks: _, ...old } = save.town!;
+    expect(World.fromSave({ ...save, town: old as never }).town!.landmarks).toBe(at(Build.School));
+    // A town short of 300 keeps the steps it had.
+    const small = World.create(5, 96);
+    const s2 = small.toSave();
+    expect(World.fromSave({ ...s2, town: { ...s2.town!, landmarks: 2 } }).town!.landmarks).toBe(2);
   });
 });

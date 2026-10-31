@@ -59,6 +59,12 @@ export function PortPanel({ actions }: { actions: Actions }) {
             {state === 'next' && !t.comingSoon && (
               <>
                 <Requirement label={`People in ${townName}`} have={town} need={t.town} />
+                {s.progress.waitsOn && (
+                  <p class="muted">
+                    {townName} cannot grow to {t.town.toLocaleString('en-US')} people till it opens
+                    its {s.progress.waitsOn.toLowerCase()}: see the Town panel for what it wants.
+                  </p>
+                )}
                 <Requirement label="Cash for the fee" have={Math.max(0, s.cash)} need={t.cost} />
                 <div class="actions">
                   <button

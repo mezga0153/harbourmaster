@@ -41,15 +41,27 @@ function kindLabel(t: Terms): string {
       ? 'Container shipper'
       : t.goods === 'ice'
         ? 'Ice works'
-        : 'Shipper';
+        : t.goods === 'canned'
+          ? 'Cannery'
+          : 'Shipper';
   }
   return t.vessel === 'feeder'
     ? 'Container line'
     : t.vessel === 'coaster'
-      ? 'Shipping line'
+      ? t.catch === 'timber'
+        ? 'Timber line'
+        : 'Shipping line'
       : t.catch === 'lobster'
         ? 'Lobstermen'
         : 'Fishery';
+}
+
+/** What the crates hold, after "crates": " of lobster", or nothing for fish and goods. */
+function of(t: Terms): string {
+  const what = t.kind === 'shipper' ? t.goods : t.kind === 'fishery' ? t.catch : undefined;
+  if (what === 'canned') return ' of canned fish';
+  if (what === 'goods' && t.kind === 'fishery') return ' of goods';
+  return what === 'ice' || what === 'lobster' || what === 'timber' ? ` of ${what}` : '';
 }
 
 function unit(t: Terms): string {
@@ -126,7 +138,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   if (t.kind === 'shipper') {
     return [
       ['A truck', `every ${span(t.capacity / t.perDay)}`],
-      ['Load', `${t.capacity} ${unit(t)}${t.goods === 'ice' ? ' of ice' : ''}`],
+      ['Load', `${t.capacity} ${unit(t)}${of(t)}`],
       ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)} on board`],
       [
         'Needs',
@@ -161,10 +173,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
             : 'A boat',
       `every ${span(t.boatEvery)}`,
     ],
-    [
-      'Load',
-      `${t.cratesMin}–${t.cratesMax} ${unit(t)}${t.catch === 'lobster' ? ' of lobster' : ''}`,
-    ],
+    ['Load', `${t.cratesMin}–${t.cratesMax} ${unit(t)}${of(t)}`],
     ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)}`],
     [
       'Needs',

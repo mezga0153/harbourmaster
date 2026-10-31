@@ -142,6 +142,31 @@ const TIPS: Record<string, Tip> = {
     text: 'Trucks go round anticlockwise, keeping right, and those coming onto it give way to those already on it. A truck that has to turn about can go round it, rather than finding somewhere wide enough to turn.',
     topic: 'trucks',
   },
+  restaurant: {
+    title: 'The seafood restaurant',
+    text: 'Visitors come for the seafood, and the town may grow to 400. Once it has 300 people, upgrade the port to a Coastal Wharf in the Port panel (P): the town’s next landmark, a cannery, wants more fish than fishing boats bring, 30 crates a day for 3 days running, and only coasters at a quay bring that much.',
+    topic: 'growth',
+  },
+  cannery: {
+    title: 'The cannery',
+    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. Next it wants a builders’ yard: put 40 crates of canned fish on board coasters. The trucks need parking outside the port and crate storage for exports.',
+    topic: 'growth',
+  },
+  buildersYard: {
+    title: 'The builders’ yard',
+    text: 'The builders’ yard is open: the town may grow to 600, and now builds flats. Valley Timber Co. offers its coasters of timber for the yard. Next the town wants a school: truck out 40 crates of timber.',
+    topic: 'growth',
+  },
+  school: {
+    title: 'The school',
+    text: 'Families settle round the new school, the town may grow to 700, and a department store opens. A shipping line offers coasters of goods for it. Next the town wants a town hall: truck out 20 crates of goods a day, 5 days running.',
+    topic: 'growth',
+  },
+  townHall: {
+    title: 'The town hall',
+    text: 'The town has its charter, and may grow on past 800 people: then the harbour authority lets the port become a Container Port. See the Port panel (P).',
+    topic: 'growth',
+  },
   tier1: {
     title: 'Coastal Wharf',
     text: 'Quays reach deeper water for coasters, forklifts and jib cranes speed up the work, and storage can be marked out on port roads and quays.',

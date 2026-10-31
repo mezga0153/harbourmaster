@@ -52,21 +52,29 @@ function NextStep() {
         )}
       </div>
       <p>{n.aim}.</p>
-      <div class="req">
-        <span>{total ? 'So far' : 'Today'}</span>
-        <Meter value={n.need > 0 ? n.have / n.need : 1} tone={n.have >= n.need ? 'good' : 'ok'} />
-        <span class="req-value">
-          {count(Math.min(n.have, n.need))} / {count(n.need)}
-        </span>
-      </div>
-      {n.days && (
-        <div class="req">
-          <span>Days running</span>
-          <Meter value={n.days.done / n.days.need} tone="ok" />
-          <span class="req-value">
-            {n.days.done} / {n.days.need}
-          </span>
-        </div>
+      {n.hint && <p class="note bad">{n.hint}.</p>}
+      {!n.waiting && (
+        <>
+          <div class="req">
+            <span>{total ? 'So far' : 'Today'}</span>
+            <Meter
+              value={n.need > 0 ? n.have / n.need : 1}
+              tone={n.have >= n.need ? 'good' : 'ok'}
+            />
+            <span class="req-value">
+              {count(Math.min(n.have, n.need))} / {count(n.need)}
+            </span>
+          </div>
+          {n.days && (
+            <div class="req">
+              <span>Days running</span>
+              <Meter value={n.days.done / n.days.need} tone="ok" />
+              <span class="req-value">
+                {n.days.done} / {n.days.need}
+              </span>
+            </div>
+          )}
+        </>
       )}
       <p class="muted">
         {n.opens}. Till then the town can {cap(t.cap)}; once it opens, {cap(n.cap)}.

@@ -236,6 +236,8 @@ export interface TierProgress {
   /** People in the town now, which the next step up needs enough of; see Tier.town. */
   town: number;
   canUpgrade: boolean;
+  /** The landmark the town must open before it may grow big enough for the next tier. */
+  waitsOn?: string;
 }
 
 export type LedgerCategory =
@@ -537,6 +539,10 @@ export interface TownView {
     days?: { done: number; need: number };
     /** People it may grow to once it is open; null for no limit. */
     cap: number | null;
+    /** The port tier its goal waits on, before which nothing counts towards it. */
+    waiting?: string;
+    /** What the port is missing to get anywhere towards it, in words. */
+    hint?: string;
   } | null;
   /** The chapel square the town grows out from. */
   x: number;
