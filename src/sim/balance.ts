@@ -279,6 +279,8 @@ export const FAIRWAY_FAR = 5;
 export const WEDGED_GAP = 0.3;
 /** Ticks held up by a boat under way that is stuck too before a boat goes round it. */
 export const HEAD_ON_TICKS = 40;
+/** Furthest a boat casting off backs out straight, along the dock, to find room to come round. */
+export const BACK_OUT_TILES = 5;
 /** Harbour tugs: a berth for one, the tug, and what it costs a day to run. */
 export const TUG_BERTH_COST = 1500;
 export const TUG_PRICE = 6000;

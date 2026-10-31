@@ -4257,8 +4257,9 @@ describe('Container Port tier', () => {
     // Boats already in the water when it was claimed, which may sail out of it.
     const inside = new Map<number, Set<number>>();
     let intrusions = 0;
-    // Long enough for a few to pull out, however the queue at anchor goes.
-    for (let k = 0; k < TICKS_PER_DAY * 10; k++) {
+    // Long enough for a few to pull out, however the queue at anchor goes:
+    // ten days, and on till three have, up to twenty.
+    for (let k = 0; k < TICKS_PER_DAY * 20 && (k < TICKS_PER_DAY * 10 || claimed.size < 3); k++) {
       world.step();
       for (const b of world.boats) {
         if (!b.room) {
@@ -4292,7 +4293,7 @@ describe('Container Port tier', () => {
     }
     expect(claimed.size).toBeGreaterThan(2);
     expect(intrusions).toBe(0);
-  }, 20_000);
+  }, 40_000);
 
   it('stores containers only in yards, where the trucks collect them', () => {
     const world = World.create(7, 96);

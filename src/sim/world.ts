@@ -484,6 +484,19 @@ interface Boat extends Agent {
   castDock?: number;
   /** Casting off: 1 easing sideways off the dock, 2 backing out. */
   undock?: number;
+  /**
+   * Casting off, where it comes round for the sea: 0 right here off the
+   * dock, more than that the tiles it still has to back out straight to
+   * open water with room to; -1 if it found nowhere, and swings round
+   * backing as it can. Worked out once it is off the dock (roomToComeRound).
+   */
+  backOut?: number;
+  /**
+   * Which way it comes round for the sea once off the dock, -1 or 1, as
+   * planned with backOut: it keeps swinging that way until it heads on its
+   * way, rather than dither between the two in the narrows.
+   */
+  comeRound?: number;
   /** Ticks left squeezing past other boats after being wedged in, and the boats it squeezes past. */
   squeeze?: number;
   squeezePast?: number[];
@@ -4527,7 +4540,14 @@ export class World {
     const road = free && !b.squeeze ? this.rulesOfTheRoad(b) : { bias: 0, slow: 1 };
     if (!free || b.squeeze) this.keepingClear.delete(b);
     const course = wrapAngle(want + road.bias);
-    const err = wrapAngle(course - b.dir);
+    let err = wrapAngle(course - b.dir);
+    // Coming round off the dock the way it planned to: the long way round if
+    // need be, as there is room for that and maybe not the other.
+    // Held up a good while meanwhile, it thinks again.
+    if (b.comeRound) {
+      if (Math.abs(err) < 0.3 || (b.held ?? 0) > B.HEAD_ON_TICKS * 2) b.comeRound = undefined;
+      else if (Math.sign(err) !== b.comeRound) err += b.comeRound * 2 * Math.PI;
+    }
     // A boat needs way on to turn: it never spins on the spot, it slows and
     // swings round in an arc.
     const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
@@ -5025,8 +5045,43 @@ export class World {
       return false;
     }
     const err = wrapAngle(want - b.dir);
+    // Off the dock, a small boat's skipper looks where there is room to come
+    // round: here beside the dock, or out in the open water astern, backing
+    // out straight along the dock to it. Coming round in the narrows is how a
+    // boat gets stuck there. A long ship works itself round as sail() has it.
+    if (b.backOut === undefined) {
+      const plan =
+        v.length >= B.CAREFUL_LENGTH || Math.abs(err) < 0.2 ? null : this.roomToComeRound(b, want);
+      b.backOut = v.length >= B.CAREFUL_LENGTH ? -1 : Math.abs(err) < 0.2 ? 0 : (plan?.back ?? -1);
+      b.comeRound = plan?.side;
+    }
+    if (b.backOut > 0.02) {
+      const back = Math.min(v.speed * 0.5, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL, b.backOut);
+      const sx = b.x - Math.cos(b.dir) * back;
+      const sy = b.y - Math.sin(b.dir) * back;
+      const ships = this.stillNear(b);
+      const clear =
+        this.navigable(sx, sy, cost) &&
+        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
+        !this.crowds(b, sx, sy) &&
+        this.clearAstern(b);
+      if (clear) {
+        b.x = sx;
+        b.y = sy;
+        b.speed = 0;
+        b.sternway = back;
+        b.astern = true;
+        b.backOut -= back;
+        b.held = 0;
+        return true;
+      }
+      // Something has come up astern: wait for it to pass, a while.
+      b.sternway = 0;
+      b.held = (b.held ?? 0) + 1;
+      if (b.held < B.HEAD_ON_TICKS * 3) return true;
+    }
     const backed = Math.hypot(b.x - bx, b.y - by);
-    if (Math.abs(err) > 1.75 && backed < 2.5) {
+    if (b.backOut < 0 && Math.abs(err) > 1.75 && backed < 2.5) {
       // Gathering sternway gradually, like any other way.
       const back = Math.min(v.speed * 0.5, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL);
       const sx = b.x - Math.cos(b.dir) * back;
@@ -5056,8 +5111,66 @@ export class World {
     }
     // Any sternway left comes off gradually in sail().
     b.undock = undefined;
+    b.backOut = undefined;
     b.astern = false;
     return false;
+  }
+
+  /**
+   * Where a boat just off the dock has room to come round to `want`, and
+   * which way (`side`, -1 or 1, the short way round if both will do): `back`
+   * 0 where it lies, or how far it must back out straight first, a quarter
+   * of a tile at a time up to a few tiles, to open water where it has; null
+   * if nowhere. Coming round is reckoned as sail() and nip() do it, gathering
+   * way and swinging in an arc, its whole hull keeping clear of the shore,
+   * the docks and boats lying still (boats under way will have moved on).
+   */
+  private roomToComeRound(b: Boat, want: number): { back: number; side: number } | null {
+    const v = B.VESSELS[b.vessel];
+    const cost = this.boatCostFor(b.draft);
+    const ships = this.stillNear(b);
+    const now = this.clips(b, b.x, b.y, b.dir, ships);
+    const cos = Math.cos(b.dir);
+    const sin = Math.sin(b.dir);
+    // Swinging to `side` (-1 or 1) all the way round, the long way if need be.
+    const comesRound = (x0: number, y0: number, side: number): boolean => {
+      const base = this.clips(b, x0, y0, b.dir, ships);
+      let [x, y, d, speed] = [x0, y0, b.dir, 0];
+      for (let t = 0; t < 400; t++) {
+        let err = wrapAngle(want - d);
+        if (Math.abs(err) < 0.2) return true;
+        if (Math.sign(err) !== side) err += side * 2 * Math.PI;
+        const desired =
+          v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
+        speed += clamp(
+          desired - speed,
+          -v.speed * B.BOAT_ACCEL * B.BOAT_BRAKE,
+          v.speed * B.BOAT_ACCEL,
+        );
+        const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
+        d = wrapAngle(d + clamp(err, -turn, turn));
+        x += Math.cos(d) * speed;
+        y += Math.sin(d) * speed;
+        const ok =
+          this.navigable(x + Math.cos(d) * 0.3, y + Math.sin(d) * 0.3, cost) &&
+          this.navigable(x, y, cost) &&
+          this.clips(b, x, y, d, ships) <= base;
+        if (!ok) return false;
+      }
+      return false;
+    };
+    // The short way round first.
+    const short = Math.sign(wrapAngle(want - b.dir)) || 1;
+    const sides = [short, -short];
+    for (let back = 0; back <= B.BACK_OUT_TILES; back += 0.25) {
+      const x = b.x - cos * back;
+      const y = b.y - sin * back;
+      // Backing out straight as far as that, no nearer anything than now.
+      if (back > 0 && (!this.navigable(x, y, cost) || this.clips(b, x, y, b.dir, ships) > now))
+        return null;
+      for (const side of sides) if (comesRound(x, y, side)) return { back, side };
+    }
+    return null;
   }
 
   /** Back off slowly to clear the way for another boat, if nothing is astern. */
