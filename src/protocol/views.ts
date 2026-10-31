@@ -68,6 +68,8 @@ export interface EntityView {
   handPhase?: number;
   handTicks?: number;
   handAt?: HandAt;
+  /** A forklift or dockhand taking crates: how many, the top ones of those where `handAt` is the top. */
+  handCount?: number;
 }
 
 /** A ship's visit so far, for its panel; times in ticks, -1 for not known or not begun. */

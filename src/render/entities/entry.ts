@@ -4,6 +4,7 @@ import type { GameMap } from '../../sim/map';
 import { reachTo } from '../machines';
 import type { Model } from '../model';
 import type { About, Pose } from '../motion';
+import type { ForkPlan } from './forks';
 import { surfaceY } from '../terrain';
 import type { Wash } from '../wakes';
 
@@ -22,8 +23,10 @@ export interface Entry extends Wash {
   heel?: number;
   /** Articulated trucks: where each trailer's axles and its fifth wheel were last frame. */
   links?: { axle?: [number, number]; hitch?: [number, number] }[];
-  /** Forklifts' forks, or a dockhand's hands: how far down to the ground, 0 to 1. */
+  /** A dockhand's hands: how far down to the ground, 0 to 1. */
   down?: number;
+  /** Forklifts: how far right of the middle of their way, and ahead, they are drawn, clear of trucks and crates. */
+  keep?: [number, number];
   /** Forklifts turning about: where from, which way to, see turnAbout. */
   about?: About;
   /** Forklifts: how far off their way they were when they turned off it part way round. */
@@ -72,6 +75,10 @@ export interface Hand {
   early?: boolean;
   /** Dockhands: corners of a truck they walk round on the way. */
   via?: { x: number; z: number }[];
+  /** Forklifts: where they line up and drive in to work it; see forkPlan. */
+  plan?: ForkPlan;
+  /** Forklifts going straight on from the load before: where they worked it, to back out of first. */
+  last?: ForkPlan;
 }
 
 /** Stand `e` in `pose`: on the ground there, facing its way, a stacker's boom to its height. */

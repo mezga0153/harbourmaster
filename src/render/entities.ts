@@ -5,6 +5,15 @@ import type { GameMap } from '../sim/map';
 import { isMachineKind } from '../sim/machines';
 import { Build, TICKS_PER_SECOND } from '../sim/types';
 import { place, type Entry, type Hand } from './entities/entry';
+import {
+  bodyBlocked,
+  forkIn,
+  forkOut,
+  forkPlan,
+  type Crate,
+  type ForkPlan,
+  type ForkSite,
+} from './entities/forks';
 import { keepInside, parkIn, parkOut } from './entities/parking';
 import {
   aroundTrucks,
@@ -12,7 +21,6 @@ import {
   bayStand,
   byBack,
   clearOfTruck,
-  FORK_BACK,
   HAND_REACH,
   inTruck,
   LEAN_MOST,
@@ -60,9 +68,9 @@ const HAND_SETTLE = 0.5;
 const CLEAR = 0.1;
 
 /**
- * How far through picking a load up or setting it down the forks, or a
- * dockhand's hands, are down on the ground; and how quickly they go down
- * and come back up, per game second.
+ * How far through picking a crate up or setting it down a dockhand's
+ * hands are down on the ground; and how quickly they go down and come
+ * back up, per game second.
  */
 const DOWN_BY = 0.5;
 const DOWN_RATE = 4;
@@ -80,12 +88,33 @@ const ROOM = 0.36;
 const TURN_RATE = 12;
 /** How far back from the edge of the quay a dockhand stands, toes to the edge. */
 const TOES = 0.05;
-/** How far ahead of a forklift's middle the pallet on its forks sits. */
-const FORK_REACH = 0.3;
 /** How far off the way it is going a forklift has to face to turn about. */
 const TURN_FROM = (Math.PI * 2) / 3;
+/** How near right round a forklift turning about has to be to swing its tail either way. */
+const FLIP_FROM = 2.2;
 /** Game seconds a forklift takes to ease onto a way it turned onto part way round. */
 const SLIP_TIME = 0.3;
+/** Game seconds a forklift takes to back out from a load it took or set down and drive on. */
+const FORK_SETTLE = 0.8;
+/**
+ * Forklifts kept off a truck or crates: how far right of their way, and
+ * ahead along it, they may be drawn instead, the likeliest first.
+ */
+const SPOTS: [number, number][] = [0, -0.1, 0.1, -0.2, 0.2, -0.3].flatMap((a) =>
+  [0.16, 0.1, 0.05, 0, -0.05, -0.1, -0.16, 0.22, -0.22, 0.28, -0.28].map((k): [number, number] => [
+    k,
+    a,
+  ]),
+);
+/** How quickly a forklift edges over to keep clear, tiles per game second. */
+const KEEP_RATE = 3;
+/** How far a crate in crate storage stands on its pallet. */
+const ON_PALLET = 0.025;
+
+/** How high a forklift's forks ride as it drives about: low, a load just off the ground. */
+function ride(v: EntityView): number {
+  return v.load > 0 ? FORKS_LOADED : FORKS_EMPTY;
+}
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
 export class Entities {
@@ -112,12 +141,16 @@ export class Entities {
    * runs as a heading. Set by the renderer.
    */
   containerAt?: (at: HandAt, out: Vector3) => number | null;
+  /** Whether a crate shows on the ground at x, z, `pad` round it; set by the renderer. */
+  crateIn?: (x: number, z: number, pad: number) => boolean;
   /** Which way the camera is from what it looks at, as a heading on the ground: who dockhands wave to. */
   viewer?: number;
   private slotAt = new Vector3();
 
   /** What keeping clear of the trucks asks of this; see entities/trucks.ts. */
   private trucks: TruckSite;
+  /** What a forklift keeps its body clear of; see entities/forks.ts. */
+  private forkSite: ForkSite;
 
   constructor(private map: GameMap) {
     this.trucks = {
@@ -126,6 +159,11 @@ export class Entities {
       entry: (id) => this.entries.get(id),
       containerAt: (at, out) => this.containerAt?.(at, out) ?? null,
       handSlot: (at, out) => this.handSlot(at, out),
+    };
+    this.forkSite = {
+      map,
+      inTruck: (x, z) => inTruck(this.trucks, x, z, undefined, 0.02),
+      crateIn: (x, z, pad) => this.crateIn?.(x, z, pad) ?? false,
     };
   }
 
@@ -225,20 +263,22 @@ export class Entities {
         cur.kind === 'tractor' ||
         ((cur.kind === 'forklift' || cur.kind === 'dockhand') && (cur.handAt || e.hand))
       ) {
-        // A forklift drives up to the crates it takes or sets down like
-        // this too, and a dockhand walks up to the crate.
+        // A forklift lines up to the crates it takes or sets down and
+        // drives in, and a dockhand walks up to the crate.
         this.handle(e, x, y, dir, t, dt);
       } else if (cur.kind === 'dockhand' || isMachineKind(cur.kind)) {
         // Keep to the right of the tile, so people going opposite ways pass;
         // sat on a bench, just where their seat is.
         const seated = cur.sitting && !cur.moving;
-        const keep = cur.kind === 'forklift' ? FORK_KEEP : seated ? 0 : 0.2;
         const going = e.about && !e.about.done ? e.about : null;
         const about = cur.kind === 'forklift' ? this.turningAbout(e, prev, x, y) : null;
         // Once round, it faces the way it is going, not part way between.
         const way = about ? about.dir : dir;
-        let rx = x - Math.sin(way) * keep;
-        let ry = y + Math.cos(way) * keep;
+        const keep = seated ? 0 : 0.2;
+        let [rx, ry] =
+          cur.kind === 'forklift'
+            ? this.forkSpot(e, x, y, way, dt)
+            : [x - Math.sin(way) * keep, y + Math.cos(way) * keep];
         let yaw = way;
         if (about && !about.done) {
           [rx, ry, yaw] = aboutAt(about, x, y);
@@ -268,7 +308,7 @@ export class Entities {
         root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
         // Where it is, for it to drive up to a pallet from when it gets to one.
-        e.pose = { x: rx, z: ry, dir: yaw, h: 0 };
+        e.pose = { x: rx, z: ry, dir: yaw, h: cur.kind === 'forklift' ? ride(cur) : 0 };
       } else {
         root.position.set(x, surfaceY(this.map, x, y), y);
         if (e.model.trailer) this.trail(e, e.model.trailer, x, y, dir, cur.moving, dt);
@@ -278,8 +318,8 @@ export class Entities {
       if (e.dock && !cur.parked) parkOut(this.map, this.sim, e, was);
       keepInside(this.map, e);
       if (cur.kind === 'forklift') {
-        const down = this.lower(e, prev, t, dt);
-        e.model.forks!.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
+        // At work, as high as it works the load; otherwise low.
+        e.model.forks!.position.y = e.hand && e.pose ? e.pose.h : ride(cur);
       }
       if (cur.kind === 'dockhand') {
         const stepping = !!e.hand && !!e.stepping;
@@ -360,8 +400,31 @@ export class Entities {
     const face = lerpAngle(cur.dir, prev.dir, 1) - cur.dir;
     const moved = cur.x !== prev.x || cur.y !== prev.y;
     if (Math.abs(face) > TURN_FROM && moved && e.about?.tick !== this.lastTick) {
-      const path = turnAbout(face);
-      e.about = { x: prev.x, y: prev.y, dir: cur.dir, path, tick: this.lastTick, done: false };
+      const about = (f: number): About => {
+        const a: About = {
+          x: prev.x,
+          y: prev.y,
+          dir: cur.dir,
+          path: turnAbout(f),
+          tick: this.lastTick,
+          done: false,
+        };
+        // From where it is drawn, as clear of a truck or crates.
+        const [sx, sy] = aboutAt(a, prev.x, prev.y);
+        if (e.pose) a.off = [e.pose.x - sx, e.pose.z - sy];
+        return a;
+      };
+      e.about = about(face);
+      // Turned right round, it swings its tail whichever way is clear of
+      // trucks and crates, as backing out of a truck bay past the truck.
+      if (Math.abs(face) > FLIP_FROM) {
+        // The other way round: turnAbout swings it the other way for a face
+        // just short of right round to the left.
+        const back = Math.PI - 0.011;
+        const turnsLeft = face > 0 && face < Math.PI - 0.01;
+        const other = about(turnsLeft || Math.abs(face) < back ? -face : back);
+        if (this.aboutBlocked(other) < this.aboutBlocked(e.about)) e.about = other;
+      }
     }
     const about = e.about;
     if (!about) return null;
@@ -374,11 +437,24 @@ export class Entities {
     return about;
   }
 
+  /** How many points of a forklift's body are over a truck, crates or the water, all the way round `about`. */
+  private aboutBlocked(about: About): number {
+    let n = 0;
+    const ux = Math.cos(about.dir);
+    const uz = Math.sin(about.dir);
+    for (let k = 0; k <= 8; k++) {
+      const s = (about.path.reach * k) / 8;
+      const [x, z, dir] = aboutAt(about, about.x + ux * s, about.y + uz * s);
+      n += bodyBlocked(this.forkSite, x, z, dir);
+    }
+    return n;
+  }
+
   /**
-   * Forks, or a dockhand's hands, go down to the ground over the first part
-   * of picking a load up or setting it down, so they are there by the time
-   * the load leaves where it was and shows on them, or leaves them and
-   * shows where it is set down; then they come back up. Returns how far
+   * A dockhand's hands go down to the ground over the first part of
+   * picking a crate up or setting it down, so they are there by the time
+   * it leaves where it was and shows in them, or leaves them and shows
+   * where it is set down; then they come back up. Returns how far
    * down they are, 0 to 1.
    */
   private lower(e: Entry, prev: EntityView, t: number, dt: number, stepping = false): number {
@@ -409,13 +485,20 @@ export class Entities {
    */
   private handle(e: Entry, x: number, y: number, dir: number, t: number, dt: number): void {
     const v = e.view;
-    const keep = v.kind === 'forklift' ? FORK_KEEP : 0.2;
+    const [dx, dz] =
+      v.kind === 'forklift'
+        ? this.forkSpot(e, x, y, dir, dt)
+        : [x - Math.sin(dir) * 0.2, y + Math.cos(dir) * 0.2];
     const drive: Pose = {
-      x: x - Math.sin(dir) * keep,
-      z: y + Math.cos(dir) * keep,
+      x: dx,
+      z: dz,
       dir,
       h: CARRY_LOW,
     };
+    if (v.kind === 'forklift') {
+      this.fork(e, drive, t);
+      return;
+    }
     let pose = drive;
     if (v.handStage) {
       if (e.hand?.stage !== v.handStage || e.hand.done !== undefined) {
@@ -435,14 +518,12 @@ export class Entities {
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
       w.goal ??= clearOfTruck(this.trucks, v, this.workPose(v, w, drive), w.from) ?? undefined;
-      // A forklift the game has too far from its pallet to drive up to it
-      // works it from where it is. It is shown a snapshot behind the game,
-      // so that is measured from where the game has it, not where it shows.
-      // A dockhand walks further, as to the edge of a jetty off the corner
-      // a boat lies at.
-      const most = v.kind === 'dockhand' ? WALK_MOST : REACH_MOST;
-      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > most;
-      if (w.goal && far && (v.kind === 'forklift' || v.kind === 'dockhand')) {
+      // A dockhand the game has too far from the crate to walk up to it
+      // works it from where they are, though they go as far as the edge of
+      // a jetty off the corner a boat lies at. They are shown a snapshot
+      // behind the game, so that is measured from where the game has them.
+      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > WALK_MOST;
+      if (w.goal && far && v.kind === 'dockhand') {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
       const goal = w.goal ?? { ...drive, h: 0 };
@@ -503,6 +584,137 @@ export class Entities {
       }
     }
     place(this.map, e, pose);
+  }
+
+  /**
+   * Where a forklift at x, y going `way` is drawn: to the right of the
+   * middle of its way as usual, unless that has it over a truck standing
+   * there or crates, as in a truck bay or past pallets in storage; then
+   * the nearest spot to that, across or along its way, clear of them, as
+   * far clear as it can be where none is; edging over to it.
+   */
+  private forkSpot(e: Entry, x: number, y: number, way: number, dt: number): [number, number] {
+    const fx = Math.cos(way);
+    const fz = Math.sin(way);
+    const at = ([k, a]: [number, number]): [number, number] => [
+      x - fz * k + fx * a,
+      y + fx * k + fz * a,
+    ];
+    const blocked = (o: [number, number]) => bodyBlocked(this.forkSite, ...at(o), way);
+    let want: [number, number] = [FORK_KEEP, 0];
+    if (blocked(want) > 0) {
+      let least = Infinity;
+      for (const o of SPOTS) {
+        const n = blocked(o);
+        if (n < least) [want, least] = [o, n];
+        if (n === 0) break;
+      }
+    }
+    const [wk, wa] = want;
+    const [k0, a0] = e.keep ?? want;
+    const step = dt * KEEP_RATE;
+    const d = Math.hypot(wk - k0, wa - a0);
+    const f = d > step ? step / d : 1;
+    e.keep = [k0 + (wk - k0) * f, a0 + (wa - a0) * f];
+    return at(e.keep);
+  }
+
+  /**
+   * A forklift at work: it lines up square on to the load it takes or the
+   * place it sets one down, a little back, drives straight in with its
+   * forks at the height of it, and is there as the load changes hands;
+   * then it backs straight out and drives on. See forks.ts.
+   */
+  private fork(e: Entry, drive: Pose, t: number): void {
+    const v = e.view;
+    const low = { ...drive, h: ride(v) };
+    if (v.handStage) {
+      if (e.hand?.stage !== v.handStage || e.hand.done !== undefined) {
+        // Straight on from the last load, as off a truck bay's stack onto the truck.
+        const last = e.hand?.done === undefined ? e.hand?.plan : undefined;
+        e.hand = { stage: v.handStage, from: e.pose ?? low, last };
+      }
+      const w = e.hand;
+      const now = Math.min(
+        1,
+        (v.handPhase ?? 0) + (t * this.snapTicks) / Math.max(1, v.handTicks ?? 1),
+      );
+      w.start ??= now;
+      const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
+      if (!w.plan) {
+        const plan = this.forkPlanFor(v, w.from);
+        // Too far from it, as the game has it, to drive up to it: it works
+        // it from where it is.
+        if (plan && Math.hypot(plan.goal.x - v.x, plan.goal.z - v.y) > REACH_MOST + 0.3) {
+          const goal = { ...w.from, dir: plan.goal.dir, h: plan.goal.h };
+          w.plan = { goal, line: goal };
+        } else w.plan = plan ?? undefined;
+        if (w.plan && w.last) w.plan.out = w.last.line;
+      }
+      place(this.map, e, w.plan ? forkIn(w.plan, w.from, phase, w.stage === 'pick') : low);
+      return;
+    }
+    const w = e.hand!;
+    if (w.done === undefined) {
+      w.done = this.sim;
+      w.from = e.pose ?? low;
+    }
+    const s = (this.sim - w.done) / FORK_SETTLE;
+    if (s >= 1 || !w.plan) {
+      e.hand = undefined;
+      place(this.map, e, low);
+      return;
+    }
+    place(this.map, e, forkOut(w.plan, low, s, low.h, w.stage === 'pick'));
+  }
+
+  /**
+   * Where a forklift lines up for the load it works, and drives in to:
+   * the crates it takes, the top of them last, or the places those it
+   * sets down go; square on to them, to a truck from its side or tail, to
+   * a truck bay's stack from behind it, to a pallet in storage the way
+   * its forks go in.
+   */
+  private forkPlanFor(v: EntityView, from: Pose): ForkPlan | null {
+    const at = v.handAt;
+    if (!at) return null;
+    const p = this.slotAt;
+    const crates: Crate[] = [];
+    let heading: number | null = null;
+    let prefer = (_face: number) => 0;
+    if (at.store !== undefined && at.place !== undefined) {
+      heading = this.containerAt?.(at, p) ?? null;
+      if (heading === null) return null;
+      crates.push({ x: p.x, y: p.y + ON_PALLET, z: p.z });
+      const along = heading;
+      prefer = (face) => (Math.abs(Math.cos(face - along)) > 0.5 ? 0 : 0.6);
+    } else {
+      const k = at.slot ?? 0;
+      const pick = v.handStage === 'pick';
+      const n = pick ? Math.min(v.handCount ?? v.capacity, k + 1) : Math.max(1, v.load);
+      const first = pick ? k - n + 1 : k;
+      for (let s = first; s < first + n; s++) {
+        const turn = this.handSlot({ ...at, slot: s }, p);
+        if (turn === null) continue;
+        heading ??= turn;
+        crates.push({ x: p.x, y: p.y, z: p.z });
+      }
+      if (heading === null) return null;
+      const truck = at.truck === undefined ? undefined : this.entries.get(at.truck);
+      const bay = at.bay === undefined ? null : bayFrame(this.trucks, at.bay);
+      const along = heading;
+      if (truck?.view.kind === 'truck') {
+        // Side on, or at its tail; never through its cab.
+        prefer = (face) => {
+          const c = Math.cos(face - along);
+          return Math.abs(c) < 0.5 ? 0 : c > 0 ? 0.8 : Infinity;
+        };
+      } else if (bay) {
+        const way = Math.atan2(bay.uz, bay.ux);
+        prefer = (face) => (Math.cos(face - way) > 0.9 ? 0 : 0.5);
+      }
+    }
+    return forkPlan(this.forkSite, crates, heading, prefer, from);
   }
 
   /**
@@ -606,14 +818,8 @@ export class Entities {
     const at = v.handAt;
     if (!at) return null;
     const stacker = v.kind === 'stacker';
-    // How far ahead of its middle it holds a load: a forklift's on its forks.
-    const hold = stacker
-      ? STACKER_REACH
-      : v.kind === 'forklift'
-        ? FORK_REACH
-        : v.kind === 'dockhand'
-          ? HAND_REACH
-          : TRAILER_AT;
+    // How far ahead of its middle it holds a load.
+    const hold = stacker ? STACKER_REACH : v.kind === 'dockhand' ? HAND_REACH : TRAILER_AT;
     const ahead = (face: number, d: number) => [Math.cos(face) * d, Math.sin(face) * d];
     if (at.along !== undefined) {
       // Turned about its container, which the gantry's spreader is over.
@@ -628,11 +834,9 @@ export class Entities {
     if (heading === null) return null;
     // At a truck bay, to its stack or the truck in it, from the back corner
     // behind the stack, clear of the truck.
-    const corner = (v.kind === 'dockhand' || v.kind === 'forklift') && bayStand(this.trucks, v, at);
+    const corner = v.kind === 'dockhand' && bayStand(this.trucks, v, at);
     if (corner) {
-      const back = v.kind === 'forklift' ? FORK_BACK : 0;
-      const x = corner.x - corner.ux * back;
-      const z = corner.z - corner.uz * back;
+      const { x, z } = corner;
       const dir = Math.atan2(p.z - z, p.x - x);
       const over =
         v.kind === 'dockhand'
@@ -641,9 +845,8 @@ export class Entities {
       return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
     }
     // A stacker takes a container side on; a tractor's trailer lies along
-    // it; a forklift's forks go into a pallet in storage the way it lies,
-    // and otherwise it, or a dockhand, comes straight up to the crate.
-    const straight = (v.kind === 'dockhand' || v.kind === 'forklift') && at.place === undefined;
+    // it; a dockhand comes straight up to the crate.
+    const straight = v.kind === 'dockhand' && at.place === undefined;
     const lie = stacker
       ? heading + Math.PI / 2
       : straight

@@ -16,8 +16,6 @@ export const HAND_REACH = 0.16;
 export const LEAN_MOST = 0.3;
 /** How far in from the back of a truck bay people walk across it, out of the truck's way. */
 export const BACK_LANE = 0.18;
-/** How much further back than a dockhand a forklift stands at a truck bay, for its forks. */
-export const FORK_BACK = 0.2;
 
 /** What keeping clear of the trucks asks of Entities. */
 export interface TruckSite {
@@ -103,8 +101,8 @@ export function byBack(site: TruckSite, x: number, z: number): [number, number] 
   return back > BACK_LANE ? f.at(across, BACK_LANE) : [x, z];
 }
 
-/** Whether x, z is where a truck stands still, other than `but`, with a step's room round it. */
-export function inTruck(site: TruckSite, x: number, z: number, but?: number): boolean {
+/** Whether x, z is where a truck stands still, other than `but`, with a step's room (`pad`) round it. */
+export function inTruck(site: TruckSite, x: number, z: number, but?: number, pad = 0.07): boolean {
   for (const truck of site.entries()) {
     if (truck.view.kind !== 'truck' || truck.view.moving || truck.view.id === but) continue;
     const root = truck.model.root;
@@ -116,7 +114,6 @@ export function inTruck(site: TruckSite, x: number, z: number, but?: number): bo
     const s = Math.sin(-root.rotation.y);
     const along = dx * c + dz * s;
     const across = -dx * s + dz * c;
-    const pad = 0.07;
     if (
       along > box.min.x - pad &&
       along < box.max.x + pad &&
@@ -130,10 +127,9 @@ export function inTruck(site: TruckSite, x: number, z: number, but?: number): bo
 }
 
 /**
- * A dockhand or forklift loading a truck stands clear of it. A dockhand
- * stands at its side or tail, whichever of them beside the crate's place
- * on its bed is nearest, and leans over to it; a forklift backs off as
- * far as it takes, its forks reaching in over the side.
+ * A dockhand loading a truck stands clear of it, at its side or tail,
+ * whichever of them beside the crate's place on its bed is nearest, and
+ * leans over to it. (A forklift lines up to it; see forks.ts.)
  */
 export function clearOfTruck(
   site: TruckSite,
@@ -144,74 +140,43 @@ export function clearOfTruck(
   const id = v.handAt?.truck;
   const truck = id === undefined ? undefined : site.entry(id);
   if (!at || at.fixed || !truck || truck.view.kind !== 'truck') return at;
-  if (v.kind !== 'dockhand' && v.kind !== 'forklift') return at;
+  if (v.kind !== 'dockhand') return at;
   const box = (truck.size ??= sizeOf(truck.model.root));
   const root = truck.model.root;
   const c = Math.cos(-root.rotation.y);
   const s = Math.sin(-root.rotation.y);
-  if (v.kind === 'dockhand') {
-    const p = new Vector3();
-    if (site.handSlot(v.handAt!, p) === null) return at;
-    const ox = root.position.x;
-    const oz = root.position.z;
-    const along = (p.x - ox) * c + (p.z - oz) * s;
-    const across = -(p.x - ox) * s + (p.z - oz) * c;
-    const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
-    const gap = 0.1;
-    // Either side, abreast of the crate's place, or at the tail; never the cab.
-    const spots: [number, number][] = [
-      [lie(along, box.min.x, box.max.x), box.min.z - gap],
-      [lie(along, box.min.x, box.max.x), box.max.z + gap],
-      [box.min.x - gap, lie(across, box.min.z, box.max.z)],
-    ];
-    let best: [number, number] | undefined;
-    let least = Infinity;
-    for (const [a, b] of spots) {
-      const x = ox + a * c - b * s;
-      const z = oz + a * s + b * c;
-      if (surfaceY(site.map, x, z) <= 0 || inTruck(site, x, z, id)) continue;
-      const cost = Math.hypot(x - from.x, z - from.z);
-      if (cost < least) [best, least] = [[x, z], cost];
-    }
-    if (!best) return at;
-    const [x, z] = best;
-    return {
-      x,
-      z,
-      dir: Math.atan2(p.z - z, p.x - x),
-      h: p.y - surfaceY(site.map, x, z),
-      over: Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - HAND_REACH)),
-    };
-  }
-  // Points of the body that must keep off it, ahead of and to the right of its middle.
-  const body: [number, number][] = [
-    [0.18, -0.16],
-    [0.18, 0.16],
-    [-0.26, -0.16],
-    [-0.26, 0.16],
+  const p = new Vector3();
+  if (site.handSlot(v.handAt!, p) === null) return at;
+  const ox = root.position.x;
+  const oz = root.position.z;
+  const along = (p.x - ox) * c + (p.z - oz) * s;
+  const across = -(p.x - ox) * s + (p.z - oz) * c;
+  const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
+  const gap = 0.1;
+  // Either side, abreast of the crate's place, or at the tail; never the cab.
+  const spots: [number, number][] = [
+    [lie(along, box.min.x, box.max.x), box.min.z - gap],
+    [lie(along, box.min.x, box.max.x), box.max.z + gap],
+    [box.min.x - gap, lie(across, box.min.z, box.max.z)],
   ];
-  const pad = 0.02;
-  const inside = (x: number, z: number) =>
-    body.some(([f, r]) => {
-      const px = x + Math.cos(at.dir) * f - Math.sin(at.dir) * r - root.position.x;
-      const pz = z + Math.sin(at.dir) * f + Math.cos(at.dir) * r - root.position.z;
-      const along = px * c + pz * s;
-      const across = -px * s + pz * c;
-      return (
-        along > box.min.x - pad &&
-        along < box.max.x + pad &&
-        across > box.min.z - pad &&
-        across < box.max.z + pad
-      );
-    });
-  let back = 0;
-  while (back < 0.6 && inside(at.x - Math.cos(at.dir) * back, at.z - Math.sin(at.dir) * back)) {
-    back += 0.02;
+  let best: [number, number] | undefined;
+  let least = Infinity;
+  for (const [a, b] of spots) {
+    const x = ox + a * c - b * s;
+    const z = oz + a * s + b * c;
+    if (surfaceY(site.map, x, z) <= 0 || inTruck(site, x, z, id)) continue;
+    const cost = Math.hypot(x - from.x, z - from.z);
+    if (cost < least) [best, least] = [[x, z], cost];
   }
-  if (back === 0) return at;
-  const x = at.x - Math.cos(at.dir) * back;
-  const z = at.z - Math.sin(at.dir) * back;
-  return { ...at, x, z, h: at.h + surfaceY(site.map, at.x, at.z) - surfaceY(site.map, x, z) };
+  if (!best) return at;
+  const [x, z] = best;
+  return {
+    x,
+    z,
+    dir: Math.atan2(p.z - z, p.x - x),
+    h: p.y - surfaceY(site.map, x, z),
+    over: Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - HAND_REACH)),
+  };
 }
 
 /**

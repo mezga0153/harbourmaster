@@ -202,6 +202,8 @@ export interface About {
   /** The sim tick of the snapshot it started in, so it starts once. */
   tick: number;
   done: boolean;
+  /** How far over from where the way has it it is all the way round, as it was drawn clear of a truck when it started. */
+  off?: [number, number];
 }
 
 /** Where a forklift turning about is, at a point of the way, and which way it faces. */
@@ -209,9 +211,10 @@ export function aboutAt(about: About, x: number, y: number): [number, number, nu
   const ux = Math.cos(about.dir);
   const uy = Math.sin(about.dir);
   const at = about.path.at((x - about.x) * ux + (y - about.y) * uy);
+  const [ox, oy] = about.off ?? [0, 0];
   return [
-    x + ux * at.ahead - uy * at.right,
-    y + uy * at.ahead + ux * at.right,
+    x + ux * at.ahead - uy * at.right + ox,
+    y + uy * at.ahead + ux * at.right + oy,
     about.dir + at.face,
   ];
 }

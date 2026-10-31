@@ -333,7 +333,7 @@ export function gantryLifts(world: World): Map<number, GantryWork & { yard: numb
 export function handView(
   w: World,
   p: Dockhand,
-): Pick<EntityView, 'handStage' | 'handPhase' | 'handTicks' | 'handAt'> {
+): Pick<EntityView, 'handStage' | 'handPhase' | 'handTicks' | 'handAt' | 'handCount'> {
   if (p.state !== 'picking' && p.state !== 'dropping') return {};
   const pick = p.state === 'picking';
   const crates = p.kind === 'forklift' || p.kind === 'dockhand';
@@ -345,6 +345,7 @@ export function handView(
     handPhase: clamp(1 - p.timer / ticks, 0, 1),
     handTicks: ticks,
     handAt: at,
+    ...(crates && pick ? { handCount: p.planned } : {}),
   };
 }
 

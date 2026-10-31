@@ -453,6 +453,36 @@ export class Structures {
     return undefined;
   }
 
+  /**
+   * Whether a crate shows on the ground at x, z, `pad` round it: in a truck
+   * bay's stack or crate storage, piled on the quay or on a jib crane's
+   * landing stack. For a forklift to keep its body off them.
+   */
+  crateIn(x: number, z: number, pad = 0): boolean {
+    const m = this.map;
+    const at = new Vector3();
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = Math.floor(x) + dx;
+        const tz = Math.floor(z) + dz;
+        if (!m.inBounds(tx, tz)) continue;
+        const i = m.idx(tx, tz);
+        const crates = [
+          ...(this.stackAt(i)?.crates ?? []),
+          ...(this.stock.piles.get(i)?.crates ?? []),
+          ...(this.craneAt(i)?.jib ? this.craneAt(i)!.stack : []),
+        ];
+        for (const c of crates) {
+          if (!c.visible) continue;
+          c.getWorldPosition(at);
+          const half = (c.userData.size ?? 0.17) / 2 + pad;
+          if (Math.abs(at.x - x) < half && Math.abs(at.z - z) < half) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** How many containers a truck or tractor shows. */
   private shownOn(id: number | undefined): number {
     let n = 0;

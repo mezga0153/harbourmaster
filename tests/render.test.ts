@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Group, Vector3, type Object3D } from 'three';
 import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN } from '../src/sim/balance';
-import { FACING, placementError } from '../src/sim/rules';
+import { depotDoorTrouble, FACING, frontOf, placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { Entities, turnAbout } from '../src/render/entities';
@@ -636,4 +636,208 @@ describe('Trucks at a truck bay', () => {
     }
     expect(beside).toBeGreaterThan(100);
   }, 60_000);
+});
+
+/**
+ * The starting jetty paved into a quay with a jib crane at its tip and
+ * crate storage beside it, no dockhands unless `hands`, and a depot of
+ * forklifts: they take the crates the crane swings into storage on to the
+ * truck bay, and onto the trucks there.
+ */
+function forkPort(hands = false): World {
+  const world = World.create(7, 96);
+  const m = world.map;
+  world.boats.length = 0;
+  world.tier = 1;
+  world.cash = 1_000_000;
+  const r = m.yOf(m.entry);
+  const jetty = [...m.build.keys()].filter((i) => m.yOf(i) === r && m.build[i] === Build.Jetty);
+  world.command({ type: 'build', kind: 'quay', tiles: jetty });
+  const paths = [...m.build.keys()].filter((i) => m.build[i] === Build.Footpath);
+  world.command({ type: 'build', kind: 'portRoad', tiles: paths });
+  const office = m.build.findIndex((b, i) => b === Build.None && !placementError(m, 'office', i));
+  world.command({ type: 'build', kind: 'office', tiles: [office] });
+  world.command({ type: 'build', kind: 'jibCrane', tiles: [jetty[jetty.length - 1]] });
+  world.command({ type: 'store', tiles: jetty.slice(-3, -1), kind: 'crates', on: true });
+  for (const p of world.people.filter((q) => q.kind === 'dockhand' && !hands)) {
+    world.command({ type: 'fire', id: p.id });
+  }
+  // Its door onto a port road.
+  for (let i = 0; i < m.build.length; i++) {
+    if (placementError(m, 'depot', i)) continue;
+    const f = [0, 1, 2, 3].find((f) => {
+      const front = frontOf(m, i, f);
+      return !depotDoorTrouble(m, i, f) && front >= 0 && m.build[front] === Build.PortRoad;
+    });
+    if (f === undefined) continue;
+    world.command({ type: 'build', kind: 'depot', tiles: [i], facing: f });
+    for (let k = 0; k < 2; k++) world.command({ type: 'buyMachine', kind: 'forklift', tile: i });
+    break;
+  }
+  expect(world.people.filter((p) => p.kind === 'forklift')).toHaveLength(2);
+  return world;
+}
+
+describe('Forklifts handling crates', () => {
+  /** Points of a forklift's body, ahead of and to the right of its middle; not its forks. */
+  const BODY: [number, number][] = [
+    [0.18, -0.15],
+    [0.18, 0],
+    [0.18, 0.15],
+    [-0.04, -0.15],
+    [-0.04, 0.15],
+    [-0.26, -0.15],
+    [-0.26, 0],
+    [-0.26, 0.15],
+  ];
+
+  it('line up square, drive in with the forks at the height of the load, take it off the top, and keep off trucks and crates', () => {
+    const world = forkPort();
+    const m = world.map;
+    const structures = new Structures(m, true);
+    const entities = new Entities(m);
+    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    structures.slotObject = (id, k) => entities.slotObject(id, k);
+    entities.containerAt = (at, out) => structures.containerAt(at, out);
+    entities.crateIn = (x, z, pad) => structures.crateIn(x, z, pad);
+    const scene = new Group();
+    scene.add(structures.group, entities.group);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entries = (entities as any).entries as Map<number, any>;
+    const shows = (o: Object3D) => {
+      for (let p: Object3D | null = o; p; p = p.parent) if (!p.visible) return false;
+      return true;
+    };
+    // Every crate a forklift may take or set down: in storage, at the truck
+    // bay, on the trucks.
+    const cratesShown = () => {
+      const at = new Map<Object3D, Vector3>();
+      const add = (c: Object3D) => shows(c) && at.set(c, c.getWorldPosition(new Vector3()));
+      structures.group.traverse((o) => o.userData.size && add(o));
+      for (const e of entries.values()) if (e.view.kind === 'truck') e.model.crates.forEach(add);
+      return at;
+    };
+    const still = new Map<number, number>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    type Seen = { load: number; lined: boolean; plan?: any };
+    const was = new Map<number, Seen>();
+    let shown = new Map<Object3D, Vector3>();
+    let hands = 0;
+    let high = 0;
+    let onTrucks = 0;
+    let driving = 0;
+    let inTrucks = 0;
+    let inCrates = 0;
+    for (let t = 0, now = 0; t < TICKS_PER_DAY * 6; t++) {
+      world.step();
+      const s = world.snapshot();
+      entities.push(s.entities, now, s.tick);
+      structures.setBays(s.bays);
+      structures.setPiles(s.piles);
+      for (const v of s.entities) {
+        if (v.kind === 'truck') still.set(v.id, v.moving ? 0 : (still.get(v.id) ?? 0) + 1);
+      }
+      for (let f = 0; f < 6; f++) {
+        now += 100 / 6;
+        entities.update(now, now / 1000);
+        structures.update(1 / 60, now / 1000);
+        scene.updateMatrixWorld(true);
+        const crates = cratesShown();
+        for (const e of entries.values()) {
+          const v = e.view;
+          if (v.kind !== 'forklift') continue;
+          const root = e.model.root;
+          const dir = -root.rotation.y;
+          const w: Seen = was.get(v.id) ?? { load: v.load, lined: false };
+          // As it was the frame before: going straight on to the next load,
+          // it has a new one by the time this shows the last change hands.
+          const plan = w.plan;
+          // Lined up square on to it, back from it, before driving in.
+          if (e.hand?.plan && v.handStage) {
+            const p = e.hand.plan;
+            const d = Math.hypot(root.position.x - p.line.x, root.position.z - p.line.z);
+            if (d < 0.02 && Math.cos(dir - p.line.dir) > 0.9999 && p === w.plan) w.lined = true;
+          }
+          if (v.load !== w.load && plan) {
+            // The load changed hands: up to it, forks under it, square on.
+            const pick = v.load > w.load;
+            const moved = (pick ? [...shown] : [...crates]).filter(
+              ([c, p]) =>
+                !(pick ? crates : shown).has(c) &&
+                Math.hypot(p.x - root.position.x, p.z - root.position.z) < 1,
+            );
+            expect(moved.length).toBeGreaterThan(0);
+            hands++;
+            if (plan.line.x !== plan.goal.x || plan.line.z !== plan.goal.z) {
+              expect(w.lined).toBe(true);
+            }
+            expect(
+              Math.hypot(root.position.x - plan.goal.x, root.position.z - plan.goal.z),
+            ).toBeLessThan(0.01);
+            const [c0] = moved[0];
+            c0.updateWorldMatrix(true, false);
+            const el = c0.matrixWorld.elements;
+            expect(Math.abs(Math.sin(2 * (dir - Math.atan2(el[2], el[0]))))).toBeLessThan(0.01);
+            // The forks at the height of the lowest of them, the pallet among them.
+            const forks = e.model.forks.getWorldPosition(new Vector3());
+            const low = Math.min(...moved.map(([, p]) => p.y));
+            expect(Math.abs(forks.y + 0.04 - low)).toBeLessThan(0.03);
+            if (low - surfaceY(m, root.position.x, root.position.z) > 0.1) high++;
+            const pallet = e.model.forks.localToWorld(new Vector3(0.3, 0, 0));
+            const near = Math.min(
+              ...moved.map(([, p]) => Math.hypot(p.x - pallet.x, p.z - pallet.z)),
+            );
+            expect(near).toBeLessThan(0.2);
+            if (moved.some(([c]) => entities.group.getObjectById(c.id))) onTrucks++;
+            // Off the top: nothing left on what it took.
+            if (pick) {
+              for (const [, p] of crates) {
+                for (const [, q] of moved) {
+                  expect(Math.hypot(p.x - q.x, p.z - q.z) < 0.05 && p.y > q.y + 0.01).toBe(false);
+                }
+              }
+            }
+          }
+          w.load = v.load;
+          if (w.plan !== e.hand?.plan) w.lined = false;
+          w.plan = e.hand?.plan;
+          was.set(v.id, w);
+          // Driving about, out of its depot's door: its body off the trucks
+          // standing still and the crates.
+          if (e.hand || e.dock || !v.moving) continue;
+          driving++;
+          const points = BODY.map(([a, b]) => [
+            root.position.x + Math.cos(dir) * a - Math.sin(dir) * b,
+            root.position.z + Math.sin(dir) * a + Math.cos(dir) * b,
+          ]);
+          if (points.some(([x, z]) => structures.crateIn(x, z, -0.05))) inCrates++;
+          for (const truck of entries.values()) {
+            if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
+            const body = truck.size as Box3 | undefined;
+            if (!body) continue;
+            const r = truck.model.root;
+            const td = -r.rotation.y;
+            const hit = points.some(([x, z]) => {
+              const a = (x - r.position.x) * Math.cos(td) + (z - r.position.z) * Math.sin(td);
+              const b = -(x - r.position.x) * Math.sin(td) + (z - r.position.z) * Math.cos(td);
+              const q = 0.05;
+              return (
+                a > body.min.x + q && a < body.max.x - q && b > body.min.z + q && b < body.max.z - q
+              );
+            });
+            if (hit) inTrucks++;
+          }
+        }
+        shown = crates;
+      }
+    }
+    expect(hands).toBeGreaterThan(30);
+    // Some up on a stack or a truck's bed, some onto the trucks.
+    expect(high).toBeGreaterThan(5);
+    expect(onTrucks).toBeGreaterThan(5);
+    expect(driving).toBeGreaterThan(1000);
+    expect(inCrates).toBe(0);
+    expect(inTrucks).toBe(0);
+  }, 120_000);
 });

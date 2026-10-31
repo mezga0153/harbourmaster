@@ -601,7 +601,7 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
     const xs = area.map((t) => m.xOf(t));
     const ys = area.map((t) => m.yOf(t));
     const alongX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
-    for (const a of [0.28, 0.72]) {
+    for (const a of [0.25, 0.75]) {
       for (const b of [0.29, 0.71]) {
         const place = new Group();
         // Its forks' way runs along local x; across the area's length.
