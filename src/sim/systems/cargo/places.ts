@@ -28,6 +28,7 @@ import * as B from '../../balance';
 import { needsCustoms, needsPapers } from '../../helpers';
 import { drivable, forksAlongZ } from '../../rules';
 import { Build } from '../../types';
+import { bayCells } from '../../rules/cells';
 import { jibLoadReach } from './exports';
 import { jibTiles } from './stores';
 
@@ -686,4 +687,24 @@ export function shownSlots(
   const { crates, exports } = crateSlots(w, b);
   const gone = new Set(moved.takenAt);
   return [...crates, ...exports.map((s) => (gone.has(s) ? -1 : s)), ...moved.setAt];
+}
+
+/** The middle two by two cells of a tile, as bits (cell cx, cz the bit cz * SUB + cx). */
+const MIDDLE_CELLS = (1 << 5) | (1 << 6) | (1 << 9) | (1 << 10);
+
+/**
+ * Where crate slot `s` of bay `b` stands on the staff's cells (a tile cut
+ * four by four, see rules/cells.ts): its tile, and the cells of it its
+ * stack takes up, as bits (cell cx, cz the bit cz * SUB + cx): in crate
+ * storage and a pile on the quay the middle two by two of the tile, at a
+ * truck bay the front row of its stack or, for the row behind, both.
+ */
+export function slotCells(w: World, b: Bay, s: number): { tile: number; cells: number } {
+  if (b.tiles) {
+    return { tile: b.tiles[Math.floor(s / B.CRATES_PER_STORE_TILE)] ?? b.idx, cells: MIDDLE_CELLS };
+  }
+  if (w.map.build[b.idx] === Build.TruckBay) {
+    return { tile: b.idx, cells: bayCells(w.map.orient[b.idx], null, true, s >= 8) };
+  }
+  return { tile: b.idx, cells: MIDDLE_CELLS };
 }

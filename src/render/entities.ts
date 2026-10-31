@@ -738,7 +738,10 @@ export class Entities {
       y + fx * k + fz * a,
     ];
     const blocked = (o: [number, number]) => bodyBlocked(this.forkSite, ...at(o), way);
-    let want: [number, number] = [FORK_KEEP, 0];
+    // Driving cell by cell, it goes just where the game has it, round the
+    // crates; tile by tile, to the right of the middle of its way.
+    const usual = e.view.cells ? 0 : FORK_KEEP;
+    let want: [number, number] = [usual, 0];
     const [k0, a0] = e.keep ?? want;
     // Crates or a truck on its way ahead: it picks the lane past them as
     // it comes up to them, the clearest nearest the one it is in.
@@ -752,9 +755,8 @@ export class Entities {
             onGrid(grid, p.x - Math.sin(p.dir) * k, p.z + Math.cos(p.dir) * k, p.dir, AHEAD_OFF),
         0,
       );
-    if (looks.length > 0 && ahead(FORK_KEEP) > 0) {
-      const score = (k: number) =>
-        ahead(k) + 0.4 * Math.abs(k - k0) + 0.2 * Math.abs(k - FORK_KEEP);
+    if (looks.length > 0 && ahead(usual) > 0) {
+      const score = (k: number) => ahead(k) + 0.4 * Math.abs(k - k0) + 0.2 * Math.abs(k - usual);
       const lanes = FORK_LANES.map((k) => [k, score(k)] as const).sort((p, q) => p[1] - q[1]);
       const lane = lanes.find(([k]) => blocked([k, 0]) === 0);
       if (lane) want = [lane[0], 0];
@@ -766,7 +768,12 @@ export class Entities {
         z: p.z + Math.cos(p.dir) * want[0],
       })),
     ];
-    if (blocked(want) > 0) {
+    // Driving through a depot, as along a row of them to its own, all of it
+    // is off the ground it drives on: it keeps to its lane, through the doors.
+    const [tx, tz] = [Math.floor(x), Math.floor(y)];
+    const inDepot =
+      this.map.inBounds(tx, tz) && this.map.build[this.map.idx(tx, tz)] === Build.Depot;
+    if (!inDepot && blocked(want) > 0) {
       // The clear spot nearest where it is drawn, so it never cuts across
       // crates to get to another: held back as it drives in, it stays back.
       const near = (o: [number, number]) => Math.hypot(o[0] - k0, o[1] - a0);
@@ -933,11 +940,18 @@ export class Entities {
     const tiles = v.moving ? v.ahead : undefined;
     if (!tiles || tiles.length === 0) return [];
     const m = this.map;
-    const pts: Point[] = [
-      { x, z: y },
-      ...tiles.map((t) => ({ x: m.xOf(t) + 0.5, z: m.yOf(t) + 0.5 })),
-    ];
-    if (tiles.length < AHEAD_TILES) {
+    const cells = v.cells;
+    // A forklift driving cell by cell: by the corners the game has it go by, to where it stops.
+    const pts: Point[] = cells
+      ? [
+          { x, z: y },
+          ...Array.from({ length: cells.length / 2 }, (_, k) => ({
+            x: cells[2 * k],
+            z: cells[2 * k + 1],
+          })),
+        ]
+      : [{ x, z: y }, ...tiles.map((t) => ({ x: m.xOf(t) + 0.5, z: m.yOf(t) + 0.5 }))];
+    if (!cells && tiles.length < AHEAD_TILES) {
       const [a, b] = pts.slice(-2);
       const d = Math.hypot(b.x - a.x, b.z - a.z);
       if (d > 0.5)
@@ -1191,7 +1205,15 @@ export class Entities {
     // behind the stack, clear of the truck.
     const corner = v.kind === 'dockhand' && bayStand(this.trucks, v, at);
     if (corner) {
-      const { x, z } = corner;
+      // On a clear cell of the bay's grid, off its crates and the half its truck stands in.
+      const clear = this.staffGrid.nearestFree(
+        'dockhand',
+        corner.x,
+        corner.z,
+        0.5,
+        WALK_OFF | CELL_TRUCK,
+      );
+      const { x, z } = clear ?? corner;
       const dir = Math.atan2(p.z - z, p.x - x);
       const over =
         v.kind === 'dockhand'

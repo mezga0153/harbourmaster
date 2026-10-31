@@ -84,7 +84,15 @@ export interface EntityView {
    * them; fewer, and the last is where they are going.
    */
   ahead?: number[];
+  /**
+   * Forklifts driving cell by cell (see forkCells.ts): the corners they go
+   * by next, as x, y pairs, the last where they stop, up to AHEAD_CELLS.
+   */
+  cells?: number[];
 }
+
+/** How many of the corners ahead of a forklift driving cell by cell the game tells; see EntityView.cells. */
+export const AHEAD_CELLS = 10;
 
 /** How many of the tiles ahead of a dockhand or forklift on its way the game tells; see EntityView.ahead. */
 export const AHEAD_TILES = 4;

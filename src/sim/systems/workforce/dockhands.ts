@@ -1,6 +1,7 @@
 // Dockhands and port machines: hiring them in, depots, fuel and repairs,
 // walking and driving, each one's turn, and the jobs they take.
 
+import { moveCells } from './forkCells';
 import { onBed } from '../cargo/beds';
 import type { World } from '../../world';
 import { exportSources, loadSpot, takeExportJob, wantsLoad } from '../cargo/exports';
@@ -374,7 +375,10 @@ export function walk(w: World, p: Dockhand) {
     const room = () =>
       boxy && !p.squeeze ? Math.min(roomAhead(w, p) - B.TRUCK_GAP, toStopLine(w, p)) : Infinity;
     const [x0, y0] = [p.x, p.y];
-    r = w.move(p, w.driveCost, true, () => drive(w, p, speed, room()), enter, repath);
+    // A forklift goes cell by cell round the crates on its way; see forkCells.ts.
+    const v = drive(w, p, speed, room());
+    const cells = p.kind === 'forklift' ? moveCells(w, p, v, enter) : null;
+    r = cells ?? w.move(p, w.driveCost, true, () => v, enter, repath);
     // Held up behind something, it is waiting as at a tile it may not enter.
     if (r === 'moving' && p.x === x0 && p.y === y0) r = 'waiting';
   } else {

@@ -1,6 +1,7 @@
 import type { CostFn } from '../sim/path';
+import { forkCells } from '../sim/systems/workforce/forkCells';
 import { truckCost } from '../sim/rules';
-import type { Agent, Bay } from '../sim/state';
+import type { Agent, Bay, Dockhand } from '../sim/state';
 import { reserved, slotted, usedSlots } from '../sim/systems/cargo/places';
 import { truckCostFor } from '../sim/systems/roads/bays';
 import { forkCost } from '../sim/systems/workforce/crowding';
@@ -49,6 +50,7 @@ function pathOf(a: Agent, kind: string): DebugPath {
     goal: a.goal,
     state: (a as { state?: string }).state,
     round: round?.length ? round.slice() : undefined,
+    cells: kind === 'forklift' ? forkCells(a as Dockhand)?.flatMap((c) => [c.x, c.z]) : undefined,
   };
 }
 

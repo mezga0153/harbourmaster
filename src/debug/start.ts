@@ -161,7 +161,14 @@ export function startDebug(hooks: DebugHooks): { receive(view: DebugView): void 
     for (const p of view.paths) {
       const color = p.id === sel ? SELECTED : new Color(PATH_COLOR[p.kind] ?? 0xffffff);
       let at: DebugPoint = { x: p.x, z: p.y };
-      for (const i of p.path) {
+      // A forklift driving cell by cell: by the corners it goes by, round the crates.
+      const cells = p.cells && p.cells.length > 0 ? p.cells : null;
+      for (let k = 0; cells && k + 1 < cells.length; k += 2) {
+        const next = { x: cells[k], z: cells[k + 1] };
+        segs.push({ a: at, b: next, color });
+        at = next;
+      }
+      for (const i of cells ? [] : p.path) {
         const next = centre(i);
         segs.push({ a: at, b: next, color });
         at = next;

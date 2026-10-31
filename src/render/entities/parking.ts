@@ -94,6 +94,13 @@ export function parkOut(map: GameMap, sim: number, e: Entry, was: Pose): void {
     e.dock = undefined;
     return;
   }
+  // Gone on past the tile at its door, as the game has it, as when its way
+  // runs back along beside the depot: it is out, whichever way it went.
+  const [vx, vy] = [Math.floor(e.view.x), Math.floor(e.view.y)];
+  const door = frontOf(m, m.idx(tx, ty), facing);
+  const far = Math.hypot(e.view.x - m.xOf(door) - 0.5, e.view.y - m.yOf(door) - 0.5) > 1.2;
+  const gone = far && m.inBounds(vx, vy) && m.build[m.idx(vx, vy)] !== Build.Depot;
+  if (dock.out === undefined && gone) dock.out = sim;
   if (dock.out === undefined) {
     if (depth - Math.hypot(behind, size.half) > 1) dock.out = sim;
     else if (depth - behind < 1) {

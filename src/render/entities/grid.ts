@@ -1,6 +1,7 @@
 import type { GameMap } from '../../sim/map';
 import { drivable } from '../../sim/rules';
 import { Build } from '../../sim/types';
+import { bayCells, CELL, cellPath, pullStraight, SUB, unturned } from '../../sim/rules/cells';
 import { surfaceY } from '../terrain';
 
 // The ground the port's staff find their way across, a tile cut into four
@@ -12,10 +13,7 @@ import { surfaceY } from '../terrain';
 // Worked out a tile at a time as it is asked about, and afresh with each
 // snapshot from the game.
 
-/** Cells across a tile, each way. */
-export const SUB = 4;
-/** How wide a cell is, in tiles. */
-export const CELL = 1 / SUB;
+export { CELL, SUB };
 
 /** What is in a cell, as bits. */
 export const CELL_CRATE = 1;
@@ -75,24 +73,10 @@ export interface GridSources {
 const TRUCK_PAD = 0.02;
 /** How far ahead of a truck's cab dockhands keep out; see FRONT_CLEAR in trucks.ts. */
 const CAB_CLEAR = 0.5;
-/** How much more a step into a cell kept out of costs than one across clear ground. */
-const BLOCKED_COST = 40;
 /** How far apart points along a way are checked, in tiles. */
 const LINE_STEP = 0.06;
 /** Half how wide a dockhand and a forklift are, checking a point or a way is clear. */
 export const HALF: Record<Staff, number> = { dockhand: 0.05, forklift: 0.24 };
-
-/** The eight steps across the grid, orthogonal first. */
-const STEPS: [number, number][] = [
-  [1, 0],
-  [0, 1],
-  [-1, 0],
-  [0, -1],
-  [1, 1],
-  [-1, 1],
-  [-1, -1],
-  [1, -1],
-];
 
 export class StaffGrid {
   /** Bumped with each snapshot, so tiles are worked out afresh as they are asked about. */
@@ -272,92 +256,32 @@ export class StaffGrid {
     const m = this.src.map;
     // Forklifts' nodes are the corners between cells: one more each way.
     const extra = kind === 'forklift' ? 1 : 0;
-    const lo = (a: number, b: number) => Math.max(0, Math.floor((Math.min(a, b) - room) * SUB));
-    const hiX = Math.min(m.w * SUB - 1 + extra, Math.ceil((Math.max(from.x, to.x) + room) * SUB));
-    const hiZ = Math.min(m.h * SUB - 1 + extra, Math.ceil((Math.max(from.z, to.z) + room) * SUB));
-    const x0 = lo(from.x, to.x);
-    const z0 = lo(from.z, to.z);
-    const nx = hiX - x0 + 1;
-    const nz = hiZ - z0 + 1;
-    if (nx <= 0 || nz <= 0) return [];
-    const nearest = (p: Point): number => {
-      const ix = kind === 'dockhand' ? Math.floor(p.x * SUB) : Math.round(p.x * SUB);
-      const iz = kind === 'dockhand' ? Math.floor(p.z * SUB) : Math.round(p.z * SUB);
-      return Math.min(nx - 1, Math.max(0, ix - x0)) + Math.min(nz - 1, Math.max(0, iz - z0)) * nx;
-    };
-    const start = nearest(from);
-    const goal = nearest(to);
-    const count = nx * nz;
-    // Each node's state: 0 not seen, 1 open, 2 done; whether it is clear, worked out once.
-    const g = new Float64Array(count).fill(Infinity);
-    const came = new Int32Array(count).fill(-1);
-    const state = new Uint8Array(count);
-    const clear = new Int8Array(count);
-    const isClear = (n: number) => {
-      if (clear[n] === 0) {
-        clear[n] = this.nodeFree(kind, (n % nx) + x0, Math.floor(n / nx) + z0) ? 1 : -1;
-      }
-      return clear[n] === 1;
-    };
-    const goalAt = this.node(kind, (goal % nx) + x0, Math.floor(goal / nx) + z0);
-    const guess = (n: number) => {
-      const p = this.node(kind, (n % nx) + x0, Math.floor(n / nx) + z0);
-      return Math.hypot(p.x - goalAt.x, p.z - goalAt.z);
-    };
-    const heap = new Heap();
-    g[start] = 0;
-    heap.push(start, guess(start));
-    state[start] = 1;
-    while (heap.size > 0) {
-      const cur = heap.pop();
-      if (state[cur] === 2) continue;
-      state[cur] = 2;
-      if (cur === goal) break;
-      const cx = cur % nx;
-      const cz = Math.floor(cur / nx);
-      for (let k = 0; k < 8; k++) {
-        const [dx, dz] = STEPS[k];
-        const x = cx + dx;
-        const z = cz + dz;
-        if (x < 0 || x >= nx || z < 0 || z >= nz) continue;
-        const n = x + z * nx;
-        if (state[n] === 2) continue;
-        // Never across the corner of a cell kept out of.
-        if (k >= 4 && (!isClear(cx + dx + cz * nx) || !isClear(cx + (cz + dz) * nx))) {
-          if (isClear(cur)) continue;
-        }
-        const step = CELL * (k >= 4 ? Math.SQRT2 : 1) * (isClear(n) ? 1 : BLOCKED_COST);
-        const cost = g[cur] + step;
-        if (cost >= g[n]) continue;
-        g[n] = cost;
-        came[n] = cur;
-        state[n] = 1;
-        heap.push(n, cost + guess(n));
-      }
-    }
-    if (goal !== start && came[goal] < 0) return [];
-    const nodes: Point[] = [];
-    for (let n = goal; n !== start && n >= 0; n = came[n]) {
-      nodes.push(this.node(kind, (n % nx) + x0, Math.floor(n / nx) + z0));
-    }
-    nodes.reverse();
-    const points = [from, ...nodes, to];
-    // Pulled straight between corners wherever that is no worse.
-    const way: Point[] = [from];
-    for (let i = 0; i < points.length - 1;) {
-      let j = points.length - 1;
-      while (j > i + 1) {
-        let steps = 0;
-        for (let k = i; k < j; k++) steps += this.lineBlocked(kind, points[k], points[k + 1]);
-        const straight = this.lineBlocked(kind, points[i], points[j]);
-        // Through no more than the way round, and never across what it goes round.
-        if (straight === 0 || straight < steps) break;
-        j--;
-      }
-      way.push(points[j]);
-      i = j;
-    }
-    return way.slice(1, -1);
+    const nodeOf = (p: Point): [number, number] =>
+      kind === 'dockhand'
+        ? [Math.floor(p.x * SUB), Math.floor(p.z * SUB)]
+        : [Math.round(p.x * SUB), Math.round(p.z * SUB)];
+    const end = nodeOf(to);
+    const goalAt = this.node(kind, ...end);
+    const nodes = cellPath({
+      bounds: [
+        Math.max(0, Math.floor((Math.min(from.x, to.x) - room) * SUB)),
+        Math.max(0, Math.floor((Math.min(from.z, to.z) - room) * SUB)),
+        Math.min(m.w * SUB - 1 + extra, Math.ceil((Math.max(from.x, to.x) + room) * SUB)),
+        Math.min(m.h * SUB - 1 + extra, Math.ceil((Math.max(from.z, to.z) + room) * SUB)),
+      ],
+      free: (nx, nz) => this.nodeFree(kind, nx, nz),
+      at: (nx, nz) => this.node(kind, nx, nz),
+      lineBlocked: (a, b) => this.lineBlocked(kind, a, b),
+      start: nodeOf(from),
+      goal: (nx, nz) => nx === end[0] && nz === end[1],
+      guess: (nx, nz) => {
+        const p = this.node(kind, nx, nz);
+        return Math.hypot(p.x - goalAt.x, p.z - goalAt.z);
+      },
+    });
+    if (!nodes) return [];
+    const points = [from, ...nodes.slice(1).map(([x, z]) => this.node(kind, x, z)), to];
+    return pullStraight(points, (a, b) => this.lineBlocked(kind, a, b));
   }
 
   /** Work out tile t's cells afresh. */
@@ -402,6 +326,15 @@ export class StaffGrid {
         for (const c of this.cratesOn(m.idx(tx + dx, tz + dz))) {
           mark(c.x - c.half, c.x + c.half, c.z - c.half, c.z + c.half, CELL_CRATE);
         }
+      }
+    }
+    // A truck standing in a truck bay keeps the whole half of the bay it stands in.
+    if (b === Build.TruckBay) {
+      for (const tr of this.trucks()) {
+        if (tr.pickup || Math.floor(tr.x) !== tx || Math.floor(tr.z) !== tz) continue;
+        const [lx] = unturned(m.orient[t], tr.x - tx, tr.z - tz);
+        const half = bayCells(m.orient[t], lx, false, false);
+        for (let k = 0; k < SUB * SUB; k++) if (half & (1 << k)) this.bits[base + k] |= CELL_TRUCK;
       }
     }
     for (const tr of this.trucks()) {
@@ -453,50 +386,5 @@ export class StaffGrid {
 
   private trucks(): StillTruck[] {
     return (this.truckCache ??= this.src.trucks());
-  }
-}
-
-/** A binary heap of nodes, least first. */
-class Heap {
-  private nodes: number[] = [];
-  private keys: number[] = [];
-  get size(): number {
-    return this.nodes.length;
-  }
-  push(n: number, key: number): void {
-    const { nodes, keys } = this;
-    let i = nodes.length;
-    nodes.push(n);
-    keys.push(key);
-    while (i > 0) {
-      const up = (i - 1) >> 1;
-      if (keys[up] <= key) break;
-      nodes[i] = nodes[up];
-      keys[i] = keys[up];
-      i = up;
-    }
-    nodes[i] = n;
-    keys[i] = key;
-  }
-  pop(): number {
-    const { nodes, keys } = this;
-    const top = nodes[0];
-    const n = nodes.pop()!;
-    const key = keys.pop()!;
-    if (nodes.length > 0) {
-      let i = 0;
-      for (;;) {
-        let c = 2 * i + 1;
-        if (c >= nodes.length) break;
-        if (c + 1 < nodes.length && keys[c + 1] < keys[c]) c++;
-        if (keys[c] >= key) break;
-        nodes[i] = nodes[c];
-        keys[i] = keys[c];
-        i = c;
-      }
-      nodes[i] = n;
-      keys[i] = key;
-    }
-    return top;
   }
 }

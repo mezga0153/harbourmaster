@@ -95,7 +95,8 @@ import {
 import { bedCap, bedSlots } from './cargo/beds';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
-import { AHEAD_TILES } from '../../protocol/views';
+import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
+import { forkCells } from './workforce/forkCells';
 import {
   docked,
   inQueue,
@@ -620,6 +621,12 @@ export function cargoStats(w: World): CargoStats {
   return c;
 }
 
+/** The corners ahead of a forklift driving cell by cell, as x, y pairs; see EntityView.cells. */
+function cellsAhead(p: Dockhand): number[] | undefined {
+  const at = forkCells(p);
+  return at && at.length > 0 ? at.slice(0, AHEAD_CELLS).flatMap((c) => [c.x, c.z]) : undefined;
+}
+
 export function buildSnapshot(w: World): Snapshot {
   const entities: EntityView[] = [];
   const staff: StaffView[] = [];
@@ -646,6 +653,7 @@ export function buildSnapshot(w: World): Snapshot {
         (p.kind === 'dockhand' || p.kind === 'forklift') && p.path.length > 0
           ? p.path.slice(0, AHEAD_TILES)
           : undefined,
+      cells: p.kind === 'forklift' && p.path.length > 0 ? cellsAhead(p) : undefined,
       cargo: isBoxy(p)
         ? undefined
         : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),

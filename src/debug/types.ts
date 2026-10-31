@@ -33,6 +33,8 @@ export interface DebugPath {
   state?: string;
   /** Trucks round on the highway off the map: x, y pairs still to drive. */
   round?: number[];
+  /** Forklifts driving cell by cell: the corners still to go by, x, y pairs, the last where they stop. */
+  cells?: number[];
 }
 
 /**

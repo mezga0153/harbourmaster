@@ -4,6 +4,7 @@ import { TICKS_PER_DAY } from '../src/sim/types';
 import { Entities } from '../src/render/entities';
 import { Structures } from '../src/render/structures';
 import { CELL, CELL_CRATE, SUB, StaffGrid, type CrateBox } from '../src/render/entities/grid';
+import { forkCells, keptCells } from '../src/sim/systems/workforce/forkCells';
 import { wharf } from './wharf';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,5 +122,46 @@ describe('The staff’s grid', () => {
     expect(crossing).toBe(0);
     // A cell is a quarter tile.
     expect(CELL).toBe(0.25);
+  }, 240_000);
+
+  it('has forklifts drive cell by cell round the crates in storage and at the truck bays, two by two cells under them', () => {
+    const world = wharf(4, 2);
+    for (const b of world.bays.values()) {
+      if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 40 }, () => 25);
+    }
+    const m = world.map;
+    const kept = (x: number, z: number) => {
+      const [tx, tz] = [Math.floor(x), Math.floor(z)];
+      const bits = keptCells(world, m.idx(tx, tz));
+      const [cx, cz] = [Math.floor((x - tx) * SUB), Math.floor((z - tz) * SUB)];
+      return (bits & (1 << (cz * SUB + cx))) !== 0;
+    };
+    // A forklift two by two cells round x, z, a little inside them.
+    const under = (x: number, z: number) =>
+      [-0.23, 0.23].some((dx) => [-0.23, 0.23].some((dz) => kept(x + dx, z + dz)));
+    let planned = 0;
+    let samples = 0;
+    let through = 0;
+    for (let t = 0; t < TICKS_PER_DAY; t++) {
+      world.step();
+      for (const p of world.people) {
+        if (p.kind !== 'forklift') continue;
+        const way = forkCells(p);
+        if (!way || way.length === 0) continue;
+        planned++;
+        // From the first corner on: where it is may be among them, getting out.
+        for (let k = 1; k < way.length - 1; k++) {
+          const [a, b] = [way[k - 1], way[k]];
+          const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.06));
+          for (let s = 0; s <= n; s++) {
+            samples++;
+            if (under(a.x + ((b.x - a.x) * s) / n, a.z + ((b.z - a.z) * s) / n)) through++;
+          }
+        }
+      }
+    }
+    expect(planned).toBeGreaterThan(50);
+    expect(samples).toBeGreaterThan(200);
+    expect(through / samples).toBeLessThan(0.01);
   }, 240_000);
 });
