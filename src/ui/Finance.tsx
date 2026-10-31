@@ -21,17 +21,29 @@ const INCOME: { key: LedgerCategory; label: string }[] = [
   { key: 'town', label: 'Town deliveries' },
 ];
 
-const ROWS: { key: LedgerCategory; label: string }[] = [
-  ...INCOME,
+/** Running costs: what keeping the port working costs, day in, day out. */
+const RUNNING: { key: LedgerCategory; label: string }[] = [
   { key: 'wages', label: 'Wages' },
   { key: 'hauliers', label: 'Haulier fees' },
-  { key: 'construction', label: 'Construction' },
   { key: 'hiring', label: 'Hiring' },
-  { key: 'contracts', label: 'Contracts' },
-  { key: 'penalties', label: 'Penalties' },
   { key: 'maintenance', label: 'Maintenance' },
+  { key: 'penalties', label: 'Penalties' },
   { key: 'interest', label: 'Loan interest' },
 ];
+
+/** Investment: the lump sums that build the port up, paid once. */
+const INVESTMENT: { key: LedgerCategory; label: string }[] = [
+  { key: 'construction', label: 'Building and machines' },
+  { key: 'contracts', label: 'Contracts signed' },
+];
+
+const ROWS = [...INCOME, ...RUNNING, ...INVESTMENT];
+
+type Row = (typeof ROWS)[number];
+
+function sum(l: Ledger, rows: Row[]): number {
+  return rows.reduce((n, r) => n + l[r.key], 0);
+}
 
 /** How many days back the charts look; kept while the panel is closed. */
 const RANGES = [7, 30, 60] as const;
@@ -39,16 +51,28 @@ const range = signal<(typeof RANGES)[number]>(30);
 /** The statement line opened to its chart, if any. */
 const opened = signal<LedgerCategory | null>(null);
 
+/** The day's change in cash: everything in less everything out. */
 function total(l: Ledger): number {
-  return ROWS.reduce((n, r) => n + l[r.key], 0);
+  return sum(l, ROWS);
 }
 
 function income(l: Ledger): number {
-  return ROWS.reduce((n, r) => n + Math.max(0, l[r.key]), 0);
+  return sum(l, INCOME);
 }
 
-function costs(l: Ledger): number {
-  return ROWS.reduce((n, r) => n + Math.min(0, l[r.key]), 0);
+/** Running costs, as a negative sum. */
+function running(l: Ledger): number {
+  return sum(l, RUNNING);
+}
+
+/** What was earned over what it cost to run the port: before anything was built or bought. */
+function operating(l: Ledger): number {
+  return income(l) + running(l);
+}
+
+/** Investment, as a negative sum; a refund (a tug sold, say) counts back. */
+function invested(l: Ledger): number {
+  return sum(l, INVESTMENT);
 }
 
 /** Money short enough for an axis or a tile: $840, $12.9K, $4.2M. */
@@ -117,12 +141,15 @@ function DayColumns({
   label,
   tip,
   height = 120,
+  tone,
 }: {
   days: FinanceDay[];
   value: (d: FinanceDay) => number;
   label: string;
   tip: (d: FinanceDay) => ComponentChildren;
   height?: number;
+  /** Investment: every column in the one muted colour, whichever way it goes. */
+  tone?: 'invest';
 }) {
   const { at, setAt } = useHover();
   const H = height;
@@ -192,7 +219,11 @@ function DayColumns({
           />
         )}
         {net.map((v, k) => (
-          <path key={k} class={v >= 0 ? 'viz-gain' : 'viz-loss'} d={column(k, v)} />
+          <path
+            key={k}
+            class={tone === 'invest' ? 'viz-invest' : v >= 0 ? 'viz-gain' : 'viz-loss'}
+            d={column(k, v)}
+          />
         ))}
         <text class="viz-axis" x={PAD.left} y={H - 4}>
           {shortDate(days[0].tick - 1)}
@@ -211,26 +242,65 @@ function DayColumns({
   );
 }
 
-/** Each day's profit or loss. */
-function ProfitChart({ days }: { days: FinanceDay[] }) {
+/**
+ * Each day's operating profit or loss: what the port earned over what it
+ * cost to run, leaving out what was built or bought, which would swamp it.
+ */
+function OperatingChart({ days }: { days: FinanceDay[] }) {
   return (
     <DayColumns
       days={days}
-      value={(d) => total(d.ledger)}
-      label="Profit or loss each day"
+      value={(d) => operating(d.ledger)}
+      label="Operating profit or loss each day"
       tip={(d) => (
         <>
           <div class="viz-tip-row">
-            <span>In</span>
+            <span>Earned</span>
             <span>{money(income(d.ledger))}</span>
           </div>
           <div class="viz-tip-row">
-            <span>Out</span>
-            <span>{money(costs(d.ledger))}</span>
+            <span>Running costs</span>
+            <span>{money(running(d.ledger))}</span>
           </div>
           <div class="viz-tip-row strong">
-            <span>{total(d.ledger) >= 0 ? 'Profit' : 'Loss'}</span>
-            <span>{money(total(d.ledger))}</span>
+            <span>{operating(d.ledger) >= 0 ? 'Operating profit' : 'Operating loss'}</span>
+            <span>{money(operating(d.ledger))}</span>
+          </div>
+          {invested(d.ledger) !== 0 && (
+            <div class="viz-tip-row muted">
+              <span>Invested besides</span>
+              <span>{money(invested(d.ledger))}</span>
+            </div>
+          )}
+        </>
+      )}
+    />
+  );
+}
+
+/** What was put into the port each day: building, machines, boats and contracts. */
+function InvestmentChart({ days }: { days: FinanceDay[] }) {
+  if (!days.some((d) => invested(d.ledger) !== 0)) {
+    return <p class="muted">Nothing built, bought or signed over these days.</p>;
+  }
+  return (
+    <DayColumns
+      days={days}
+      height={84}
+      tone="invest"
+      value={(d) => invested(d.ledger)}
+      label="Investment each day"
+      tip={(d) => (
+        <>
+          {INVESTMENT.filter((r) => d.ledger[r.key] !== 0).map((r) => (
+            <div class="viz-tip-row" key={r.key}>
+              <span>{r.label}</span>
+              <span>{money(d.ledger[r.key])}</span>
+            </div>
+          ))}
+          <div class="viz-tip-row strong">
+            <span>{invested(d.ledger) <= 0 ? 'Invested' : 'Refunded'}</span>
+            <span>{money(invested(d.ledger))}</span>
           </div>
         </>
       )}
@@ -321,10 +391,14 @@ function IncomePie({ days }: { days: FinanceDay[] }) {
   );
 }
 
-/** What the money went on over the days shown, biggest first. */
+/** What the money went on over the days shown, biggest first; investment in its own colour. */
 function Spending({ days }: { days: FinanceDay[] }) {
-  const sums = ROWS.filter((r) => !INCOME.includes(r))
-    .map((r) => ({ ...r, spent: -days.reduce((n, d) => n + Math.min(0, d.ledger[r.key]), 0) }))
+  const sums = [...RUNNING, ...INVESTMENT]
+    .map((r) => ({
+      ...r,
+      invest: INVESTMENT.includes(r),
+      spent: -days.reduce((n, d) => n + Math.min(0, d.ledger[r.key]), 0),
+    }))
     .filter((r) => r.spent > 0)
     .sort((a, b) => b.spent - a.spent);
   if (sums.length === 0) return <p class="muted">Nothing spent.</p>;
@@ -336,7 +410,7 @@ function Spending({ days }: { days: FinanceDay[] }) {
           <span class="fin-bar-label">{r.label}</span>
           <span class="fin-bar-track">
             <span
-              class="fin-bar-fill"
+              class={`fin-bar-fill ${r.invest ? 'invest' : ''}`}
               style={{ width: `${Math.max(1, (r.spent / most) * 100)}%` }}
             />
           </span>
@@ -353,11 +427,12 @@ export function FinancePanel({ actions }: { actions: Actions }) {
   const y = s.yesterday;
   const history = s.history ?? [];
   const days = history.slice(-range.value);
-  const before = history.length >= 2 ? total(history[history.length - 2].ledger) : null;
-  const lastNet = y ? total(y) : null;
+  const before = history.length >= 2 ? operating(history[history.length - 2].ledger) : null;
+  const lastNet = y ? operating(y) : null;
   const shownIn = days.reduce((n, d) => n + income(d.ledger), 0);
-  const shownOut = days.reduce((n, d) => n + costs(d.ledger), 0);
-  const average = days.length ? (shownIn + shownOut) / days.length : null;
+  const shownRun = days.reduce((n, d) => n + running(d.ledger), 0);
+  const shownInvested = days.reduce((n, d) => n + invested(d.ledger), 0);
+  const average = days.length ? (shownIn + shownRun) / days.length : null;
   // Containers only once the port can take them, or has.
   const containers =
     s.progress.tier >= CONTAINER_TIER || history.some((d) => d.ledger.containers !== 0);
@@ -374,14 +449,20 @@ export function FinancePanel({ actions }: { actions: Actions }) {
           tone={lastNet === null ? undefined : lastNet >= 0 ? 'pos' : 'neg'}
           delta={
             lastNet !== null && before !== null
-              ? `${lastNet - before >= 0 ? '▲' : '▼'} ${compact(Math.abs(lastNet - before))} vs the day before`
-              : undefined
+              ? `operating, ${lastNet - before >= 0 ? '▲' : '▼'} ${compact(Math.abs(lastNet - before))} vs the day before`
+              : 'operating result'
           }
         />
         <Tile
-          label="Average a day"
+          label="A day"
           value={average === null ? '—' : compact(average)}
           tone={average === null ? undefined : average >= 0 ? 'pos' : 'neg'}
+          delta={days.length ? `operating, average over ${days.length} days` : undefined}
+        />
+        <Tile
+          label="Invested"
+          value={days.length ? compact(-shownInvested) : '—'}
+          delta={days.length ? `over ${days.length} days` : undefined}
         />
       </div>
 
@@ -391,7 +472,8 @@ export function FinancePanel({ actions }: { actions: Actions }) {
         <>
           <div class="fin-range">
             <span class="muted">
-              In {compact(shownIn)} · out {compact(-shownOut)}
+              Earned {compact(shownIn)} · running costs {compact(-shownRun)} · invested{' '}
+              {compact(-shownInvested)}
             </span>
             <div class="segmented" role="group" aria-label="Days shown">
               {RANGES.map((n) => (
@@ -413,13 +495,19 @@ export function FinancePanel({ actions }: { actions: Actions }) {
           <CashChart days={days} />
 
           <div class="section-title">
-            <span>Profit and loss</span>
+            <span>Operating profit and loss</span>
             <span class="viz-legend">
               <span class="viz-key gain" /> profit
               <span class="viz-key loss" /> loss
             </span>
           </div>
-          <ProfitChart days={days} />
+          <OperatingChart days={days} />
+
+          <div class="section-title">
+            <span>Investment</span>
+            <span class="muted">building, machines, boats and contracts</span>
+          </div>
+          <InvestmentChart days={days} />
 
           <div class="section-title">
             <span>Where the money comes from</span>
@@ -485,37 +573,23 @@ export function FinancePanel({ actions }: { actions: Actions }) {
           </tr>
         </thead>
         <tbody>
-          {ROWS.filter((r) => containers || r.key !== 'containers').map((r) => (
-            <Fragment key={r.key}>
-              <tr
-                class={`fin-row ${opened.value === r.key ? 'on' : ''}`}
-                tabIndex={0}
-                aria-expanded={opened.value === r.key}
-                onClick={() => (opened.value = opened.value === r.key ? null : r.key)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  opened.value = opened.value === r.key ? null : r.key;
-                }}
-              >
-                <td>
-                  <span class="fin-caret">{opened.value === r.key ? '▾' : '▸'}</span>
-                  {r.label}
-                </td>
-                <td>
-                  <Amount value={s.today[r.key]} />
-                </td>
-                <td>{y ? <Amount value={y[r.key]} /> : <span class="muted">—</span>}</td>
+          {GROUPS.map((g) => (
+            <Fragment key={g.title}>
+              <tr class="fin-group">
+                <td colSpan={3}>{g.title}</td>
               </tr>
-              {opened.value === r.key && (
-                <tr class="fin-row-chart">
-                  <td colSpan={3}>
-                    {days.length < 2 ? (
-                      <p class="muted">Its chart fills in as the days go by.</p>
-                    ) : (
-                      <LineChart days={days} row={r} />
-                    )}
+              {g.rows
+                .filter((r) => containers || r.key !== 'containers')
+                .map((r) => (
+                  <StatementRow key={r.key} row={r} today={s.today} yesterday={y} days={days} />
+                ))}
+              {g.subtotal && (
+                <tr class="fin-subtotal">
+                  <td>{g.subtotal}</td>
+                  <td>
+                    <Amount value={operating(s.today)} />
                   </td>
+                  <td>{y ? <Amount value={operating(y)} /> : <span class="muted">—</span>}</td>
                 </tr>
               )}
             </Fragment>
@@ -523,7 +597,7 @@ export function FinancePanel({ actions }: { actions: Actions }) {
         </tbody>
         <tfoot>
           <tr>
-            <td>Net</td>
+            <td>Cash change</td>
             <td>
               <Amount value={total(s.today)} />
             </td>
@@ -532,5 +606,61 @@ export function FinancePanel({ actions }: { actions: Actions }) {
         </tfoot>
       </table>
     </aside>
+  );
+}
+
+/** The statement's lines, in groups, with the operating result under the second. */
+const GROUPS: { title: string; rows: Row[]; subtotal?: string }[] = [
+  { title: 'Earned', rows: INCOME },
+  { title: 'Running costs', rows: RUNNING, subtotal: 'Operating result' },
+  { title: 'Investment', rows: INVESTMENT },
+];
+
+/** One line of the statement, opening to its chart. */
+function StatementRow({
+  row: r,
+  today,
+  yesterday: y,
+  days,
+}: {
+  row: Row;
+  today: Ledger;
+  yesterday: Ledger | null | undefined;
+  days: FinanceDay[];
+}) {
+  return (
+    <>
+      <tr
+        class={`fin-row ${opened.value === r.key ? 'on' : ''}`}
+        tabIndex={0}
+        aria-expanded={opened.value === r.key}
+        onClick={() => (opened.value = opened.value === r.key ? null : r.key)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          opened.value = opened.value === r.key ? null : r.key;
+        }}
+      >
+        <td>
+          <span class="fin-caret">{opened.value === r.key ? '▾' : '▸'}</span>
+          {r.label}
+        </td>
+        <td>
+          <Amount value={today[r.key]} />
+        </td>
+        <td>{y ? <Amount value={y[r.key]} /> : <span class="muted">—</span>}</td>
+      </tr>
+      {opened.value === r.key && (
+        <tr class="fin-row-chart">
+          <td colSpan={3}>
+            {days.length < 2 ? (
+              <p class="muted">Its chart fills in as the days go by.</p>
+            ) : (
+              <LineChart days={days} row={r} />
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

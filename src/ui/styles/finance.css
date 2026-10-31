@@ -13,6 +13,8 @@
   --viz-1: #3987e5;
   --viz-gain: #3987e5;
   --viz-loss: #e66767;
+  /* Investment: money put into the port, neither a gain nor a loss. */
+  --viz-invest: #8a97a8;
 }
 
 .fin-tiles {
@@ -126,6 +128,10 @@
   fill: var(--viz-loss);
 }
 
+.viz-invest {
+  fill: var(--viz-invest);
+}
+
 .viz-hover-band {
   fill: var(--raised-2);
 }
@@ -215,6 +221,10 @@
   height: 100%;
   border-radius: 0 4px 4px 0;
   background: var(--viz-1);
+}
+
+.fin-bar-fill.invest {
+  background: var(--viz-invest);
 }
 
 .fin-bar-value {
@@ -346,4 +356,29 @@
   justify-content: space-between;
   padding: 0 6px 4px;
   font-size: 12px;
+}
+
+/* The statement's groups: earned, running costs, investment; and the
+   operating result under the running costs. */
+.ledger .fin-group td {
+  padding: 12px 0 4px;
+  border-top: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ledger .fin-group:first-child td {
+  padding-top: 0;
+}
+
+.ledger .fin-subtotal td {
+  font-weight: 600;
+  border-top: 1px solid var(--line-strong);
+}
+
+.ledger .fin-subtotal td:first-child {
+  color: var(--text);
 }

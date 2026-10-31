@@ -233,10 +233,15 @@ export function runJib(site: CraneSite, c: CraneParts, j: JibParts, dt: number):
     // moves it at the end of the lift, and its view a tick or so after
     // the hook takes it or lets go: here it goes as the hook does.
     if (p >= take) src.visible = false;
-    if (p >= set) dst.visible = true;
     // The crate on the hook is the one it took, with what it holds painted
-    // on it, not the fish every crate starts out showing.
+    // on it, not the fish every crate starts out showing; and where it sets
+    // it down shows the same from the moment it lets go, not what that
+    // slot last held until the game's next word.
     if (p < take) setCrateIcon(j.load, src.userData.icon as Cargo | undefined);
+    if (p >= set) {
+      if (!dst.visible) setCrateIcon(dst, j.load.userData.icon as Cargo | undefined);
+      dst.visible = true;
+    }
     if (p < a) {
       const t = ease(p / a);
       angle = lerpAngle(j.start.angle, from.angle, t);
