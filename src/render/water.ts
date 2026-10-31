@@ -20,7 +20,7 @@ import {
   Vector4,
 } from 'three';
 import type { GameMap } from '../sim/map';
-import { STIR_MAX, WAKE_MAX, WAKE_POINTS, type Stir, type Wake } from './entities';
+import { STIR_MAX, WAKE_MAX, WAKE_POINTS, type Stir, type Wake } from './wakes';
 import { C } from './palette';
 import { MARGIN } from './terrain';
 

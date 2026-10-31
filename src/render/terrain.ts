@@ -20,6 +20,7 @@ import { hash01 } from '../sim/noise';
 import { HIGHWAY_COLUMNS } from '../sim/roads';
 import { Build, Deco, Terrain } from '../sim/types';
 import { C } from './palette';
+import { mat } from './util/mesh';
 import { hasAsset, instanced, ROCKS, TREES, type AssetName } from './assets';
 
 /** How far the scenery continues past the playable map edge, in tiles. */
@@ -257,7 +258,7 @@ export function buildSeabedDetail(map: GameMap): Group {
 
   const rockMesh = new InstancedMesh(
     new DodecahedronGeometry(0.09, 0),
-    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
+    mat(0xffffff),
     Math.max(1, rocks.length),
   );
   rocks.forEach((r, k) => {
@@ -275,11 +276,7 @@ export function buildSeabedDetail(map: GameMap): Group {
 
   const strand = new ConeGeometry(0.035, 0.32, 4);
   strand.translate(0, 0.16, 0);
-  const weedMesh = new InstancedMesh(
-    strand,
-    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
-    Math.max(1, weed.length),
-  );
+  const weedMesh = new InstancedMesh(strand, mat(0xffffff), Math.max(1, weed.length));
   weed.forEach((w, k) => {
     p.set(w.x, w.y, w.z);
     q.setFromEuler(e.set(w.tilt, w.v * 6, w.tilt * 0.6));
@@ -412,16 +409,8 @@ export function buildTrees(map: GameMap): Group {
   trunkGeo.translate(0, 0.125, 0);
   const leafGeo = new ConeGeometry(0.3, 0.7, 6);
   leafGeo.translate(0, 0.55, 0);
-  const trunks = new InstancedMesh(
-    trunkGeo,
-    new MeshLambertMaterial({ color: C.trunk, flatShading: true }),
-    Math.max(1, spots.length),
-  );
-  const leaves = new InstancedMesh(
-    leafGeo,
-    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
-    Math.max(1, spots.length),
-  );
+  const trunks = new InstancedMesh(trunkGeo, mat(C.trunk), Math.max(1, spots.length));
+  const leaves = new InstancedMesh(leafGeo, mat(0xffffff), Math.max(1, spots.length));
   const m = new Matrix4();
   const q = new Quaternion();
   const p = new Vector3();
@@ -504,7 +493,7 @@ export function buildRocks(map: GameMap): Object3D {
   if (kenney) return kenney;
   const mesh = new InstancedMesh(
     new DodecahedronGeometry(0.3, 0),
-    new MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
+    mat(0xffffff),
     Math.max(1, spots.length),
   );
   const m = new Matrix4();

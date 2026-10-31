@@ -2,6 +2,7 @@ import { Group, Mesh, type Object3D } from 'three';
 import type { GameMap } from '../sim/map';
 import { CAR_LENGTH, railColumn, type CarKind, type Train } from '../sim/railway';
 import { TICKS_PER_SECOND } from '../sim/types';
+import { KeyedObjects } from './keyed';
 import { container } from './models';
 import { C } from './palette';
 import { box, cyl } from './parts';
@@ -88,8 +89,9 @@ export class Trains {
   private x: number;
   private ground: number;
   private view: Train | null = null;
+  /** The one train, under its key: a new make-up of cars or way is a new model. */
+  private models = new KeyedObjects<string, Group>((m) => this.group.remove(m));
   private model: Group | null = null;
-  private key = '';
   /** When the last snapshot came in, and how many ticks a millisecond the sim was running. */
   private at = 0;
   private rate = 0;
@@ -104,8 +106,9 @@ export class Trains {
     this.view = train;
     this.at = now;
     this.rate = (speed * TICKS_PER_SECOND) / 1000;
-    const key = train ? `${train.dir}:${train.variant}:${train.cars.join()}` : '';
-    if (key !== this.key) this.rebuild(train, key);
+    const key = train && this.x >= 0 ? `${train.dir}:${train.variant}:${train.cars.join()}` : '';
+    this.models.sync(key ? [key] : [], () => this.build(train!));
+    this.model = key ? this.models.get(key)! : null;
   }
 
   /** Move the train on to where it is now; returns it, for the crossings. */
@@ -120,11 +123,7 @@ export class Trains {
     return this.now;
   }
 
-  private rebuild(train: Train | null, key: string): void {
-    this.key = key;
-    if (this.model) this.group.remove(this.model);
-    this.model = null;
-    if (!train || this.x < 0) return;
+  private build(train: Train): Group {
     const m = new Group();
     m.position.set(this.x + 0.5, this.ground + RAIL_TOP, train.head);
     train.cars.forEach((kind, k) => {
@@ -138,6 +137,6 @@ export class Trains {
       if (o instanceof Mesh) o.castShadow = true;
     });
     this.group.add(m);
-    this.model = m;
+    return m;
   }
 }

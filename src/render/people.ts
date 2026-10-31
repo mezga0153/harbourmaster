@@ -1,6 +1,8 @@
 import { Group, type Object3D } from 'three';
 import { Rng } from '../sim/rng';
+import type { Model } from './model';
 import { box, cyl } from './parts';
+import { clamp01 } from './util/math';
 
 // Procedural dock workers. Each is built from a seed: skin, hair, build,
 // work clothes and headgear vary, so a crew is a crowd of individuals.
@@ -11,15 +13,6 @@ export interface Limbs {
   legR: Object3D;
   armL: Object3D;
   armR: Object3D;
-}
-
-export interface Worker {
-  root: Group;
-  /** Everything above the feet, bobbed while walking. */
-  body: Group;
-  limbs: Limbs;
-  /** The crate they carry, held out in front. */
-  load: Object3D;
 }
 
 const SKIN = [0xf6d5b8, 0xf1c59b, 0xe0ac7e, 0xc68642, 0x8d5524, 0x5c3a21];
@@ -50,7 +43,8 @@ const HANDS_OUT = 1.35;
 const HANDS_UP = 3;
 const LEAN_ARMS = 3;
 
-export function worker(seed: number, crate: (size: number) => Object3D): Worker {
+/** A dock worker: `body` is everything above the feet, bobbed while walking; the one crate they carry is held out in front. */
+export function worker(seed: number, crate: (size: number) => Object3D): Model {
   const rng = new Rng(seed * 2654435761 + 17);
   const skin = rng.pick(SKIN);
   const hair = rng.pick(HAIR);
@@ -124,7 +118,7 @@ export function worker(seed: number, crate: (size: number) => Object3D): Worker 
   load.position.set(HELD.x, HELD.y, 0);
   load.visible = false;
   body.add(load);
-  return { root, body, limbs: { legL, legR, armL, armR }, load };
+  return { root, crates: [load], body, limbs: { legL, legR, armL, armR } };
 }
 
 /** Hips above the feet sat on the break hut's bench, and the legs out from it. */
@@ -349,7 +343,7 @@ export function pose(
   const lean = Math.max(0, over) * stoop;
   const lift = Math.max(-0.3, Math.min(0.45, drop));
   // How far down it is: 1 on the ground (or below, off the edge), 0 at the height they carry it.
-  const low = Math.min(1, Math.max(0, (HELD.y - lift) / HELD.y));
+  const low = clamp01((HELD.y - lift) / HELD.y);
   const bend = BEND * low * stoop + LEAN_BEND * lean;
   const swing = moving ? Math.sin(phase) * 0.65 : 0;
   // The legs stay upright as the body bends over them.

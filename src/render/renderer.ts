@@ -18,6 +18,7 @@ import type { EntityView, ProblemView, Snapshot, TileChange } from '../protocol'
 import type { GameMap } from '../sim/map';
 import { IsoCamera } from './camera';
 import { Entities } from './entities';
+import { KeyedObjects } from './keyed';
 import { alertMarker } from './models';
 import { Overlay } from './overlay';
 import { C } from './palette';
@@ -26,6 +27,7 @@ import { Trains } from './trains';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
 import { DEFAULT_GRAPHICS, PIXEL_RATIO, SHADOW_SIZE, WATER_LEVEL, type Graphics } from './graphics';
+import { toCanvas, toClient } from './util/screen';
 
 const SUN_DIR = new Vector3(-0.55, 1, 0.35).normalize();
 // Light-space axes, used to snap the shadow camera to whole shadow-map texels.
@@ -232,21 +234,21 @@ export class Renderer {
   /** Red marks over what cannot work as it is built: see ProblemView. */
   private marks = new Group();
   private problems: ProblemView[] = [];
+  /** One mark for each problem in the list, by its place in it. */
+  private markOf = new KeyedObjects<number, Object3D>((mark) => this.marks.remove(mark));
 
   private setProblems(list: ProblemView[]): void {
     this.problems = list;
-    while (this.marks.children.length < list.length) {
+    this.markOf.sync(list.keys(), () => {
       const mark = alertMarker();
       mark.scale.setScalar(3.4);
       this.marks.add(mark);
-    }
-    this.marks.children.forEach((mark, k) => {
-      const p = list[k];
-      mark.visible = !!p;
-      if (p) {
-        mark.position.set(p.x, p.h, p.y);
-        mark.userData.h = p.h;
-      }
+      return mark;
+    });
+    list.forEach((p, k) => {
+      const mark = this.markOf.get(k)!;
+      mark.position.set(p.x, p.h, p.y);
+      mark.userData.h = p.h;
     });
   }
 
@@ -256,15 +258,14 @@ export class Renderer {
     let best: ProblemView | null = null;
     let bestD = 30;
     this.problems.forEach((p, k) => {
-      const mark = this.marks.children[k];
+      const mark = this.markOf.get(k);
       if (!mark) return;
-      const s = this.tmp
-        .copy(mark.position)
-        .setY(mark.position.y + 0.25)
-        .project(this.cam.camera);
-      const sx = rect.left + ((s.x + 1) / 2) * rect.width;
-      const sy = rect.top + ((1 - s.y) / 2) * rect.height;
-      const d = Math.hypot(sx - clientX, sy - clientY);
+      const s = toClient(
+        this.tmp.copy(mark.position).setY(mark.position.y + 0.25),
+        this.cam.camera,
+        rect,
+      );
+      const d = Math.hypot(s.x - clientX, s.y - clientY);
       if (d < bestD) {
         bestD = d;
         best = p;
@@ -295,13 +296,8 @@ export class Renderer {
     let best: EntityView | null = null;
     let bestD = 28;
     for (const { view, pos } of this.layers.entities.worldPositions()) {
-      const s = this.tmp
-        .copy(pos)
-        .setY(pos.y + 0.25)
-        .project(this.cam.camera);
-      const sx = rect.left + ((s.x + 1) / 2) * rect.width;
-      const sy = rect.top + ((1 - s.y) / 2) * rect.height;
-      const d = Math.hypot(sx - clientX, sy - clientY);
+      const s = toClient(this.tmp.copy(pos).setY(pos.y + 0.25), this.cam.camera, rect);
+      const d = Math.hypot(s.x - clientX, s.y - clientY);
       if (d < bestD) {
         bestD = d;
         best = view;
@@ -313,11 +309,8 @@ export class Renderer {
   /** Screen position (client pixels) of a point in tile space. */
   screenOf(x: number, y: number, height = 0.3): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
-    const s = this.tmp.set(x, height, y).project(this.cam.camera);
-    return {
-      x: rect.left + ((s.x + 1) / 2) * rect.width,
-      y: rect.top + ((1 - s.y) / 2) * rect.height,
-    };
+    const s = toClient(this.tmp.set(x, height, y), this.cam.camera, rect);
+    return { x: s.x, y: s.y };
   }
 
   showMoney(amount: number, x: number, y: number): void {
@@ -462,11 +455,9 @@ export class Renderer {
   private updateFloaters(now: number): void {
     const rect = this.canvas.getBoundingClientRect();
     for (const l of this.labels) {
-      const s = this.tmp.copy(l.pos).project(this.cam.camera);
-      const off = s.z > 1 || Math.abs(s.x) > 1.2 || Math.abs(s.y) > 1.2;
-      l.el.style.display = off ? 'none' : '';
-      if (!off)
-        l.el.style.transform = `translate(${((s.x + 1) / 2) * rect.width}px, ${((1 - s.y) / 2) * rect.height}px) translate(-50%, -50%)`;
+      const s = toCanvas(l.pos, this.cam.camera, rect);
+      l.el.style.display = s.off ? 'none' : '';
+      if (!s.off) l.el.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -50%)`;
     }
     this.floaters = this.floaters.filter((f) => {
       const age = (now - f.born) / 1600;
@@ -474,11 +465,8 @@ export class Renderer {
         f.el.remove();
         return false;
       }
-      const s = this.tmp
-        .copy(f.pos)
-        .setY(f.pos.y + age * 1.2)
-        .project(this.cam.camera);
-      f.el.style.transform = `translate(${((s.x + 1) / 2) * rect.width}px, ${((1 - s.y) / 2) * rect.height}px) translate(-50%, -50%)`;
+      const s = toCanvas(this.tmp.copy(f.pos).setY(f.pos.y + age * 1.2), this.cam.camera, rect);
+      f.el.style.transform = `translate(${s.x}px, ${s.y}px) translate(-50%, -50%)`;
       f.el.style.opacity = String(1 - age * age);
       return true;
     });
