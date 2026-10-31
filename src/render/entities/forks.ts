@@ -1,4 +1,6 @@
 import type { GameMap } from '../../sim/map';
+import { drivable } from '../../sim/rules';
+import { Build } from '../../sim/types';
 import { driveTo, type Pose } from '../motion';
 import { surfaceY } from '../terrain';
 import { ease } from '../util/math';
@@ -43,12 +45,24 @@ export interface ForkSite {
   crateIn(x: number, z: number, pad: number): boolean;
 }
 
-/** Whether a forklift stood at x, z facing `dir` is clear of the water, trucks and crates. */
+/** Whether x, z is on ground a forklift drives on: port roads, quays, bays; not into a depot. */
+function onGround(map: GameMap, x: number, z: number): boolean {
+  const [tx, tz] = [Math.floor(x), Math.floor(z)];
+  if (!map.inBounds(tx, tz)) return false;
+  const b = map.build[map.idx(tx, tz)];
+  return drivable(b) && b !== Build.Depot;
+}
+
+/** Whether a forklift stood at x, z facing `dir` is on the port's ground, clear of trucks and crates. */
 export function bodyClear(site: ForkSite, x: number, z: number, dir: number): boolean {
   return bodyBlocked(site, x, z, dir) === 0;
 }
 
-/** How many points of a forklift's body stood at x, z facing `dir` are over water, a truck or crates. */
+/**
+ * How badly a forklift stood at x, z facing `dir` is in the way of things:
+ * how many points of its body are off the port's ground, those over a
+ * truck or crates counting three times; 0 if it is clear.
+ */
 export function bodyBlocked(site: ForkSite, x: number, z: number, dir: number): number {
   const c = Math.cos(dir);
   const s = Math.sin(dir);
@@ -56,7 +70,9 @@ export function bodyBlocked(site: ForkSite, x: number, z: number, dir: number): 
   for (const [f, r] of BODY) {
     const px = x + c * f - s * r;
     const pz = z + s * f + c * r;
-    if (surfaceY(site.map, px, pz) <= 0 || site.inTruck(px, pz) || site.crateIn(px, pz, 0.01)) n++;
+    // Over a truck or crates is worse than just off the port's ground.
+    if (site.inTruck(px, pz) || site.crateIn(px, pz, 0.01)) n += 3;
+    else if (!onGround(site.map, px, pz)) n++;
   }
   return n;
 }

@@ -437,7 +437,7 @@ export class Entities {
     return about;
   }
 
-  /** How many points of a forklift's body are over a truck, crates or the water, all the way round `about`. */
+  /** How badly a forklift is in the way of things all the way round `about`; see bodyBlocked. */
   private aboutBlocked(about: About): number {
     let n = 0;
     const ux = Math.cos(about.dir);
