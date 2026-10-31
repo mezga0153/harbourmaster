@@ -54,6 +54,11 @@ function Stat({
   );
 }
 
+/** Contracts held up: a shipper's trucks with nowhere to wait or unload, or no way in. */
+function troubled(s: Snapshot): number {
+  return s.contracts.filter((c) => c.trouble?.bad).length;
+}
+
 /** Panels the top bar opens from the cash rather than a button of their own. */
 const MONEY: ReadonlySet<PanelName> = new Set(['finance', 'stats']);
 
@@ -66,6 +71,8 @@ const MENU: {
   title: string;
   /** What wants looking at there, if anything: a count, or "!". */
   badge: (s: Snapshot) => string | number | null;
+  /** The badge counts something wrong, in red, rather than something new. */
+  bad?: (s: Snapshot) => boolean;
 }[] = [
   {
     id: 'finance',
@@ -100,7 +107,10 @@ const MENU: {
     icon: 'contract',
     label: 'Contracts',
     title: 'Contracts',
-    badge: (s) => s.offers.length || null,
+    // Contracts held up first (a shipper's trucks with nowhere to wait or
+    // unload), then the offers.
+    badge: (s) => troubled(s) || s.offers.length || null,
+    bad: (s) => troubled(s) > 0,
   },
 ];
 
@@ -191,7 +201,7 @@ export function TopBar({ actions }: { actions: Actions }) {
             >
               <Icon name={m.icon} />
               <span>{m.label}</span>
-              {badge !== null && <span class="count">{badge}</span>}
+              {badge !== null && <span class={`count ${m.bad?.(s) ? 'bad' : ''}`}>{badge}</span>}
             </button>
           );
         })}
@@ -238,7 +248,13 @@ export function MobileMenu({ actions }: { actions: Actions }) {
   };
   const t = town.value;
   const sound = soundSettings.value;
-  const item = (id: PanelName, icon: IconName, label: string, badge: string | number | null) => (
+  const item = (
+    id: PanelName,
+    icon: IconName,
+    label: string,
+    badge: string | number | null,
+    bad = false,
+  ) => (
     <button
       key={id}
       class={`drawer-item ${panel.value === id ? 'on' : ''}`}
@@ -246,7 +262,7 @@ export function MobileMenu({ actions }: { actions: Actions }) {
     >
       <Icon name={icon} />
       <span>{label}</span>
-      {badge !== null && <span class="count">{badge}</span>}
+      {badge !== null && <span class={`count ${bad ? 'bad' : ''}`}>{badge}</span>}
       <Icon name="chevron" />
     </button>
   );
@@ -311,7 +327,7 @@ export function MobileMenu({ actions }: { actions: Actions }) {
               <Icon name="chevron" />
             </button>
           )}
-          {MENU.map((m) => item(m.id, m.icon, m.label, m.badge(s)))}
+          {MENU.map((m) => item(m.id, m.icon, m.label, m.badge(s), m.bad?.(s)))}
           {item('handbook', 'book', 'Handbook', null)}
           {item('settings', 'settings', 'Settings', null)}
         </div>

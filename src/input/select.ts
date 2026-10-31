@@ -3,7 +3,7 @@ import type { GameMap } from '../sim/map';
 import { anchorOf } from '../sim/rules';
 import { ownedByTown } from '../sim/town';
 import { Build, isTownBuilding } from '../sim/types';
-import type { Selection } from '../ui/store';
+import { openContract, type Selection } from '../ui/store';
 
 /** What the renderer found under the pointer, ahead of the tile itself. */
 export interface Picked {
@@ -27,6 +27,11 @@ export function selectionAt(
   const i = at !== null && map ? anchorOf(map, at) : at;
   // A boat's mark picks the boat, by its id.
   if (picked.problem?.type === 'boat') return { type: 'entity', id: picked.problem.idx };
+  // A shipper's mark opens the Contracts panel on it, by its id.
+  if (picked.problem?.type === 'contract') {
+    openContract(picked.problem.idx);
+    return null;
+  }
   if (picked.problem) return { type: picked.problem.type, idx: picked.problem.idx };
   if (picked.entity) return { type: 'entity', id: picked.entity.id };
   // A storage area is picked from any of its tiles.

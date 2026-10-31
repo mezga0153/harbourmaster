@@ -223,8 +223,15 @@ function BayInfo({ bay, actions, onClose: close }: InfoProps & { bay: Bay }) {
               : 'Trucks cannot reach this bay. It needs a public road to the highway, or port roads from a port gate.'}
         </p>
       )}
+      {!bay.noAccess && <ShippersCut type="bay" idx={bay.idx} />}
     </aside>
   );
+}
+
+/** Outgoing storage shippers' trucks cannot get to: their red mark's words. */
+function ShippersCut({ type, idx }: { type: 'bay' | 'yard'; idx: number }) {
+  const mark = snapshot.value?.problems.find((p) => p.type === type && p.idx === idx);
+  return mark ? <p class="note bad">{mark.text}</p> : null;
 }
 
 function YardGantryInfo({ idx, onClose: close }: { idx: number; onClose: () => void }) {
@@ -443,6 +450,7 @@ function YardInfo({ yard, actions, onClose: close }: InfoProps & { yard: Yard })
             'Container trucks cannot reach this yard. They load from inside the port: a port road or quay beside it, through a port gate, and not beside machines-only ground.'}
         </p>
       )}
+      {!yard.noAccess && <ShippersCut type="yard" idx={yard.idx} />}
     </aside>
   );
 }

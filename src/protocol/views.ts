@@ -218,6 +218,11 @@ export interface ContractView {
   active: number;
   /** Hauliers: trucks away on their round, not back yet. */
   away: number;
+  /**
+   * Shippers: what stops its trucks working, in the player's words; `bad`
+   * when they cannot come or unload at all (a red mark on the map too).
+   */
+  trouble?: { text: string; bad: boolean };
 }
 
 export interface OfferView {
@@ -228,6 +233,8 @@ export interface OfferView {
   breach: number;
   /** Trucking capacity (crates/day) if this offer were signed. */
   truckingAfter: number;
+  /** Shippers: what their trucks need, and whether the port has it now. */
+  checks?: { ok: boolean; warn?: boolean; text: string }[];
 }
 
 /** Crates per day: what the fisheries send versus what the port can move. */
@@ -426,8 +433,11 @@ export interface ProblemView {
   y: number;
   h: number;
   text: string;
-  /** What picking it selects. */
-  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry' | 'depot' | 'boat';
+  /**
+   * What picking it selects; a contract's (a shipper's trucks with nowhere
+   * to wait or unload) opens the Contracts panel on it, by its id.
+   */
+  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry' | 'depot' | 'boat' | 'contract';
   idx: number;
 }
 

@@ -149,6 +149,21 @@ contractsTab.subscribe((t) => {
   }
 });
 
+/** The contract the Contracts panel was opened on, from its red mark on the map, to show first. */
+export const contractFocus = signal<number | null>(null);
+
+/** Open the Contracts panel on contract `id`, among the active ones. */
+export function openContract(id: number): void {
+  contractFocus.value = id;
+  contractsTab.value = 'active';
+  panel.value = 'contracts';
+}
+
+// Shown first only until the panel is put away.
+effect(() => {
+  if (panel.value !== 'contracts') contractFocus.value = null;
+});
+
 /** The handbook page open; see Handbook.tsx. */
 export const handbookTopic = signal('start');
 

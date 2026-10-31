@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Capacity, ContractView, OfferView } from '../protocol';
 import { C } from '../render/palette';
 import * as B from '../sim/balance';
@@ -13,7 +13,7 @@ import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
-import { contractsTab, panel, snapshot, type ContractsTab } from './store';
+import { contractFocus, contractsTab, panel, snapshot, type ContractsTab } from './store';
 import { InfoHeader, Meter, More } from './widgets';
 
 function css(hex: number): string {
@@ -397,11 +397,19 @@ function ContractCard({ c, actions }: { c: ContractView; actions: Actions }) {
       ),
     ]);
   }
+  // Opened on this one from its red mark on the map: bring it into view.
+  const focused = contractFocus.value === c.id;
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focused) card.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [focused]);
+  const alerting = c.waiting > 0 || !!c.trouble?.bad || focused;
   return (
-    <div class={`card ${c.waiting > 0 ? 'alerting' : ''}`}>
+    <div ref={card} class={`card ${alerting ? 'alerting' : ''}`}>
       <CardHead terms={t} />
       <Headline terms={t} />
       <Facts rows={rows} />
+      {c.trouble && <p class={`note ${c.trouble.bad ? 'bad' : 'why'}`}>{c.trouble.text}</p>}
       {t.kind === 'fishery' && (
         <div class="mood" title={`Walks out at 0 and claims ${money(c.breach)}`}>
           <span class="field-label">Relationship</span>
@@ -527,30 +535,23 @@ function OfferCard({
       </Check>,
     );
   } else if (t.kind === 'shipper') {
-    const s = snapshot.value;
-    const ships = (s?.contracts ?? []).some(
-      (c) => c.terms.kind === 'fishery' && c.terms.vessel === (t.cargo ? 'feeder' : 'coaster'),
-    );
-    const stores = t.cargo
-      ? (s?.yards ?? []).some((y) => y.outgoing || y.byCrane)
-      : (s?.bays ?? []).some((b) => b.tiles && (b.outgoing || b.byCrane));
-    checks.push(
-      <Check ok={ships}>
-        {ships
-          ? `${t.cargo ? 'Feeders' : 'Coasters'} call to take it out`
-          : `No ${t.cargo ? 'container line' : 'shipping line'} calls yet to take it out`}
-      </Check>,
-      <Check ok={stores}>
-        {stores
-          ? `${t.cargo ? 'A container yard' : 'Crate storage'} for cargo going out`
-          : `Needs ${t.cargo ? 'a container yard' : 'crate storage'} marked out for cargo going out`}
-      </Check>,
-      <Check ok={true}>
-        {t.goods === 'canned'
-          ? `Its trucks wait in parking outside the port for a spot; the canned fish waits in storage about ${Math.round((B.EXPORT_PAPERS_TICKS / TICKS_PER_DAY) * 24)} h for its export papers`
-          : 'Its trucks need parking outside the port for a day of paperwork'}
-      </Check>,
-    );
+    // What its trucks need, as the port stands: worked out in the sim (shipperChecks).
+    for (const k of o.checks ?? []) {
+      checks.push(
+        <Check ok={k.ok} warn={k.warn}>
+          {k.text}
+        </Check>,
+      );
+    }
+    if (t.goods === 'canned') {
+      checks.push(
+        <Check ok={true}>
+          The canned fish waits in the outgoing storage about{' '}
+          {Math.round((B.EXPORT_PAPERS_TICKS / TICKS_PER_DAY) * 24)} h for its export papers before
+          it may go on board: room for half a day of it
+        </Check>,
+      );
+    }
   } else if (t.kind === 'fishery') {
     const after = cap.demand + Math.round(fisheryDailyCrates(t));
     const payback = o.signingFee / Math.max(1, fisheryDailyValue(t));

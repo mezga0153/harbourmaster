@@ -159,8 +159,8 @@ const TIPS: Record<string, Tip> = {
   },
   cannery: {
     title: 'The cannery',
-    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. Next it wants a builders’ yard: put 25 crates of canned fish on board ships. The trucks need parking outside the port and crate storage for exports.',
-    topic: 'growth',
+    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. They need three things. 1: truck parking outside the port, marked out on a public road with road along both its long sides, where they wait their turn. 2: a port gate, with port roads inside it on to crate storage marked out for cargo going out, where they unload. 3: a shipping line’s coasters calling, to take it on board. Next the town wants a builders’ yard: put 25 crates of canned fish on board ships.',
+    topic: 'exports',
   },
   buildersYard: {
     title: 'The builders’ yard',

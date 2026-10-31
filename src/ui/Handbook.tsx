@@ -341,6 +341,31 @@ export const TOPICS: Record<TopicId, Topic> = {
           Shippers send goods in by truck to go out on the ships: crates on the coasters, containers
           on the feeders. They pay for each crate or container as it goes on board.
         </p>
+        <p>Before signing one, the port needs, step by step:</p>
+        <ol>
+          <li>
+            Truck parking outside the port, where its trucks wait: marked out on a public road, a
+            strip one or two tiles wide with road along both its long sides for them to drive across
+            it. Without it no truck comes.
+          </li>
+          <li>
+            A port gate where a port road meets the public road, and port roads or quays inside it
+            on to the storage, for the trucks to drive in on. Machines-only ground is no use to
+            them.
+          </li>
+          <li>
+            Storage marked out for cargo going out, beside those port roads: crate storage for
+            crates, a container yard for containers. Its trucks unload into it.
+          </li>
+          <li>
+            A shipping line whose ships call to take it out: coasters for crates, feeders for
+            containers. Until one does, the cargo waits in storage.
+          </li>
+        </ol>
+        <p>
+          Whatever is missing shows as a red mark on the map, where the trucks come off the highway
+          or over the storage they cannot get to, and in red on the shipper's contract. Then:
+        </p>
         <ol>
           <li>
             A shipper's truck parks outside the port, on parking joined to a public road, for about{' '}

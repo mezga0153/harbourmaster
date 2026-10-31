@@ -21,6 +21,7 @@ import {
 import { Build } from '../types';
 import { cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
+import { isIce, type Contract } from '../contracts';
 import { thought } from '../staff';
 import { BUSINESSES, population, townHomes, townTarget } from '../town';
 import { depotViews } from './output';
@@ -70,6 +71,7 @@ import { byHand } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
 import { exportsWaiting, readyWords, truckCargo } from './cargo/exports';
+import { shipperChecks, shipperTrouble } from './cargo/shipperTrouble';
 import {
   buriedCount,
   byCrane,
@@ -394,9 +396,10 @@ export function problems(w: World): ProblemView[] {
   for (const [g, text] of gantries(w).idle) {
     out.push({ ...middle([g]), h: 1.6, text, type: 'yardGantry', idx: g });
   }
+  const marked = shipperMarks(w, out);
   for (const b of [...w.bays.values(), ...w.yards.values()]) {
     // Crate storage the trucks cannot reach is still a buffer the forklifts empty.
-    if (!b.noAccess || b.warehouse || (b.tiles && !b.yard)) continue;
+    if (!b.noAccess || b.warehouse || (b.tiles && !b.yard) || marked.has(b.idx)) continue;
     out.push({
       ...middle(b.tiles ?? [b.idx]),
       h: 1.2,
@@ -428,6 +431,63 @@ export function problems(w: World): ProblemView[] {
       });
   }
   return out;
+}
+
+/**
+ * A red mark for each place shippers' trucks are held up: where they come
+ * off the highway when they have no parking outside the port or no
+ * outgoing storage, or over outgoing storage they cannot get to. Shippers
+ * held up in the same place share a mark that names them. The storage
+ * marked over, so it has no second mark of its own.
+ */
+function shipperMarks(w: World, out: ProblemView[]): Set<number> {
+  const m = w.map;
+  const marks = new Map<string, { at: number; names: string[]; text: string; mark: ProblemView }>();
+  for (const c of w.contracts) {
+    const trouble = shipperTrouble(w, c);
+    if (!trouble?.bad) continue;
+    const places = trouble.kind === 'reach' ? (trouble.stores ?? []) : [m.entry];
+    for (const at of places) {
+      const key = `${trouble.kind}:${at}`;
+      const had = marks.get(key);
+      if (had) {
+        had.names.push(c.terms.name);
+        continue;
+      }
+      const store = trouble.kind === 'reach' ? (w.bays.get(at) ?? w.yards.get(at)) : undefined;
+      const tiles = store?.tiles ?? [at];
+      marks.set(key, {
+        at,
+        names: [c.terms.name],
+        text: trouble.text,
+        mark: {
+          x: tiles.reduce((n, i) => n + m.xOf(i) + 0.5, 0) / tiles.length,
+          y: tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length,
+          h: 1.2,
+          text: '',
+          type: store ? (store.yard ? 'yard' : 'bay') : 'contract',
+          idx: store ? at : c.id,
+        },
+      });
+    }
+  }
+  const stores = new Set<number>();
+  for (const { at, names, text, mark } of marks.values()) {
+    if (mark.type !== 'contract') stores.add(at);
+    const who =
+      names.length === 1
+        ? `${names[0]}: i`
+        : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}: their`;
+    const rest = names.length === 1 ? text.slice(1) : text.replace(/^Its /, ' ');
+    out.push({ ...mark, text: `${who}${rest}.` });
+  }
+  return stores;
+}
+
+/** What holds a shipper's trucks up, for its contract card. */
+function troubleView(w: World, c: Contract): ContractView['trouble'] {
+  const t = shipperTrouble(w, c);
+  return t ? { text: `${t.text}.`, bad: t.bad } : undefined;
 }
 
 /** Cargo waiting at each step from boat to truck, for the cargo flow. */
@@ -753,6 +813,7 @@ export function buildSnapshot(w: World): Snapshot {
     ),
     waiting: w.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
     nextIn: c.terms.kind !== 'haulier' ? Math.max(0, c.nextBoatTick - w.tick) : -1,
+    trouble: troubleView(w, c),
   }));
   const cap = capacity(w);
   return {
@@ -869,6 +930,10 @@ export function buildSnapshot(w: World): Snapshot {
       expiresIn: o.expires - w.tick,
       breach: breachPenalty(o),
       truckingAfter: o.terms.kind === 'haulier' ? truckingWith(w, o.terms) : cap.trucking,
+      checks:
+        o.terms.kind === 'shipper' && !isIce(o.terms)
+          ? shipperChecks(w, o.terms).map(({ ok, warn, text }) => ({ ok, warn, text }))
+          : undefined,
     })),
   };
 }
