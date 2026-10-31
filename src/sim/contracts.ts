@@ -494,14 +494,13 @@ export function makeTownLineOffer(
   const free = (cargo === 'timber' ? TIMBER_LINES : GOODS_LINES).filter((n) => !takenNames.has(n));
   if (free.length === 0) return null;
   const goods = cargo === 'goods';
-  const cratesMin = goods ? rng.int(16, 20) : rng.int(14, 18);
+  const cratesMin = goods ? rng.int(16, 19) : rng.int(14, 18);
   const terms: FisheryTerms = {
     kind: 'fishery',
     vessel: 'coaster',
     name: free[0],
     color: rng.int(0, 3),
-    // Goods come oftener: the store wants some every day.
-    boatEvery: Math.round((goods ? rng.range(0.7, 0.9) : rng.range(1, 1.5)) * 20) / 20,
+    boatEvery: Math.round(rng.range(1, 1.4) * 20) / 20,
     cratesMin,
     cratesMax: Math.min(B.COASTER_MAX_LOAD, cratesMin + rng.int(3, 6)),
     fee: rng.int(22, 30),

@@ -152,8 +152,9 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.Cannery,
     name: 'Cannery',
-    goal: { cargo: 'fish', perDay: 30, days: 3 },
-    aim: 'Truck out 30 crates of fish a day, 3 days running',
+    // More than the fishing boats bring: coasters' days make it up.
+    goal: { cargo: 'fish', perDay: 30, days: 2 },
+    aim: 'Truck out 30 crates of fish a day, 2 days running',
     opens:
       'The cannery sends its canned fish to the port by truck, to go out on the coasters: its offer is on the contracts board',
     cap: 500,
@@ -162,8 +163,8 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.BuildersYard,
     name: "Builders' yard",
-    goal: { cargo: 'canned', total: 40, aboard: true },
-    aim: 'Put 40 crates of canned fish on board coasters',
+    goal: { cargo: 'canned', total: 25, aboard: true },
+    aim: 'Put 25 crates of canned fish on board ships',
     opens:
       "Valley Timber Co.'s coasters bring timber for the builders' yard, and the town builds flats",
     cap: 600,
@@ -172,8 +173,8 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.School,
     name: 'School',
-    goal: { cargo: 'timber', total: 40 },
-    aim: 'Truck out 40 crates of timber',
+    goal: { cargo: 'timber', total: 25 },
+    aim: 'Truck out 25 crates of timber',
     opens:
       'Families settle, and a department store opens: a shipping line offers its coasters of goods for it',
     cap: 700,
@@ -182,8 +183,9 @@ export const LANDMARKS: Landmark[] = [
   {
     code: Build.TownHall,
     name: 'Town hall',
-    goal: { cargo: 'goods', perDay: 20, days: 5 },
-    aim: 'Truck out 20 crates of goods a day, 5 days running',
+    // In all: the coasters bring it a load at a time, not every day.
+    goal: { cargo: 'goods', total: 60 },
+    aim: 'Truck out 60 crates of goods',
     opens: 'The town gets its charter: it grows past 800, so the port may become a Container Port',
     cap: Infinity,
     tier: 1,

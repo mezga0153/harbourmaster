@@ -54,10 +54,10 @@ has its cannery, 600+ its builders' yard, 700+ its school.
 
 | # | Landmark | Goal | Opens | Cap after |
 |---|---|---|---|---|
-| 4 | **Cannery** | fish trucked out, 30 crates/day for 3 days (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500 |
-| 5 | **Builders' yard** | canned fish put on board ships, 40 crates in all | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats** | 600 |
-| 6 | **School** | timber trucked out, 40 crates in all | families settle; the **department store** opens, and a coaster line offers **goods** for it | 700 |
-| 7 | **Town hall** | goods trucked out, 20 crates/day for 5 days | the town charter: grows past 800, which lets the port become a **Container Port** | no limit |
+| 4 | **Cannery** | fish trucked out, 30 crates/day for 2 days running (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500 |
+| 5 | **Builders' yard** | canned fish put on board ships, 25 crates in all | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats** | 600 |
+| 6 | **School** | timber trucked out, 25 crates in all | families settle; the **department store** opens, and a coaster line offers **goods** for it | 700 |
+| 7 | **Town hall** | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day) | the town charter: grows past 800, which lets the port become a **Container Port** | no limit |
 
 ## Container Port and on (sketch)
 
