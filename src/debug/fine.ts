@@ -18,6 +18,46 @@ interface Inside {
   entries: { get(id: number): Entry | undefined; values(): Iterable<Entry> };
   forkSite: ForkSite;
   trucks: TruckSite;
+  grid?: StaffGridLike;
+  staffGrid?: StaffGridLike;
+}
+
+/**
+ * The staff's own grid of cells, a tile cut four by four, as the view's
+ * way finding has it (render/entities/grid.ts, once it is in): read by its
+ * shape only, so these overlays work with or without it.
+ */
+interface StaffGridLike {
+  width: number;
+  free(kind: 'dockhand' | 'forklift', cx: number, cz: number): boolean;
+  flags(cx: number, cz: number): number;
+}
+
+/** Cell bits that are something in the way (crates, a truck, ahead of a cab) rather than off the ground. */
+const IN_THE_WAY = 1 | 2 | 4;
+
+function staffGrid(e: Inside): StaffGridLike | null {
+  const g = e.staffGrid ?? e.grid ?? (e.forkSite as ForkSite & { grid?: StaffGridLike }).grid;
+  return g && typeof g.free === 'function' ? g : null;
+}
+
+/** A source reading the staff's grid for `kind`: free green, in the way red, off the ground not shown. */
+function gridSource(kind: 'dockhand' | 'forklift') {
+  return (r: Renderer, map: GameMap): FineSource | null => {
+    const e = inside(r);
+    const g = e && staffGrid(e);
+    if (!g) return null;
+    const sub = g.width / map.w;
+    return {
+      label: `Staff grid: ${kind}`,
+      cell: 1 / sub,
+      at(x, z) {
+        const [cx, cz] = [Math.floor(x * sub), Math.floor(z * sub)];
+        if (g.free(kind, cx, cz)) return PASS_OK;
+        return g.flags(cx, cz) & IN_THE_WAY ? PASS_BLOCKED : PASS_HIDDEN;
+      },
+    };
+  };
 }
 
 function inside(r: Renderer): Inside | null {
@@ -41,6 +81,8 @@ export const FINE: Record<
   string,
   { label: string; make(r: Renderer, map: GameMap): FineSource | null }
 > = {
+  gridFork: { label: 'Staff grid: forklift', make: gridSource('forklift') },
+  gridWalk: { label: 'Staff grid: dockhand', make: gridSource('dockhand') },
   fork: {
     label: 'Forklift body (view)',
     make(r, map) {
