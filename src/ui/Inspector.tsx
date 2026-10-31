@@ -397,7 +397,11 @@ function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => 
         {c.kind === 'jib' && (
           <>
             <dt>Crate storage in reach, for cargo coming in</dt>
-            <dd>{c.stores > 0 ? `${c.stores} area${c.stores === 1 ? '' : 's'}` : 'None'}</dd>
+            <dd>
+              {c.stores > 0
+                ? `${c.stores} tile${c.stores === 1 ? '' : 's'} beside it, ${c.storeRoom ? `room for ${c.storeRoom} more crate${c.storeRoom === 1 ? '' : 's'}` : 'full'}`
+                : 'None'}
+            </dd>
           </>
         )}
       </dl>

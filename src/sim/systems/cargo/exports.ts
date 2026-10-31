@@ -5,6 +5,7 @@ import type { World } from '../../world';
 import {
   dropAt,
   exportLooks,
+  jibRoom,
   holdsIce,
   iceBay,
   iceTruck,
@@ -17,7 +18,8 @@ import {
   tidyPile,
   workersAt,
 } from './stores';
-import { holds, readyIn, takeReady } from './customs';
+import { holds, readyIn, takeReady, waitMask } from './customs';
+import { crateSlots, stackOf } from './places';
 import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
 import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
@@ -33,6 +35,8 @@ import {
   craneTop,
   deckSlot,
   exportRoom,
+  jibGround,
+  jibReach,
   jibStores,
   outSlots,
 } from '../cranes';
@@ -179,13 +183,14 @@ export function exportTarget(
     // jib crane over the ship for it to lift on. Not out of storage a jib
     // crane is already loading a ship from, or forklifts carry it back and
     // forth between two cranes each loading a ship.
-    if (source && jibLoadsFrom(w, source)) return null;
+    if (source && jibLoadsFrom(w, source, from)) return null;
     const cranes = [...w.cranes.values()].filter(
       (c) => c.kind === 'jib' && near(w, c.idx, b.berth),
     );
     for (const c of cranes) {
       for (const store of jibStores(w, c)) {
-        const space = Math.min(room, bayRoom(store, false));
+        // Only as many as fit on the tiles of it the crane reaches.
+        const space = Math.min(room, bayRoom(store, false), jibRoom(w, c, store));
         if (store === source || space <= 0 || !takesExports(w, store)) continue;
         const at = dropAt(w, p, store, from);
         if (at >= 0) return { store, room: space };
@@ -195,15 +200,44 @@ export function exportTarget(
   return null;
 }
 
-/** Whether `store` is beside a jib crane with a ship under it waiting to be loaded. */
-function jibLoadsFrom(w: World, store: Bay): boolean {
-  for (const c of w.cranes.values()) {
-    if (c.kind !== 'jib' || !jibStores(w, c).includes(store)) continue;
-    if (w.boats.some((b) => b.vessel === 'coaster' && wantsLoad(w, b) && near(w, c.idx, b.berth))) {
-      return true;
-    }
-  }
-  return false;
+/**
+ * Whether tile `t` of crate storage `store` is in reach of a jib crane
+ * with a ship under it waiting to be loaded, that would lift the exports
+ * there on board: on the tiles beside it only, however far the storage
+ * goes on beyond them.
+ */
+function jibLoadsFrom(w: World, store: Bay, t: number): boolean {
+  return jibsLoading(w, store).some((c) => jibGround(w, c).includes(t));
+}
+
+/** The jib cranes beside crate storage `store` with a ship under them waiting to be loaded. */
+export function jibsLoading(w: World, store: Bay): Crane[] {
+  return [...w.cranes.values()].filter(
+    (c) =>
+      c.kind === 'jib' &&
+      jibStores(w, c).includes(store) &&
+      w.boats.some((b) => b.vessel === 'coaster' && wantsLoad(w, b) && near(w, c.idx, b.berth)),
+  );
+}
+
+/**
+ * The stacks of crate storage `store` (by tile) the jib cranes loading
+ * ships from it reach, where forklifts set exports down for them; none
+ * if no jib crane is loading from it.
+ */
+export function jibLoadReach(w: World, store: Bay): Set<number> | undefined {
+  const cranes = jibsLoading(w, store);
+  if (cranes.length === 0) return undefined;
+  return new Set(cranes.flatMap((c) => [...jibReach(w, c, store)]));
+}
+
+/** Exports in crate storage free to go that a jib crane can lift on board: on the tiles beside it. */
+export function jibReady(w: World, c: Crane, store: Bay): number {
+  const reach = jibReach(w, c, store);
+  const wait = waitMask(w, store, true);
+  return crateSlots(w, store).exports.filter(
+    (s, i) => !wait[i] && s >= 0 && reach.has(stackOf(store, s)),
+  ).length;
 }
 
 /** Whether a jib crane can swing a crate on board from tile `t`: right beside it. */
@@ -431,17 +465,26 @@ export function loadShip(w: World, c: Crane): void {
       };
     }
   } else {
-    const store = jibStores(w, c).find((a) => readyIn(w, a, true) - (a.outReserved ?? 0) > 0);
+    // Off the tiles of storage beside it only.
+    const store = jibStores(w, c).find(
+      (a) => jibReady(w, c, a) > 0 && readyIn(w, a, true) - (a.outReserved ?? 0) > 0,
+    );
     const pile = [...w.piles.values()].find(
       (q) => q.out && q.crates.length - (q.reserved ?? 0) > 0 && inJibReach(w, c, q.idx),
     );
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
       take = () =>
-        takeReady(w, store, true, (store.exports?.length ?? 1) - 1, 1, undefined, {
-          from: exportLooks(w, store),
-          to: [],
-        })[0];
+        takeReady(
+          w,
+          store,
+          true,
+          (store.exports?.length ?? 1) - 1,
+          1,
+          undefined,
+          { from: exportLooks(w, store), to: [] },
+          jibReach(w, c, store),
+        )[0];
     } else if (pile) {
       take = () => {
         const fee = pile.crates.shift()!;

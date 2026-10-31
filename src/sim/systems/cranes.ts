@@ -9,7 +9,7 @@ import * as B from '../balance';
 import { aligned, boxLookOf, craneStack, craneStacks, craneTicks, deckPlace } from '../helpers';
 import type { CraneView } from '../../protocol/views';
 import { besideStack } from './yardGantry';
-import { exportTaken, nextSlots, waitsIn } from './cargo/places';
+import { crateSlots, exportTaken, nextSlots, slotBelow, usedSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
 import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
 import { startHolds } from './cargo/customs';
@@ -27,6 +27,9 @@ export function addCrane(w: World, i: number, kind: Crane['kind']): void {
 export function updateCrane(w: World, c: Crane): void {
   c.busy = false;
   w.jibJobs.delete(c);
+  // The place it kept in storage, for a lift it no longer makes.
+  const kept = c.setInto;
+  c.setInto = undefined;
   // A tractor waiting under it for a container there is none of goes: no
   // ship to unload, or one it has not lifted from in a good while.
   if (c.kind !== 'jib' && c.stack.length === 0) {
@@ -67,12 +70,19 @@ export function updateCrane(w: World, c: Crane): void {
   // one it lifted it for has not come.
   if (boxes && !handingTo(w, c)) c.handTo = directTo(w, c)?.id ?? c.handTo;
   if (!boxes) w.jibJobs.set(c, { boat, load: false, store });
+  c.setInto = kept;
+  if (store) keepSlot(w, c, store, boat);
   c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
   if (++c.timer < craneTicks(c)) return;
   c.timer = 0;
   boat.crates--;
   if (store) {
+    // Into the place kept for it, on a tile of it in reach.
+    const s = c.setInto?.store === store.idx ? c.setInto.slot : -1;
+    c.setInto = undefined;
+    const slots = crateSlots(w, store).crates;
     store.crates.push(boat.fee);
+    slots.push(s);
     startHolds(w, store, [boat.fee], false);
     w.stats.cratesHandled++;
     return;
@@ -97,6 +107,25 @@ export function updateCrane(w: World, c: Crane): void {
     boat.lifted = [];
     shipUnloaded(w, boat);
   }
+}
+
+/**
+ * The slot in crate storage `store` a jib crane sets the crate it is
+ * lifting off `boat` down in: the one it kept as it took it up, while that
+ * is still free to set it on; else the next on a tile of the storage in
+ * its reach, never one beyond, kept for it from then on.
+ */
+function keepSlot(w: World, c: Crane, store: Bay, boat: Boat): void {
+  const kept = c.setInto;
+  if (kept && kept.store === store.idx && kept.slot >= 0) {
+    const used = usedSlots(w, store);
+    const under = slotBelow(store, kept.slot);
+    if (!used.has(kept.slot) && (under < 0 || used.has(under))) return;
+  }
+  c.setInto = undefined;
+  const ground = waitsIn(store, false, [boat.fee]);
+  const [slot] = nextSlots(w, store, 1, ground, jibReach(w, c, store));
+  c.setInto = { store: store.idx, slot };
 }
 
 /** Which container on a crane's stack a machine picking at it takes: the one it chose, or the top. */
@@ -429,10 +458,13 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     ahead.set(key, n + 1);
     return n;
   };
+  // Places in storage given to cranes before, for the next to leave be.
+  const given = new Map<Bay, number[]>();
   for (const c of w.cranes.values()) {
     const job = c.kind === 'jib' && c.busy ? w.jibJobs.get(c) : undefined;
     if (!job) continue;
     const { boat: b, load, store, pile } = job;
+    const reach = store && jibReach(w, c, store);
     const aboard = b.crates + (b.out ?? 0);
     const slot = load ? aboard + nth(b) : aboard - 1 - nth(b);
     const there = store
@@ -443,13 +475,18 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     const key = store ?? pile ?? c;
     const k = load ? there - 1 - nth(key) : there + nth(key);
     if (slot < 0 || k < 0) continue;
-    // In crate storage, the slot it is set down in or taken from.
-    const n = k - there;
-    const place = !store
-      ? k
-      : load
-        ? exportTaken(w, store, there - 1 - k)
-        : nextSlots(w, store, n + 1, waitsIn(store, false, [b.fee]))[n];
+    // In crate storage, the slot it is set down in or taken from, on a
+    // tile of it in its reach.
+    let place = k;
+    if (store) {
+      const before = given.get(store) ?? [];
+      place = load
+        ? exportTaken(w, store, there - 1 - k, reach)
+        : c.setInto?.store === store.idx
+          ? c.setInto.slot
+          : nextSlots(w, store, 1, waitsIn(store, false, [b.fee]), reach, before)[0];
+      given.set(store, [...before, place]);
+    }
     const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
     lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
   }
@@ -466,15 +503,15 @@ export function jibMoved(
   _w: World,
   lifts: Map<Crane, JibLift>,
   where: object,
-): { set: number; taken: number } {
-  let set = 0;
-  let taken = 0;
+): { set: number; taken: number; setAt: number[]; takenAt: number[] } {
+  const setAt: number[] = [];
+  const takenAt: number[] = [];
   for (const [c, l] of lifts) {
     const [from, to] = l.load ? [l.store ?? l.pile, l.boat] : [l.boat, l.store ?? c];
-    if (from === where && l.phase >= B.CRANE_LIFT_TAKEN) taken++;
-    if (to === where && l.phase >= B.CRANE_LIFT_SET) set++;
+    if (from === where && l.phase >= B.CRANE_LIFT_TAKEN) takenAt.push(l.place);
+    if (to === where && l.phase >= B.CRANE_LIFT_SET) setAt.push(l.place);
   }
-  return { set, taken };
+  return { set: setAt.length, taken: takenAt.length, setAt, takenAt };
 }
 
 /**
@@ -861,16 +898,37 @@ export function craneReaches(w: World, c: Crane, b: Boat): boolean {
  * machines-only ground round it, never further.
  */
 export function jibStores(w: World, c: Crane): Bay[] {
-  const m = w.map;
   const found: Bay[] = [];
+  for (const t of jibGround(w, c)) {
+    const a = w.bays.get(w.storeOf[t]);
+    if (a && !found.includes(a)) found.push(a);
+  }
+  return found;
+}
+
+/** The tiles round a jib crane it swings crates to and from: the eight beside it. */
+export function jibGround(w: World, c: Crane): number[] {
+  const m = w.map;
+  const out: number[] = [];
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       const x = m.xOf(c.idx) + dx;
       const y = m.yOf(c.idx) + dy;
       if ((dx === 0 && dy === 0) || !m.inBounds(x, y)) continue;
-      const a = w.bays.get(w.storeOf[m.idx(x, y)]);
-      if (a && !found.includes(a)) found.push(a);
+      out.push(m.idx(x, y));
     }
   }
-  return found;
+  return out;
+}
+
+/**
+ * The stacks of crate storage `b` (by tile, see stackOf) a jib crane
+ * reaches: only those on the tiles beside it, however far the storage
+ * goes on beyond them.
+ */
+export function jibReach(w: World, c: Crane, b: Bay): Set<number> {
+  const near = new Set(jibGround(w, c));
+  const out = new Set<number>();
+  (b.tiles ?? [b.idx]).forEach((t, n) => near.has(t) && out.add(n));
+  return out;
 }

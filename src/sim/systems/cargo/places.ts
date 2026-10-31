@@ -28,6 +28,8 @@ import * as B from '../../balance';
 import { needsCustoms, needsPapers } from '../../helpers';
 import { drivable, forksAlongZ } from '../../rules';
 import { Build } from '../../types';
+import { jibLoadReach } from './exports';
+import { jibTiles } from './stores';
 
 /** Crates in a crate storage pallet place, and in a layer of one. */
 export const PLACE = B.FORKLIFT_CAPACITY;
@@ -41,6 +43,21 @@ const LARGE_SLOTS = 28;
 
 /** Pallet places on each tile of crate storage. */
 const PLACES = PER_TILE / PLACE;
+
+/** Which stack slot `s` of a bay is in: in crate storage, the tile (by its place in its tiles). */
+export function stackOf(b: Bay, s: number): number {
+  return shape(b).stack(s);
+}
+
+/** The slot under `s` at a bay, or -1 on the ground. */
+export function slotBelow(b: Bay, s: number): number {
+  return shape(b).below(s);
+}
+
+/** How many slots a bay has. */
+export function slotCount(b: Bay): number {
+  return shape(b).cap;
+}
 
 /** Whether each crate at this bay keeps a slot of its own: crate storage and truck bays. */
 export function slotted(b: Bay): boolean {
@@ -269,10 +286,16 @@ export function usedSlots(w: World, b: Bay): Set<number> {
   return new Set([...crates, ...exports].filter((s) => s >= 0));
 }
 
-/** The slots kept at a bay for loads on their way down into them; see claimDrop. */
+/**
+ * The slots kept at a bay for loads on their way down into them (see
+ * claimDrop), and for the crates jib cranes are swinging into it.
+ */
 export function reserved(w: World, b: Bay, except?: Dockhand): Set<number> {
   const out = new Set<number>();
   const sh = shape(b);
+  for (const c of w.cranes.values()) {
+    if (c.setInto?.store === b.idx && c.setInto.slot >= 0) out.add(c.setInto.slot);
+  }
   for (const q of w.people) {
     if (q === except) continue;
     // Nothing set on a pallet a forklift is lifting off.
@@ -317,8 +340,9 @@ export function waitsIn(b: Bay, out: boolean, fees: number[], cleared = false): 
  * Where one crate set down on its own goes: on top of the place being
  * filled, if one is, so a place fills before the next is started; else
  * the lowest free place. Always on the ground or on another crate; on the
- * ground while there is room for one that will wait (`ground`). -1 if
- * there is no room.
+ * ground while there is room for one that will wait (`ground`). Only on
+ * the stacks in `only` (by tile, see stackOf) if given, as a jib crane
+ * reaches just those beside it. -1 if there is no room.
  */
 export function freeSlot(
   b: Bay,
@@ -327,11 +351,13 @@ export function freeSlot(
   ground = false,
   waiting?: Set<number>,
   w?: World,
+  only?: Set<number>,
 ): number {
   const sh = shape(b);
   const taken = new Set([...used, ...kept]);
   const open = (s: number) => {
     if (used.has(s) || kept.has(s)) return false;
+    if (only && !only.has(sh.stack(s))) return false;
     const under = sh.below(s);
     return under < 0 || used.has(under);
   };
@@ -383,7 +409,8 @@ export function freeSlot(
  * where it can get its forks in (see reachable), the near row of a stack
  * with ground at one end only once the far one is full. On the lowest
  * free ground first, so the whole pallets already there stay clear to
- * lift off; on top of a stack when there is none. -1 if none fits.
+ * lift off; on top of a stack when there is none. Only on the stacks in
+ * `only` if given (see freeSlot). -1 if none fits.
  */
 export function loadSlot(
   b: Bay,
@@ -391,6 +418,7 @@ export function loadSlot(
   used: Set<number>,
   kept = new Set<number>(),
   w?: World,
+  only?: Set<number>,
 ): number {
   const sh = shape(b);
   if (n <= 0) return -1;
@@ -399,6 +427,7 @@ export function loadSlot(
   let least = Infinity;
   for (let s = 0; s + n <= sh.cap; s += 2) {
     if (placeIn(s) !== placeIn(s + n - 1)) continue;
+    if (only && !only.has(sh.stack(s))) continue;
     let ok = true;
     for (let k = s; k < s + n && ok; k++) ok = !used.has(k) && !kept.has(k);
     // The layer it goes on whole, and none set on top of where it goes.
@@ -440,9 +469,27 @@ export function dropSlot(w: World, p: Dockhand, b: Bay): number {
   const used = usedSlots(w, b);
   const kept = reserved(w, b, p);
   const ground = waitsIn(b, !!p.outbound, p.cargoFees, p.cleared);
-  return p.kind === 'forklift'
-    ? loadSlot(b, Math.max(1, p.carrying), used, kept, w)
-    : freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
+  if (p.kind !== 'forklift') return freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
+  const n = Math.max(1, p.carrying);
+  const only = forkliftOnly(w, p, b);
+  const s = only ? loadSlot(b, n, used, kept, w, only) : -1;
+  return s >= 0 ? s : loadSlot(b, n, used, kept, w);
+}
+
+/**
+ * The stacks (by tile) of crate storage a forklift sets its load down on
+ * where a jib crane is beside it: exports for a ship under it on those it
+ * reaches, for it to lift on board; crates it is moving within the same
+ * storage, to make room for the crane, off them. Anywhere otherwise.
+ */
+function forkliftOnly(w: World, p: Dockhand, b: Bay): Set<number> | undefined {
+  if (!b.tiles || b.yard) return undefined;
+  if (p.outbound) return jibLoadReach(w, b);
+  const within = p.shiftIn === b.idx || (p.stockIdx === b.idx && p.truckId === undefined);
+  if (!within) return undefined;
+  const near = jibTiles(w, b);
+  if (near.size === 0) return undefined;
+  return new Set(b.tiles.map((_, n) => n).filter((n) => !near.has(n)));
 }
 
 /**
@@ -588,40 +635,56 @@ export function clearOnTop(w: World, b: Bay, place: number): boolean {
   return true;
 }
 
-/** The slots the next `n` crates set down one at a time at a bay go into, in turn. */
-export function nextSlots(w: World, b: Bay, n: number, ground = false): number[] {
+/**
+ * The slots the next `n` crates set down one at a time at a bay go into,
+ * in turn: only on the stacks in `only` if given, and not in `also`,
+ * kept for others on their way.
+ */
+export function nextSlots(
+  w: World,
+  b: Bay,
+  n: number,
+  ground = false,
+  only?: Set<number>,
+  also: number[] = [],
+): number[] {
   const used = usedSlots(w, b);
+  for (const s of also) if (s >= 0) used.add(s);
   const kept = reserved(w, b);
   const out: number[] = [];
   for (let k = 0; k < n; k++) {
-    const s = freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
+    const s = freeSlot(b, used, kept, ground, waitingSlots(w, b), w, only);
     out.push(s);
     if (s >= 0) used.add(s);
   }
   return out;
 }
 
-/** The slot of the `nth` export (from 0) taken off a bay's exports from the top, one at a time. */
-export function exportTaken(w: World, b: Bay, nth: number): number {
+/**
+ * The slot of the `nth` export (from 0) taken off a bay's exports from the
+ * top, one at a time; only off the stacks in `only` if given.
+ */
+export function exportTaken(w: World, b: Bay, nth: number, only?: Set<number>): number {
   const exports = crateSlots(w, b).exports;
-  const picks = takeOrder(w, b, true, exports.length - 1, nth + 1, () => true);
+  const sh = shape(b);
+  const ok = (i: number) => !only || (exports[i] >= 0 && only.has(sh.stack(exports[i])));
+  const picks = takeOrder(w, b, true, exports.length - 1, nth + 1, ok);
   return picks.length > nth ? exports[picks[picks.length - 1 - nth]] : -1;
 }
 
 /**
  * The slots a bay's crates show in, its crates then its exports, as its
- * view has them: a jib crane's exports already on the hook (`taken`)
- * shown in none (-1), and after them all the places of those it has set
- * down that the lists do not have yet (`set`).
+ * view has them: jib cranes' exports already on the hook (`takenAt`)
+ * shown in none (-1), and after them all the places those cranes have
+ * set crates down in that the lists do not have yet (`setAt`).
  */
 export function shownSlots(
   w: World,
   b: Bay,
-  moved: { set: number; taken: number },
+  moved: { setAt: number[]; takenAt: number[] },
 ): number[] | undefined {
   if (!slotted(b)) return undefined;
   const { crates, exports } = crateSlots(w, b);
-  const gone = new Set<number>();
-  for (let k = 0; k < moved.taken; k++) gone.add(exportTaken(w, b, k));
-  return [...crates, ...exports.map((s) => (gone.has(s) ? -1 : s)), ...nextSlots(w, b, moved.set)];
+  const gone = new Set(moved.takenAt);
+  return [...crates, ...exports.map((s) => (gone.has(s) ? -1 : s)), ...moved.setAt];
 }

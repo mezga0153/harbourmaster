@@ -83,6 +83,12 @@ export interface Dockhand extends Agent {
    * storage area trucks cannot get to; or -1.
    */
   stockIdx: number;
+  /**
+   * Forklifts: the crate storage the load was taken from when it goes back
+   * into the same storage, off the tiles a jib crane reaches to make room
+   * for it there.
+   */
+  shiftIn?: number;
   /** Where the load goes: a truck bay, or for containers a yard. */
   bayIdx: number;
   /** Stackers: the ship each container carried came off, by id. */
@@ -164,6 +170,12 @@ export interface Crane {
    */
   liftBoat?: number;
   liftSlot?: number;
+  /**
+   * A jib crane swinging a crate off a boat into crate storage: the
+   * storage and the slot in it, on a tile in its reach, kept for the crate
+   * from when it takes it up until it sets it down there.
+   */
+  setInto?: { store: number; slot: number };
   /**
    * The tractor waiting under it as it began a lift off the ship, or called
    * to it and pulling in by the time it has it: it sets the container

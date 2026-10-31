@@ -23,6 +23,9 @@ import {
   takeFromSource,
   takesImports,
   truckable,
+  jibCramped,
+  offJibRoom,
+  readyOn,
   workersAt,
   yardSlots,
   yardWithRoom,
@@ -826,12 +829,19 @@ export function assignJob(w: World, p: Dockhand): boolean {
     }
   }
   // Crates in storage the trucks cannot get to, by a crane say, are taken
-  // on by forklift to storage or a truck bay they can.
+  // on by forklift to storage or a truck bay they can; and off the tiles
+  // a jib crane reaches when it has no room left there, to make some.
   if (forks) {
     for (const store of w.bays.values()) {
-      const avail = readyIn(w, store, false) - (store.reserved ?? 0);
+      if (!store.tiles) continue;
+      const cramped = jibCramped(w, store);
+      const avail = truckable(w, store)
+        ? cramped.size > 0
+          ? readyOn(w, store, cramped)
+          : 0
+        : readyIn(w, store, false) - (store.reserved ?? 0);
       // A full load at a time: there is no boat waiting on it.
-      if (!store.tiles || avail < p.capacity || truckable(w, store)) continue;
+      if (avail < p.capacity) continue;
       // At the pallet it would take.
       sources.push({ tile: palletTile(w, store, true), avail, pile: store, rank: 1 });
     }
@@ -888,7 +898,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
       ? yardWithRoom(w, p, src.tile)
       : src.boat
         ? landing(w, p, src.tile, held)
-        : bayWithRoom(w, p, src.tile, !!src.pile?.tiles, held);
+        : bayWithRoom(w, p, src.tile, !!src.pile?.tiles, held, shutTo(w, p, src.pile));
     if (!bay) {
       // The boat waits, and says why (see boatWhy).
       if (src.boat) noRoomFor(w, src.boat, held);
@@ -912,6 +922,16 @@ export function assignJob(w: World, p: Dockhand): boolean {
   }
   // With nothing else to do, a stacker tidies the yards.
   return p.kind === 'stacker' && takeRestackJob(w, p, here);
+}
+
+/**
+ * Crate storage a forklift taking crates from `from` may not set them
+ * down in again: that same storage, unless it is making room by a jib
+ * crane and there is room for them off the tiles the crane reaches.
+ */
+function shutTo(w: World, p: Dockhand, from: Bay | undefined): Bay | undefined {
+  if (!from?.tiles || from.yard) return undefined;
+  return jibCramped(w, from).size > 0 && offJibRoom(w, from, p.capacity) ? undefined : from;
 }
 
 /**

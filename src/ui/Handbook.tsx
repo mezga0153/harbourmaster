@@ -130,9 +130,11 @@ export const TOPICS: Record<TopicId, Topic> = {
         <p>
           <b>Jib cranes</b> stand on a quay edge and lift crates off a boat lying under them,
           swinging them straight into crate storage for cargo coming in marked out right next to
-          them, in the machines-only ground round them. They never set crates down at their feet:
-          one with no such storage next to it, or all of it full, unloads nothing, and has a red
-          mark over it until it has some.
+          them, in the machines-only ground round them. Storage marked out further than that is in
+          reach only on the tiles right beside the crane: it swings crates onto those alone, and
+          waits once they are full, however much room the rest has. They never set crates down at
+          their feet: one with no such storage next to it, or all of it full, unloads nothing, and
+          has a red mark over it until it has some.
         </p>
         <p>
           <b>Harbour cranes</b> lift containers off feeder ships onto a small stack beside them, for
@@ -244,8 +246,9 @@ export const TOPICS: Record<TopicId, Topic> = {
           forklifts move the crates on to the truck bays.
         </p>
         <p>
-          Storage beside a jib crane fills straight from the boats. Where trucks cannot reach it,
-          forklifts take its crates on.
+          Storage beside a jib crane fills straight from the boats, on the tiles right beside the
+          crane. Where trucks cannot reach it, forklifts take its crates on; and once those tiles
+          are full, forklifts move crates off them first, to make the crane room.
         </p>
         <p>
           <b>Customs and export papers.</b> Lines landing timber, goods or containers, and the

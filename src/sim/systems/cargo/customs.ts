@@ -26,7 +26,7 @@ import { exportTarget, loadSpot } from './exports';
 import { headTo } from '../workforce/dockhands';
 import { craneSpot } from '../yardGantry';
 import { releaseTruckJob } from '../truckLoading';
-import { loadFits, setDown, slotted, takeOrder, takeSlots } from './places';
+import { crateSlots, loadFits, setDown, slotted, stackOf, takeOrder, takeSlots } from './places';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -102,7 +102,8 @@ export function startHolds(w: World, b: Bay, fees: number[], out: boolean): void
  * Up to `n` crates off a bay's crates, or (`out`) its exports, none of
  * them still waiting and all of them ones `fits` lets through: those from
  * `at` on if they all may go, else the first that may. How each looks,
- * where the bay keeps that, comes off with it into `looks`.
+ * where the bay keeps that, comes off with it into `looks`. In crate
+ * storage, only off the stacks in `only` (by tile, see stackOf) if given.
  */
 export function takeReady(
   w: World,
@@ -112,11 +113,15 @@ export function takeReady(
   n: number,
   fits: (fee: number) => boolean = () => true,
   looks?: { from: number[]; to: number[] },
+  only?: Set<number>,
 ): number[] {
   const list = out ? (b.exports ??= []) : b.crates;
   if (n <= 0 || list.length === 0) return [];
   const wait = waitMask(w, b, out);
-  const ok = (i: number) => !wait[i] && fits(list[i]);
+  const slots =
+    only && slotted(b) ? (out ? crateSlots(w, b).exports : crateSlots(w, b).crates) : [];
+  const inReach = (i: number) => !only || (slots[i] >= 0 && only.has(stackOf(b, slots[i])));
+  const ok = (i: number) => !wait[i] && fits(list[i]) && inReach(i);
   let pick: number[] = [];
   // In crate storage and at a truck bay each crate keeps its slot: only
   // ones with none on top, from the place `at` is in first.

@@ -51,6 +51,7 @@ import {
   deckView,
   jibLifts,
   jibMoved,
+  jibReach,
   jibStores,
   servedLoad,
   servedStack,
@@ -82,6 +83,7 @@ import {
   cleared,
   customsHold,
   dropRoom,
+  jibRoom,
   jibStore,
   jibStows,
   nextClear,
@@ -163,7 +165,7 @@ export function boatWhy(w: World, b: Boat): string | undefined {
   }
   if (jib && !jibStore(w, jib)) {
     return jibStows(w, jib)
-      ? 'The crate storage in reach of the jib crane over it is full: the crane waits for room. Forklifts take crates on from storage the trucks cannot reach.'
+      ? 'The crate storage in reach of the jib crane over it is full on the tiles right beside the crane, the only ones it swings to: the crane waits for room. Forklifts move crates off those tiles to make some.'
       : 'The jib crane over it has no crate storage for cargo coming in next to it to swing the crates into, and it sets none down at its feet.';
   }
   return b.noRoom ? noRoomWords(w, b.noRoom) : undefined;
@@ -295,6 +297,20 @@ export function truckWhy(w: World, t: Truck): string | undefined {
   return undefined;
 }
 
+/**
+ * A jib crane's crate storage for cargo coming in, for its panel: the
+ * tiles of it in its reach, and the room left on those, whatever room the
+ * storage has beyond them.
+ */
+function jibReachView(w: World, c: Crane): { stores: number; storeRoom?: number } {
+  if (c.kind !== 'jib') return { stores: 0 };
+  const stores = jibStores(w, c).filter((a) => takesImports(w, a));
+  return {
+    stores: stores.reduce((n, a) => n + jibReach(w, c, a).size, 0),
+    storeRoom: stores.reduce((n, a) => n + jibRoom(w, c, a), 0),
+  };
+}
+
 export function craneWhy(w: World, c: Crane): string {
   const full = stackFull(w, c);
   if (c.kind === 'jib') {
@@ -310,8 +326,8 @@ export function craneWhy(w: World, c: Crane): string {
     if (!jibStore(w, c)) {
       // Beside it is machines-only ground: trucks cannot load there, only forklifts take them on.
       return w.people.some((p) => p.kind === 'forklift')
-        ? 'Crate storage in reach is full: waiting for room.'
-        : 'Crate storage in reach is full, and nothing empties it: it is machines-only ground, so only forklifts take crates on from it. Buy one at a forklift depot.';
+        ? 'Crate storage in reach is full on the tiles right beside it, the only ones it swings to: waiting for forklifts to move crates off them.'
+        : 'Crate storage in reach is full on the tiles right beside it, the only ones it swings to, and nothing empties them: only forklifts take crates off those. Buy one at a forklift depot.';
     }
     return 'No boat lying under it.';
   }
@@ -937,7 +953,7 @@ export function buildSnapshot(w: World): Snapshot {
       max: craneStack(c),
       angle: c.angle,
       busy: c.busy,
-      stores: c.kind === 'jib' ? jibStores(w, c).filter((a) => takesImports(w, a)).length : 0,
+      ...jibReachView(w, c),
       why: craneWhy(w, c),
       trouble: craneTrouble(w, c) ?? undefined,
       ...craneWork(w, c, jibs),

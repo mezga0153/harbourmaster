@@ -863,7 +863,7 @@ describe('Coastal Wharf tier', () => {
     const jetty = quayPort(world);
     const tip = jetty[jetty.length - 1];
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
-    // Two tiles: room for a couple of boats' worth.
+    // Two tiles, though it reaches only the one beside it.
     const store = jetty[jetty.length - 3];
     world.command({
       type: 'store',
@@ -886,11 +886,11 @@ describe('Coastal Wharf tier', () => {
     const handled = world.stats.cratesHandled;
     const trucked = world.stats.trucks;
     // At most the start of another load left, as boats keep landing more:
-    // a day, and the trip the forklift may be part way through then.
+    // a day, and the trips the forklift may be part way through then.
     const left = () => world.bays.get(store)!.crates.length;
     for (
       let t = 0;
-      t < TICKS_PER_DAY || (t < TICKS_PER_DAY * 1.2 && left() > B.FORKLIFT_CAPACITY);
+      t < TICKS_PER_DAY || (t < TICKS_PER_DAY * 1.5 && left() > B.FORKLIFT_CAPACITY);
       t++
     ) {
       world.step();

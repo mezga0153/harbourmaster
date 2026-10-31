@@ -150,8 +150,10 @@ export interface CraneView {
   max: number;
   angle: number;
   busy: boolean;
-  /** Jib cranes: crate storage areas for cargo coming in, in reach. */
+  /** Jib cranes: tiles of crate storage for cargo coming in in reach, right beside it. */
   stores: number;
+  /** Jib cranes: free places for crates on those tiles. */
+  storeRoom?: number;
   /** What it is doing, or why it is not. */
   why: string;
   /** Why no ship can ever come alongside it, if none can. */

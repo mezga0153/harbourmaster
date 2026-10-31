@@ -2,7 +2,7 @@
 // reach it, and how containers are stacked and found.
 
 import type { World } from '../../world';
-import { dest, holds, nextHold, readyIn, takeReady } from './customs';
+import { dest, holds, nextHold, readyIn, takeReady, waitMask } from './customs';
 import { roadTo } from '../roads/bays';
 import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
 import { message } from '../output';
@@ -21,8 +21,9 @@ import {
 } from '../../helpers';
 import { boatHalf, mooredTiles } from '../boats/berthing';
 import { Build, TICKS_PER_DAY, isDock } from '../../types';
-import { craneKinds, cranePlaces, craneTop, jibStores } from '../cranes';
+import { craneKinds, cranePlaces, craneTop, jibReach, jibStores } from '../cranes';
 import { onPallet, palletPlaces, palletTile, takenFrom } from '../yardGantry';
+import { crateSlots, loadSlot, reserved, slotCount, stackOf, usedSlots } from './places';
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
 import { cargoOf } from '../../cargo';
@@ -102,6 +103,9 @@ export function sourceValid(w: World, p: Dockhand): boolean {
 /** Lift up to the planned number of crates; returns their fees. */
 export function takeFromSource(w: World, p: Dockhand): number[] {
   p.cleared = undefined;
+  // Moving crates within one storage, off the tiles by a jib crane.
+  const within = p.stockIdx >= 0 && p.stockIdx === p.bayIdx && p.truckId === undefined;
+  p.shiftIn = within ? p.stockIdx : undefined;
   if (p.craneIdx >= 0) {
     const crane = w.cranes.get(p.craneIdx);
     p.craneIdx = -1;
@@ -203,9 +207,10 @@ export function bayWithRoom(
   from: number,
   onward = false,
   held = false,
+  except?: Bay,
 ): Bay | null {
   // Crates waiting on customs only into crate storage, not a truck bay.
-  const only = held ? (b: Bay) => !!b.tiles : undefined;
+  const only = (b: Bay) => b !== except && (!held || !!b.tiles);
   return nearestWithRoom(w, p, from, w.bays, false, onward, only);
 }
 
@@ -377,11 +382,72 @@ export function jibStows(w: World, c: Crane): boolean {
 
 /**
  * The crate storage a jib crane swings the next crate off a boat into: the
- * nearest in reach that takes cargo coming in and has room for it. With
+ * nearest in reach that takes cargo coming in and has room for it on the
+ * tiles of it beside the crane, whatever room it has further off. With
  * none, it unloads nothing: it never sets crates down at its feet.
  */
 export function jibStore(w: World, c: Crane): Bay | undefined {
-  return jibStores(w, c).find((a) => bayRoom(a, false) > 0 && takesImports(w, a));
+  return jibStores(w, c).find(
+    (a) => takesImports(w, a) && bayRoom(a, false) > 0 && jibRoom(w, c, a) > 0,
+  );
+}
+
+/**
+ * The stacks of crate storage `b` (by tile) in reach of a jib crane that
+ * has no room left there to swing crates into: forklifts take crates off
+ * these first, to make room. Empty if there are none.
+ */
+export function jibCramped(w: World, b: Bay): Set<number> {
+  const out = new Set<number>();
+  if (!b.tiles || b.yard || !takesImports(w, b)) return out;
+  for (const c of w.cranes.values()) {
+    if (c.kind !== 'jib' || !jibStores(w, c).includes(b) || jibStore(w, c)) continue;
+    for (const n of jibReach(w, c, b)) out.add(n);
+  }
+  return out;
+}
+
+/**
+ * Crates in crate storage `b` free to go on the stacks in `stacks` (by
+ * tile), less those already spoken for.
+ */
+export function readyOn(w: World, b: Bay, stacks: Set<number>): number {
+  const wait = waitMask(w, b, false);
+  const n = crateSlots(w, b).crates.filter(
+    (s, i) => !wait[i] && s >= 0 && stacks.has(stackOf(b, s)),
+  ).length;
+  return n - (b.reserved ?? 0);
+}
+
+/** Whether a forklift's load of `n` fits in crate storage `b` off the tiles any jib crane reaches. */
+export function offJibRoom(w: World, b: Bay, n: number): boolean {
+  if (!b.tiles) return false;
+  const near = jibTiles(w, b);
+  const off = new Set(b.tiles.map((_, k) => k).filter((k) => !near.has(k)));
+  return loadSlot(b, n, usedSlots(w, b), reserved(w, b), w, off) >= 0;
+}
+
+/** The stacks of crate storage `b` (by tile) any jib crane reaches. */
+export function jibTiles(w: World, b: Bay): Set<number> {
+  const out = new Set<number>();
+  for (const c of w.cranes.values()) {
+    if (c.kind !== 'jib') continue;
+    for (const n of jibReach(w, c, b)) out.add(n);
+  }
+  return out;
+}
+
+/** Free places for crates in crate storage `b` on the tiles a jib crane reaches. */
+export function jibRoom(w: World, c: Crane, b: Bay): number {
+  if (!b.tiles) return bayRoom(b, false);
+  const reach = jibReach(w, c, b);
+  const used = usedSlots(w, b);
+  const kept = reserved(w, b);
+  let n = 0;
+  for (let s = 0; s < slotCount(b); s++) {
+    if (reach.has(stackOf(b, s)) && !used.has(s) && !kept.has(s)) n++;
+  }
+  return n;
 }
 
 /** Trucks can get to this bay or storage area to load. */
