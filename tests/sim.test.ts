@@ -34,6 +34,19 @@ import { World } from '../src/sim/world';
 import { tip } from '../src/sim/systems/output';
 import { berthTrouble, craneWhy, parkedWords, truckWhy } from '../src/sim/systems/snapshot';
 import { addContract, capacity, newDay, refreshOffers } from '../src/sim/systems/economy';
+import {
+  cranePlaces,
+  craneReaches,
+  craneTakenIn,
+  craneTop,
+  serveTractor,
+  underGantry,
+} from '../src/sim/systems/cranes';
+import { cornerRing, seaWay, seaWayFor } from '../src/sim/systems/boats/traffic';
+import { docks, freeBerths, letsGoFirst, route } from '../src/sim/systems/boats/berthing';
+import { berthsClash, gateSide } from '../src/sim/systems/boats/berthing';
+import { clips as clipsOf } from '../src/sim/systems/boats/seamanship';
+import { outranks as outranksOf } from '../src/sim/systems/boats/traffic';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -622,9 +635,9 @@ describe('Coastal Wharf tier', () => {
     world.tier = 1;
     world.cash = 50_000;
     world.command({ type: 'build', kind: 'quay', tiles: [starterJetty(world)[0]] });
-    expect(world.docks().every((d) => !d.coordinated)).toBe(true);
+    expect(docks(world).every((d) => !d.coordinated)).toBe(true);
     buildOffice(world);
-    expect(world.docks().every((d) => d.coordinated)).toBe(true);
+    expect(docks(world).every((d) => d.coordinated)).toBe(true);
   });
 
   /** Build a forklift depot beside the starting footpath. */
@@ -1820,8 +1833,8 @@ describe('Port side', () => {
       }
       if (built === 2) break;
     }
-    expect(world.docks()).toHaveLength(3);
-    expect(world.docks().filter((d) => d.coordinated)).toHaveLength(B.FREE_DOCKS);
+    expect(docks(world)).toHaveLength(3);
+    expect(docks(world).filter((d) => d.coordinated)).toHaveLength(B.FREE_DOCKS);
   });
 });
 
@@ -2079,7 +2092,7 @@ describe('Buoys', () => {
       );
     };
     const crossed = new Map<number, { in: number[]; out: number[] }>();
-    const side = world['gateSide'].bind(world);
+    const side = gateSide.bind(null, world);
     // Where each boat came in from: out beyond the outermost green pair.
     const beyond: boolean[] = [];
     const last = new Map<number, number[]>();
@@ -2974,14 +2987,13 @@ describe('Container Port tier', () => {
       timer: 1000,
     });
     crane.outReserved = 1;
-    world['underGantry'] = (q: unknown) => (q === p ? crane : undefined);
     let free = -1;
     for (let k = 1; k <= 40; k++) {
-      world['serveTractor'](crane);
+      serveTractor(world, crane);
       if (p.state === 'idle' && free < 0) free = k;
       if (free > 0 && !crane.serving) break;
     }
-    expect(free).toBe(world['craneTakenIn'](crane));
+    expect(free).toBe(craneTakenIn(world, crane));
     expect(p.carrying).toBe(0);
     expect(crane.outStack).toEqual([210]);
     expect(crane.outReserved).toBe(0);
@@ -3211,7 +3223,7 @@ describe('Container Port tier', () => {
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
       const waiting = world.people.filter(
-        (p) => p.kind === 'tractor' && world['underGantry'](p) === crane,
+        (p) => p.kind === 'tractor' && underGantry(world, p) === crane,
       );
       for (const p of waiting) {
         const tile = world['tileOf'](p);
@@ -3299,9 +3311,7 @@ describe('Container Port tier', () => {
     const left = new Map<number, number>();
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
-      const ship = world.boats.find(
-        (b) => b.vessel === 'feeder' && world['craneReaches'](crane, b),
-      );
+      const ship = world.boats.find((b) => b.vessel === 'feeder' && craneReaches(world, crane, b));
       const coming = world.people.some(
         (p) => p.kind === 'tractor' && p.state === 'toPickup' && p.craneIdx === at,
       );
@@ -3359,7 +3369,7 @@ describe('Container Port tier', () => {
         if (p.kind !== 'tractor' && p.kind !== 'stacker') continue;
         if (world['craneStackTiles']().has(world['tileOf'](p))) across++;
         // Under the crane to be lifted onto or off, along the quay.
-        if (p.kind === 'tractor' && p.state === 'picking' && world['underGantry'](p) === crane) {
+        if (p.kind === 'tractor' && p.state === 'picking' && underGantry(world, p) === crane) {
           under++;
           expect(Math.abs(Math.cos(p.dir - quay))).toBeGreaterThan(0.9);
         }
@@ -3388,15 +3398,15 @@ describe('Container Port tier', () => {
       (c.stackFrom ??= []).push(-1);
     }
     const across = B.GANTRY_RAILS * 2;
-    const places = world['cranePlaces'](c).stack;
+    const places = cranePlaces(world, c).stack;
     expect(places).toEqual([0, across, 1, across + 1, 2]);
     // The highest with none on it comes off first; one under another waits.
-    expect(world['craneTop'](c, false)).toBe(3);
+    expect(craneTop(world, c, false)).toBe(3);
     c.stack.splice(3, 1);
     c.stackFrom!.splice(3, 1);
     places.splice(3, 1);
-    expect(world['craneTop'](c, false)).toBe(1);
-    expect(world['craneTop'](c, false)).not.toBe(0);
+    expect(craneTop(world, c, false)).toBe(1);
+    expect(craneTop(world, c, false)).not.toBe(0);
   });
 
   it('keeps terminal tractors away from a yard with no gantry', () => {
@@ -3431,7 +3441,7 @@ describe('Container Port tier', () => {
       world.tick + 10,
       0,
     );
-    const clips = world['clips'].bind(world);
+    const clips = clipsOf.bind(null, world);
     let touching = 0;
     let moored = 0;
     const phases: string[] = [];
@@ -3495,12 +3505,12 @@ describe('Container Port tier', () => {
     expect(terminal(world)).not.toBeNull();
     const m = world.map;
     const from = m.idx(m.w - 1, m.yOf(m.entry) - 10);
-    const berths = world['freeBerths'](from, B.FEEDER_DRAFT, true, true);
+    const berths = freeBerths(world, from, B.FEEDER_DRAFT, true, true);
     expect(berths.length).toBeGreaterThan(1);
     // Say the furthest of them were under a gantry: it goes there.
     const far = berths[berths.length - 1].berth;
     world['gantryReaches'] = (n: number) => n === far;
-    expect(world['freeBerths'](from, B.FEEDER_DRAFT, true, true)[0].berth).toBe(far);
+    expect(freeBerths(world, from, B.FEEDER_DRAFT, true, true)[0].berth).toBe(far);
   });
 
   it('lifts containers with a gantry crane into the bay between its legs, for the stackers', () => {
@@ -4064,14 +4074,14 @@ describe('Container Port tier', () => {
     const jetty = [...m.build.keys()].filter((i) => m.yOf(i) === r && m.build[i] === Build.Jetty);
     const tip = jetty[jetty.length - 1];
     const tx = m.xOf(tip);
-    const ring = world['cornerRing']();
+    const ring = cornerRing(world);
     // Off its end, not along its sides.
     expect(ring[m.idx(tx + 1, r)]).toBe(B.CORNER_NEAR_COST);
     expect(ring[m.idx(tx - 2, r - 1)]).toBe(0);
     // From one side of it round to the other.
     const from = m.idx(tx, r - 3);
     const to = m.idx(tx, r + 3);
-    const path = findPath(m.w, m.h, from, to, world['seaWayFor'](B.BOAT_DRAFT, to, null), true)!;
+    const path = findPath(m.w, m.h, from, to, seaWayFor(world, B.BOAT_DRAFT, to, null), true)!;
     expect(path).not.toBeNull();
     const nearest = Math.min(...path.map((i) => Math.hypot(m.xOf(i) - tx, m.yOf(i) - r)));
     expect(nearest).toBeGreaterThanOrEqual(B.CORNER_CLOSE);
@@ -4095,10 +4105,10 @@ describe('Container Port tier', () => {
     const older = ship(1000, 500, 40.5);
     const younger = ship(1001, 100, 42.5);
     world.boats.push(older, younger);
-    expect(world['letsGoFirst'](younger)).toBe(true);
+    expect(letsGoFirst(world, younger)).toBe(true);
     // The older one is waiting for the fairway itself: the younger goes on.
     older.holdUp = 'fairway';
-    expect(world['letsGoFirst'](younger)).toBe(false);
+    expect(letsGoFirst(world, younger)).toBe(false);
   });
 
   it('keeps shippers away until there is parking outside the port', () => {
@@ -4164,7 +4174,7 @@ describe('Container Port tier', () => {
     const depot = world.map.build.findIndex((b) => b === Build.Depot);
     world.command({ type: 'buyMachine', kind: 'forklift', tile: depot });
     const m = world.map;
-    const clips = world['clips'].bind(world);
+    const clips = clipsOf.bind(null, world);
     let leaving = 0;
     let touching = 0;
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
@@ -4191,7 +4201,7 @@ describe('Container Port tier', () => {
     const boat = { ...world.boats[0], state: 'approaching' as const };
     const from = m.idx(tip + 3, row - 8);
     const to = m.idx(tip + 3, row + 8);
-    const path = world['route'](boat, from, to, world['seaWay'](boat))!;
+    const path = route(world, boat, from, to, seaWay(world, boat))!;
     expect(path).not.toBeNull();
     const closest = Math.min(...path.map((i) => Math.hypot(m.xOf(i) - tip, m.yOf(i) - row)));
     expect(closest).toBeGreaterThan(B.DOCK_FRONT_RANGE - 1);
@@ -4209,7 +4219,7 @@ describe('Container Port tier', () => {
       jetty: m.idx(xs[1] + k, r),
       vessel,
     });
-    const clash = world['berthsClash'].bind(world);
+    const clash = berthsClash.bind(null, world);
     // Two smacks a ship's length apart would lie bow to stern with no water
     // between them; a tile further on they have room.
     expect(clash(at(0, 'smack'), at(2, 'smack'))).toBe(true);
@@ -4228,7 +4238,7 @@ describe('Container Port tier', () => {
       state: 'leaving' | 'arriving',
       undock?: number,
     ) => ({ ...template, id, vessel, state, undock });
-    const outranks = world['outranks'].bind(world);
+    const outranks = outranksOf.bind(null, world);
     // Going the same way, the bigger ship first, whichever came first.
     expect(outranks(boat(2, 'feeder', 'arriving'), boat(1, 'smack', 'arriving'))).toBe(true);
     // Leaving still beats coming in.
@@ -4271,7 +4281,7 @@ describe('Container Port tier', () => {
 
   it('keeps small boats off the corners of the docks coming alongside and casting off', () => {
     const world = busyPort();
-    const clips = world['clips'].bind(world);
+    const clips = clipsOf.bind(null, world);
     let over = 0;
     let moored = 0;
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {

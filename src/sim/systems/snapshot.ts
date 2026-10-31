@@ -42,6 +42,27 @@ import {
 } from './economy';
 import { businessViews, landmarkView, wantsView } from './townBusiness';
 import { tugged } from './tugs';
+import {
+  craneWork,
+  deckView,
+  jibLifts,
+  jibMoved,
+  jibStores,
+  servedLoad,
+  servedStack,
+  stackFull,
+} from './cranes';
+import {
+  berthCount,
+  boatCostFor,
+  boatHalf,
+  craneFront,
+  dockInUse,
+  docks,
+  mooredTiles,
+  near,
+  wideQuay,
+} from './boats/berthing';
 
 /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
 export function arrivingWords(w: World, b: Boat): string {
@@ -54,10 +75,10 @@ export function arrivingWords(w: World, b: Boat): string {
 export function boatWhy(w: World, b: Boat): string | undefined {
   const hands = w.people.some((q) => q.kind === 'dockhand');
   if (b.state === 'anchored') {
-    if (b.vessel === 'feeder' && w.berthCount(b.draft, true, true) === 0) {
+    if (b.vessel === 'feeder' && berthCount(w, b.draft, true, true) === 0) {
       return `No berth for a feeder ship: it needs a harbour or gantry crane on a quay two tiles wide, in ${B.FEEDER_DRAFT} m of water.`;
     }
-    if (b.vessel === 'coaster' && w.berthCount(b.draft, true) === 0) {
+    if (b.vessel === 'coaster' && berthCount(w, b.draft, true) === 0) {
       return `No berth for a coaster: it needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water.`;
     }
     if (b.vessel !== 'feeder' && !hands && [...w.cranes.values()].some((c) => c.kind === 'jib')) {
@@ -71,12 +92,12 @@ export function boatWhy(w: World, b: Boat): string | undefined {
   if (b.state !== 'moored' || b.crates === 0) return undefined;
   if (b.vessel === 'feeder') {
     const cranes = [...w.cranes.values()].filter((c) => c.kind !== 'jib');
-    if (cranes.length > 0 && cranes.every((c) => w.stackFull(c))) {
+    if (cranes.length > 0 && cranes.every((c) => stackFull(w, c))) {
       return 'The cranes have set down all they can: reach stackers must take the containers to a container yard first.';
     }
     return undefined;
   }
-  const jib = [...w.cranes.values()].find((c) => c.kind === 'jib' && w.near(c.idx, b.berth));
+  const jib = [...w.cranes.values()].find((c) => c.kind === 'jib' && near(w, c.idx, b.berth));
   const spots = w.pickupSpots(b).filter((t) => walkableAt(w.map, t));
   if (!jib && (spots.length === 0 || !hands)) {
     return hands
@@ -178,9 +199,9 @@ export function truckWhy(w: World, t: Truck): string | undefined {
 }
 
 export function craneWhy(w: World, c: Crane): string {
-  const full = w.stackFull(c);
+  const full = stackFull(w, c);
   if (c.kind === 'jib') {
-    const stores = w.jibStores(c);
+    const stores = jibStores(w, c);
     if (c.busy) {
       return stores.some((a) => bayRoom(a, false) > 0 && w.takesImports(a))
         ? 'Swinging crates straight into crate storage.'
@@ -220,7 +241,7 @@ export function berthTrouble(w: World, c: Crane): string | null {
   const m = w.map;
   const feeder = c.kind !== 'jib';
   const draft = feeder ? B.FEEDER_DRAFT : B.BOAT_DRAFT;
-  const water = w.boatCostFor(draft);
+  const water = boatCostFor(w, draft);
   const what = feeder ? 'a container ship' : 'a boat';
   let deepest = -1;
   let office = false;
@@ -228,15 +249,15 @@ export function berthTrouble(w: World, c: Crane): string | null {
   let room = false;
   // Berths square in front of it, where a ship lies centred on it, as the
   // harbour master looks for them (see freeBerths).
-  for (const j of feeder ? w.craneFront(c) : [c.idx]) {
+  for (const j of feeder ? craneFront(w, c) : [c.idx]) {
     for (const n of m.neighbors4(j)) {
       if (m.ocean[n] !== 1 || m.build[n] !== Build.None) continue;
       deepest = Math.max(deepest, m.depth[n]);
-      if (!w.dockInUse(j)) continue;
+      if (!dockInUse(w, j)) continue;
       office = true;
-      if (feeder && !w.wideQuay(j, n)) continue;
+      if (feeder && !wideQuay(w, j, n)) continue;
       wide = true;
-      if (!w.mooredTiles(n, j, w.boatHalf(feeder))) continue;
+      if (!mooredTiles(w, n, j, boatHalf(w, feeder))) continue;
       room = true;
       if (water(n) === 1) return null;
     }
@@ -248,7 +269,7 @@ export function berthTrouble(w: World, c: Crane): string | null {
   if (!wide)
     return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
   if (!room) {
-    const reach = w.boatHalf(feeder);
+    const reach = boatHalf(w, feeder);
     return `No room alongside for ${what}'s hull: it lies centred on the crane, and needs open water ${reach} tile${reach === 1 ? '' : 's'} either way along the quay from it.`;
   }
   return `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`;
@@ -388,8 +409,8 @@ export function buildSnapshot(w: World): Snapshot {
   const entities: EntityView[] = [];
   const staff: StaffView[] = [];
   const lifts = w.gantryLifts();
-  const jibs = w.jibLifts();
-  const moved = (where: object) => w.jibMoved(jibs, where);
+  const jibs = jibLifts(w);
+  const moved = (where: object) => jibMoved(w, jibs, where);
   const parked = w.parkedPoses();
   for (const p of w.people) {
     const park = parked.get(p.id);
@@ -400,7 +421,8 @@ export function buildSnapshot(w: World): Snapshot {
       y: park?.y ?? p.y,
       dir: park?.dir ?? p.dir,
       parked: park ? true : undefined,
-      ...w.servedLoad(
+      ...servedLoad(
+        w,
         p,
         w.liftedLoad(p.carrying, isBoxy(p) ? [...w.carriedLooks(p)] : undefined, lifts.get(p.id)),
       ),
@@ -459,7 +481,7 @@ export function buildSnapshot(w: World): Snapshot {
       y: b.y,
       dir: b.dir,
       ...(b.vessel === 'feeder'
-        ? w.deckView(b)
+        ? deckView(w, b)
         : {
             load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken,
             catch: cargoOf(b.fee),
@@ -688,12 +710,12 @@ export function buildSnapshot(w: World): Snapshot {
     capacity: capacity(w),
     stock: waitingCargo(w),
     docks: {
-      total: w.docks().length,
-      coordinated: w.docks().filter((g) => g.coordinated).length,
+      total: docks(w).length,
+      coordinated: docks(w).filter((g) => g.coordinated).length,
       offices: w.map.build.filter((b) => b === Build.Office).length,
       huts: w.map.build.filter((b) => b === Build.HarbourHut).length,
-      inUse: w.docks().flatMap((g) => (g.coordinated ? g.tiles : [])),
-      idle: w.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
+      inUse: docks(w).flatMap((g) => (g.coordinated ? g.tiles : [])),
+      idle: docks(w).flatMap((g) => (g.coordinated ? [] : g.tiles)),
     },
     depots: depotViews(w),
     progress: {
@@ -705,14 +727,14 @@ export function buildSnapshot(w: World): Snapshot {
     cranes: [...w.cranes.values()].map((c) => ({
       idx: c.idx,
       kind: c.kind,
-      ...w.servedStack(c, moved(c).set),
+      ...servedStack(w, c, moved(c).set),
       max: craneStack(c),
       angle: c.angle,
       busy: c.busy,
-      stores: c.kind === 'jib' ? w.jibStores(c).length : 0,
+      stores: c.kind === 'jib' ? jibStores(w, c).length : 0,
       why: craneWhy(w, c),
       trouble: berthTrouble(w, c) ?? undefined,
-      ...w.craneWork(c, jibs),
+      ...craneWork(w, c, jibs),
     })),
     town: w.town && {
       name: w.town.name,

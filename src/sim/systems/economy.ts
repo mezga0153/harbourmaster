@@ -34,6 +34,7 @@ import {
 import type { Contract, FisheryTerms, HaulierTerms, ShipperTerms, Terms } from '../contracts';
 import { Rng } from '../rng';
 import type { BoatVisit, Capacity } from '../../protocol/views';
+import { berthCount, dockInUse, pickTile } from './boats/berthing';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -472,7 +473,7 @@ export function capacity(w: World): Capacity {
 
   // One trip: dock to the nearest bay and back, plus handling.
   const jetties: number[] = [];
-  for (let i = 0; i < m.build.length; i++) if (w.dockInUse(i)) jetties.push(i);
+  for (let i = 0; i < m.build.length; i++) if (dockInUse(w, i)) jetties.push(i);
   const bays = [...w.bays.values()];
   let walk = 0;
   for (const j of jetties) {
@@ -513,7 +514,7 @@ export function capacity(w: World): Capacity {
   let lifting = 0;
   let stowing = 0;
   for (const c of w.cranes.values()) {
-    if (c.kind !== 'jib' || !w.dockInUse(c.idx)) continue;
+    if (c.kind !== 'jib' || !dockInUse(w, c.idx)) continue;
     const rate = (TICKS_PER_DAY / B.CRANE_TICKS) * 0.3;
     lifting += rate;
     if (w.jibStows(c)) stowing += rate;
@@ -540,7 +541,7 @@ export function capacity(w: World): Capacity {
     trucking: truckingWith(w, null),
     off: Math.round(off * (1 - w.congestion)),
     moved: Math.round(on * (1 - w.congestion)),
-    deepBerths: w.berthCount(B.COASTER_DRAFT, true),
+    deepBerths: berthCount(w, B.COASTER_DRAFT, true),
     pallets: {
       demand: Math.round(palletDemand),
       unloading: Math.round(
@@ -563,7 +564,7 @@ export function containerCapacity(w: World): Capacity['boxes'] {
   const yards = [...w.yards.values()];
   let walk = 0;
   for (const c of cranes) {
-    const at = w.pickTile(c);
+    const at = pickTile(w, c);
     walk += yards.length ? Math.min(...yards.map((y) => w.distTo(at, y))) : 0;
   }
   const avg = cranes.length && yards.length ? walk / cranes.length : 0;
@@ -603,7 +604,7 @@ export function containerCapacity(w: World): Capacity['boxes'] {
     lifting: Math.round(lifting),
     moving: Math.round(moving),
     trucking: Math.round(trucking),
-    berths: w.berthCount(B.FEEDER_DRAFT, true, true),
+    berths: berthCount(w, B.FEEDER_DRAFT, true, true),
   };
 }
 

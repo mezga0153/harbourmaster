@@ -10,6 +10,7 @@ import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
 import { canUpgrade, capacity } from '../src/sim/systems/economy';
+import { docks as docksOf } from '../src/sim/systems/boats/berthing';
 
 /**
  * A simple bot that plays like a sensible beginner, once per in-game day.
@@ -229,7 +230,7 @@ function buildBay(w: World): boolean {
 function newJetty(w: World): boolean {
   const m = w.map;
   // Beyond the free docks, a harbour office has to coordinate the berths.
-  const docks = w.docks();
+  const docks = docksOf(w);
   if (docks.length >= B.FREE_DOCKS && !m.build.some((b) => b === Build.Office)) {
     if (w.cash < 3500 || !buildOffice(w)) return false;
   }

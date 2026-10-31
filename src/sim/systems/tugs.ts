@@ -12,6 +12,8 @@ import { book } from './economy';
 import { clamp, wrapAngle } from '../helpers';
 import { findPath } from '../path';
 import type { CostFn } from '../path';
+import { hullOf, inWay, navigable, openWater, pullingOut, seaWayFor } from './boats/traffic';
+import { boatCostFor } from './boats/berthing';
 
 /** Coasters and feeders, which tugs work in and out. */
 export function needsTugs(_w: World, b: Boat): boolean {
@@ -29,7 +31,7 @@ export function wantsTug(w: World, b: Boat): boolean {
     return Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y) < B.TUG_MEET;
   }
   const soon = b.state === 'moored' && b.crates + b.reserved <= B.TUG_CALL_LOAD;
-  return soon || w.pullingOut(b);
+  return soon || pullingOut(w, b);
 }
 
 /**
@@ -230,7 +232,7 @@ export function steerTug(
 ): number {
   const v = B.VESSELS.tug;
   const m = w.map;
-  const way = w.seaWayFor(B.TUG_DRAFT, goal, null);
+  const way = seaWayFor(w, B.TUG_DRAFT, goal, null);
   const cost: CostFn = (i) => (i === t.home || i === goal ? 1 : way(i));
   const left = Math.hypot(gx - t.x, gy - t.y);
   // Plan the way there now and then: what it is meeting moves.
@@ -247,7 +249,7 @@ export function steerTug(
   // last is the point itself.
   let ahead = 0;
   for (let k = 1; k < Math.min(t.path.length - 1, 4); k++) {
-    if (!w.openWater(t.x, t.y, cx(t.path[k]), cy(t.path[k]), cost, v.beam / 2 + 0.05)) break;
+    if (!openWater(w, t.x, t.y, cx(t.path[k]), cy(t.path[k]), cost, v.beam / 2 + 0.05)) break;
     ahead = k;
   }
   t.path.splice(0, ahead);
@@ -277,7 +279,7 @@ export function steerTug(
     held < 0
       ? []
       : [
-          ...w.boats.filter((o) => o.id !== t.ship && moving(o)).map((o) => w.hullOf(o)),
+          ...w.boats.filter((o) => o.id !== t.ship && moving(o)).map((o) => hullOf(w, o)),
           ...w.tugs
             .filter((o) => o !== t && o.state !== 'idle')
             .map((o) => ({
@@ -290,7 +292,7 @@ export function steerTug(
             })),
         ];
   for (const h of hulls) {
-    const gap = w.inWay(me, h, look);
+    const gap = inWay(w, me, h, look);
     if (gap !== null) desired = Math.min(desired, Math.max(0, (gap - me.half - 0.15) * 0.2));
   }
   t.speed = clamp(t.speed + clamp(desired - t.speed, -accel * 1.5, accel), 0, v.speed);
@@ -300,9 +302,9 @@ export function steerTug(
   const nx = t.x + Math.cos(t.dir) * t.speed;
   const ny = t.y + Math.sin(t.dir) * t.speed;
   // Afloat in deep enough water; the margin round hulls is for routes.
-  const water = w.boatCostFor(B.TUG_DRAFT);
+  const water = boatCostFor(w, B.TUG_DRAFT);
   const afloat: CostFn = (i) => (i === t.home || i === goal ? 1 : water(i));
-  if (w.navigable(nx, ny, afloat)) {
+  if (navigable(w, nx, ny, afloat)) {
     t.x = nx;
     t.y = ny;
   } else t.speed = 0;

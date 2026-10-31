@@ -3,6 +3,7 @@ import * as B from '../src/sim/balance';
 import { placementError } from '../src/sim/rules';
 import { Build } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { docks } from '../src/sim/systems/boats/berthing';
 
 /** Standalone jetties further along the coast, as many as asked for where there is room. */
 function jetties(world: World, n: number): void {
@@ -35,8 +36,8 @@ describe("Harbourmaster's hut", () => {
     const world = World.create(7, 96);
     world.cash = 50_000;
     jetties(world, 4);
-    const used = () => world.docks().filter((d) => d.coordinated).length;
-    expect(world.docks()).toHaveLength(5);
+    const used = () => docks(world).filter((d) => d.coordinated).length;
+    expect(docks(world)).toHaveLength(5);
     expect(used()).toBe(B.FREE_DOCKS);
     const cash = world.cash;
     build(world, 'harbourHut');
@@ -53,9 +54,9 @@ describe("Harbourmaster's hut", () => {
     const jetty = m.build.findIndex((b, i) => b === Build.Jetty && m.yOf(i) === r);
     world.command({ type: 'build', kind: 'quay', tiles: [jetty] });
     build(world, 'harbourHut');
-    expect(world.docks().every((d) => !d.coordinated)).toBe(true);
+    expect(docks(world).every((d) => !d.coordinated)).toBe(true);
     build(world, 'office');
-    expect(world.docks().every((d) => d.coordinated)).toBe(true);
+    expect(docks(world).every((d) => d.coordinated)).toBe(true);
   });
 
   it('shows in the snapshot beside the offices', () => {

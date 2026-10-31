@@ -8,6 +8,7 @@ import { isLandError } from '../land';
 import { Build, TICKS_PER_DAY } from '../types';
 import * as B from '../balance';
 import type { SimEvent, TileChange } from '../../protocol/messages';
+import { docks } from './boats/berthing';
 
 export function message(w: World, text: string, tone: 'info' | 'good' | 'bad'): void {
   w.events.push({ kind: 'message', text, tone });
@@ -52,7 +53,7 @@ export function departTips(w: World): void {
   // One a boat, the first after the first boat has left.
   if (at < 0 || n <= at) return;
   const id = FIRST_STEPS[at];
-  tipUnless(w, id, id === 'jetty' && w.docks().length > 1);
+  tipUnless(w, id, id === 'jetty' && docks(w).length > 1);
 }
 
 export function moneyAt(w: World, amount: number, i: number): void {

@@ -21,6 +21,7 @@ import * as B from '../balance';
 import { townTrade } from '../contracts';
 import { Build } from '../types';
 import { bayRoom } from '../helpers';
+import { berthCount } from './boats/berthing';
 
 /** The town's builders keep up with the people moving in. */
 export function buildTown(w: World, t: Town): void {
@@ -103,7 +104,7 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
     return `Upgrade the port to a ${TIERS[l.tier ?? 0].name} in the Port panel (P): nothing counts towards it till then`;
   }
   const coasters = fisheries(w).some((c) => c.terms.vessel === 'coaster');
-  const berth = w.berthCount(B.COASTER_DRAFT, true) > 0;
+  const berth = berthCount(w, B.COASTER_DRAFT, true) > 0;
   const signed = (trade: 'canned' | 'timber' | 'goods') =>
     w.contracts.some((c) => townTrade(c.terms) === trade);
   const offer = (trade: 'canned' | 'timber' | 'goods') =>

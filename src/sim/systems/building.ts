@@ -82,6 +82,8 @@ import {
 import { nextParkWay } from '../rules/parking';
 import type { Bay } from '../state';
 import { bayCap, bayIncoming, bayRoom, isBoxy } from '../helpers';
+import { addCrane } from './cranes';
+import { docks } from './boats/berthing';
 
 export function build(w: World, kind: BuildKind, tiles: number[], facing?: number): void {
   const def = BUILDABLES[kind];
@@ -130,14 +132,14 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         w.dirty.add(t);
       });
       if (kind === 'truckBay' || kind === 'largeBay') w.addBay(i);
-      if (kind === 'jibCrane') w.addCrane(i, 'jib');
+      if (kind === 'jibCrane') addCrane(w, i, 'jib');
       if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
         tip(w, 'cranes');
       }
       if (kind === 'yardGantry') tip(w, 'yardGantry');
-      if (kind === 'harbourCrane') w.addCrane(i, 'harbour');
+      if (kind === 'harbourCrane') addCrane(w, i, 'harbour');
       if (kind === 'gantryCrane') {
-        w.addCrane(i, 'gantry');
+        addCrane(w, i, 'gantry');
         keepForMachines(w, gantryGround(w.map, i, f));
       }
     }
@@ -150,7 +152,7 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   if (spent > 0 && kind === 'road') exitsFor(w, tiles);
   if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
     w.dockCache = null;
-    const idle = w.docks().some((g) => !g.coordinated);
+    const idle = docks(w).some((g) => !g.coordinated);
     if (idle && !w.warnedOffice) {
       w.warnedOffice = true;
       message(

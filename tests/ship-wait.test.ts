@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { World } from '../src/sim/world';
 import { heldView } from '../src/sim/systems/economy';
+import { countWait, waitingFor } from '../src/sim/systems/boats/traffic';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -20,12 +21,12 @@ describe('A ship held up by one moored in its way', () => {
     const { world, moored, coming } = harbour();
     for (let k = 0; k < B.BERTH_BLOCKED_TICKS + 20; k++) {
       // Stopped by it most ticks, let on a little now and then.
-      world.countWait(coming, k % 7 === 0 ? undefined : moored);
+      countWait(world, coming, k % 7 === 0 ? undefined : moored);
       if (k % 7 === 0) coming.x += 0.1;
     }
     expect(coming.waitingOn).toBe(1);
     expect(coming.waitedFor).toBeGreaterThan(B.BERTH_BLOCKED_TICKS);
-    expect(world.waitingFor(moored)).toBe(coming);
+    expect(waitingFor(world, moored)).toBe(coming);
     expect(heldView(world, coming)).toEqual({
       heldBy: 'the Blue Box Line feeder ship',
       heldFor: coming.waitedFor,
@@ -34,14 +35,14 @@ describe('A ship held up by one moored in its way', () => {
 
   it('starts again once it is well on its way, or the other has sailed', () => {
     const { world, moored, coming } = harbour();
-    for (let k = 0; k < 30; k++) world.countWait(coming, moored);
+    for (let k = 0; k < 30; k++) countWait(world, coming, moored);
     coming.x += B.WAIT_CREEP + 0.5;
-    world.countWait(coming, undefined);
+    countWait(world, coming, undefined);
     expect(coming.waitedFor).toBe(0);
     expect(coming.waitingOn).toBeUndefined();
-    for (let k = 0; k < 30; k++) world.countWait(coming, moored);
+    for (let k = 0; k < 30; k++) countWait(world, coming, moored);
     moored.state = 'leaving';
-    world.countWait(coming, undefined);
+    countWait(world, coming, undefined);
     expect(coming.waitedFor).toBe(0);
     expect(heldView(world, coming)).toEqual({});
   });

@@ -9,19 +9,15 @@ import type {
   GantryHeld,
   GantryWork,
   JibJob,
-  JibLift,
-  Moorage,
   SaveData,
   Truck,
   Tug,
-  Vessel,
 } from './state';
 import type {
   BayView,
   Capacity,
   CargoSample,
   Command,
-  CraneView,
   EntityView,
   FinanceDay,
   HandAt,
@@ -37,7 +33,6 @@ import {
   STARTER_FISHERY,
   STARTER_HAULIER,
   type Contract,
-  type FisheryTerms,
   type Offer,
   type ShipperTerms,
 } from './contracts';
@@ -86,11 +81,9 @@ import { Rng } from './rng';
 import {
   FACING,
   anchorOf,
-  buoyGates,
   frontOf,
   footprint,
   gantryRails,
-  harbourCentre,
   ON_QUAY,
   drivable,
   machinePlacementError,
@@ -114,7 +107,6 @@ import {
   Build,
   isBay,
   isTownBuilding,
-  isBuoy,
   isCrane,
   isDock,
   isPublicRoad,
@@ -136,13 +128,10 @@ import {
   bayRoom,
   boxLookOf,
   clamp,
-  craneStack,
   craneStacks,
   craneTicks,
-  deckPlace,
   emptyLedger,
   heldIn,
-  hullGap,
   isBoxy,
   isMachine,
   isTruck,
@@ -157,7 +146,7 @@ import {
   yardPlace,
 } from './helpers';
 import type { Crossing, Source, Vehicle } from './helpers';
-import { departTips, message, moneyAt, nag, tip, tipUnless } from './systems/output';
+import { message, moneyAt, nag, tip, tipUnless } from './systems/output';
 import { cargoStats } from './systems/snapshot';
 import { buildSnapshot } from './systems/snapshot';
 import {
@@ -175,9 +164,7 @@ import {
   book,
   cancelContract,
   fire,
-  fisheries,
   hire,
-  judgeVisit,
   newDay,
   refreshCandidates,
   sailNow,
@@ -203,8 +190,37 @@ import {
   unmark,
 } from './systems/building';
 import { buildTown, openLandmark } from './systems/townBusiness';
-import { buyTug, handiness, tugReady, tugged, updateTugs } from './systems/tugs';
+import { buyTug, updateTugs } from './systems/tugs';
 import { hauliers } from './systems/economy';
+import {
+  craneKinds,
+  cranePlaces,
+  craneReaches,
+  craneTop,
+  customsFor,
+  deckSlot,
+  dueAt,
+  exportRoom,
+  jibStores,
+  nextCranePlace,
+  outSlots,
+  shipFor,
+  takingAt,
+  underGantry,
+  updateCrane,
+} from './systems/cranes';
+import {
+  boatCostFor,
+  boatHalf,
+  mooredTiles,
+  near,
+  pickTile,
+  spawnBoat,
+  spawnBoats,
+  updateBoat,
+} from './systems/boats/berthing';
+import { docks } from './systems/boats/berthing';
+import { craneFront } from './systems/boats/berthing';
 
 export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
@@ -310,7 +326,7 @@ export class World {
   /** Cached planning estimate; cleared when the port changes. Not saved. */
   capacityCache: Capacity | null = null;
   /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */
-  dockCache: ReturnType<World['docks']> | null = null;
+  dockCache: ReturnType<typeof docks> | null = null;
   gateCache: Set<number>[] | null = null;
   /** Boats held up this tick only by a ship pulling out. Not saved. */
   roomWait = new WeakSet<Boat>();
@@ -411,7 +427,7 @@ export class World {
     refreshCandidates(world);
     const starter = addContract(world, STARTER_FISHERY, 0, B.STARTER_SIGNING_FEE);
     // The first boat is already coming in when the game starts.
-    world.spawnBoat(starter.id, STARTER_FISHERY, true);
+    spawnBoat(world, starter.id, STARTER_FISHERY, true);
     starter.nextBoatTick = Math.round(TICKS_PER_DAY * STARTER_FISHERY.boatEvery);
     addContract(world, STARTER_HAULIER, 0, 0);
     addOffer(world, 'fishery');
@@ -826,10 +842,10 @@ export class World {
       this.cargoLog.push({ tick: this.tick, cargo: cargoStats(this) });
       if (this.cargoLog.length > CARGO_SAMPLES) this.cargoLog.shift();
     }
-    this.spawnBoats();
-    for (const b of [...this.boats]) this.updateBoat(b);
+    spawnBoats(this);
+    for (const b of [...this.boats]) updateBoat(this, b);
     updateTugs(this);
-    for (const c of this.cranes.values()) this.updateCrane(c);
+    for (const c of this.cranes.values()) updateCrane(this, c);
     this.countOccupancy();
     for (const p of this.people) this.updateDockhand(p);
     if (this.tick % 10 === 0) this.spawnTrucks();
@@ -844,2104 +860,11 @@ export class World {
 
   // ── Boats ─────────────────────────────────────────────────
 
-  spawnBoats(): void {
-    for (const c of fisheries(this)) {
-      if (this.tick < c.nextBoatTick) continue;
-      const days = c.terms.boatEvery * this.rng.range(0.7, 1.3);
-      c.nextBoatTick = this.tick + Math.round(TICKS_PER_DAY * days);
-      if (this.boats.length < B.MAX_BOATS) {
-        this.spawnBoat(c.id, c.terms);
-      } else {
-        // The harbour is jammed; the fishery notices.
-        c.satisfaction = Math.max(0, c.satisfaction - B.NO_ROOM_PENALTY);
-      }
-    }
-  }
-
-  /** A boat sails in from the open sea, or (`close`) from just off the anchorage. */
-  spawnBoat(contractId: number, terms: FisheryTerms, close = false): void {
-    const edge = this.seaEdgeTiles();
-    if (edge.length === 0) return;
-    // Boats come in from out beyond the outermost pair of green buoys, if
-    // any of the open sea lies out there.
-    const gate = buoyGates(this.map, false).find((g) => g.b >= 0);
-    const m = this.map;
-    const beyond = gate
-      ? edge.filter((i) => this.gateSide(gate.a, gate.b, m.xOf(i) + 0.5, m.yOf(i) + 0.5) > 0)
-      : [];
-    const start = this.rng.pick(beyond.length > 0 ? beyond : edge);
-    const boat: Boat = {
-      id: this.nextId++,
-      contractId,
-      company: terms.name,
-      vessel: terms.vessel,
-      draft:
-        terms.vessel === 'feeder'
-          ? B.FEEDER_DRAFT
-          : terms.vessel === 'coaster'
-            ? B.COASTER_DRAFT
-            : B.BOAT_DRAFT,
-      // Containers are all alike; a crate holds the catch.
-      fee: terms.vessel === 'feeder' ? terms.fee : withCargo(terms.fee, terms.catch ?? 'fish'),
-      anchorTicks: 0,
-      mooredTicks: 0,
-      grace: 0,
-      x: this.map.xOf(start) + 0.5,
-      y: this.map.yOf(start) + 0.5,
-      dir: Math.PI,
-      path: [],
-      goal: start,
-      state: 'approaching',
-      crates: this.rng.int(terms.cratesMin, terms.cratesMax),
-      reserved: 0,
-      berth: -1,
-      jetty: -1,
-      timer: 0,
-      variant: terms.color,
-      came: this.tick,
-    };
-    boat.grace = B.MOORED_GRACE_TICKS + boat.crates * B.MOORED_TICKS_PER_CRATE;
-    this.boats.push(boat);
-    this.stats.boats++;
-    // The first boat of the game is already coming in, a few tiles off the
-    // jetty, and heads straight for a berth.
-    if (close) {
-      const row = m.yOf(m.entry);
-      let x = 0;
-      while (x < m.w - 1 && this.boatCost(m.idx(x, row)) !== 1) x++;
-      boat.x = Math.min(x + 6, m.w - 2) + 0.5;
-      boat.y = row + 0.5;
-      boat.dir = Math.PI;
-      boat.speed = B.VESSELS[boat.vessel].speed * 0.6;
-      if (this.tryBerth(boat)) return;
-    }
-    // Head for a spot at the anchorage; the berth is decided on arrival.
-    const spot = this.anchorSpot(boat);
-    const from = this.tileOf(boat);
-    const path = this.route(boat, from, spot, this.boatCostFor(boat.draft));
-    if (path) {
-      // Its way from the edge of the map is long on the open sea: it comes
-      // into sight only the last of it out.
-      const at = this.inSight(boat, path);
-      if (at > 0) {
-        boat.x = this.map.xOf(path[at - 1]) + 0.5;
-        boat.y = this.map.yOf(path[at - 1]) + 0.5;
-      }
-      boat.path = path.slice(at);
-      boat.goal = spot;
-      boat.state = 'approaching';
-      // Already under way, heading for the first waypoint.
-      const next = boat.path[0] ?? spot;
-      boat.dir = Math.atan2(this.map.yOf(next) + 0.5 - boat.y, this.map.xOf(next) + 0.5 - boat.x);
-      boat.speed = B.VESSELS[boat.vessel].speed;
-    } else {
-      boat.state = 'anchored';
-    }
-  }
-
-  /**
-   * Where a boat goes by the buoys on its way from `from` to `to`, in order.
-   * Coming in, the green ones between the two, furthest from the docks
-   * first; going out, the red ones further out than it is, nearest first.
-   * Between a pair it crosses the line joining them, in a lane of its own
-   * and well clear of both; a lone buoy it passes close by.
-   */
-  buoyStops(b: Boat, from: number, to: number, cost: CostFn): number[] {
-    const m = this.map;
-    const c = harbourCentre(m);
-    const d = (i: number) => Math.hypot(m.xOf(i) + 0.5 - c.x, m.yOf(i) + 0.5 - c.y);
-    const out = b.state === 'leaving';
-    const here = d(from);
-    const there = to >= 0 ? d(to) : 0;
-    const stops: number[] = [];
-    let at = from;
-    for (const g of buoyGates(m, out)) {
-      const far = g.b < 0 ? d(g.a) : (d(g.a) + d(g.b)) / 2;
-      if (out ? far <= here + 0.5 : far >= here - 0.5 || far <= there + 0.5) continue;
-      // A pair is crossed one way only, in from the sea or out to it. A
-      // boat already on the far side has nothing to cross, rather than
-      // going all the way round to come at it the right way.
-      const side = g.b < 0 ? 0 : this.gateSide(g.a, g.b, m.xOf(at) + 0.5, m.yOf(at) + 0.5);
-      if (out ? side > 0 : side < 0) continue;
-      const way = g.b < 0 ? [g.a] : this.crossing(b, g.a, g.b, out, cost);
-      stops.push(...way);
-      at = way.at(-1) ?? at;
-    }
-    return stops;
-  }
-
-  /**
-   * Which side of the line between buoys `a` and `b` x, y lies on: above
-   * zero on the side away from the docks, below on the side towards them.
-   */
-  gateSide(a: number, b: number, x: number, y: number): number {
-    const m = this.map;
-    const c = harbourCentre(m);
-    const ax = m.xOf(a) + 0.5;
-    const ay = m.yOf(a) + 0.5;
-    const ux = m.xOf(b) + 0.5 - ax;
-    const uy = m.yOf(b) + 0.5 - ay;
-    const side = (px: number, py: number) => -uy * (px - ax) + ux * (py - ay);
-    const docks = side(c.x, c.y);
-    return docks === 0 ? 0 : -Math.sign(docks) * side(x, y);
-  }
-
-  /**
-   * Where a boat crosses between buoys `a` and `b`: a tile short of the
-   * line, one on it and one beyond, so it comes square across rather than
-   * running along the line. None if there is no room.
-   */
-  crossing(boat: Boat, a: number, b: number, out: boolean, cost: CostFn): number[] {
-    const m = this.map;
-    const ax = m.xOf(a) + 0.5;
-    const ay = m.yOf(a) + 0.5;
-    const len = Math.hypot(m.xOf(b) + 0.5 - ax, m.yOf(b) + 0.5 - ay);
-    const ux = (m.xOf(b) + 0.5 - ax) / len;
-    const uy = (m.yOf(b) + 0.5 - ay) / len;
-    const room = B.GATE_CLEARANCE + B.VESSELS[boat.vessel].beam / 2 + 0.5;
-    if (len < room * 2) return [];
-    // Across the line, the way the boat is going: out from the docks or in.
-    const c = harbourCentre(m);
-    const outwards = -uy * (ax - c.x) + ux * (ay - c.y) > 0 ? 1 : -1;
-    const nx = -uy * outwards * (out ? 1 : -1);
-    const ny = ux * outwards * (out ? 1 : -1);
-    const tile = (t: number, n: number) =>
-      m.idx(Math.floor(ax + ux * t + nx * n), Math.floor(ay + uy * t + ny * n));
-    // Each boat has a lane of its own across the middle of the gap.
-    const lane = ((boat.id * 7) % 9) / 8 - 0.5;
-    const want = len / 2 + lane * (len - room * 2) * 0.8;
-    // The nearest place along the line to there that the boat can sail across.
-    for (let off = 0; off <= len; off += 0.5) {
-      for (const t of [want - off, want + off]) {
-        if (t < room || t > len - room) continue;
-        const way = [tile(t, -1.5), tile(t, 0), tile(t, 1.5)];
-        if (way.every((i) => cost(i) === 1)) return way;
-      }
-    }
-    return [];
-  }
-
-  /** Tiles within two of a buoy, which routes keep off. Not saved. */
-  nearBuoy(): Uint8Array {
-    if (this.buoyCache) return this.buoyCache;
-    const m = this.map;
-    const near = new Uint8Array(m.build.length);
-    for (let i = 0; i < m.build.length; i++) {
-      if (!isBuoy(m.build[i])) continue;
-      const x = m.xOf(i);
-      const y = m.yOf(i);
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          if (m.inBounds(x + dx, y + dy)) near[m.idx(x + dx, y + dy)] = 1;
-        }
-      }
-    }
-    this.buoyCache = near;
-    return near;
-  }
-
-  /**
-   * Tiles on the lines between pairs of buoys, the green ones or the red,
-   * which boats coming in or going out must not cut past. Not saved.
-   */
-  gateLines(out: boolean): Set<number> {
-    if (this.gateCache) return this.gateCache[out ? 1 : 0];
-    const m = this.map;
-    const lines = [false, true].map((out) => {
-      const tiles = new Set<number>();
-      for (const g of buoyGates(m, out)) {
-        if (g.b < 0) continue;
-        const ax = m.xOf(g.a) + 0.5;
-        const ay = m.yOf(g.a) + 0.5;
-        const ux = m.xOf(g.b) + 0.5 - ax;
-        const uy = m.yOf(g.b) + 0.5 - ay;
-        const n = Math.ceil(Math.hypot(ux, uy) * 4);
-        for (let k = 1; k < n; k++) {
-          const i = m.idx(Math.floor(ax + (ux * k) / n), Math.floor(ay + (uy * k) / n));
-          if (!isBuoy(m.build[i])) tiles.add(i);
-        }
-      }
-      return tiles;
-    });
-    this.gateCache = lines;
-    return lines[out ? 1 : 0];
-  }
-
-  /** A route through each of `stops` in turn; any it cannot reach it leaves out. */
-  via(from: number, stops: number[], to: number, cost: CostFn): number[] | null {
-    const m = this.map;
-    const path: number[] = [];
-    let at = from;
-    for (const s of stops) {
-      const leg = findPath(m.w, m.h, at, s, cost, true);
-      if (!leg) continue;
-      path.push(...leg);
-      at = s;
-    }
-    const last = findPath(m.w, m.h, at, to, cost, true);
-    if (last) return [...path, ...last];
-    return stops.length > 0 ? findPath(m.w, m.h, from, to, cost, true) : null;
-  }
-
-  /** A route for this boat from `from` to `to`, by way of the buoys it should pass. */
-  route(b: Boat, from: number, to: number, cost: CostFn): number[] | null {
-    return this.via(from, this.buoyStops(b, from, to, cost), to, this.byDocks(cost, from, to));
-  }
-
-  /**
-   * Routes keep out of the water in front of other docks, where boats come
-   * alongside and pull out: past them further out, not across it. The docks
-   * at either end of the route are free to use.
-   */
-  byDocks(cost: CostFn, from: number, to: number): CostFn {
-    const front = this.dockFront();
-    const own = [front[from], front[to]];
-    return (i) =>
-      front[i] >= 0 && !own.includes(front[i]) ? cost(i) * B.DOCK_FRONT_COST : cost(i);
-  }
-
-  /**
-   * For water within a few tiles of a jetty or quay, the dock it lies off
-   * (its key, see dockKey); -1 elsewhere. Not saved.
-   */
-  dockFront(): Int32Array {
-    if (this.frontCache) return this.frontCache;
-    this.docks();
-    const m = this.map;
-    const front = new Int32Array(m.build.length).fill(-1);
-    const near = new Float32Array(m.build.length).fill(Infinity);
-    const r = B.DOCK_FRONT_RANGE;
-    for (const [i, key] of this.dockKey) {
-      const x = m.xOf(i);
-      const y = m.yOf(i);
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          const d = Math.hypot(dx, dy);
-          if (d > r || !m.inBounds(x + dx, y + dy)) continue;
-          const j = m.idx(x + dx, y + dy);
-          if (m.ocean[j] && d < near[j]) {
-            near[j] = d;
-            front[j] = key;
-          }
-        }
-      }
-    }
-    this.frontCache = front;
-    return front;
-  }
-
-  /**
-   * Open water offshore and off to one side of the harbour mouth, where boats
-   * wait for a berth without blocking the way in and out. Derived from the
-   * map, so it is not saved.
-   */
-  anchorage(): number {
-    if (this.anchorageTile >= 0) return this.anchorageTile;
-    const m = this.map;
-    const row = m.yOf(m.entry);
-    let x = 0;
-    while (x < m.w - 1 && this.boatCost(m.idx(x, row)) !== 1) x++;
-    x += 9;
-    // Out beyond the water off the furthest dock, too.
-    for (let i = 0; i < m.build.length; i++) {
-      if (isDock(m.build[i])) x = Math.max(x, m.xOf(i) + B.DOCK_FRONT_RANGE + 2);
-    }
-    x = Math.min(x, m.w - 8);
-    // North or south of the fairway, whichever side has more open sea.
-    const open = (cy: number) => {
-      let n = 0;
-      for (let dy = -3; dy <= 3; dy++) {
-        for (let dx = -3; dx <= 3; dx++) {
-          const tx = x + dx;
-          const ty = cy + dy;
-          if (m.inBounds(tx, ty) && this.boatCostFor(B.FEEDER_DRAFT)(m.idx(tx, ty)) === 1) n++;
-        }
-      }
-      return n;
-    };
-    const north = Math.max(4, row - 10);
-    const south = Math.min(m.limit - 5, row + 10);
-    this.anchorageTile = m.idx(x, open(north) >= open(south) ? north : south);
-    return this.anchorageTile;
-  }
-
-  /**
-   * Whether a long ship coming in is pointing away from where its way goes
-   * on, still a ship's length or more off its berth, not just waiting on
-   * others. A small boat turns on the spot.
-   */
-  cannotTurn(b: Boat): boolean {
-    const m = this.map;
-    if (B.VESSELS[b.vessel].length < B.CAREFUL_LENGTH) return false;
-    const next = b.path[0];
-    if (next === undefined || this.roomWait.has(b) || b.yieldFor !== undefined) return false;
-    // Lining up alongside, swinging round slowly, is not being stuck.
-    if (b.berthing === 'align' || b.berthing === 'line' || b.berthing === 'out') return false;
-    const far =
-      Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y) >
-      B.VESSELS[b.vessel].length;
-    const course = Math.atan2(m.yOf(next) + 0.5 - b.y, m.xOf(next) + 0.5 - b.x);
-    return far && Math.cos(course - b.dir) < 0;
-  }
-
-  /**
-   * A boat coming in that has given up its berth sails back out to the
-   * anchorage, to wait its turn again: it keeps the time it has waited, so
-   * it is called in first.
-   */
-  backToSea(b: Boat): void {
-    this.freeFairway(b);
-    b.berth = b.jetty = -1;
-    b.lineup = b.lineEnd = b.berthing = undefined;
-    b.plan = undefined;
-    b.waitingOn = undefined;
-    b.waitedFor = 0;
-    b.stall = 0;
-    b.held = 0;
-    b.best = Infinity;
-    const spot = this.anchorSpot(b);
-    const path = this.route(b, this.tileOf(b), spot, this.boatCostFor(b.draft));
-    if (!path) {
-      b.state = 'anchored';
-      b.speed = 0;
-      return;
-    }
-    b.path = path;
-    b.goal = spot;
-    b.state = 'approaching';
-  }
-
-  /** A free spot at the anchorage, clear of other waiting boats. */
-  anchorSpot(boat: Boat): number {
-    const m = this.map;
-    const centre = this.anchorage();
-    const cx = m.xOf(centre);
-    const cy = m.yOf(centre);
-    const row = m.yOf(m.entry);
-    // Room to swing at anchor: big ships need more of it.
-    const taken = this.boats
-      .filter((b) => b !== boat && (b.state === 'approaching' || b.state === 'anchored'))
-      .map((b) => ({
-        at: b.goal,
-        room: (B.VESSELS[b.vessel].length + B.VESSELS[boat.vessel].length) / 2 + 1.5,
-      }));
-    const front = this.dockFront();
-    // A long ship needs open water to come round in when it is called in,
-    // so it anchors out to sea of the anchorage, furthest out first, never
-    // in towards the docks.
-    const seaward = B.VESSELS[boat.vessel].length >= B.CAREFUL_LENGTH;
-    for (let r = 0; r < 14; r++) {
-      const ring: [number, number][] = [];
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = seaward ? -1 : -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([cx + dx * 2, cy + dy]);
-        }
-      }
-      if (seaward) ring.sort((p, q) => q[0] - p[0]);
-      for (const [x, y] of ring) {
-        if (!m.inBounds(x, y)) continue;
-        // Stay out of the fairway in front of the harbour, and out of the
-        // water off the docks that ships manoeuvre in.
-        if (Math.abs(y - row) < 6) continue;
-        const i = m.idx(x, y);
-        if (this.boatCostFor(boat.draft)(i) !== 1 || front[i] >= 0) continue;
-        const clear = taken.every((t) => Math.hypot(m.xOf(t.at) - x, m.yOf(t.at) - y) > t.room);
-        if (clear && this.swingRoom(boat, x + 0.5, y + 0.5)) return i;
-      }
-    }
-    return centre;
-  }
-
-  /** Open water, nothing built, all within `r` tiles of x, y. */
-  openAround(x: number, y: number, r: number): boolean {
-    const m = this.map;
-    for (let ty = Math.floor(y - r); ty <= Math.floor(y + r); ty++) {
-      for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
-        if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) > r + 0.5 || !m.inBounds(tx, ty)) continue;
-        const i = m.idx(tx, ty);
-        if (m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i]))) return false;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Whether a boat can lie at anchor here and swing round it: a small boat
-   * clear of the shore; a long ship coming round under way to head off
-   * anywhere too, so open water all round, a whole ship's length each way,
-   * clear of moored boats.
-   */
-  swingRoom(boat: Boat, x: number, y: number): boolean {
-    const v = B.VESSELS[boat.vessel];
-    // A small boat swings round on its anchor clear of the shore.
-    if (v.length < B.CAREFUL_LENGTH) return this.openAround(x, y, v.length / 2 + 0.5);
-    const r = v.length;
-    if (!this.openAround(x, y, r)) return false;
-    return this.boats.every(
-      (o) =>
-        o === boat ||
-        o.state !== 'moored' ||
-        Math.hypot(o.x - x, o.y - y) > r + B.VESSELS[o.vessel].length / 2,
-    );
-  }
-
-  /** Anchored boats get berths in the order they arrived. */
-  nextInQueue(): Boat | undefined {
-    let first: Boat | undefined;
-    for (const b of this.boats) {
-      if (b.state === 'anchored' && (!first || b.anchorTicks > first.anchorTicks)) first = b;
-    }
-    return first;
-  }
-
-  seaEdgeTiles(): number[] {
-    const out: number[] = [];
-    const x = this.map.w - 1;
-    // Off the port's own coast, not the country's past it.
-    for (let y = 1; y < this.map.limit - 1; y++) {
-      const i = this.map.idx(x, y);
-      if (this.boatCost(i) === 1) out.push(i);
-    }
-    return out;
-  }
-
   boatCosts = new Map<number, CostFn>();
 
-  /** Open sea at least `draft` metres deep. */
-  boatCostFor(draft: number): CostFn {
-    let fn = this.boatCosts.get(draft);
-    if (!fn) {
-      // Boats give buoys a wide berth, unless making for one.
-      fn = (i) =>
-        !this.map.ocean[i] || this.map.depth[i] < draft
-          ? Infinity
-          : this.map.build[i] === Build.None
-            ? this.nearBuoy()[i]
-              ? B.BUOY_DETOUR / 2
-              : 1
-            : isBuoy(this.map.build[i])
-              ? B.BUOY_DETOUR
-              : Infinity;
-      this.boatCosts.set(draft, fn);
-    }
-    return fn;
-  }
-
-  boatCost: CostFn = (i) => this.boatCostFor(B.BOAT_DRAFT)(i);
-
-  /**
-   * Tiles a moored boat covers: its berth plus one tile either way along the
-   * jetty, since boats are about two tiles long. Null if it would hit land.
-   */
-  mooredTiles(berth: number, jetty: number, half = 1): number[] | null {
-    const m = this.map;
-    const x = m.xOf(berth);
-    const y = m.yOf(berth);
-    const alongX = m.yOf(jetty) !== y;
-    const ends: number[][] = [];
-    for (let k = 1; k <= half; k++) {
-      ends.push(
-        ...(alongX
-          ? [
-              [x - k, y],
-              [x + k, y],
-            ]
-          : [
-              [x, y - k],
-              [x, y + k],
-            ]),
-      );
-    }
-    const out = [berth];
-    for (const [ex, ey] of ends) {
-      if (!m.inBounds(ex, ey)) return null;
-      const i = m.idx(ex, ey);
-      if (m.isLand(i) || m.build[i] !== Build.None) return null;
-      out.push(i);
-    }
-    return out;
-  }
-
-  /**
-   * Two boats moored at these berths would lie too close: each hull keeps
-   * BERTH_END_GAP of clear water off its bow and its stern, so boats lying
-   * end to end in one lane have room between them.
-   */
-  berthsClash(a: Moorage, b: Moorage): boolean {
-    const m = this.map;
-    const extent = (q: Moorage) => {
-      const v = B.VESSELS[q.vessel];
-      const along = v.length / 2 + B.BERTH_END_GAP / 2;
-      // Lying along the dock: along x when the jetty is in another row.
-      return m.yOf(q.jetty) !== m.yOf(q.berth) ? [along, v.beam / 2] : [v.beam / 2, along];
-    };
-    const [ax, ay] = extent(a);
-    const [bx, by] = extent(b);
-    return (
-      Math.abs(m.xOf(a.berth) - m.xOf(b.berth)) < ax + bx - 1e-6 &&
-      Math.abs(m.yOf(a.berth) - m.yOf(b.berth)) < ay + by - 1e-6
-    );
-  }
-
-  /** The vessel berths are counted and handed out for. */
-  vesselFor(wide: boolean, needCrane: boolean): Vessel {
-    return needCrane ? 'feeder' : wide ? 'coaster' : 'smack';
-  }
-
-  /** Berth tiles either side of the middle: feeders are long ships. */
-  boatHalf(feeder: boolean): number {
-    return feeder ? B.FEEDER_HALF_BERTH : 1;
-  }
-
-  /** How many boats of this draft could moor at once, ignoring current traffic. */
-  /**
-   * Docks (connected jetty or quay structures) and whether the harbour
-   * office coordinates each. Without an office only the first FREE_DOCKS
-   * jetties, nearest the truck bay, are used; quays always need one.
-   */
-  docks(): { tiles: number[]; quay: boolean; coordinated: boolean }[] {
-    if (this.dockCache) return this.dockCache;
-    const m = this.map;
-    const seen = new Uint8Array(m.build.length);
-    const groups: { tiles: number[]; quay: boolean; coordinated: boolean; d: number }[] = [];
-    const home = this.muster();
-    for (let i = 0; i < m.build.length; i++) {
-      if (seen[i] || !isDock(m.build[i])) continue;
-      const tiles: number[] = [];
-      const stack = [i];
-      seen[i] = 1;
-      while (stack.length > 0) {
-        const t = stack.pop()!;
-        tiles.push(t);
-        for (const n of m.neighbors4(t)) {
-          if (!seen[n] && isDock(m.build[n])) {
-            seen[n] = 1;
-            stack.push(n);
-          }
-        }
-      }
-      const quay = tiles.some((t) => m.build[t] !== Build.Jetty);
-      const d = Math.min(...tiles.map((t) => this.dist(t, home)));
-      groups.push({ tiles, quay, coordinated: false, d });
-    }
-    groups.sort((a, b) => a.d - b.d || a.tiles[0] - b.tiles[0]);
-    let offices = 0;
-    let huts = 0;
-    for (const b of m.build) {
-      if (b === Build.Office) offices++;
-      else if (b === Build.HarbourHut) huts++;
-    }
-    groups.slice(0, offices * B.DOCKS_PER_OFFICE).forEach((g) => (g.coordinated = true));
-    // Jetties the offices leave: a few run on their own while there is no
-    // office, and each harbourmaster's hut looks after a few more.
-    groups
-      .filter((g) => !g.quay && !g.coordinated)
-      .slice(0, huts * B.JETTIES_PER_HUT + (offices > 0 ? 0 : B.FREE_DOCKS))
-      .forEach((g) => (g.coordinated = true));
-    this.dockCache = groups;
-    this.coordinated = new Set(groups.filter((g) => g.coordinated).flatMap((g) => g.tiles));
-    this.dockKey = new Map(
-      groups.flatMap((g) => {
-        const key = Math.min(...g.tiles);
-        return g.tiles.map((t) => [t, key] as [number, number]);
-      }),
-    );
-    return groups;
-  }
-
-  /** Dock tiles boats may use; see docks(). */
-  dockInUse(i: number): boolean {
-    this.docks();
-    return this.coordinated.has(i);
-  }
-
-  /**
-   * Big ships moor only against a quay at least two tiles wide: the dock tile
-   * beside the berth and the one behind it, away from the water.
-   */
-  wideQuay(j: number, berth: number): boolean {
-    const m = this.map;
-    const behind = m.idx(2 * m.xOf(j) - m.xOf(berth), 2 * m.yOf(j) - m.yOf(berth));
-    const quay = (i: number) => isDock(m.build[i]) && m.build[i] !== Build.Jetty;
-    return (
-      quay(j) &&
-      m.inBounds(2 * m.xOf(j) - m.xOf(berth), 2 * m.yOf(j) - m.yOf(berth)) &&
-      quay(behind)
-    );
-  }
-
-  /** A jib crane stands over this berth. */
-  jibAt(berth: number): boolean {
-    const m = this.map;
-    return [...this.cranes.values()].some(
-      (c) =>
-        c.kind === 'jib' &&
-        Math.max(Math.abs(m.xOf(c.idx) - m.xOf(berth)), Math.abs(m.yOf(c.idx) - m.yOf(berth))) <= 1,
-    );
-  }
-
-  /** A harbour or gantry crane stands over this berth. */
-  harbourCraneReaches(berth: number): boolean {
-    for (const c of this.cranes.values()) {
-      if (c.kind !== 'jib' && this.craneFront(c).some((t) => this.near(t, berth))) return true;
-    }
-    return false;
-  }
-
-  /** Whether a container crane stands at this dock tile, at the quay edge a ship lies against. */
-  craneAgainst(j: number): boolean {
-    for (const c of this.cranes.values()) {
-      if (c.kind !== 'jib' && this.craneFront(c).includes(j)) return true;
-    }
-    return false;
-  }
-
-  /** Whether a gantry crane works this berth. */
-  gantryReaches(berth: number): boolean {
-    for (const c of this.cranes.values()) {
-      if (c.kind === 'gantry' && this.craneFront(c).some((t) => this.near(t, berth))) return true;
-    }
-    return false;
-  }
-
-  /** Within a tile of each other, diagonals too. */
-  near(a: number, b: number): boolean {
-    const m = this.map;
-    return Math.max(Math.abs(m.xOf(a) - m.xOf(b)), Math.abs(m.yOf(a) - m.yOf(b))) <= 1;
-  }
-
-  /** The quay-edge tiles a crane reaches out over the water from. */
-  craneFront(c: Crane): number[] {
-    if (c.kind !== 'gantry') return [c.idx];
-    return footprint(this.map, 'gantryCrane', c.idx, this.map.orient[c.idx]).slice(0, 2);
-  }
-
-  /**
-   * Where a load is collected from a crane: its landing stack, or for a
-   * gantry the bay between its back legs.
-   */
-  pickTile(c: Crane): number {
-    if (c.kind !== 'gantry') return c.idx;
-    return footprint(this.map, 'gantryCrane', c.idx, this.map.orient[c.idx])[2];
-  }
-
-  berthCount(draft: number, wide = false, needCrane = false): number {
-    const m = this.map;
-    const water = this.boatCostFor(draft);
-    const vessel = this.vesselFor(wide, needCrane);
-    const chosen: Moorage[] = [];
-    for (let j = 0; j < m.build.length; j++) {
-      if (!this.dockInUse(j)) continue;
-      for (const n of m.neighbors4(j)) {
-        if (water(n) !== 1) continue;
-        if (wide && !this.wideQuay(j, n)) continue;
-        if (needCrane !== this.harbourCraneReaches(n)) continue;
-        if (!needCrane && !walkableAt(m, j) && !this.jibAt(n)) continue;
-        const here = { berth: n, jetty: j, vessel };
-        if (!this.mooredTiles(n, j, this.boatHalf(needCrane))) continue;
-        if (!chosen.some((c) => this.berthsClash(here, c))) chosen.push(here);
-      }
-    }
-    return chosen.length;
-  }
-
-  /** Water tiles beside a jetty where a boat can moor, nearest first. */
-  freeBerths(
-    from: number,
-    draft: number,
-    wide: boolean,
-    needCrane = false,
-  ): { berth: number; jetty: number }[] {
-    const water = this.boatCostFor(draft);
-    const m = this.map;
-    const vessel = this.vesselFor(wide, needCrane);
-    const taken = this.boats.filter((b) => b.berth >= 0);
-    const out: { berth: number; jetty: number; d: number; craned: boolean }[] = [];
-    // With nobody to unload by hand, boats wait for a berth under a jib crane.
-    let cranes = false;
-    const forks = this.forklifts();
-    for (let j = 0; j < m.build.length; j++) {
-      if (!this.dockInUse(j)) continue;
-      for (const n of m.neighbors4(j)) {
-        if (water(n) !== 1) continue;
-        if (wide && !this.wideQuay(j, n)) continue;
-        // Berths under a harbour crane are kept for container ships, which
-        // lie square in front of the crane, centred on it.
-        if (needCrane ? !this.craneAgainst(j) : this.harbourCraneReaches(n)) continue;
-        if (!this.mooredTiles(n, j, this.boatHalf(needCrane))) continue;
-        const nx = m.xOf(n);
-        const ny = m.yOf(n);
-        // A crane is only any use with forklifts to take what it lands, or
-        // storage it can swing it into: dockhands keep away from cranes.
-        // Lying square under the jib crane, centred on it.
-        const jib = this.cranes.get(j);
-        const craned = !!jib && jib.kind === 'jib' && (forks || this.jibStows(jib));
-        cranes ||= craned;
-        // Nobody could unload it by hand next to a crane, or off machines-only quay.
-        if (!needCrane && !craned && !walkableAt(m, j)) continue;
-        const here = { berth: n, jetty: j, vessel };
-        if (taken.some((t) => this.berthsClash(here, t))) continue;
-        // Not while another boat is still pulling out of it.
-        const bx = m.xOf(n) + 0.5;
-        const by = m.yOf(n) + 0.5;
-        const busy = this.boats.some(
-          (b) => b.state === 'leaving' && Math.hypot(b.x - bx, b.y - by) < 2.5,
-        );
-        if (busy) continue;
-        // The harbour master sends boats to the best-equipped free berth:
-        // under a crane first, then a quay forklifts can reach; a container
-        // ship under a gantry crane rather than a slower harbour crane.
-        const bonus = needCrane
-          ? this.gantryReaches(n)
-            ? 200
-            : 0
-          : craned
-            ? 200
-            : m.build[j] === Build.Jetty
-              ? 0
-              : 100;
-        const d = Math.abs(nx - m.xOf(from)) + Math.abs(ny - m.yOf(from)) - bonus;
-        out.push({ berth: n, jetty: j, d, craned });
-      }
-    }
-    const hands = needCrane || this.people.some((q) => q.kind === 'dockhand');
-    if (!hands && cranes && out.some((b) => !b.craned)) tip(this, 'noHands');
-    return out
-      .filter((b) => hands || !cranes || b.craned)
-      .sort((a, b) => a.d - b.d || a.berth - b.berth);
-  }
-
-  tryBerth(boat: Boat): boolean {
-    const from = this.tileOf(boat);
-    const feeder = boat.vessel === 'feeder';
-    // One boat at a time comes alongside or pulls out in each lane; the rest
-    // wait at the anchorage, out of the way. Of the berths with a clear lane,
-    // the best few that can be reached.
-    const berths = this.freeBerths(from, boat.draft, boat.vessel !== 'smack', feeder)
-      .filter((c) => this.fairwayFree(boat, c.jetty, c.berth))
-      .slice(0, 6);
-    for (const c of berths) {
-      const path =
-        (B.VESSELS[boat.vessel].length >= B.LINE_UP_LENGTH
-          ? this.approachPath(boat, from, c.berth, c.jetty)
-          : null) ?? this.route(boat, from, c.berth, this.seaWay(boat));
-      if (!path) continue;
-      boat.berth = c.berth;
-      boat.jetty = c.jetty;
-      // A big ship lining up out at sea takes the lane only once it is there.
-      if (boat.berthing !== 'lead') this.takeFairway(boat);
-      boat.best = Infinity;
-      boat.path = path;
-      boat.goal = c.berth;
-      boat.state = 'arriving';
-      return true;
-    }
-    boat.state = 'anchored';
-    return false;
-  }
-
-  /**
-   * The way in to a berth: out to a line a tile off it, along that line, so
-   * the ship comes up parallel to the dock, then sideways in. The longer the
-   * ship, the further out it lines up: half as far again as its length, or
-   * as much of that as there is open water for. Null when there is no clear
-   * line either way along.
-   */
-  approachPath(boat: Boat, from: number, berth: number, jetty: number): number[] | null {
-    const m = this.map;
-    const ox = m.xOf(berth) - m.xOf(jetty);
-    const oy = m.yOf(berth) - m.yOf(jetty);
-    const ax = oy !== 0 ? 1 : 0;
-    const ay = oy !== 0 ? 0 : 1;
-    const length = B.VESSELS[boat.vessel].length;
-    const sea = this.seaWay(boat);
-    let best: number[] | null = null;
-    boat.lineup = boat.lineEnd = boat.berthing = undefined;
-    for (const s of [1, -1]) {
-      const run = this.openAlong(boat, berth, jetty, s, length / 2);
-      if (run < 0) continue;
-      const line: number[] = [];
-      for (let k = run; k >= 0; k--) {
-        line.push(m.idx(m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k));
-      }
-      const lead = this.route(boat, from, line[0], sea);
-      if (!lead) continue;
-      const path = [...lead, ...line.slice(1), berth];
-      if (!best || path.length < best.length) {
-        best = path;
-        boat.lineup = line[0];
-        boat.lineEnd = line[line.length - 1];
-        boat.berthing = 'lead';
-      }
-    }
-    return best;
-  }
-
-  /**
-   * A long ship leaving its berth runs out along the dock, a tile off it,
-   * to open water before it turns: bow first if there is room that way,
-   * otherwise astern. Sets it up as berthing 'out'.
-   */
-  planRunOut(b: Boat): void {
-    b.lineup = b.lineEnd = b.berthing = undefined;
-    const v = B.VESSELS[b.vessel];
-    if (v.length < B.RUN_OUT_LENGTH) return;
-    const m = this.map;
-    const ox = m.xOf(b.berth) - m.xOf(b.jetty);
-    const oy = m.yOf(b.berth) - m.yOf(b.jetty);
-    const ax = oy !== 0 ? 1 : 0;
-    const ay = oy !== 0 ? 0 : 1;
-    // Bow first: the way along the dock the ship is pointing.
-    const ahead = Math.cos(b.dir) * ax + Math.sin(b.dir) * ay >= 0 ? 1 : -1;
-    // A tile off the dock, with plenty of room to swing if it can be had,
-    // at least just enough; or where the water off the berth is too
-    // shallow, straight along the dock from the berth itself.
-    for (const [s, r, off] of [
-      [ahead, v.length / 2 + 0.5, 1],
-      [-ahead, v.length / 2 + 0.5, 1],
-      [ahead, v.length / 2, 1],
-      [-ahead, v.length / 2, 1],
-      [ahead, v.length / 2, 0],
-      [-ahead, v.length / 2, 0],
-    ]) {
-      const run = this.openAlong(b, b.berth, b.jetty, s, r, off);
-      if (run < 0) continue;
-      const x = m.xOf(b.berth) + ox * off;
-      const y = m.yOf(b.berth) + oy * off;
-      b.lineEnd = m.idx(x, y);
-      b.lineup = m.idx(x + ax * s * run, y + ay * s * run);
-      b.berthing = 'out';
-      return;
-    }
-  }
-
-  /**
-   * How many tiles along the dock, going `s` way (1 or -1) on the line
-   * `off` tiles out from the berth, a long ship has to go to find open water `r` tiles
-   * all round to turn in: between half its length and half as long again,
-   * and -1 when there is none.
-   */
-  openAlong(boat: Boat, berth: number, jetty: number, s: number, r: number, off = 1): number {
-    const m = this.map;
-    const water = this.boatCostFor(boat.draft);
-    const ax = m.yOf(berth) !== m.yOf(jetty) ? 1 : 0;
-    const ay = 1 - ax;
-    const ox = (m.xOf(berth) - m.xOf(jetty)) * off;
-    const oy = (m.yOf(berth) - m.yOf(jetty)) * off;
-    const length = B.VESSELS[boat.vessel].length;
-    const least = Math.ceil(length / 2) + 1;
-    const most = Math.ceil(length * 1.5) + 1;
-    const at = (k: number) => [m.xOf(berth) + ox + ax * s * k, m.yOf(berth) + oy + ay * s * k];
-    const [x0, y0] = at(0);
-    if (!m.inBounds(x0, y0) || water(m.idx(x0, y0)) !== 1) return -1;
-    // As far out along the dock as the water stays open...
-    let run = 0;
-    while (run < most) {
-      const [x, y] = at(run + 1);
-      if (!m.inBounds(x, y) || water(m.idx(x, y)) !== 1) break;
-      run++;
-    }
-    // ...and back to where there is room to swing round.
-    while (run >= least) {
-      const [x, y] = at(run);
-      if (this.openAround(x + 0.5, y + 0.5, r)) return run;
-      run--;
-    }
-    return -1;
-  }
-
-  /**
-   * Coming alongside, moving to x, y would take a boat further into water a
-   * ship pulling out has claimed, other than water round its own berth.
-   */
-  intoClaimed(b: Boat, x: number, y: number): boolean {
-    const m = this.map;
-    const bx = m.xOf(b.berth) + 0.5;
-    const by = m.yOf(b.berth) + 0.5;
-    return this.boats.some((o) => {
-      if (o === b || !o.room) return false;
-      const spots = o.room.spots;
-      if (spots.some(([sx, sy, r]) => Math.hypot(bx - sx, by - sy) < r + 1)) return false;
-      return spots.some(
-        ([sx, sy, r]) =>
-          Math.hypot(x - sx, y - sy) < r &&
-          Math.hypot(x - sx, y - sy) < Math.hypot(b.x - sx, b.y - sy),
-      );
-    });
-  }
-
-  /** Lying in the water a ship pulling out has claimed: it waits to cast off. */
-  boxedIn(b: Boat): boolean {
-    return this.boats.some((o) =>
-      o.room?.spots.some(([x, y, r]) => Math.hypot(b.x - x, b.y - y) < r + 0.5),
-    );
-  }
-
-  /**
-   * A ship that claims water to turn in as it pulls out lets a boat in that
-   * water go first if it has been ready to leave longer: first ready, first
-   * out, so no boat waits out one ship after another.
-   * One that is itself waiting on the fairway, its tug or room to turn is
-   * not waited for: the rest go on round it.
-   */
-  letsGoFirst(b: Boat): boolean {
-    const v = B.VESSELS[b.vessel];
-    if (v.length < B.RUN_OUT_LENGTH) return false;
-    // As far as its run out along the dock and the water it turns in reach.
-    const reach = v.length * 2 + B.ROOM_MARGIN;
-    return this.boats.some(
-      (o) =>
-        o !== b &&
-        o.state === 'moored' &&
-        o.crates === 0 &&
-        o.reserved === 0 &&
-        o.timer > b.timer &&
-        // Not one that cannot go anyway, held up by something else.
-        (o.holdUp === undefined || o.holdUp === 'others') &&
-        Math.hypot(o.x - b.x, o.y - b.y) < reach,
-    );
-  }
-
-  updateBoat(b: Boat): void {
-    this.plotCourses();
-    if (b.state === 'anchored' || b.state === 'moored') {
-      // A container ship takes long to work, and allows for that.
-      const patience = B.BOAT_GIVE_UP_TICKS + (b.vessel === 'feeder' ? b.grace : 0);
-      if (b.anchorTicks + b.mooredTicks > patience && b.crates > 0) {
-        // The claim message in judgeVisit explains what happened.
-        if (b.state === 'anchored' || !this.boxedIn(b)) return this.depart(b, true);
-      }
-    }
-    switch (b.state) {
-      case 'approaching':
-        if (this.sail(b, null) !== 'moving') {
-          b.state = 'anchored';
-          b.speed = 0;
-          const queue = this.boats.filter((q) => q.state === 'anchored').length;
-          if (!this.tryBerth(b) && queue === 1) {
-            nag(
-              this,
-              'queue',
-              'Boats are queueing at the anchorage. Every berth is taken.',
-              'info',
-            );
-          }
-        }
-        return;
-      case 'anchored':
-        b.anchorTicks++;
-        // The harbour master calls in whoever has waited longest and fits a
-        // free berth: a ship waiting for a crane berth does not hold up the
-        // boats behind it.
-        if (this.tick % 10 === 0 && this.nextInQueue() === b) {
-          const queue = this.boats
-            .filter((q) => q.state === 'anchored')
-            .sort((p, q) => q.anchorTicks - p.anchorTicks);
-          for (const q of queue) if (this.tryBerth(q)) break;
-        }
-        return;
-      case 'arriving': {
-        // Unable to come round for a good while, still far off its berth, as
-        // a long ship pointing the wrong way in a basin: it gives the berth
-        // up and heads back out to sea, to be called in again from the
-        // anchorage with room to come in properly.
-        if ((b.stall ?? 0) > B.BOAT_WEDGED_AFTER && this.cannotTurn(b)) return this.backToSea(b);
-        // Come alongside: lie along the berth, parallel to the dock edge.
-        const alongX = this.map.yOf(b.jetty) !== this.map.yOf(b.berth);
-        // Something has been built where its hull would lie: another berth.
-        const gone = !this.mooredTiles(b.berth, b.jetty, this.boatHalf(b.vessel === 'feeder'));
-        const r = gone ? 'blocked' : this.sail(b, alongX ? 0 : Math.PI / 2);
-        if (r === 'blocked') {
-          this.freeFairway(b);
-          b.berth = b.jetty = -1;
-          b.state = 'anchored';
-          b.speed = 0;
-        } else if (r === 'arrived') {
-          this.freeFairway(b);
-          b.state = 'moored';
-          b.speed = 0;
-          // Alongside, it is no longer wedged in anywhere.
-          b.squeeze = 0;
-          b.held = 0;
-          b.lineup = b.lineEnd = b.berthing = undefined;
-          b.timer = 0;
-          b.mooredAt = this.tick;
-          const what =
-            b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
-          const cargo =
-            b.vessel === 'feeder'
-              ? 'containers'
-              : b.vessel === 'coaster'
-                ? 'crates on pallets'
-                : 'crates';
-          // Only a new line's first boat is news; the rest are routine.
-          if (this.firstBoat.delete(b.company)) {
-            message(this, `A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
-          }
-          if (b.vessel === 'coaster') tip(this, 'pallets');
-          if (b.vessel === 'coaster' && !this.people.some((p) => p.kind === 'forklift')) {
-            nag(
-              this,
-              'pallets',
-              'Pallets wait on the quay until a forklift takes them on. Buy one at a depot.',
-              'bad',
-            );
-          }
-        }
-        return;
-      }
-      case 'moored': {
-        if (b.crates === 0 && b.reserved === 0) b.unloadedAt ??= this.tick;
-        // Unloaded, a coaster or feeder takes exports on board before it goes.
-        const loading = b.crates === 0 && b.reserved === 0 && this.stillLoading(b);
-        // Unloading and loading count against us; waiting for the fairway does not.
-        if (b.crates > 0 || b.reserved > 0 || loading) b.mooredTicks++;
-        if (loading) {
-          // Kept loading long past its time, it sails with what it has.
-          if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = b.out ?? 0;
-          // Lying in the way of a ship coming in, it takes on what is on its
-          // way to it, and no more.
-          if (this.waitingFor(b)) {
-            b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + this.exportsComing(b));
-          }
-          b.timer = 0;
-          return;
-        }
-        if (b.crates === 0 && b.reserved === 0) {
-          // Done loading for this visit: it takes on nothing more while it waits to sail.
-          b.loadQuota = b.out ?? 0;
-          b.loadedAt ??= this.tick;
-          if (++b.timer <= 30) return;
-          b.holdUp = this.boxedIn(b)
-            ? 'room'
-            : this.letsGoFirst(b)
-              ? 'others'
-              : !tugReady(this, b)
-                ? 'tug'
-                : this.takeFairway(b, true)
-                  ? undefined
-                  : 'fairway';
-          if (!b.holdUp) this.depart(b, false);
-        }
-        return;
-      }
-      case 'leaving':
-        this.claimRoom(b);
-        // Clear of the dock: the next boat may use its fairway.
-        if (b.fairway !== undefined && b.castOff !== undefined && b.berthing !== 'out') {
-          const m = this.map;
-          if (Math.hypot(b.x - m.xOf(b.castOff) - 0.5, b.y - m.yOf(b.castOff) - 0.5) > 3) {
-            this.freeFairway(b);
-          }
-        }
-        const [x, y] = [b.x, b.y];
-        const r = this.sail(b, null);
-        // Out of sight, out on the open sea: it is gone. By how far it has
-        // sailed, not where it is on its way, as that is planned anew
-        // whenever it finds another way out.
-        b.sailed = (b.sailed ?? 0) + Math.hypot(b.x - x, b.y - y);
-        if (r !== 'moving' || (b.sailed >= B.SAIL_IN_TILES && this.outOfSight(b))) {
-          this.freeFairway(b);
-          this.boats = this.boats.filter((q) => q !== b);
-        }
-        return;
-    }
-  }
+  boatCost: CostFn = (i) => boatCostFor(this, B.BOAT_DRAFT)(i);
 
   // ── Seamanship ────────────────────────────────────────────
-
-  /**
-   * Steer a boat along its path the way a boat moves: it turns at a limited
-   * rate, speeds up and slows down gradually, eases off for bends and to
-   * stop, and gives way to other boats. With `moor` set it comes alongside
-   * at the end, crabbing sideways the last bit, lying along that heading
-   * (either way round).
-   */
-  sail(b: Boat, moor: number | null): 'moving' | 'arrived' | 'blocked' {
-    const v = B.VESSELS[b.vessel];
-    const w = this.map.w;
-    const cx = (i: number) => (i % w) + 0.5;
-    const cy = (i: number) => Math.floor(i / w) + 0.5;
-    const accel = v.speed * B.BOAT_ACCEL;
-    let speed = b.speed ?? 0;
-    if (b.path.length === 0) b.path = [b.goal];
-    // Waypoints already passed drop off; the last one is the goal itself.
-    // A long ship also counts one close by as passed once it is beyond it,
-    // heading on towards the next, rather than turning back for it.
-    const passed = (p: number, q: number) => {
-      if (v.length < B.CAREFUL_LENGTH || Math.hypot(cx(p) - b.x, cy(p) - b.y) >= 2) return false;
-      const qx = cx(q) - cx(p);
-      const qy = cy(q) - cy(p);
-      const along = (Math.cos(b.dir) * qx + Math.sin(b.dir) * qy) / Math.hypot(qx, qy);
-      return along > 0.7 && (b.x - cx(p)) * qx + (b.y - cy(p)) * qy > 0;
-    };
-    while (
-      b.path.length > 1 &&
-      (Math.hypot(cx(b.path[0]) - b.x, cy(b.path[0]) - b.y) < 0.9 || passed(b.path[0], b.path[1]))
-    ) {
-      b.path.shift();
-    }
-    const goal = b.path[b.path.length - 1];
-    const gx = cx(goal);
-    const gy = cy(goal);
-    let remaining = Math.hypot(cx(b.path[0]) - b.x, cy(b.path[0]) - b.y);
-    for (let k = 1; k < b.path.length; k++) {
-      remaining += Math.hypot(cx(b.path[k]) - cx(b.path[k - 1]), cy(b.path[k]) - cy(b.path[k - 1]));
-    }
-    // Out on open water, or handling: coming alongside, lining up or
-    // casting off, when others keep clear of it.
-    const free =
-      remaining > 2.5 && (b.berthing === undefined || b.berthing === 'lead') && !b.undock;
-    if (free) this.handling.delete(b);
-    else this.handling.add(b);
-
-    // Final approach to a berth: line up with it and crab in sideways.
-    // A big ship close by works itself in with tugs: swings into line where
-    // it lies, if there is room, and slides across.
-    const close =
-      v.length >= B.CAREFUL_LENGTH &&
-      b.berthing !== 'lead' &&
-      b.berthing !== 'align' &&
-      Math.hypot(gx - b.x, gy - b.y) < 3;
-    if (moor !== null && (remaining < 1.6 || close)) {
-      // A boat pulling out, held up with this one in its way: it backs off
-      // its berth to let it by, rather than wait alongside it for good.
-      if (v.length < B.CAREFUL_LENGTH && this.inWayOfHeld(b)) {
-        const d = Math.hypot(b.x - gx, b.y - gy);
-        const [ux, uy] =
-          d > 0.05 ? [(b.x - gx) / d, (b.y - gy) / d] : [-Math.cos(b.dir), -Math.sin(b.dir)];
-        const nx = b.x + ux * v.speed * 0.2;
-        const ny = b.y + uy * v.speed * 0.2;
-        const ships = this.stillNear(b);
-        if (
-          this.navigable(nx, ny, this.boatCostFor(b.draft)) &&
-          this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
-          !this.crowds(b, nx, ny)
-        ) {
-          b.x = nx;
-          b.y = ny;
-        }
-        b.speed = 0;
-        return 'moving';
-      }
-      const left = Math.min(remaining, Math.hypot(gx - b.x, gy - b.y));
-      const flip = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? Math.PI : 0;
-      const err = wrapAngle(moor + flip - b.dir);
-      // A long ship swings into line only as far as its hull clears the
-      // dock, unless it has been at it a long while.
-      // Without a tug a coaster or feeder comes round and alongside slowly.
-      const hand = handiness(this, b);
-      const turned = b.dir + clamp(err, -v.turn * 0.6 * hand, v.turn * 0.6 * hand);
-      // Every boat minds its whole hull this close to the dock.
-      const ships = this.stillNear(b);
-      speed = Math.min(speed, (0.03 + left * 0.1) * hand);
-      let step = Math.min(left, Math.max(speed, 0.008));
-      if (v.length < B.CAREFUL_LENGTH) {
-        // A small boat swings into line as it comes in. Failing that, it
-        // comes across onto the line of its berth and then in along it,
-        // rather than cut the corner of the dock; or swings where it lies;
-        // or eases back a touch to have room to swing. Always with its hull
-        // no nearer the dock or another boat (short of being wedged there
-        // for good).
-        const now = this.clips(b, b.x, b.y, b.dir, ships);
-        const stuck = (b.held ?? 0) > B.BOAT_WEDGED_AFTER;
-        const alongX = Math.abs(Math.cos(moor)) > 0.5;
-        const toward = (dx: number, dy: number): [number, number] => {
-          const d = Math.hypot(dx, dy);
-          const k = d > step ? step / d : 1;
-          return [b.x + dx * k, b.y + dy * k];
-        };
-        const straight = toward(gx - b.x, gy - b.y);
-        const across = alongX ? toward(0, gy - b.y) : toward(gx - b.x, 0);
-        const along = alongX ? toward(gx - b.x, 0) : toward(0, gy - b.y);
-        const back: [number, number] =
-          left > 1e-6
-            ? [b.x + ((b.x - gx) / left) * 0.02, b.y + ((b.y - gy) / left) * 0.02]
-            : [b.x, b.y];
-        const ways: [number, number, number][] = [];
-        for (const [x, y] of [straight, across, along]) {
-          ways.push([turned, x, y], [b.dir, x, y]);
-        }
-        ways.push([turned, b.x, b.y], [turned, back[0], back[1]]);
-        const way = ways.find(([d, x, y]) => {
-          // Getting somewhere: closer, or further round into line. The last
-          // half tile in, nearly in line, or it has no room left to swing.
-          const near = Math.hypot(gx - x, gy - y);
-          const off = Math.abs(wrapAngle(moor + flip - d));
-          const closer = near < left - 1e-4 && (near > 0.5 || off < 0.3);
-          const swung = off < Math.abs(err) - 1e-4;
-          if (!closer && !swung) return false;
-          // Wedged there for good, it may brush the dock or a moored boat
-          // getting in, but never close on a boat under way.
-          return (
-            (stuck || (this.clips(b, x, y, d, ships) <= now && !this.intoClaimed(b, x, y))) &&
-            !this.crowds(b, x, y, d)
-          );
-        });
-        const was = left;
-        if (way) {
-          b.dir = way[0];
-          b.x = way[1];
-          b.y = way[2];
-        } else b.held = (b.held ?? 0) + 1;
-        step = Math.max(0, was - Math.hypot(gx - b.x, gy - b.y));
-      } else {
-        const clear =
-          (b.held ?? 0) > 60 ||
-          this.clips(b, b.x, b.y, turned, ships) <= this.clips(b, b.x, b.y, b.dir, ships);
-        const swingInto = this.crowds(b, b.x, b.y, turned) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
-        if (clear && !swingInto) b.dir = turned;
-        b.held = (b.held ?? 0) + 1;
-        if (left > 1e-6) {
-          const nx = b.x + ((gx - b.x) / left) * step;
-          const ny = b.y + ((gy - b.y) / left) * step;
-          // A long ship lines up first and comes in sideways only as its
-          // hull clears the dock, nor on top of another boat passing its
-          // berth, short of being wedged there for good.
-          const crowded =
-            this.crowds(b, nx, ny) ||
-            (this.intoClaimed(b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER);
-          const slide =
-            !crowded &&
-            ((b.held ?? 0) > 150 ||
-              this.clips(b, nx, ny, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships));
-          if (slide) {
-            b.x = nx;
-            b.y = ny;
-          } else step = 0;
-        }
-      }
-      b.speed = speed;
-      if (left - step < 0.02 && Math.abs(err) < 0.04) {
-        b.x = gx;
-        b.y = gy;
-        b.dir = wrapAngle(moor + flip);
-        b.path = [];
-        return 'arrived';
-      }
-      return 'moving';
-    }
-    // Out to sea, a leaving boat just sails off the map.
-    const gone = b.state === 'leaving' && remaining < 1;
-    if (gone || (moor === null && remaining < 0.25 && speed < v.speed * 0.4)) {
-      b.path = [];
-      b.speed = 0;
-      return 'arrived';
-    }
-
-    // Aim at the furthest of the next few waypoints with open water to it;
-    // the ones before it are as good as passed.
-    // Clear water means clear of other boats lying still, too.
-    // Going round a boat met head on, all of them.
-    const avoid = this.seaWay(b, (b.roundUntil ?? 0) > this.tick);
-    // And no nearer a pier's corner, or a boat lying at its berth, than
-    // where it is or where it aims for: it keeps the wide circle round them
-    // that it planned.
-    const wide = this.wideOf(b);
-    const here = wide(this.tileOf(b));
-    const clearTo =
-      (cap: number): CostFn =>
-      (i) => {
-        const w = i === goal ? 0 : wide(i);
-        return avoid(i) - w === 1 && w <= cap ? 1 : Infinity;
-      };
-    // A boat has moored across the route since it was planned: find a way
-    // round it, rather than brush past its bow or stern.
-    const across = b.path.slice(0, 3).some((i) => i !== goal && !Number.isFinite(avoid(i)));
-    if (across && !b.berthing && !b.undock && (this.tick + b.id) % 10 === 0) {
-      const round = this.route(b, this.tileOf(b), goal, avoid);
-      if (round && round.length > 0) b.path = round;
-    }
-    let ahead = 0;
-    // Coming in to a berth, keep to the approach line along the dock: never
-    // cut the corner past where it starts.
-    const line = moor !== null && b.berthing === 'lead' ? b.path.indexOf(b.lineup ?? -1) : -1;
-    const most = line >= 0 ? Math.min(line + 1, 4) : 4;
-    for (let k = 1; k < Math.min(b.path.length, most); k++) {
-      // A buoy is passed, and the line between a pair crossed, not cut past.
-      const at = b.path[k - 1];
-      if (isBuoy(this.map.build[at]) || this.gateLines(b.state === 'leaving').has(at)) break;
-      const clear = clearTo(Math.max(here, wide(b.path[k])));
-      if (!this.openWater(b.x, b.y, cx(b.path[k]), cy(b.path[k]), clear, v.beam / 2 + 0.05)) {
-        break;
-      }
-      ahead = k;
-    }
-    b.path.splice(0, ahead);
-    const target = b.path[0];
-    // Buoys are passed close by, on the boat's starboard side.
-    const passBy = isBuoy(this.map.build[target]) ? B.BUOY_CLEARANCE : 0;
-    const tx = cx(target) - Math.sin(b.dir) * passBy;
-    const ty = cy(target) + Math.cos(b.dir) * passBy;
-    const want = Math.atan2(ty - b.y, tx - b.x);
-    if (b.undock && this.castingOff(b, want)) return 'moving';
-    if (b.berthing === 'out' && b.lineup !== undefined && b.lineEnd !== undefined) {
-      return this.runOut(b, b.lineup, b.lineEnd, goal, cx, cy);
-    }
-    if (b.berthing && b.lineup !== undefined && b.lineEnd !== undefined && moor !== null) {
-      const sx = cx(b.lineup);
-      const sy = cy(b.lineup);
-      const along = Math.atan2(cy(b.lineEnd) - sy, cx(b.lineEnd) - sx);
-      if (b.berthing === 'lead' && Math.hypot(sx - b.x, sy - b.y) < 1.2) {
-        // Wait out there until the lane in to the berth is clear.
-        if (!this.takeFairway(b)) {
-          b.speed = Math.max(0, (b.speed ?? 0) - accel * 2);
-          return this.afterMove(b, b.speed, true, moor, goal, cx, cy);
-        }
-        b.berthing = 'align';
-        b.timer = 0;
-      }
-      if (b.berthing === 'align') {
-        b.timer++;
-        if (b.timer > 600) {
-          // Cannot come round here after all: find another way in.
-          b.berthing = undefined;
-          b.stall = B.BOAT_REROUTE_AFTER - 1;
-        } else if (Math.abs(wrapAngle(along - b.dir)) < 0.12) {
-          b.berthing = 'line';
-          b.path = b.path.slice(Math.max(0, b.path.indexOf(b.lineup) + 1));
-        } else {
-          // Out at the start of the line, come round to lie along it: with
-          // tugs where it lies if there is room, otherwise under way.
-          return this.lineUp(b, along, sx, sy, moor, goal, cx, cy);
-        }
-      }
-    }
-    const way = this.giveWay(b);
-    b.stillFor = way.still ? (b.stillFor ?? 0) + 1 : 0;
-    // Held up a while by a boat under way that gets nowhere either, as two
-    // met head on, one backing off along its own way in front of the other:
-    // it goes round it, as round a boat lying still.
-    const stuckOn =
-      !!way.by &&
-      way.by.state !== 'moored' &&
-      way.by.state !== 'anchored' &&
-      way.speed < 0.2 &&
-      (way.by.speed ?? 0) < B.VESSELS[way.by.vessel].speed * 0.2;
-    b.headOn = stuckOn ? (b.headOn ?? 0) + 1 : 0;
-    if (b.headOn > B.HEAD_ON_TICKS && !b.berthing && !b.undock) {
-      b.headOn = 0;
-      const round = this.route(b, this.tileOf(b), goal, this.seaWay(b, true));
-      if (round && round.length > 0) {
-        b.path = round;
-        b.roundUntil = this.tick + B.HEAD_ON_TICKS * 2;
-      }
-    }
-    // The rules of the road, out on open water: look ahead for boats on a
-    // collision course.
-    const road = free && !b.squeeze ? this.rulesOfTheRoad(b) : { bias: 0, slow: 1 };
-    if (!free || b.squeeze) this.keepingClear.delete(b);
-    const course = wrapAngle(want + road.bias);
-    let err = wrapAngle(course - b.dir);
-    // Coming round off the dock the way it planned to: the long way round if
-    // need be, as there is room for that and maybe not the other.
-    // Held up a good while meanwhile, it thinks again.
-    if (b.comeRound) {
-      if (Math.abs(err) < 0.3 || (b.held ?? 0) > B.HEAD_ON_TICKS * 2) b.comeRound = undefined;
-      else if (Math.sign(err) !== b.comeRound) err += b.comeRound * 2 * Math.PI;
-    }
-    // A boat needs way on to turn: it never spins on the spot, it slows and
-    // swings round in an arc.
-    const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
-    const small = v.length < B.CAREFUL_LENGTH;
-    // Ease off for sharp bends, to stop at the goal, and for other boats,
-    // but keep some way on through a bend so it swings round in an arc.
-    const bend = (a: number) =>
-      v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(a), Math.PI / 2)) ** 2);
-    let desired = bend(err);
-    // Looking ahead: ease off in good time for the next bend, rather than
-    // braking hard on reaching it…
-    if (b.path.length > 1) {
-      const next = b.path[1];
-      const corner = wrapAngle(
-        Math.atan2(cy(next) - ty, cx(next) - tx) - Math.atan2(ty - b.y, tx - b.x),
-      );
-      const reach = Math.hypot(tx - b.x, ty - b.y);
-      desired = Math.min(desired, Math.sqrt(bend(corner) ** 2 + 2 * accel * reach));
-    }
-    // …and to stop at the goal, unless it is just sailing off the map.
-    if (b.state !== 'leaving')
-      desired = Math.min(desired, Math.sqrt(2 * accel * remaining) + 0.004);
-    desired *= way.speed * road.slow;
-    // A ship carries its way: it brakes only a little harder than it speeds up.
-    speed += clamp(desired - speed, -accel * B.BOAT_BRAKE, accel);
-    speed = Math.max(0, speed);
-
-    // A boat with right of way is waiting on this one: go astern to clear
-    // its way, as long as nothing is behind. Backing and getting nowhere for
-    // too long counts as wedged too.
-    if (way.makeWay >= 0) {
-      b.yieldFor = way.makeWay;
-      // Take the way off first, then go astern: no stopping dead, unless
-      // it is in water a ship pulling out has claimed, where it backs at once.
-      const coast = this.roomWait.has(b) ? 0 : Math.max(0, (b.speed ?? 0) - accel * 2);
-      if (coast > 0) {
-        const nx = b.x + Math.cos(b.dir) * coast;
-        const ny = b.y + Math.sin(b.dir) * coast;
-        if (this.navigable(nx, ny, this.boatCostFor(b.draft)) && !this.crowds(b, nx, ny)) {
-          b.x = nx;
-          b.y = ny;
-          b.speed = coast;
-          return 'moving';
-        }
-      }
-      this.goAstern(b);
-      if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER) {
-        this.startSqueeze(b);
-        b.held = 0;
-        b.stall = 0;
-      }
-      return 'moving';
-    }
-    b.yieldFor = undefined;
-    b.astern = false;
-    // Small boats nip about; a long ship works itself round, ahead or
-    // astern, minding its whole hull. So does a small boat boxed in against
-    // a dock, until it is clear.
-    if (small && !(b.plan && this.tick < b.plan.until)) {
-      const made = this.nip(b, speed, clamp(err, -turn, turn), cx(target), cy(target), way.speed);
-      if (made === null) return 'moving';
-      if (made !== 'boxed') return this.afterMove(b, made, false, moor, goal, cx, cy);
-    }
-    // The whole hull keeps clear of the shore, docks and boats lying still.
-    // A boat already touching something may only get clearer.
-    const ships = this.stillNear(b);
-    const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const fits = (x: number, y: number, d: number) =>
-      this.clips(b, x, y, d, ships) <= now && !this.crowds(b, x, y, d);
-    // Room is only needed as far as the goal: past a berth lies the dock.
-    const reach = Math.min(v.length / 2 + 1, remaining);
-    // Take any sternway off before going ahead again.
-    if ((b.sternway ?? 0) > 0 && !b.plan?.astern) {
-      const back = Math.max(0, (b.sternway ?? 0) - accel * 2);
-      const sx = b.x - Math.cos(b.dir) * back;
-      const sy = b.y - Math.sin(b.dir) * back;
-      const moved = fits(sx, sy, b.dir);
-      if (moved) {
-        b.x = sx;
-        b.y = sy;
-      }
-      b.sternway = moved ? back : 0;
-      return 'moving';
-    }
-
-    // Pick a manoeuvre the whole hull has room for: ahead with the helm
-    // over, or astern swinging the bow round, whichever brings it nearest
-    // to heading for its next waypoint. Kept for a few ticks so it does not
-    // dither between ahead and astern.
-    let plan = b.plan && this.tick < b.plan.until ? b.plan : undefined;
-    const step = (p: { helm: number; astern: boolean; pivot?: boolean }) => {
-      if (p.pivot) {
-        const swing = v.turn * 0.5 * handiness(this, b);
-        const d = wrapAngle(b.dir + clamp(err, -swing, swing));
-        return { d, x: b.x, y: b.y, back: 0 };
-      }
-      const delta =
-        Math.sign(p.helm) === Math.sign(err) && !p.astern
-          ? clamp(err, -Math.abs(p.helm) * turn, Math.abs(p.helm) * turn)
-          : p.helm * turn * (p.astern ? 0.5 : 1);
-      const d = wrapAngle(b.dir + delta);
-      const back = Math.min(v.speed * 0.4, (b.sternway ?? 0) + accel);
-      const dist = p.astern ? -back : speed;
-      return { d, x: b.x + Math.cos(d) * dist, y: b.y + Math.sin(d) * dist, back };
-    };
-    if (plan && !fits(step(plan).x, step(plan).y, step(plan).d)) plan = undefined;
-    // Held up for good by something lying still ahead, with where it is
-    // going behind it, as at the head of a basin: nothing will move out of
-    // its way and it cannot come round where it lies. It backs out, swinging
-    // its bow round towards its course, until it is clear to come round. So
-    // too, getting nowhere pointing away from its course, as in a basin too
-    // narrow for it to turn in.
-    if (plan?.out && Math.abs(err) < Math.PI / 6) plan = undefined;
-    const boxedIn = way.still && (b.held ?? 0) > 30;
-    const cannotTurn = Math.abs(err) > Math.PI / 2 && (b.stall ?? 0) > B.BOAT_REROUTE_AFTER;
-    if (!plan && Math.abs(err) > Math.PI / 6 && (boxedIn || cannotTurn)) {
-      const helm = [Math.sign(err) || 1, 0].find((h) => {
-        const n = step({ helm: h, astern: true });
-        return fits(n.x, n.y, n.d);
-      });
-      if (helm !== undefined && this.clearAstern(b)) {
-        plan = { helm, astern: true, until: this.tick + 60, out: true };
-        b.plan = plan;
-      }
-    }
-    if (!plan) {
-      // Aim a ship's length or so along the route, not just at the next
-      // waypoint, so a manoeuvre is judged by where it leaves the ship.
-      // It should get there heading the way the route goes on.
-      // Where the rules of the road put it: round other boats.
-      const rd = Math.hypot(tx - b.x, ty - b.y);
-      let ax = b.x + Math.cos(course) * rd;
-      let ay = b.y + Math.sin(course) * rd;
-      let adir = course;
-      let left = Math.max(2, v.length * 0.75) - Math.hypot(ax - b.x, ay - b.y);
-      for (let k = 1; k < b.path.length && left > 0; k++) {
-        const nx = cx(b.path[k]);
-        const ny = cy(b.path[k]);
-        const seg = Math.hypot(nx - ax, ny - ay);
-        const t = Math.min(1, left / Math.max(seg, 1e-6));
-        adir = Math.atan2(ny - ay, nx - ax);
-        ax += (nx - ax) * t;
-        ay += (ny - ay) * t;
-        left -= seg;
-      }
-      if (left > 0 && moor !== null) {
-        // As far as the berth itself: lie the way it will moor.
-        adir = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? wrapAngle(moor + Math.PI) : moor;
-      }
-      if (b.berthing === 'lead' && b.lineup !== undefined && b.path.includes(b.lineup)) {
-        // Heading out to the start of the approach line: just get there.
-        ax = cx(b.lineup);
-        ay = cy(b.lineup);
-        adir = Math.atan2(ay - b.y, ax - b.x);
-      }
-      // Held up by a boat lying still in its way, it does not go on at it:
-      // it swings round where it lies, or backs off, towards the next turn
-      // of its way rather than a ship's length along it, which may lie on
-      // past that boat.
-      const heldStill = way.still && (b.stillFor ?? 0) > B.HELD_STILL_TICKS;
-      if (heldStill && b.path[0] !== undefined) {
-        ax = cx(b.path[0]);
-        ay = cy(b.path[0]);
-        adir = Math.atan2(ay - b.y, ax - b.x);
-      }
-      // The best whose very first step is clear too.
-      const best = this.manoeuvre(b, ax, ay, adir, speed, ships, now, reach).find((o) => {
-        if (heldStill && !o.pivot && !o.astern) return false;
-        const n = step(o);
-        return fits(n.x, n.y, n.d);
-      });
-      plan = best
-        ? { helm: best.helm, astern: best.astern, pivot: best.pivot, until: this.tick + 8 }
-        : undefined;
-      b.plan = plan;
-    }
-    let backed = false;
-    const next = plan ? step(plan) : null;
-    if (plan && next && !fits(next.x, next.y, next.d)) {
-      // The run looked clear but this step is not: think again next tick.
-      b.plan = undefined;
-      speed = 0;
-    } else if (
-      plan &&
-      next &&
-      // Ahead only as the way ahead lets it; but swinging round where it
-      // lies, or backing off, takes it no nearer what it waits for, so it
-      // may: else, held by a boat lying still off its bow, a long ship
-      // that cannot turn without way on would wait there for good.
-      (way.speed > 0.05 || plan.pivot || (plan.astern && this.clearAstern(b)))
-    ) {
-      b.dir = next.d;
-      b.x = next.x;
-      b.y = next.y;
-      if (plan.astern || plan.pivot) {
-        b.sternway = next.back;
-        speed = 0;
-        backed = true;
-      } else b.sternway = 0;
-    } else if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER / 2 || (b.squeeze ?? 0) > 0) {
-      // Boxed in for a long time: work along the path at a crawl, as a
-      // skipper would with a bit of throttle and rudder.
-      const px = cx(target) - b.x;
-      const py = cy(target) - b.y;
-      const d = Math.hypot(px, py);
-      const crawl = Math.min(d, v.speed * 0.2);
-      speed = 0;
-      if (d > 1e-6 && way.speed > 0.05) {
-        b.x += (px / d) * crawl;
-        b.y += (py / d) * crawl;
-        speed = crawl;
-      }
-    } else speed = 0;
-    return this.afterMove(b, speed, backed, moor, goal, cx, cy);
-  }
-
-  /**
-   * A long ship leaving runs straight out along the dock, ahead or astern,
-   * keeping its heading, to the open water at `end`; there it is free to
-   * turn for the sea.
-   */
-  runOut(
-    b: Boat,
-    end: number,
-    start: number,
-    goal: number,
-    cx: (i: number) => number,
-    cy: (i: number) => number,
-  ): 'moving' | 'blocked' {
-    const v = B.VESSELS[b.vessel];
-    const ex = cx(end);
-    const ey = cy(end);
-    const len = Math.hypot(ex - cx(start), ey - cy(start));
-    const ux = (ex - cx(start)) / len;
-    const uy = (ey - cy(start)) / len;
-    const gone = (b.x - cx(start)) * ux + (b.y - cy(start)) * uy;
-    if (gone >= len - 0.2) {
-      // Out in open water: on its way to sea.
-      b.lineup = b.lineEnd = b.berthing = undefined;
-      const from = this.tileOf(b);
-      b.path = this.route(b, from, goal, this.seaWay(b)) ?? [goal];
-      b.best = Infinity;
-      b.stall = 0;
-      return 'moving';
-    }
-    const fwd = Math.cos(b.dir) * ux + Math.sin(b.dir) * uy >= 0;
-    const ships = this.stillNear(b);
-    const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const way = this.giveWay(b);
-    const accel = v.speed * B.BOAT_ACCEL;
-    const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed * (0.4 + 0.6 * handiness(this, b));
-    const speed = clamp(
-      (b.speed ?? 0) + accel,
-      0,
-      Math.min(top, Math.sqrt(2 * accel * (len - gone)) + 0.004),
-    );
-    // Along the line, easing back onto it if it has drifted.
-    const side = -(b.x - cx(start)) * uy + (b.y - cy(start)) * ux;
-    const x = b.x + ux * speed - -uy * side * 0.05;
-    const y = b.y + uy * speed - ux * side * 0.05;
-    if (speed > 0 && this.clips(b, x, y, b.dir, ships) <= now) {
-      b.x = x;
-      b.y = y;
-      b.speed = fwd ? speed : 0;
-      b.sternway = fwd ? 0 : speed;
-      b.astern = !fwd;
-      return this.afterMove(b, speed, true, null, goal, cx, cy);
-    }
-    b.speed = 0;
-    b.sternway = 0;
-    return this.afterMove(b, 0, false, null, goal, cx, cy);
-  }
-
-  /**
-   * A long ship at the start of its approach line comes round to lie along
-   * it, heading for the berth: swung by tugs where it lies when there is room
-   * for the whole hull, otherwise worked round under way.
-   */
-  lineUp(
-    b: Boat,
-    along: number,
-    sx: number,
-    sy: number,
-    moor: number,
-    goal: number,
-    cx: (i: number) => number,
-    cy: (i: number) => number,
-  ): 'moving' | 'blocked' {
-    const v = B.VESSELS[b.vessel];
-    const ships = this.stillNear(b);
-    const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const hand = handiness(this, b);
-    const swung = wrapAngle(b.dir + clamp(wrapAngle(along - b.dir), -v.turn * hand, v.turn * hand));
-    if (this.clips(b, b.x, b.y, swung, ships) <= now) {
-      b.dir = swung;
-      b.speed = 0;
-      return this.afterMove(b, 0, true, moor, goal, cx, cy);
-    }
-    // No room to swing here: manoeuvre towards a point along the line.
-    const options = this.manoeuvre(
-      b,
-      sx + Math.cos(along) * 2,
-      sy + Math.sin(along) * 2,
-      along,
-      v.speed * 0.25,
-      ships,
-      now,
-      v.length / 2 + 1,
-    );
-    for (const plan of options) {
-      if (plan.pivot) continue;
-      const step = plan.astern ? -v.speed * 0.25 : v.speed * 0.25;
-      const d = wrapAngle(b.dir + plan.helm * v.turn * (plan.astern ? 0.25 : 0.5));
-      const x = b.x + Math.cos(d) * step;
-      const y = b.y + Math.sin(d) * step;
-      if (this.clips(b, x, y, d, ships) > now) continue;
-      b.dir = d;
-      b.x = x;
-      b.y = y;
-      b.speed = Math.max(0, step);
-      return this.afterMove(b, b.speed, plan.astern, moor, goal, cx, cy);
-    }
-    return this.afterMove(b, 0, false, moor, goal, cx, cy);
-  }
-
-  /**
-   * A small boat's step: swing towards its course by up to `turn` and go
-   * ahead, as far round as its whole hull stays clear of the shore and the
-   * docks (or at least no less clear than it is). Otherwise it works along
-   * the path at a crawl, as a skipper would with a bit of throttle and
-   * rudder, still minding the hull. Returns the speed made good, null
-   * while it is still taking sternway off, or 'boxed' when there is no
-   * room for any of that.
-   */
-  nip(
-    b: Boat,
-    speed: number,
-    turn: number,
-    tx: number,
-    ty: number,
-    way: number,
-  ): number | null | 'boxed' {
-    const v = B.VESSELS[b.vessel];
-    const cost = this.boatCostFor(b.draft);
-    const ships = this.stillNear(b);
-    const now = this.clips(b, b.x, b.y, b.dir, ships);
-    // Squeezing past as a last resort, it may brush the dock too. Else its
-    // hull comes no nearer another boat's, under way or not, once close.
-    const fits = (x: number, y: number, d: number) =>
-      ((b.squeeze ?? 0) > 0 ||
-        (this.navigable(x, y, cost) && this.clips(b, x, y, d, ships) <= now)) &&
-      !this.crowds(b, x, y, d);
-    // Take any sternway off before going ahead again.
-    if ((b.sternway ?? 0) > 0) {
-      const back = Math.max(0, (b.sternway ?? 0) - v.speed * B.BOAT_ACCEL * 2);
-      const sx = b.x - Math.cos(b.dir) * back;
-      const sy = b.y - Math.sin(b.dir) * back;
-      const moved = fits(sx, sy, b.dir);
-      if (moved) {
-        b.x = sx;
-        b.y = sy;
-      }
-      b.sternway = moved ? back : 0;
-      return null;
-    }
-    for (const share of [1, 0.5, 0]) {
-      const d = wrapAngle(b.dir + turn * share);
-      const nx = b.x + Math.cos(d) * speed;
-      const ny = b.y + Math.sin(d) * speed;
-      if (this.navigable(nx + Math.cos(d) * 0.3, ny + Math.sin(d) * 0.3, cost) && fits(nx, ny, d)) {
-        b.dir = d;
-        b.x = nx;
-        b.y = ny;
-        return speed;
-      }
-    }
-    const px = tx - b.x;
-    const py = ty - b.y;
-    const d = Math.hypot(px, py);
-    const step = Math.min(d, v.speed * 0.2);
-    if (d <= 1e-6 || way <= 0.05) return 0;
-    const turned = wrapAngle(b.dir + turn);
-    for (const dir of [turned, b.dir]) {
-      const nx = b.x + (px / d) * step;
-      const ny = b.y + (py / d) * step;
-      if (!fits(nx, ny, dir)) continue;
-      b.dir = dir;
-      b.x = nx;
-      b.y = ny;
-      return step;
-    }
-    return 'boxed';
-  }
-
-  /** Book-keeping after a step: held up, wedged, getting nowhere. */
-  afterMove(
-    b: Boat,
-    speed: number,
-    backed: boolean,
-    moor: number | null,
-    goal: number,
-    cx: (i: number) => number,
-    cy: (i: number) => number,
-  ): 'moving' | 'blocked' {
-    const v = B.VESSELS[b.vessel];
-    b.speed = speed;
-
-    // Waiting for a ship to pull out is not being wedged in.
-    const waiting = this.roomWait.has(b);
-    b.held = speed < v.speed * 0.1 && !backed && !waiting ? (b.held ?? 0) + 1 : 0;
-    // Wedged in for most of a day: squeeze past for a while, as a last
-    // resort so the harbour never locks up for good.
-    if (b.squeeze) b.squeeze--;
-    else if (b.held > B.BOAT_WEDGED_AFTER || (b.stall ?? 0) > B.BOAT_WEDGED_AFTER * 2) {
-      this.startSqueeze(b);
-      b.held = 0;
-      b.stall = 0;
-    }
-    // Getting no closer, held up or going round in circles: find another way,
-    // round every other boat this time. Coming in to a berth, closer means
-    // closer to the start of the approach line until the boat is on it.
-    const aim = b.lineup !== undefined && b.path.includes(b.lineup) ? b.lineup : goal;
-    const straight = Math.hypot(cx(aim) - b.x, cy(aim) - b.y);
-    if (straight < (b.best ?? Infinity) - 0.05) {
-      b.best = straight;
-      b.stall = 0;
-    } else b.stall = (b.stall ?? 0) + 1;
-    const steady = b.berthing === 'align' || b.berthing === 'line' || b.berthing === 'out';
-    if (!steady && b.stall > B.BOAT_REROUTE_AFTER && b.stall % B.BOAT_REROUTE_AFTER === 0) {
-      const from = this.tileOf(b);
-      const path =
-        (moor !== null && b.state === 'arriving' && v.length >= B.LINE_UP_LENGTH
-          ? this.approachPath(b, from, b.berth, b.jetty)
-          : null) ??
-        this.route(b, from, goal, this.seaWay(b, true)) ??
-        this.route(b, from, goal, this.seaWay(b));
-      if (path) b.path = path.length > 0 ? path : [goal];
-      else if (b.stall > B.BOAT_REROUTE_AFTER * 8) return 'blocked';
-    }
-    return 'moving';
-  }
-
-  /**
-   * Leaving a berth like a boat: ease sideways off the dock first, then, if
-   * the way out lies astern, back out, swinging the bow round, until there
-   * is room to turn under way. Returns true while still casting off.
-   */
-  castingOff(b: Boat, want: number): boolean {
-    const m = this.map;
-    const v = B.VESSELS[b.vessel];
-    const cost = this.boatCostFor(b.draft);
-    if (b.castOff === undefined || b.castDock === undefined) {
-      b.undock = undefined;
-      b.backOut = undefined;
-      b.comeRound = undefined;
-      return false;
-    }
-    const bx = m.xOf(b.castOff) + 0.5;
-    const by = m.yOf(b.castOff) + 0.5;
-    // Unit step away from the dock.
-    const ax = m.xOf(b.castOff) - m.xOf(b.castDock);
-    const ay = m.yOf(b.castOff) - m.yOf(b.castDock);
-    if (b.undock === 1) {
-      const off = (b.x - bx) * ax + (b.y - by) * ay;
-      const step = v.speed * 0.2 * handiness(this, b);
-      // A long ship gets a tile out, or with no run out along the dock, out
-      // as far as it takes to have room to swing; a small boat far enough
-      // that its stern swings clear of the dock as it turns.
-      const runAlong = b.berthing === 'out' && b.lineEnd === b.castOff;
-      const clear = runAlong
-        ? 0.3
-        : b.berthing === 'out'
-          ? 1
-          : v.length < B.CAREFUL_LENGTH
-            ? v.length / 2 - 0.3
-            : this.openAround(b.x, b.y, v.length / 2)
-              ? 1
-              : 4;
-      const ships = this.stillNear(b);
-      const sx = b.x + ax * step;
-      const sy = b.y + ay * step;
-      const room =
-        this.navigable(sx, sy, cost) &&
-        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
-        !this.crowds(b, sx, sy);
-      if (off < clear && room) {
-        b.x += ax * step;
-        b.y += ay * step;
-        b.speed = 0;
-        return true;
-      }
-      b.undock = 2;
-    }
-    // Running out along the dock: no swinging round yet.
-    if (b.berthing === 'out') {
-      b.undock = undefined;
-      return false;
-    }
-    const err = wrapAngle(want - b.dir);
-    // Off the dock, a small boat's skipper looks where there is room to come
-    // round: here beside the dock, or out in the open water astern, backing
-    // out straight along the dock to it. Coming round in the narrows is how a
-    // boat gets stuck there. A long ship works itself round as sail() has it.
-    if (b.backOut === undefined) {
-      const plan =
-        v.length >= B.CAREFUL_LENGTH || Math.abs(err) < 0.2 ? null : this.roomToComeRound(b, want);
-      b.backOut = v.length >= B.CAREFUL_LENGTH ? -1 : Math.abs(err) < 0.2 ? 0 : (plan?.back ?? -1);
-      b.comeRound = plan?.side;
-    }
-    if (b.backOut > 0.02) {
-      const back = Math.min(v.speed * 0.5, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL, b.backOut);
-      const sx = b.x - Math.cos(b.dir) * back;
-      const sy = b.y - Math.sin(b.dir) * back;
-      const ships = this.stillNear(b);
-      const clear =
-        this.navigable(sx, sy, cost) &&
-        this.clips(b, sx, sy, b.dir, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
-        !this.crowds(b, sx, sy) &&
-        this.clearAstern(b);
-      if (clear) {
-        b.x = sx;
-        b.y = sy;
-        b.speed = 0;
-        b.sternway = back;
-        b.astern = true;
-        b.backOut -= back;
-        b.held = 0;
-        return true;
-      }
-      // Something has come up astern: wait for it to pass, a while.
-      b.sternway = 0;
-      b.held = (b.held ?? 0) + 1;
-      if (b.held < B.HEAD_ON_TICKS * 3) return true;
-    }
-    const backed = Math.hypot(b.x - bx, b.y - by);
-    if (b.backOut < 0 && Math.abs(err) > 1.75 && backed < 2.5) {
-      // Gathering sternway gradually, like any other way.
-      const back = Math.min(v.speed * 0.5, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL);
-      const sx = b.x - Math.cos(b.dir) * back;
-      const sy = b.y - Math.sin(b.dir) * back;
-      const stern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
-      // Going astern the stern swings one way and the bow the other.
-      const swing = v.turn * 0.4 * handiness(this, b);
-      const swung = wrapAngle(b.dir + clamp(err, -swing, swing));
-      const ships = this.stillNear(b);
-      const roomAstern =
-        this.clips(b, sx, sy, swung, ships) <= this.clips(b, b.x, b.y, b.dir, ships) &&
-        !this.crowds(b, sx, sy, swung);
-      const clear =
-        roomAstern &&
-        this.boats.every(
-          (o) => o === b || this.inWay(stern, this.hullOf(o), stern.half + 0.3) === null,
-        );
-      if (clear) {
-        b.x = sx;
-        b.y = sy;
-        b.dir = swung;
-        b.speed = 0;
-        b.sternway = back;
-        b.astern = true;
-        return true;
-      }
-    }
-    // Any sternway left comes off gradually in sail().
-    b.undock = undefined;
-    b.backOut = undefined;
-    b.astern = false;
-    return false;
-  }
-
-  /**
-   * Where a boat just off the dock has room to come round to `want`, and
-   * which way (`side`, -1 or 1, the short way round if both will do): `back`
-   * 0 where it lies, or how far it must back out straight first, a quarter
-   * of a tile at a time up to a few tiles, to open water where it has; null
-   * if nowhere. Coming round is reckoned as sail() and nip() do it, gathering
-   * way and swinging in an arc, its whole hull keeping clear of the shore,
-   * the docks and boats lying still (boats under way will have moved on).
-   */
-  roomToComeRound(b: Boat, want: number): { back: number; side: number } | null {
-    const v = B.VESSELS[b.vessel];
-    const cost = this.boatCostFor(b.draft);
-    const ships = this.stillNear(b);
-    const now = this.clips(b, b.x, b.y, b.dir, ships);
-    const cos = Math.cos(b.dir);
-    const sin = Math.sin(b.dir);
-    // Swinging to `side` (-1 or 1) all the way round, the long way if need be.
-    const comesRound = (x0: number, y0: number, side: number): boolean => {
-      const base = this.clips(b, x0, y0, b.dir, ships);
-      let [x, y, d, speed] = [x0, y0, b.dir, 0];
-      for (let t = 0; t < 400; t++) {
-        let err = wrapAngle(want - d);
-        if (Math.abs(err) < 0.2) return true;
-        if (Math.sign(err) !== side) err += side * 2 * Math.PI;
-        const desired =
-          v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(err), Math.PI / 2)) ** 2);
-        speed += clamp(
-          desired - speed,
-          -v.speed * B.BOAT_ACCEL * B.BOAT_BRAKE,
-          v.speed * B.BOAT_ACCEL,
-        );
-        const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
-        d = wrapAngle(d + clamp(err, -turn, turn));
-        x += Math.cos(d) * speed;
-        y += Math.sin(d) * speed;
-        const ok =
-          this.navigable(x + Math.cos(d) * 0.3, y + Math.sin(d) * 0.3, cost) &&
-          this.navigable(x, y, cost) &&
-          this.clips(b, x, y, d, ships) <= base;
-        if (!ok) return false;
-      }
-      return false;
-    };
-    // The short way round first.
-    const short = Math.sign(wrapAngle(want - b.dir)) || 1;
-    const sides = [short, -short];
-    for (let back = 0; back <= B.BACK_OUT_TILES; back += 0.25) {
-      const x = b.x - cos * back;
-      const y = b.y - sin * back;
-      // Backing out straight as far as that, no nearer anything than now.
-      if (back > 0 && (!this.navigable(x, y, cost) || this.clips(b, x, y, b.dir, ships) > now))
-        return null;
-      for (const side of sides) if (comesRound(x, y, side)) return { back, side };
-    }
-    return null;
-  }
-
-  /** Back off slowly to clear the way for another boat, if nothing is astern. */
-  /** Nothing under way or lying still just astern of a boat, for it to back into. */
-  clearAstern(b: Boat): boolean {
-    const astern = { ...this.hullOf(b), hx: -Math.cos(b.dir), hy: -Math.sin(b.dir) };
-    return this.boats.every(
-      (o) => o === b || this.inWay(astern, this.hullOf(o), astern.half + 0.3) === null,
-    );
-  }
-
-  goAstern(b: Boat): void {
-    const v = B.VESSELS[b.vessel];
-    const cost = this.boatCostFor(b.draft);
-    const back = Math.min(v.speed * 0.3, (b.sternway ?? 0) + v.speed * B.BOAT_ACCEL);
-    const sx = b.x - Math.cos(b.dir) * back;
-    const sy = b.y - Math.sin(b.dir) * back;
-    const sternX = sx - Math.cos(b.dir) * 0.3;
-    const sternY = sy - Math.sin(b.dir) * 0.3;
-    const moved =
-      this.clearAstern(b) &&
-      this.navigable(sx, sy, cost) &&
-      this.navigable(sternX, sternY, cost) &&
-      !this.crowds(b, sx, sy);
-    if (moved) {
-      b.x = sx;
-      b.y = sy;
-    }
-    b.speed = 0;
-    b.sternway = moved ? back : 0;
-    b.astern = true;
-    b.held = (b.held ?? 0) + 1;
-  }
-
-  /** Open water here; past the map edge is open sea, where boats come and go. */
-  /**
-   * How many points of the hull, lying at x, y heading dir, are over land
-   * or a dock, or inside one of `ships`. Points along the keel from stern
-   * to bow and along both sides. (Depth is the route's business: a hull's
-   * ends may hang over the shallows, as at a berth.)
-   */
-  clips(b: Boat, x: number, y: number, dir: number, ships: Boat[]): number {
-    const v = B.VESSELS[b.vessel];
-    const m = this.map;
-    const cost: CostFn = (i) =>
-      m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i])) ? Infinity : 1;
-    const hx = Math.cos(dir);
-    const hy = Math.sin(dir);
-    const side = (v.beam / 2) * 0.9;
-    const n = Math.max(2, Math.ceil(v.length / 0.45));
-    let hits = 0;
-    const at = (px: number, py: number) => {
-      if (!this.navigable(px, py, cost)) return hits++;
-      for (const o of ships) {
-        const w = B.VESSELS[o.vessel];
-        const ox = Math.cos(o.dir);
-        const oy = Math.sin(o.dir);
-        const rx = px - o.x;
-        const ry = py - o.y;
-        const along = Math.abs(rx * ox + ry * oy);
-        const across = Math.abs(-rx * oy + ry * ox);
-        if (along < w.length / 2 + 0.05 && across < w.beam / 2 + 0.05) return hits++;
-      }
-    };
-    for (let k = 0; k <= n; k++) {
-      const t = -v.length / 2 + (v.length * k) / n;
-      const px = x + hx * t;
-      const py = y + hy * t;
-      at(px, py);
-      // The ends taper to a point.
-      if (k > 0 && k < n) {
-        at(px - hy * side, py + hx * side);
-        at(px + hy * side, py - hx * side);
-      }
-    }
-    return hits;
-  }
 
   // ── Trucks at container yards ─────────────────────────
 
@@ -3074,7 +997,7 @@ export class World {
       const lift = { workAt, workTruck: p.id, workSlot: 0, ...this.liftView(y, p.id) };
       if (p.state === 'dropping') {
         // Where the sim stacks it, by when customs clear it.
-        const workYard = y.gantryTo ?? this.stackedAt(p, y, this.customsFor(p.cargoFrom?.[0]));
+        const workYard = y.gantryTo ?? this.stackedAt(p, y, customsFor(this, p.cargoFrom?.[0]));
         return {
           working: 'unload',
           workLook: this.carriedLooks(p)[0],
@@ -3206,7 +1129,7 @@ export class World {
       y.exportIncoming = Math.max(0, (y.exportIncoming ?? 0) - h.planned);
     } else {
       // Customs clear it a while after it is stacked, as any other.
-      const ready = h.fees.map((_, k) => this.customsFor(h.from?.[k]));
+      const ready = h.fees.map((_, k) => customsFor(this, h.from?.[k]));
       if (to !== undefined && h.fees.length === 1) this.yardSlots(y).boxes.push(to);
       this.readyList(y).push(...ready);
       this.boxLooks(y).push(...h.looks);
@@ -3457,7 +1380,7 @@ export class World {
         return (
           this.craneHand(p, crane) ?? {
             crane: crane.idx,
-            look: this.stackLooks(crane)[Math.max(0, this.takingAt(p, crane))],
+            look: this.stackLooks(crane)[Math.max(0, takingAt(this, p, crane))],
           }
         );
       const yard = this.yards.get(p.stockIdx);
@@ -3469,14 +1392,16 @@ export class World {
     }
     if (p.toCrane !== undefined && p.toCrane >= 0) {
       const crane = this.cranes.get(p.toCrane);
-      const place = crane && crane.kind !== 'jib' ? this.nextCranePlace(crane, true) : undefined;
+      const place = crane && crane.kind !== 'jib' ? nextCranePlace(this, crane, true) : undefined;
       return (crane && this.craneHand(p, crane)) ?? { crane: p.toCrane, place };
     }
     if (p.toBoat !== undefined && p.toBoat >= 0) return undefined;
     const yard = this.yards.get(p.bayIdx);
     if (!yard) return undefined;
     // Where it will be stacked, by when customs clear it.
-    const ready = p.outbound ? undefined : (p.cargoReady?.[0] ?? this.customsFor(p.cargoFrom?.[0]));
+    const ready = p.outbound
+      ? undefined
+      : (p.cargoReady?.[0] ?? customsFor(this, p.cargoFrom?.[0]));
     return { ...lane(yard), place: this.stackedAt(p, yard, ready) };
   }
 
@@ -3518,7 +1443,7 @@ export class World {
     const m = this.map;
     const along = (place % craneStacks(c)) % B.GANTRY_RAILS;
     const back = gantryRails(m, c.idx, m.orient[c.idx] & 3)[along * 2 + 1];
-    return back >= 0 && Number.isFinite(this.driveCost(back)) ? back : this.pickTile(c);
+    return back >= 0 && Number.isFinite(this.driveCost(back)) ? back : pickTile(this, c);
   }
 
   /** Which way the quay edge a container crane stands on runs, as a heading. */
@@ -3544,9 +1469,9 @@ export class World {
     // export on top it takes, or the next place for one it brings.
     if (p.kind === 'stacker' && c.kind === 'gantry') {
       const place = drop
-        ? this.nextCranePlace(c, true)
-        : this.cranePlaces(c).stack[this.craneTop(c, false)];
-      return place === undefined || place < 0 ? this.pickTile(c) : this.besideStack(c, place);
+        ? nextCranePlace(this, c, true)
+        : cranePlaces(this, c).stack[craneTop(this, c, false)];
+      return place === undefined || place < 0 ? pickTile(this, c) : this.besideStack(c, place);
     }
     // A tractor at a gantry crane lines up along its rails behind the
     // stack, beside the containers. Never turning about on the way, it
@@ -3563,9 +1488,9 @@ export class World {
         if (!free(t)) break;
         deepest = t;
       }
-      return deepest >= 0 ? deepest : (lane.find(free) ?? lane[0] ?? this.pickTile(c));
+      return deepest >= 0 ? deepest : (lane.find(free) ?? lane[0] ?? pickTile(this, c));
     }
-    if (p.kind !== 'tractor' || c.kind !== 'harbour') return this.pickTile(c);
+    if (p.kind !== 'tractor' || c.kind !== 'harbour') return pickTile(this, c);
     const m = this.map;
     const a = this.quayHeading(c);
     const [dx, dy] = [Math.round(Math.cos(a)), Math.round(Math.sin(a))];
@@ -3578,7 +1503,7 @@ export class World {
       if (Number.isFinite(this.driveCost(t)) && !isCrane(m.build[t])) sides.push(t);
     }
     // The side no other tractor has, if one is free.
-    return sides.find((t) => !this.spotTaken(t, p)) ?? sides[0] ?? this.pickTile(c);
+    return sides.find((t) => !this.spotTaken(t, p)) ?? sides[0] ?? pickTile(this, c);
   }
 
   /**
@@ -3589,7 +1514,7 @@ export class World {
    */
   craneLane(c: Crane): number[] {
     const m = this.map;
-    const pick = this.pickTile(c);
+    const pick = pickTile(this, c);
     const ground = this.machineGround();
     return gantryRails(m, c.idx, m.orient[c.idx] & 3)
       .filter((t, k) => k % 2 === 1 && t >= 0 && ground.has(t))
@@ -3764,7 +1689,7 @@ export class World {
     // exports up, the one on top. It takes as long as its way along the rails.
     // Lifted off, the tractor need wait only until the spreader has it.
     if (p.state === 'dropping') {
-      this.keepGantryTo(y, this.stackedAt(p, y, this.customsFor(p.cargoFrom?.[0])));
+      this.keepGantryTo(y, this.stackedAt(p, y, customsFor(this, p.cargoFrom?.[0])));
       this.startLift(y, lane, this.slotAlong(y, y.gantryTo));
       p.timer = Math.max(1, this.takenIn(y));
     } else {
@@ -4328,1011 +2253,6 @@ export class World {
 
   // ── Tugs ──────────────────────────────────────────────
 
-  /** Moving to x, y heading `dir` would bring the hull up against another boat's. */
-  crowds(b: Boat, x: number, y: number, dir = b.dir): boolean {
-    const v = B.VESSELS[b.vessel];
-    // Squeezing past as a last resort, through the boats it is wedged
-    // against, but no nearer any other.
-    return this.boats.some((o) => {
-      const w = B.VESSELS[o.vessel];
-      if (o === b || Math.hypot(o.x - x, o.y - y) > (v.length + w.length) / 2 + 1) return false;
-      if (this.squeezingPast(b, o)) return false;
-      const before = hullGap(b.x, b.y, b.dir, v, o.x, o.y, o.dir, w);
-      const after = hullGap(x, y, dir, v, o.x, o.y, o.dir, w);
-      return after < 0.1 && after < before;
-    });
-  }
-
-  /**
-   * Another boat with right of way over this one, under way but held up a
-   * while, with this one in the water it would go on into.
-   */
-  inWayOfHeld(b: Boat): Boat | undefined {
-    const me = this.hullOf(b);
-    return this.boats.find((o) => {
-      if (o === b || o.state === 'moored' || o.state === 'anchored') return false;
-      if ((o.held ?? 0) <= 20 || !this.outranks(o, b)) return false;
-      if (Math.hypot(o.x - b.x, o.y - b.y) > 6) return false;
-      const ov = B.VESSELS[o.vessel];
-      const look = ov.length / 2 + 0.6 + ov.speed / (2 * B.BOAT_ACCEL);
-      return this.inWay(this.wakeOf(o), me, look) !== null;
-    });
-  }
-
-  /**
-   * Wedged in for good: squeeze past the boats it is wedged against, for a
-   * while, as a last resort so the harbour never locks up. Only those: it
-   * keeps clear of any other that comes near meanwhile.
-   */
-  startSqueeze(b: Boat): void {
-    const v = B.VESSELS[b.vessel];
-    b.squeeze = 200;
-    // Never over a boat lying still, moored or at anchor.
-    b.squeezePast = this.boats
-      .filter(
-        (o) =>
-          o !== b &&
-          o.state !== 'moored' &&
-          o.state !== 'anchored' &&
-          hullGap(b.x, b.y, b.dir, v, o.x, o.y, o.dir, B.VESSELS[o.vessel]) < B.WEDGED_GAP,
-      )
-      .map((o) => o.id);
-  }
-
-  /** Squeezing past this boat, one it was wedged against; see startSqueeze. */
-  squeezingPast(b: Boat, o: Boat): boolean {
-    return (b.squeeze ?? 0) > 0 && !!b.squeezePast?.includes(o.id);
-  }
-
-  /** Boats lying still near this one, that its hull must keep clear of. */
-  stillNear(b: Boat): Boat[] {
-    const v = B.VESSELS[b.vessel];
-    return this.boats.filter(
-      (o) =>
-        o !== b &&
-        o.state === 'moored' &&
-        Math.hypot(o.x - b.x, o.y - b.y) < v.length + B.VESSELS[o.vessel].length / 2 + 2,
-    );
-  }
-
-  /**
-   * The rules of the road, roughly as at sea. Every boat under way plots
-   * where it will be over the next while, and keeps a lookout for any other
-   * boat whose plot comes too close to its own. Then whoever has to keep
-   * clear (see burden) eases off, as far as it takes for the other to pass
-   * ahead of it; meeting head on, both alter to starboard, so they pass
-   * port to port. A boat with right of way holds its course and speed, but
-   * acts too when a collision is close and the other has not. Returns a
-   * turn to add (starboard positive) and a share of speed to keep.
-   */
-  rulesOfTheRoad(b: Boat): { bias: number; slow: number } {
-    const mine = this.plot(b, 1);
-    let bias = 0;
-    /** Plots of the boats to keep clear of, and the first of those boats. */
-    const clearOf: [Boat, Float64Array][] = [];
-    let first: { of: number; at: number } | undefined;
-    for (const [o, theirs] of this.plots) {
-      if (o === b || !this.underWay(theirs)) continue;
-      const meet = this.meeting(b, mine, o, theirs);
-      if (!meet) continue;
-      const ticks = meet.at * B.PLOT_STEP;
-      const duty = this.burden(b, o);
-      const close = ticks <= B.STAND_ON_TICKS;
-      if (duty === 'both') {
-        // Head on: alter to starboard, the more the sooner they would meet.
-        const urgency = clamp(1.3 - ticks / B.LOOKOUT_TICKS, 0, 1) * (meet.gap < 0 ? 1 : 0.6);
-        bias += 1.2 * urgency;
-      }
-      if (duty === 'give' || close) {
-        clearOf.push([o, theirs]);
-        if (!first || meet.at < first.at) first = { of: o.id, at: meet.at };
-      }
-    }
-    bias = clamp(bias, -0.9, 0.9);
-    if (!first) {
-      this.keepingClear.delete(b);
-      return { bias, slow: 1 };
-    }
-    // The most way it can keep and still let every one of them by; failing
-    // that, whatever puts off meeting the longest.
-    let best = { pace: 1, at: -1 };
-    for (const pace of [1, 0.75, 0.5, 0.3, 0.15, 0]) {
-      const plot = pace === 1 ? mine : this.plot(b, pace);
-      let at = Infinity;
-      for (const [o, theirs] of clearOf) {
-        at = Math.min(at, this.meeting(b, plot, o, theirs)?.at ?? Infinity);
-      }
-      if (at > best.at) best = { pace, at };
-      if (at === Infinity) break;
-    }
-    this.keepingClear.set(b, { pace: best.pace, of: first.of });
-    return { bias, slow: best.pace };
-  }
-
-  /**
-   * Whether a plot goes anywhere. A boat lying stopped, waiting or keeping
-   * clear, is a boat in the way like any other (see giveWay), not one to
-   * plan round: planning round boats that are waiting on each other would
-   * leave them all waiting.
-   */
-  underWay(plot: Float64Array): boolean {
-    const end = plot.length - 3;
-    return Math.hypot(plot[end] - plot[0], plot[end + 1] - plot[1]) > 0.5;
-  }
-
-  /**
-   * Draw every boat under way's plot for this tick, at the pace it keeps,
-   * before the first of them moves.
-   */
-  plotCourses(): void {
-    if (this.plotsAt === this.tick) return;
-    this.plotsAt = this.tick;
-    this.plots.clear();
-    for (const b of this.boats) {
-      if (b.state === 'moored' || b.state === 'anchored') continue;
-      // A boat that has lain still a while, waiting or swinging round where
-      // it lies, or backing out of another's way, is plotted lying there
-      // until it gets going ahead again: it is not coming on along its way.
-      const v = B.VESSELS[b.vessel];
-      const moving = (b.speed ?? 0) > v.speed * 0.1 && !b.astern;
-      const still = moving ? 0 : (this.stillFor.get(b) ?? 0) + 1;
-      this.stillFor.set(b, still);
-      this.plots.set(b, this.plot(b, still > 10 ? 0 : (this.keepingClear.get(b)?.pace ?? 1)));
-    }
-  }
-
-  /**
-   * Where a boat under way will be, every PLOT_STEP ticks for LOOKOUT_TICKS,
-   * as x, y, heading: along its route as it sails it (see sail), gathering
-   * and taking off way, slowing for bends and to stop at its goal, and
-   * swinging round no faster than it can turn. `pace` is the share of its
-   * speed it keeps to. Running out along the dock, it goes straight out
-   * keeping its heading and stops to turn at the end; casting off, it is
-   * taken to lie where it is.
-   */
-  plot(b: Boat, pace: number): Float64Array {
-    const v = B.VESSELS[b.vessel];
-    const n = Math.floor(B.LOOKOUT_TICKS / B.PLOT_STEP) + 1;
-    const out = new Float64Array(n * 3);
-    const w = this.map.w;
-    const xs = [b.x];
-    const ys = [b.y];
-    const runOut = b.berthing === 'out' && b.lineup !== undefined;
-    const route = b.undock ? [] : runOut ? [b.lineup!] : b.path;
-    for (const i of route) {
-      xs.push((i % w) + 0.5);
-      ys.push(Math.floor(i / w) + 0.5);
-    }
-    const accel = v.speed * B.BOAT_ACCEL;
-    const bend = (a: number) =>
-      v.speed * Math.max(0.25, Math.cos(Math.min(Math.abs(a), Math.PI / 2)) ** 2);
-    const stops = b.state !== 'leaving' || runOut;
-    let x = b.x;
-    let y = b.y;
-    let d = b.dir;
-    let speed = Math.max(0, (b.speed ?? 0) - (b.sternway ?? 0));
-    let leg = 1;
-    let left = 0;
-    for (let k = 1; k < xs.length; k++) left += Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1]);
-    for (let t = 0; t < n * B.PLOT_STEP; t++) {
-      if (t % B.PLOT_STEP === 0) {
-        const s = (t / B.PLOT_STEP) * 3;
-        out[s] = x;
-        out[s + 1] = y;
-        out[s + 2] = d;
-      }
-      if (leg >= xs.length) continue;
-      const lx = xs[leg] - x;
-      const ly = ys[leg] - y;
-      const reach = Math.hypot(lx, ly);
-      const along = Math.atan2(ly, lx);
-      let desired = v.speed * (runOut ? 0.75 : 1);
-      if (!runOut) {
-        // Swings round onto the leg as it goes, slowing to turn.
-        const err = wrapAngle(along - d);
-        const turn = v.turn * (0.3 + (0.7 * speed) / v.speed);
-        d = wrapAngle(d + clamp(err, -turn, turn));
-        desired = bend(err);
-        if (leg + 1 < xs.length) {
-          const corner = wrapAngle(
-            Math.atan2(ys[leg + 1] - ys[leg], xs[leg + 1] - xs[leg]) - along,
-          );
-          desired = Math.min(desired, Math.sqrt(bend(corner) ** 2 + 2 * accel * reach));
-        }
-      }
-      if (stops) desired = Math.min(desired, Math.sqrt(2 * accel * left) + 0.004);
-      speed += clamp(desired * pace - speed, -accel * B.BOAT_BRAKE, accel);
-      speed = Math.max(0, speed);
-      // Along the route, leg after leg.
-      let go = Math.min(speed, left);
-      left -= go;
-      while (go > 0 && leg < xs.length) {
-        const rx = xs[leg] - x;
-        const ry = ys[leg] - y;
-        const r = Math.hypot(rx, ry);
-        if (r <= go) {
-          x = xs[leg];
-          y = ys[leg];
-          go -= r;
-          leg++;
-        } else {
-          x += (rx / r) * go;
-          y += (ry / r) * go;
-          go = 0;
-        }
-      }
-    }
-    return out;
-  }
-
-  /**
-   * The first point at which two plots bring the hulls closer than they
-   * should pass (or, already that close, closer still), and the least
-   * clear water between them; null when they keep clear.
-   */
-  meeting(
-    b: Boat,
-    mine: Float64Array,
-    o: Boat,
-    theirs: Float64Array,
-  ): { at: number; gap: number } | null {
-    const v = B.VESSELS[b.vessel];
-    const w = B.VESSELS[o.vessel];
-    const n = mine.length / 3;
-    // Too far apart to meet within the lookout at all.
-    const span = (v.speed + w.speed) * B.LOOKOUT_TICKS + (v.length + w.length) / 2 + 1;
-    if (Math.hypot(theirs[0] - mine[0], theirs[1] - mine[1]) > span) return null;
-    const reach = (v.length + w.length) / 2 + B.PASSING_GAP;
-    let limit = B.PASSING_GAP;
-    let at = -1;
-    let least = Infinity;
-    for (let k = 0; k < n; k++) {
-      const s = k * 3;
-      if (Math.hypot(theirs[s] - mine[s], theirs[s + 1] - mine[s + 1]) > reach) continue;
-      const gap = hullGap(
-        mine[s],
-        mine[s + 1],
-        mine[s + 2],
-        v,
-        theirs[s],
-        theirs[s + 1],
-        theirs[s + 2],
-        w,
-      );
-      if (k === 0) {
-        limit = Math.min(B.PASSING_GAP, gap - 0.05);
-        continue;
-      }
-      least = Math.min(least, gap);
-      if (gap < limit && at < 0) at = k;
-    }
-    return at < 0 ? null : { at, gap: least };
-  }
-
-  /**
-   * Which of two boats under way keeps clear, as at sea: of `b`, whether it
-   * gives way to `o`, stands on, or (meeting head on) both alter to
-   * starboard. A boat handling, coming alongside or pulling out, goes
-   * first, then the bigger ship. Between boats of a size the one
-   * overtaking keeps clear, and of two crossing the one with the other on
-   * its starboard side. Anything else goes by right of way (see outranks).
-   */
-  burden(b: Boat, o: Boat): 'give' | 'stand' | 'both' {
-    const handling = (q: Boat) => this.handling.has(q) || this.pullingOut(q);
-    if (handling(b) !== handling(o)) return handling(b) ? 'stand' : 'give';
-    if (handling(b)) return this.outranks(o, b) ? 'give' : 'stand';
-    const lb = B.VESSELS[b.vessel].length;
-    const lo = B.VESSELS[o.vessel].length;
-    if (lb > lo * 1.3) return 'stand';
-    if (lo > lb * 1.3) return 'give';
-    // Where each sees the other, starboard positive.
-    const seen = wrapAngle(Math.atan2(o.y - b.y, o.x - b.x) - b.dir);
-    const seenBy = wrapAngle(Math.atan2(b.y - o.y, b.x - o.x) - o.dir);
-    // More than two points abaft the beam: coming up from astern.
-    const abaft = Math.PI * 0.625;
-    if (Math.abs(seenBy) > abaft && Math.abs(seen) < abaft) return 'give';
-    if (Math.abs(seen) > abaft && Math.abs(seenBy) < abaft) return 'stand';
-    if (
-      Math.abs(wrapAngle(o.dir - b.dir)) > 2.6 &&
-      Math.abs(seen) < 0.5 &&
-      Math.abs(seenBy) < 0.5
-    ) {
-      return 'both';
-    }
-    if (seen > 0 && seenBy < 0) return 'give';
-    if (seen < 0 && seenBy > 0) return 'stand';
-    return this.outranks(o, b) ? 'give' : 'stand';
-  }
-
-  /**
-   * The best manoeuvre for a long ship from where it lies: ahead or astern,
-   * helm hard over either way, half or amidships. Each is tried out over a
-   * short run (ahead as far as `reach`, astern a tile and a half) and must
-   * keep the hull clear all the way. Best first: ending nearest the target
-   * and pointing at it. Empty when nothing has room.
-   */
-  manoeuvre(
-    b: Boat,
-    tx: number,
-    ty: number,
-    tdir: number,
-    speed: number,
-    ships: Boat[],
-    now: number,
-    reach: number,
-  ): { helm: number; astern: boolean; pivot?: boolean }[] {
-    const v = B.VESSELS[b.vessel];
-    // Slow, a ship turns tighter for the distance it covers.
-    const s = Math.max(speed, v.speed * 0.25);
-    const curve = (v.turn * (0.3 + (0.7 * s) / v.speed)) / s;
-    const step = 0.25;
-    const options: { helm: number; astern: boolean; pivot?: boolean; score: number }[] = [];
-    // Last of all, with tugs, swing round where it lies, if there is room.
-    const want = Math.hypot(tx - b.x, ty - b.y) > 1.5 ? Math.atan2(ty - b.y, tx - b.x) : tdir;
-    // Judged by where the swing leaves it, as far round as it has room for.
-    const swing = wrapAngle(want - b.dir);
-    if (Math.abs(swing) > 0.05) {
-      const n = Math.ceil(Math.abs(swing) / 0.15);
-      let ok = true;
-      for (let k = 1; k <= n && ok; k++) {
-        ok = this.clips(b, b.x, b.y, b.dir + (swing * k) / n, ships) <= now;
-      }
-      if (ok) {
-        const off = Math.abs(wrapAngle(want - b.dir - swing));
-        // Tugs are a last resort, less so the further it has to come round.
-        options.push({
-          helm: Math.sign(swing),
-          astern: false,
-          pivot: true,
-          score:
-            Math.hypot(tx - b.x, ty - b.y) +
-            off * 1.5 +
-            (tugged(this, b) ? 0.5 : 2.5) * (1 - Math.abs(swing) / Math.PI),
-        });
-      }
-    }
-    for (const astern of [false, true]) {
-      const run = astern ? 1.5 : Math.max(step, reach);
-      for (const helm of [0, -0.5, 0.5, -1, 1]) {
-        let x = b.x;
-        let y = b.y;
-        let d = b.dir;
-        let ok = true;
-        // Judged at its best moment along the run: nearest the target and
-        // pointing at it, before it sails past.
-        let score = Infinity;
-        for (let t = step; t <= run + 1e-6; t += step) {
-          // Astern the rudder bites less.
-          d = wrapAngle(d + helm * curve * step * (astern ? 0.5 : 1));
-          x += Math.cos(d) * step * (astern ? -1 : 1);
-          y += Math.sin(d) * step * (astern ? -1 : 1);
-          if (this.clips(b, x, y, d, ships) > now) {
-            ok = false;
-            break;
-          }
-          // Far off, point at the target; close to it, lie the way the
-          // route goes on from there.
-          const near = Math.hypot(tx - x, ty - y);
-          const aim = near > 1.5 ? Math.atan2(ty - y, tx - x) : tdir;
-          score = Math.min(score, near + Math.abs(wrapAngle(aim - d)) * 1.5);
-        }
-        // Astern costs a little, and so does changing between ahead and
-        // astern, so it does not dither.
-        const change = b.plan && !b.plan.pivot && b.plan.astern !== astern ? 0.75 : 0;
-        if (ok) options.push({ helm, astern, score: score + (astern ? 1 : 0) + change });
-      }
-    }
-    return options.sort((p, q) => p.score - q.score);
-  }
-
-  navigable(x: number, y: number, cost: CostFn): boolean {
-    const tx = Math.floor(x);
-    const ty = Math.floor(y);
-    return !this.map.inBounds(tx, ty) || Number.isFinite(cost(this.map.idx(tx, ty)));
-  }
-
-  /**
-   * Open water all along a straight line, so the boat can cut the corner;
-   * with `half` set, clear of the shore and docks that far either side of
-   * it too, so the hull does not clip the corner of a dock on the way.
-   */
-  openWater(x0: number, y0: number, x1: number, y1: number, cost: CostFn, half = 0): boolean {
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    const n = Math.ceil(len / 0.25);
-    const ox = len > 0 ? (-(y1 - y0) / len) * half : 0;
-    const oy = len > 0 ? ((x1 - x0) / len) * half : 0;
-    const m = this.map;
-    const shore: CostFn = (i) =>
-      m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i])) ? Infinity : 1;
-    for (let k = 1; k <= n; k++) {
-      const t = k / n;
-      const x = x0 + (x1 - x0) * t;
-      const y = y0 + (y1 - y0) * t;
-      if (!this.navigable(x, y, cost)) return false;
-      if (
-        half > 0 &&
-        !(this.navigable(x + ox, y + oy, shore) && this.navigable(x - ox, y - oy, shore))
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  /** Where a boat's hull lies: centre, unit heading and half extents. */
-  hullOf(b: Boat): {
-    x: number;
-    y: number;
-    hx: number;
-    hy: number;
-    half: number;
-    beam: number;
-  } {
-    const v = B.VESSELS[b.vessel];
-    return {
-      x: b.x,
-      y: b.y,
-      hx: Math.cos(b.dir),
-      hy: Math.sin(b.dir),
-      half: v.length / 2,
-      beam: v.beam / 2,
-    };
-  }
-
-  /**
-   * Right of way: a boat pulling out of its berth goes first, then boats
-   * leaving, boats coming in to a berth and those heading for the
-   * anchorage; going the same way, the bigger ship, then the one that came
-   * first. Boats lying still never move for anyone.
-   */
-  outranks(a: Boat, b: Boat): boolean {
-    const state = (q: Boat) =>
-      q.state === 'leaving' ? 3 : q.state === 'arriving' ? 2 : q.state === 'approaching' ? 1 : 0;
-    const rank = (q: Boat) => [this.pullingOut(q) ? 1 : 0, state(q), B.VESSELS[q.vessel].length];
-    const ra = rank(a);
-    const rb = rank(b);
-    for (let k = 0; k < ra.length; k++) if (ra[k] !== rb[k]) return ra[k] > rb[k];
-    return a.id < b.id;
-  }
-
-  /** The hull pointing the way the boat is going, astern included. */
-  wakeOf(b: Boat): ReturnType<World['hullOf']> {
-    const h = this.hullOf(b);
-    return b.astern ? { ...h, hx: -h.hx, hy: -h.hy } : h;
-  }
-
-  /**
-   * Rules of the road. A boat stops for anything lying still in its way (and
-   * finds a way round it, see sail) and gives way to boats that outrank it.
-   * With right of way it carries on, stopping short only of a collision,
-   * while the other one gets out of the way, going astern if need be
-   * (`makeWay`). There is always one boat with right of way, so they do not
-   * sail through each other; one that is wedged in all the same squeezes
-   * past in the end rather than lock up the harbour.
-   */
-  giveWay(b: Boat): { speed: number; makeWay: number; still?: boolean; by?: Boat } {
-    const me = this.hullOf(b);
-    const v = B.VESSELS[b.vessel];
-    // Looks out as far as it takes to stop gently from full speed, so it
-    // eases off early rather than pulling up short.
-    const accel = v.speed * B.BOAT_ACCEL;
-    const stopping = (v.speed * v.speed) / (2 * accel);
-    const look = me.half + 0.6 + stopping;
-    let speed = 1;
-    /** Id of the boat to back out of the way of, or -1. */
-    let makeWay = -1;
-    /** Brought up short by a boat lying still. */
-    let stopped = false;
-    /** The moored ship it stopped for, if one did. */
-    let stoppedBy: Boat | undefined;
-    /** The boat that holds it back most. */
-    let by: Boat | undefined;
-    // Held up a while beside the clear water off moored boats' ends, it goes
-    // on past them minding only their hulls, until it is clear of them all:
-    // counted however it creeps meanwhile, so it does not stop again at
-    // every nudge forward.
-    const patient = (b.keptFor ?? 0) < B.KEEP_CLEAR_PATIENCE;
-    /** Beside such water still, and held up by it alone. */
-    let byEnds = false;
-    let heldByEnds = false;
-    // Wedged in for most of a day: a last resort so the harbour never locks
-    // up for good. It squeezes past.
-    const wedged = (b.squeeze ?? 0) > 0;
-    const m = this.map;
-    // A long ship whose way goes on behind it is coming round: one lying
-    // still off its bow is not in its way, as it swings away from it, its
-    // whole hull minding that one as it goes (see sail).
-    const next = b.path[0];
-    const comingRound =
-      v.length >= B.CAREFUL_LENGTH &&
-      next !== undefined &&
-      Math.cos(Math.atan2(m.yOf(next) + 0.5 - b.y, m.xOf(next) + 0.5 - b.x) - b.dir) < 0;
-    this.roomWait.delete(b);
-    for (const o of this.boats) {
-      if (o === b) continue;
-      const other = this.hullOf(o);
-      const still = o.state === 'moored' || o.state === 'anchored';
-      // Squeezing past the boats under way it is wedged against, never over
-      // one lying still, nor into one only coming its way.
-      if (wedged && !still && this.squeezingPast(b, o)) continue;
-      if (comingRound && still) continue;
-      // Keep out of the water a ship pulling out of its berth has claimed,
-      // stopping short of it; already inside and heading further in, back
-      // out. A boat coming in to a berth inside it has to pass through.
-      const bound =
-        o.room &&
-        b.state === 'arriving' &&
-        b.berth >= 0 &&
-        o.room.spots.some(
-          ([x, y, r]) => Math.hypot(m.xOf(b.berth) + 0.5 - x, m.yOf(b.berth) + 0.5 - y) < r + 1,
-        );
-      if (o.room && !bound && this.outranks(o, b)) {
-        // Running out along the dock it may be going astern: look that way.
-        const into = this.intoRoom(b.berthing === 'out' ? this.wakeOf(b) : me, o.room.spots, look);
-        if (into !== null) {
-          this.roomWait.add(b);
-          if (into < 0) {
-            if (makeWay < 0) makeWay = o.id;
-            speed = 0;
-          } else {
-            speed = Math.min(
-              speed,
-              clamp(Math.sqrt(2 * accel * Math.max(0, into - 0.3)) / v.speed, 0, 1),
-            );
-          }
-        }
-      }
-      // Off a moored boat's bow and stern lies clear water it keeps to
-      // itself; a boat already in it, casting off beside it, need only
-      // keep clear of the hull.
-      // Held up by that alone a while, it goes on past, clear of the hull.
-      // Running out along the dock it passes the berths beside it like
-      // one casting off, minding only their hulls.
-      const ends =
-        still && b.berthing !== 'out'
-          ? this.inWay(me, { ...other, half: other.half + B.BERTH_END_GAP }, look)
-          : null;
-      if (ends !== null) byEnds = true;
-      const kept = patient ? ends : null;
-      const ahead = kept !== null && kept > 0 ? kept : this.inWay(me, other, look);
-      if (ahead !== null) {
-        const gap = ahead - me.half;
-        // Stop for anything lying still or with right of way; otherwise only
-        // short of touching, while the other one gets out of the way.
-        const yields = still || this.outranks(o, b);
-        const room = yields ? 0.3 : 0.08;
-        if (yields) {
-          // As fast as still lets it stop in time, braking at its ordinary
-          // rate, plus however fast the other is drawing away.
-          const away = still
-            ? 0
-            : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
-          const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
-          const slow = clamp(safe / v.speed, 0, 1);
-          if (slow < speed) by = o;
-          speed = Math.min(speed, slow);
-          if (still && speed <= 0.05) {
-            stopped = true;
-            if (o.state === 'moored') stoppedBy = o;
-          }
-          if (kept !== null && kept > 0 && speed <= 0.1) {
-            heldByEnds = true;
-            // Held off the clear water at its end: waiting on it all the same.
-            if (o.state === 'moored') stoppedBy ??= o;
-          }
-        } else {
-          const slow = clamp((gap - room) / 0.5, 0, 1);
-          if (slow < speed) by = o;
-          speed = Math.min(speed, slow);
-        }
-      }
-      // Something with right of way is held up, and this boat is in its way;
-      // or a boat backing out of the way of one that outranks this one needs
-      // this one to back too. The boat at the head of a chain always
-      // outranks the rest, so no ring of boats ends up all waiting astern.
-      if (makeWay >= 0 || still || (o.held ?? 0) <= 20) continue;
-      const head = this.outranks(o, b)
-        ? o.id
-        : o.astern && o.yieldFor !== undefined
-          ? o.yieldFor
-          : -1;
-      const lead = head === o.id ? o : this.boats.find((q) => q.id === head);
-      if (!lead || lead === b || !this.outranks(lead, b)) continue;
-      // As far ahead as that one looks out: out of its way, not just off its bow.
-      const ov = B.VESSELS[o.vessel];
-      const theirs = other.half + 0.6 + (ov.speed * ov.speed) / (2 * ov.speed * B.BOAT_ACCEL);
-      if (this.inWay(this.wakeOf(o), me, Math.max(other.half + 0.8, theirs)) !== null) {
-        makeWay = head;
-      }
-    }
-    if (b.keptTick !== this.tick) {
-      b.keptTick = this.tick;
-      const past = (b.keptFor ?? 0) >= B.KEEP_CLEAR_PATIENCE;
-      b.keptFor = heldByEnds || (past && byEnds) ? (b.keptFor ?? 0) + 1 : 0;
-    }
-    const held = stopped && speed <= 0.05;
-    if (b.waitedAt !== this.tick) {
-      b.waitedAt = this.tick;
-      this.countWait(b, b.state === 'arriving' && speed <= 0.1 ? stoppedBy : undefined);
-    }
-    return { speed, makeWay, still: held, by };
-  }
-
-  /**
-   * Count how long a ship coming in has been held up by moored ship `by`:
-   * all the while it gets no further on, however it creeps or is let past
-   * the clear water off that one's end a moment and stopped again; and from
-   * nothing again once it is well on its way, the other has sailed, or it
-   * is held up by another.
-   */
-  countWait(b: Boat, by: Boat | undefined): void {
-    const waiting = b.waitingOn !== undefined && this.boats.find((q) => q.id === b.waitingOn);
-    const from = b.waitedFrom;
-    const moved = from ? Math.hypot(b.x - from[0], b.y - from[1]) : Infinity;
-    const still =
-      !!waiting && waiting.state === 'moored' && b.state === 'arriving' && moved < B.WAIT_CREEP;
-    if (by && by.id !== b.waitingOn) {
-      b.waitingOn = by.id;
-      b.waitedFor = 0;
-      b.waitedFrom = [b.x, b.y];
-    } else if (by || still) {
-      b.waitedFor = (b.waitedFor ?? 0) + 1;
-    } else {
-      b.waitingOn = undefined;
-      b.waitedFor = 0;
-      b.waitedFrom = undefined;
-    }
-  }
-
-  /**
-   * A ship coming in that has waited a while for moored ship `b` to sail
-   * out of its way, or undefined.
-   */
-  waitingFor(b: Boat): Boat | undefined {
-    return this.boats.find(
-      (o) =>
-        o.state === 'arriving' &&
-        o.waitingOn === b.id &&
-        (o.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS,
-    );
-  }
-
-  /**
-   * How far `me` can go ahead before its hull enters a room made of `spots`,
-   * within `look` tiles; -1 when it is inside already and heading further
-   * in, null when it is not heading into it.
-   */
-  intoRoom(
-    me: ReturnType<World['hullOf']>,
-    spots: [number, number, number][],
-    look: number,
-  ): number | null {
-    let into: number | null = null;
-    for (const [x, y, radius] of spots) {
-      const rx = x - me.x;
-      const ry = y - me.y;
-      const fwd = rx * me.hx + ry * me.hy;
-      if (fwd <= 0) continue;
-      const side = Math.abs(-rx * me.hy + ry * me.hx);
-      const r = radius + me.beam;
-      if (side >= r) continue;
-      if (Math.hypot(rx, ry) < radius + me.half) return -1;
-      const at = fwd - Math.sqrt(r * r - side * side) - me.half;
-      if (at <= look) into = Math.min(into ?? Infinity, Math.max(0, at));
-    }
-    return into;
-  }
-
-  /**
-   * How far ahead `other` lies in the path of `me`, within `look` tiles of
-   * my centre, or null when it is not in the way.
-   */
-  inWay(
-    me: ReturnType<World['hullOf']>,
-    other: ReturnType<World['hullOf']>,
-    look: number,
-  ): number | null {
-    const rx = other.x - me.x;
-    const ry = other.y - me.y;
-    const fwd = rx * me.hx + ry * me.hy;
-    const side = -rx * me.hy + ry * me.hx;
-    // The other hull's reach along my heading and across it.
-    const along = Math.abs(other.hx * me.hx + other.hy * me.hy);
-    const across = Math.abs(-other.hx * me.hy + other.hy * me.hx);
-    const reachFwd = along * other.half + across * other.beam;
-    const reachSide = across * other.half + along * other.beam;
-    const near = fwd - reachFwd;
-    if (fwd <= 0 || near > look) return null;
-    if (Math.abs(side) > me.beam + reachSide + 0.12) return null;
-    return Math.max(0, near);
-  }
-
-  /** Open water, with a wide berth given to boats lying still. */
-  seaWay(b: Boat, strict = false): CostFn {
-    return this.seaWayFor(b.draft, b.goal, b, strict);
-  }
-
-  /** Open water for a hull of this draft heading for `goal`; see seaWay. */
-  seaWayFor(draft: number, goal: number, self: Boat | null, strict = false): CostFn {
-    const base = this.boatCostFor(draft);
-    // Strict: every other hull is off limits, moving ones included.
-    const still = this.boats
-      .filter((o) => o !== self && (strict || o.state === 'moored' || o.state === 'anchored'))
-      .map((o) => this.hullOf(o));
-    const wide = this.wideOf(self);
-    return (i) => {
-      const c = base(i);
-      if (!Number.isFinite(c)) return c;
-      const x = (i % this.map.w) + 0.5;
-      const y = Math.floor(i / this.map.w) + 0.5;
-      for (const h of still) {
-        const rx = x - h.x;
-        const ry = y - h.y;
-        const fwd = Math.abs(rx * h.hx + ry * h.hy);
-        const side = Math.abs(-rx * h.hy + ry * h.hx);
-        if (fwd < h.half + 0.6 && side < h.beam + 0.8) return i === goal ? c + 25 : Infinity;
-      }
-      return i === goal ? c : c + wide(i);
-    };
-  }
-
-  /**
-   * What a route pays over open water to pass this close to the corner of
-   * a pier, quay or the shore, or to a boat lying at its berth (other than
-   * `self`): boats come round them in a wide circle, wider still where a
-   * boat lies off the corner, rather than shave them.
-   */
-  wideOf(self: Boat | null): CostFn {
-    const ring = this.cornerRing();
-    const moored = this.boats
-      .filter((o) => o !== self && o.state === 'moored')
-      .map((o) => this.hullOf(o));
-    const w = this.map.w;
-    return (i) => {
-      const x = (i % w) + 0.5;
-      const y = Math.floor(i / w) + 0.5;
-      for (const h of moored) {
-        const rx = x - h.x;
-        const ry = y - h.y;
-        const fwd = Math.abs(rx * h.hx + ry * h.hy);
-        const side = Math.abs(-rx * h.hy + ry * h.hx);
-        if (fwd < h.half + 0.6 + B.MOORED_CLEAR && side < h.beam + 0.8 + B.MOORED_CLEAR) {
-          return ring[i] + B.MOORED_CLEAR_COST;
-        }
-      }
-      return ring[i];
-    };
-  }
-
-  /**
-   * For each tile of water, what a route pays over open water for passing
-   * this close to the corner of a jetty or quay: its end, say, with water
-   * on two sides of it that meet; or this close to the bare shore, which
-   * boats keep a tile or two off rather than brush along. Not the water
-   * along a dock, nor in a corner between two. Derived from the map, so
-   * not saved.
-   */
-  cornerRing(): Float32Array {
-    if (this.ringCache) return this.ringCache;
-    const m = this.map;
-    const out = new Float32Array(m.build.length);
-    const hard = (x: number, y: number) => {
-      if (!m.inBounds(x, y)) return false;
-      const i = m.idx(x, y);
-      return m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i]));
-    };
-    const water = (x: number, y: number) => m.inBounds(x, y) && m.ocean[m.idx(x, y)] && !hard(x, y);
-    const r = Math.ceil(B.CORNER_CLOSE);
-    for (let y = 0; y < m.h; y++) {
-      for (let x = 0; x < m.w; x++) {
-        const b = m.build[m.idx(x, y)];
-        if (b === Build.None || isBuoy(b)) continue;
-        const wx = water(x - 1, y) || water(x + 1, y);
-        const wy = water(x, y - 1) || water(x, y + 1);
-        if (!wx || !wy) continue;
-        for (let dy = -r; dy <= r; dy++) {
-          for (let dx = -r; dx <= r; dx++) {
-            if (!water(x + dx, y + dy)) continue;
-            const d = Math.hypot(dx, dy);
-            const c =
-              d < B.CORNER_NEAR ? B.CORNER_NEAR_COST : d < B.CORNER_CLOSE ? B.CORNER_CLOSE_COST : 0;
-            const j = m.idx(x + dx, y + dy);
-            out[j] = Math.max(out[j], c);
-          }
-        }
-      }
-    }
-    // Off the bare shore: land with no dock on it, by how near its edge is.
-    const shore = (x: number, y: number) => {
-      if (!m.inBounds(x, y)) return false;
-      const i = m.idx(x, y);
-      return m.isLand(i) && !isDock(m.build[i]);
-    };
-    const reach = Math.ceil(B.SHORE_CLOSE);
-    for (let y = 0; y < m.h; y++) {
-      for (let x = 0; x < m.w; x++) {
-        if (!water(x, y)) continue;
-        let d = Infinity;
-        for (let dy = -reach; dy <= reach; dy++) {
-          for (let dx = -reach; dx <= reach; dx++) {
-            if (!shore(x + dx, y + dy)) continue;
-            // From the middle of this tile to the nearest edge of that one.
-            d = Math.min(
-              d,
-              Math.hypot(Math.max(0, Math.abs(dx) - 0.5), Math.max(0, Math.abs(dy) - 0.5)),
-            );
-          }
-        }
-        const c = d < B.SHORE_NEAR ? B.SHORE_NEAR_COST : d < B.SHORE_CLOSE ? B.SHORE_CLOSE_COST : 0;
-        const j = m.idx(x, y);
-        out[j] = Math.max(out[j], c);
-      }
-    }
-    return (this.ringCache = out);
-  }
-
-  /**
-   * The lane of water a boat comes alongside along: the row of a berth on
-   * the long side of a jetty, or the column of one off its end. One boat at
-   * a time moves in each lane, so boats in different lanes, even at the same
-   * dock, do not wait for each other.
-   */
-  fairwayOf(jetty: number, berth: number): number | undefined {
-    this.docks();
-    if (!this.dockKey.has(jetty)) return undefined;
-    const m = this.map;
-    // Berth beside the jetty tile (east or west): a lane down that column.
-    return m.yOf(berth) === m.yOf(jetty) ? 2 * m.xOf(berth) + 1 : 2 * m.yOf(berth);
-  }
-
-  /**
-   * No other boat holds the fairway to this berth. Pulling out, a boat goes
-   * ahead of one that holds it but is still well out from its berth: it is
-   * clear of the lane before the other gets there.
-   */
-  fairwayFree(b: Boat, jetty: number, berth: number, leaving = false): boolean {
-    const key = this.fairwayOf(jetty, berth);
-    const m = this.map;
-    const far = (o: Boat) =>
-      o.state === 'arriving' &&
-      Math.hypot(m.xOf(o.berth) + 0.5 - o.x, m.yOf(o.berth) + 0.5 - o.y) > B.FAIRWAY_FAR;
-    return (
-      key === undefined ||
-      !this.boats.some((o) => o !== b && o.fairway === key && !(leaving && far(o)))
-    );
-  }
-
-  /** Take the fairway to this boat's berth if no other boat holds it. */
-  takeFairway(b: Boat, leaving = false): boolean {
-    if (!this.fairwayFree(b, b.jetty, b.berth, leaving)) return false;
-    b.fairway = this.fairwayOf(b.jetty, b.berth);
-    return true;
-  }
-
-  freeFairway(b: Boat): void {
-    b.fairway = undefined;
-    b.castOff = undefined;
-    b.castDock = undefined;
-  }
-
-  /** Pulling out of its berth: casting off, running out along the dock or turning for sea. */
-  pullingOut(b: Boat): boolean {
-    return b.state === 'leaving' && (b.undock !== undefined || b.berthing === 'out' || !!b.room);
-  }
-
-  /**
-   * A ship pulling out of its berth claims the water it needs: the lane
-   * ahead of it along the dock as it runs out, and the water all round
-   * where it turns for sea, keeping that until it has come round onto its
-   * course.
-   */
-  claimRoom(b: Boat): void {
-    const v = B.VESSELS[b.vessel];
-    const m = this.map;
-    if (b.turned || v.length < B.RUN_OUT_LENGTH) return;
-    if (b.room && this.tick > b.room.until) {
-      b.room = undefined;
-      b.turned = true;
-      return;
-    }
-    const turn = v.length / 2 + B.ROOM_MARGIN;
-    const until = b.room?.until ?? this.tick + B.ROOM_TICKS;
-    if (b.berthing === 'out' && b.lineup !== undefined) {
-      const ex = m.xOf(b.lineup) + 0.5;
-      const ey = m.yOf(b.lineup) + 0.5;
-      const n = Math.ceil(Math.hypot(ex - b.x, ey - b.y) / 0.5);
-      const lane = v.beam / 2 + 0.5;
-      const spots: [number, number, number][] = [];
-      for (let k = 0; k < n; k++) {
-        spots.push([b.x + ((ex - b.x) * k) / n, b.y + ((ey - b.y) * k) / n, lane]);
-      }
-      spots.push([ex, ey, turn]);
-      b.room = { spots, until };
-      return;
-    }
-    if (b.room?.turning) {
-      const target = b.path[0] ?? b.goal;
-      const course = Math.atan2(m.yOf(target) + 0.5 - b.y, m.xOf(target) + 0.5 - b.x);
-      const [x, y, r] = b.room.spots[0];
-      const round = Math.abs(wrapAngle(course - b.dir)) < 0.3;
-      const out = Math.hypot(b.x - x, b.y - y) > r;
-      if (round || out) {
-        b.room = undefined;
-        b.turned = true;
-      }
-      return;
-    }
-    // Off the berth, or at the end of its run out: room to turn.
-    if (b.castOff !== undefined && b.undock === undefined) {
-      b.room = { spots: [[b.x, b.y, turn]], until, turning: true };
-    }
-  }
-
-  depart(b: Boat, gaveUp: boolean): void {
-    judgeVisit(this, b, gaveUp);
-    departTips(this);
-    // Leaving with containers still on board: customs start on those it landed.
-    if (b.vessel === 'feeder') this.shipUnloaded(b);
-    if (b.state === 'moored') {
-      b.castOff = b.berth;
-      b.castDock = b.jetty;
-      b.undock = 1;
-      this.planRunOut(b);
-    } else this.freeFairway(b);
-    b.state = 'leaving';
-    b.berth = b.jetty = -1;
-    const edge = this.seaEdgeTiles();
-    const from = this.tileOf(b);
-    // Out past the red buoys, then off the map level with the last of them.
-    const stops = this.buoyStops(b, from, -1, this.seaWay(b));
-    const last = stops.at(-1) ?? from;
-    // Each boat keeps to a lane of its own out at sea, a few rows either
-    // side, so departures do not all converge on one point. Crossing
-    // between a pair of buoys it is in its lane already.
-    const crossed = stops.length > 0 && !isBuoy(this.map.build[last]);
-    const lane = this.map.yOf(last) + (crossed ? 0 : (((b.id * 7) % 9) - 4) * B.EXIT_LANES);
-    const exit = edge.reduce(
-      (best, i) =>
-        Math.abs(this.map.yOf(i) - lane) < Math.abs(this.map.yOf(best) - lane) ? i : best,
-      edge[0],
-    );
-    b.goal = exit;
-    b.path = this.via(from, stops, exit, this.byDocks(this.seaWay(b), from, exit)) ?? [];
-    b.sailed = 0;
-    b.best = Infinity;
-  }
-
-  /** Not where another boat is, so none goes out of sight beside one. */
-  outOfSight(b: Boat): boolean {
-    return this.boats.every(
-      (o) => o === b || Math.hypot(o.x - b.x, o.y - b.y) > B.VESSELS[o.vessel].length + 2,
-    );
-  }
-
-  /**
-   * How many tiles from the start of a way in from sea a boat comes into
-   * sight, B.SAIL_IN_TILES of it from the end. Not where another boat is,
-   * so none comes into sight on top of one.
-   */
-  inSight(b: Boat, path: number[]): number {
-    const m = this.map;
-    let left = 0;
-    for (let k = path.length - 1; k > 0; k--) {
-      left += Math.hypot(m.xOf(path[k]) - m.xOf(path[k - 1]), m.yOf(path[k]) - m.yOf(path[k - 1]));
-      if (left < B.SAIL_IN_TILES) continue;
-      const x = m.xOf(path[k - 1]) + 0.5;
-      const y = m.yOf(path[k - 1]) + 0.5;
-      if (
-        this.boats.every(
-          (o) => o === b || Math.hypot(o.x - x, o.y - y) > B.VESSELS[o.vessel].length + 2,
-        )
-      ) {
-        return k;
-      }
-    }
-    return 0;
-  }
-
   // ── Dockhands and forklifts ───────────────────────────────
 
   spawnDockhand(at: number, c: Candidate): Dockhand {
@@ -5555,7 +2475,7 @@ export class World {
       for (const c of this.cranes.values()) {
         if (c.kind !== 'gantry') continue;
         const rails = gantryRails(m, c.idx, m.orient[c.idx] & 3);
-        const { stack, out } = this.cranePlaces(c);
+        const { stack, out } = cranePlaces(this, c);
         for (const k of [...stack, ...out]) {
           const t = k < 0 ? -1 : rails[((k % craneStacks(c)) % B.GANTRY_RAILS) * 2];
           if (t >= 0) at.add(t);
@@ -5873,7 +2793,7 @@ export class World {
       // crane to (see serveTractor); a harbour crane sets it straight on.
       const yard = this.yards.get(p.state === 'picking' ? p.stockIdx : p.bayIdx);
       if (yard) return B.YARD_GANTRY_TICKS * Math.max(1, p.planned);
-      if (this.underGantry(p)) return B.TRACTOR_WAIT_TICKS;
+      if (underGantry(this, p)) return B.TRACTOR_WAIT_TICKS;
       return base;
     }
     if (p.kind === 'stacker') return Math.round(base * 2.5);
@@ -6174,8 +3094,8 @@ export class World {
           // Which container off a crane's stack it takes, from the top as
           // it pulls up, whatever is set down beside it meanwhile.
           const crane = this.cranes.get(p.craneIdx);
-          const top = crane && crane.kind !== 'jib' ? this.craneTop(crane, false, p) : -1;
-          p.takeAt = top >= 0 ? this.cranePlaces(crane!).stack[top] : undefined;
+          const top = crane && crane.kind !== 'jib' ? craneTop(this, crane, false, p) : -1;
+          p.takeAt = top >= 0 ? cranePlaces(this, crane!).stack[top] : undefined;
           // A forklift's pallet in crate storage, whatever is set down meanwhile.
           const store = this.bays.get(p.stockIdx);
           if (p.kind === 'forklift' && store?.tiles) {
@@ -6277,7 +3197,7 @@ export class World {
           const from = p.cargoFrom ?? [];
           // A stacker sets it on a stack it reaches from where it stands; a
           // gantry where it kept for it.
-          const clears = (k: number) => p.cargoReady?.[k] ?? this.customsFor(from[k]);
+          const clears = (k: number) => p.cargoReady?.[k] ?? customsFor(this, from[k]);
           if (p.kind === 'stacker' && bay.yard) {
             const slots = this.yardSlots(bay);
             p.cargoFees.forEach((_, k) => {
@@ -6343,7 +3263,7 @@ export class World {
     const reach = (goal: number) => !!this.pathFor(p, here, goal);
     const sources: number[] = [];
     for (const c of this.cranes.values()) {
-      if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(this.pickTile(c));
+      if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(pickTile(this, c));
     }
     // Forklifts take what the dockhands land on the quay.
     if (!boxy)
@@ -6462,7 +3382,7 @@ export class World {
       // A tractor goes to a container crane working a ship too, or about to,
       // for the containers still to come off it for that crane: called
       // ahead, to be there as each is lifted (see dueAt).
-      const ship = p.kind === 'tractor' ? (this.shipFor(crane)?.left ?? 0) : 0;
+      const ship = p.kind === 'tractor' ? (shipFor(this, crane)?.left ?? 0) : 0;
       const avail = crane.stack.length + ship - crane.reserved;
       if (avail > 0) sources.push({ tile: this.craneSpot(p, crane), avail, crane, rank: 0 });
     }
@@ -6532,7 +3452,7 @@ export class World {
       // time for each container; the foreman sends no more than two others
       // to the same spot, and the rest wait.
       if (p.kind === 'tractor' && src.crane && src.crane.kind !== 'jib') {
-        if (!this.dueAt(p, src.crane, src.tile)) continue;
+        if (!dueAt(this, p, src.crane, src.tile)) continue;
       } else if (this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) continue;
       // A machine leaves the job to a free one nearer the pick-up.
       if (isMachine(p) && this.nearerMachine(p, src.tile)) continue;
@@ -6871,10 +3791,10 @@ export class World {
         const want = Math.max(
           0,
           ...this.boats
-            .filter((b) => this.wantsLoad(b) && this.craneReaches(c, b))
+            .filter((b) => this.wantsLoad(b) && craneReaches(this, c, b))
             .map((b) => (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - this.exportsComing(b)),
         );
-        const room = Math.min(this.exportRoom(c), want);
+        const room = Math.min(exportRoom(this, c), want);
         if (room <= 0) continue;
         if (this.pathFor(p, from, this.craneSpot(p, c, true))) return { crane: c, room };
       }
@@ -6899,10 +3819,10 @@ export class World {
       // Forklifts cannot put cargo on board: they take it to storage by the
       // jib crane over the ship for it to lift on, or leave it by the ship.
       const cranes = [...this.cranes.values()].filter(
-        (c) => c.kind === 'jib' && this.near(c.idx, b.berth),
+        (c) => c.kind === 'jib' && near(this, c.idx, b.berth),
       );
       for (const c of cranes) {
-        for (const store of this.jibStores(c)) {
+        for (const store of jibStores(this, c)) {
           const space = Math.min(room, bayRoom(store, false));
           if (store === source || space <= 0 || !this.takesExports(store)) continue;
           const at = this.dropAt(p, store, from);
@@ -6942,7 +3862,7 @@ export class World {
       return true;
     }
     for (const c of this.cranes.values()) {
-      if (c.kind === 'jib' && this.near(c.idx, b.berth) && this.inJibReach(c, t)) return true;
+      if (c.kind === 'jib' && near(this, c.idx, b.berth) && this.inJibReach(c, t)) return true;
     }
     return false;
   }
@@ -7011,7 +3931,7 @@ export class World {
     if (b.vessel === 'smack') return n;
     if (boxes) {
       for (const c of this.cranes.values()) {
-        if (this.craneReaches(c, b)) n += c.outStack?.length ?? 0;
+        if (craneReaches(this, c, b)) n += c.outStack?.length ?? 0;
       }
     } else {
       for (const p of this.piles.values()) {
@@ -7029,7 +3949,7 @@ export class World {
     let n = b.outIncoming ?? 0;
     if (b.vessel !== 'feeder') return n;
     for (const c of this.cranes.values()) {
-      if (c.kind !== 'jib' && this.craneReaches(c, b)) {
+      if (c.kind !== 'jib' && craneReaches(this, c, b)) {
         n += (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
       }
     }
@@ -7071,7 +3991,7 @@ export class World {
     // at its cranes, or on their way there, are coming.
     const busy =
       coming > 0 ||
-      [...this.cranes.values()].some((c) => c.stack.length > 0 && this.craneReaches(c, b));
+      [...this.cranes.values()].some((c) => c.stack.length > 0 && craneReaches(this, c, b));
     b.loadIdle = busy ? 0 : (b.loadIdle ?? 0) + 1;
     return b.loadIdle < B.LOAD_WAIT;
   }
@@ -7132,7 +4052,7 @@ export class World {
   loadShip(c: Crane): void {
     const boxes = c.kind !== 'jib';
     const ship = this.boats.find(
-      (b) => (b.vessel === 'feeder') === boxes && this.wantsLoad(b) && this.craneReaches(c, b),
+      (b) => (b.vessel === 'feeder') === boxes && this.wantsLoad(b) && craneReaches(this, c, b),
     );
     if (!ship) return;
     let take: (() => number) | null = null;
@@ -7140,23 +4060,30 @@ export class World {
     if (boxes) {
       if (c.outStack?.length) {
         const k = c.liftSlot;
-        if (c.liftBoat !== ship.id || k === undefined || k < 0 || this.outSlots(ship).includes(k)) {
+        if (
+          c.liftBoat !== ship.id ||
+          k === undefined ||
+          k < 0 ||
+          outSlots(this, ship).includes(k)
+        ) {
           c.liftBoat = ship.id;
-          c.liftSlot = this.deckSlot(c, ship, true);
+          c.liftSlot = deckSlot(this, c, ship, true);
         }
         if (c.liftSlot! < 0) return;
         take = () => {
           // Off the top of the stacks, at a gantry crane.
-          const i = Math.max(0, this.craneTop(c, true));
-          this.cranePlaces(c).out.splice(i, 1);
+          const i = Math.max(0, craneTop(this, c, true));
+          cranePlaces(this, c).out.splice(i, 1);
           (ship.outLooks ??= []).push(...this.outLooks(c).splice(i, 1));
-          this.outSlots(ship).push(c.liftSlot!);
+          outSlots(this, ship).push(c.liftSlot!);
           c.liftSlot = undefined;
           return c.outStack!.splice(i, 1)[0];
         };
       }
     } else {
-      const store = this.jibStores(c).find((a) => this.readyIn(a, true) - (a.outReserved ?? 0) > 0);
+      const store = jibStores(this, c).find(
+        (a) => this.readyIn(a, true) - (a.outReserved ?? 0) > 0,
+      );
       const pile = [...this.piles.values()].find(
         (q) => q.out && q.crates.length - (q.reserved ?? 0) > 0 && this.inJibReach(c, q.idx),
       );
@@ -7396,7 +4323,7 @@ export class World {
 
   /** Dock tiles beside a moored boat's hull. */
   pickupSpots(b: Boat): number[] {
-    const fp = this.mooredTiles(b.berth, b.jetty, this.boatHalf(b.vessel === 'feeder')) ?? [
+    const fp = mooredTiles(this, b.berth, b.jetty, boatHalf(this, b.vessel === 'feeder')) ?? [
       b.berth,
     ];
     const spots = new Set<number>([b.jetty]);
@@ -7445,14 +4372,14 @@ export class World {
         p.cargoLooks = [];
         for (let k = 0; k < n; k++) {
           // The one it pulled up to, while nothing has been set on it.
-          const places = this.cranePlaces(crane).stack;
+          const places = cranePlaces(this, crane).stack;
           const chosen = p.takeAt === undefined ? -1 : places.indexOf(p.takeAt);
-          const kinds = this.craneKinds(crane);
+          const kinds = craneKinds(this, crane);
           const free = chosen >= 0 && !kinds.has(p.takeAt! + craneStacks(crane));
           p.takeAt = undefined;
-          const i = free ? chosen : this.craneTop(crane, false);
+          const i = free ? chosen : craneTop(this, crane, false);
           if (i < 0) break;
-          this.cranePlaces(crane).stack.splice(i, 1);
+          cranePlaces(this, crane).stack.splice(i, 1);
           p.cargoFrom.push(...(crane.stackFrom ?? []).splice(i, 1));
           p.cargoLooks.push(...this.stackLooks(crane).splice(i, 1));
           fees.push(...crane.stack.splice(i, 1));
@@ -7685,7 +4612,7 @@ export class World {
 
   /** Crate storage a jib crane can swing crates off a boat into: in reach and taking them. */
   jibStows(c: Crane): boolean {
-    return this.jibStores(c).some((a) => this.takesImports(a));
+    return jibStores(this, c).some((a) => this.takesImports(a));
   }
 
   /** Trucks can get to this bay or storage area to load. */
@@ -8433,866 +5360,6 @@ export class World {
   }
 
   // ── Jib cranes ────────────────────────────────────────────
-
-  addCrane(i: number, kind: Crane['kind']): void {
-    this.cranes.set(i, { idx: i, kind, stack: [], reserved: 0, timer: 0, angle: 0, busy: false });
-  }
-
-  /**
-   * Swing crates from a boat moored beside the crane onto its landing stack,
-   * or for a jib crane with crate storage in reach, straight into that.
-   */
-  updateCrane(c: Crane): void {
-    c.busy = false;
-    this.jibJobs.delete(c);
-    // A tractor waiting under it for a container there is none of goes: no
-    // ship to unload, or one it has not lifted from in a good while.
-    if (c.kind !== 'jib' && c.stack.length === 0) {
-      for (const p of this.people) {
-        if (p.state !== 'picking' || this.underGantry(p) !== c || p.timer <= 1 || p.handed) {
-          continue;
-        }
-        const waited = B.TRACTOR_WAIT_TICKS - p.timer;
-        if (!this.unloadingAt(c) || waited > B.TRACTOR_GIVE_UP) p.timer = 1;
-      }
-    }
-    if (this.serveTractor(c)) return;
-    const boxes = c.kind !== 'jib';
-    const store = boxes
-      ? undefined
-      : this.jibStores(c).find((a) => bayRoom(a, false) > 0 && this.takesImports(a));
-    if (!store && this.stackFull(c)) return this.loadShip(c);
-    const m = this.map;
-    const reaches = (b: Boat) => this.craneReaches(c, b);
-    const boat = this.boats.find(
-      (b) =>
-        b.state === 'moored' &&
-        (b.vessel === 'feeder') === boxes &&
-        // One kind on the landing stack at a time: crates or pallets.
-        (store || c.stack.length === 0 || (b.vessel === 'coaster') === !!c.pallets) &&
-        b.crates - b.reserved > 0 &&
-        reaches(b),
-    );
-    if (!boat) return this.loadShip(c);
-    // A container crane lifts them a tier at a time, from the top down, so
-    // the ship stays even, in its own share of it when others work it too.
-    if (boxes && !this.liftingFrom(c, boat)) {
-      c.liftBoat = boat.id;
-      c.liftSlot = this.deckSlot(c, boat, false);
-      if (c.liftSlot < 0) return;
-      // Straight onto a tractor already waiting for one as it starts, or
-      // one called to it pulling in by the time it has it over the bay.
-      c.handTo = (this.directTo(c) ?? this.pullingIn(c))?.id;
-    }
-    c.busy = true;
-    // One pulling in under it part way through the lift gets it, if the
-    // one it lifted it for has not come.
-    if (boxes && !this.handingTo(c)) c.handTo = this.directTo(c)?.id ?? c.handTo;
-    if (!boxes) this.jibJobs.set(c, { boat, load: false, store });
-    c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
-    if (++c.timer < craneTicks(c)) return;
-    c.timer = 0;
-    boat.crates--;
-    if (store) {
-      store.crates.push(boat.fee);
-      this.startHolds(store, [boat.fee], false);
-      this.stats.cratesHandled++;
-      return;
-    }
-    c.pallets = boat.vessel === 'coaster';
-    // Out of the slot on its deck the ship drew it in: onto a tractor
-    // waiting under a gantry crane for one, or else its stack.
-    if (c.kind !== 'jib') {
-      const slot = c.liftSlot ?? boat.crates + (boat.lifted?.length ?? 0);
-      const look = boxLookOf(boat.id, slot);
-      (boat.lifted ??= []).push(slot);
-      c.liftSlot = undefined;
-      // Onto the one it had it for, or any other there for one now.
-      const tractor = this.handingTo(c) ?? this.directTo(c);
-      if (tractor) {
-        tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
-        tractor.timer = 1;
-      } else {
-        this.stackLooks(c).push(look);
-        c.stack.push(boat.fee);
-        (c.stackFrom ??= []).push(boat.id);
-      }
-      if (boat.crates === 0) {
-        boat.lifted = [];
-        this.shipUnloaded(boat);
-      }
-      return;
-    }
-    c.stack.push(boat.fee);
-  }
-
-  /** Which container on a crane's stack a machine picking at it takes: the one it chose, or the top. */
-  takingAt(p: Dockhand, c: Crane): number {
-    const i = p.takeAt === undefined ? -1 : this.cranePlaces(c).stack.indexOf(p.takeAt);
-    return i >= 0 ? i : this.craneTop(c, false);
-  }
-
-  /**
-   * A terminal tractor called to container crane `c`, empty and on its way
-   * there, that will pull in under it by the time it has a container off
-   * the ship over the bay: the nearest such. It does not wait for it,
-   * though: a ship kept longer at its berth waits longer for customs.
-   */
-  pullingIn(c: Crane): Dockhand | undefined {
-    const soon = craneTicks(c) * B.CRANE_LIFT_SET;
-    let best: Dockhand | undefined;
-    let bestD = Infinity;
-    for (const p of this.people) {
-      if (p.kind !== 'tractor' || p.state !== 'toPickup' || p.craneIdx !== c.idx) continue;
-      if (p.carrying > 0 || p.handed) continue;
-      const d = this.dist(this.tileOf(p), p.goal);
-      if ((d * 1.25) / B.TRACTOR_SPEED > soon || d >= bestD) continue;
-      best = p;
-      bestD = d;
-    }
-    return best;
-  }
-
-  /** The tractor a crane is lifting one off the ship straight onto, if it is still waiting. */
-  handingTo(c: Crane): Dockhand | undefined {
-    const p = c.handTo === undefined ? undefined : this.people.find((q) => q.id === c.handTo);
-    const waiting = p && p.state === 'picking' && this.underGantry(p) === c && p.timer > 1;
-    return waiting && !p.handed ? p : undefined;
-  }
-
-  /**
-   * Containers still to come off a ship at container crane `c`, its share
-   * where other cranes work the ship too, and in how many ticks it starts
-   * on them: at once for a ship moored under it, about when it will be
-   * alongside for one coming in to its berth. Null with neither.
-   */
-  shipFor(c: Crane): { left: number; start: number } | null {
-    if (c.kind === 'jib') return null;
-    let best: { left: number; start: number } | null = null;
-    for (const b of this.boats) {
-      if (b.vessel !== 'feeder' || b.crates <= 0) continue;
-      if (b.state !== 'moored' && b.state !== 'arriving') continue;
-      if (!this.craneReaches(c, b)) continue;
-      let cranes = 0;
-      for (const k of this.cranes.values())
-        if (k.kind !== 'jib' && this.craneReaches(k, b)) cranes++;
-      const left = Math.ceil(b.crates / Math.max(1, cranes));
-      const start = b.state === 'moored' ? 0 : this.alongsideIn(b);
-      if (!best || start < best.start) best = { left, start };
-    }
-    return best;
-  }
-
-  /** About how many ticks a ship coming in to its berth has before it is alongside, moored. */
-  alongsideIn(b: Boat): number {
-    const m = this.map;
-    const d = Math.hypot(m.xOf(b.berth) + 0.5 - b.x, m.yOf(b.berth) + 0.5 - b.y);
-    return d / (B.VESSELS[b.vessel].speed * 0.6) + B.ALONGSIDE_TICKS;
-  }
-
-  /**
-   * Whether a terminal tractor should set off now for container crane `c`,
-   * at `tile`: a container waits on its stack for it, or one will come off
-   * a ship for it about as it gets there, a little before rather than
-   * after, so the crane sets it straight on. Sent no sooner, so tractors
-   * come one after another as fast as the crane can serve them, one
-   * pulling in under it as the last pulls out, rather than all at once to
-   * queue in each other's way.
-   */
-  dueAt(p: Dockhand, c: Crane, tile: number): boolean {
-    // Its place among the tractors called to the crane: each served in turn.
-    const coming = this.people.filter(
-      (q) =>
-        q !== p &&
-        q.kind === 'tractor' &&
-        q.craneIdx === c.idx &&
-        (q.state === 'toPickup' || q.state === 'picking'),
-    ).length;
-    if (coming >= B.TRACTORS_CALLED) return false;
-    const turn = Math.max(craneTicks(c), B.TRACTOR_TURN);
-    let ready = coming * turn;
-    // Past what waits on the stack, one still to come off a ship for it.
-    const off = coming + 1 - c.stack.length;
-    if (off > 0) {
-      const ship = this.shipFor(c);
-      if (!ship || off > ship.left) return false;
-      ready = Math.max(ready, ship.start + (off - 1) * craneTicks(c));
-    }
-    if (ready <= 0) return true;
-    // Its drive there: round the corners a little longer than straight.
-    const drive = (this.dist(this.tileOf(p), tile) * 1.25) / B.TRACTOR_SPEED;
-    return drive + B.TRACTOR_EARLY >= ready;
-  }
-
-  /** A gantry crane with a ship alongside still to unload. */
-  unloadingAt(c: Crane): boolean {
-    if (c.kind === 'jib') return false;
-    return this.boats.some(
-      (b) =>
-        b.state === 'moored' && b.vessel === 'feeder' && b.crates > 0 && this.craneReaches(c, b),
-    );
-  }
-
-  /** A terminal tractor waiting under a gantry crane for a container, for it to set one straight on. */
-  directTo(c: Crane): Dockhand | undefined {
-    if (c.kind === 'jib') return undefined;
-    return this.people.find(
-      (p) => p.state === 'picking' && this.underGantry(p) === c && p.timer > 1 && !p.handed,
-    );
-  }
-
-  /**
-   * The places on a container crane's landing stack its containers and
-   * exports are in, kept beside them: stacks side by side (see
-   * craneStacks), four high on a gantry crane, two on a harbour crane. One
-   * set down goes in the lowest free place with one of its own kind under
-   * it, or on the ground: never an export on what came off a ship, nor the
-   * other way, so neither is ever buried under the other.
-   */
-  cranePlaces(c: Crane): { stack: number[]; out: number[] } {
-    const stack = (c.places ??= []);
-    const out = (c.outPlaces ??= []);
-    if (stack.length > c.stack.length) stack.length = c.stack.length;
-    if (out.length > (c.outStack?.length ?? 0)) out.length = c.outStack?.length ?? 0;
-    const kinds = new Map<number, boolean>();
-    for (const [list, isOut] of [
-      [stack, false],
-      [out, true],
-    ] as const) {
-      list.forEach((k, i) => {
-        if (k < 0 || k >= craneStack(c) || kinds.has(k)) list[i] = -1;
-        else kinds.set(k, isOut);
-      });
-    }
-    for (const [list, n, isOut] of [
-      [stack, c.stack.length, false],
-      [out, c.outStack?.length ?? 0, true],
-    ] as const) {
-      for (let i = 0; i < n; i++) {
-        if (i < list.length && list[i] >= 0) continue;
-        // With no room of its own kind, anywhere free, rather than lose it.
-        let k = this.freeCranePlace(c, kinds, isOut);
-        if (k < 0) k = this.freeCranePlace(c, kinds, isOut, true);
-        list[i] = k;
-        if (k >= 0) kinds.set(k, isOut);
-      }
-    }
-    return { stack, out };
-  }
-
-  /**
-   * The lowest free place on a container crane's stack for an export
-   * (`out`) or one off a ship: on one of the same kind, or else on the
-   * ground; with `any`, on whatever is there. -1 if none.
-   */
-  freeCranePlace(c: Crane, kinds: Map<number, boolean>, out: boolean, any = false): number {
-    const n = craneStacks(c);
-    // On one of its own kind first, keeping stacks free for the other.
-    for (let k = n; k < craneStack(c); k++) {
-      const under = kinds.get(k - n);
-      if (!kinds.has(k) && under !== undefined && (any || under === out)) return k;
-    }
-    for (let k = 0; k < n; k++) if (!kinds.has(k)) return k;
-    return -1;
-  }
-
-  /** The places on a container crane's stack, with whether an export is in each. */
-  craneKinds(c: Crane): Map<number, boolean> {
-    const { stack, out } = this.cranePlaces(c);
-    const kinds = new Map<number, boolean>();
-    for (const k of stack) if (k >= 0) kinds.set(k, false);
-    for (const k of out) if (k >= 0) kinds.set(k, true);
-    return kinds;
-  }
-
-  /** Where the next container set down on a crane's stack goes: an export, with `out`. */
-  nextCranePlace(c: Crane, out = false): number {
-    return this.freeCranePlace(c, this.craneKinds(c), out);
-  }
-
-  /**
-   * How many more of a kind (exports with `out`) a container crane's stack
-   * has room for, in places of their own: on their own stacks, and on the
-   * ground of empty ones, less those `keep` empty stacks are held for.
-   */
-  craneRoom(c: Crane, out: boolean, keep = 0): number {
-    const n = craneStacks(c);
-    const high = craneStack(c) / n;
-    const kinds = this.craneKinds(c);
-    let room = 0;
-    let empty = 0;
-    for (let col = 0; col < n; col++) {
-      const bottom = kinds.get(col);
-      if (bottom === undefined) {
-        empty++;
-        continue;
-      }
-      if (bottom !== out) continue;
-      let h = 0;
-      while (h < high && kinds.has(col + h * n)) h++;
-      room += high - h;
-    }
-    return room + Math.max(0, empty - keep) * high;
-  }
-
-  /**
-   * The container (with `out`, the export) on a crane's stack with none on
-   * it, highest first, to take next, at the stack a stacker `by` stands at
-   * if one there will do; -1 if none. A jib crane's come off in turn.
-   */
-  craneTop(c: Crane, out: boolean, by?: Dockhand): number {
-    if (c.kind === 'jib') return (out ? (c.outStack?.length ?? 0) : c.stack.length) > 0 ? 0 : -1;
-    const places = this.cranePlaces(c);
-    const used = new Set([...places.stack, ...places.out]);
-    // A stacker standing along a gantry crane takes one from the stack it is at.
-    const at = by?.kind === 'stacker' && c.kind === 'gantry' ? this.tileOf(by) : -1;
-    const near = (k: number) => at < 0 || this.besideStack(c, k) === at;
-    const anyNear = (out ? places.out : places.stack).some(
-      (k) => near(k) && !used.has(k + craneStacks(c)),
-    );
-    let best = -1;
-    let high = -1;
-    (out ? places.out : places.stack).forEach((k, i) => {
-      if (used.has(k + craneStacks(c))) return;
-      if (anyNear && !near(k)) return;
-      if (k > high) {
-        best = i;
-        high = k;
-      }
-    });
-    return best;
-  }
-
-  /**
-   * What a container crane is lifting, for the view: off a ship's deck or
-   * onto it, which slot, how it looks and how far through the lift it is;
-   * for a jib crane, see jibWork.
-   */
-  craneWork(c: Crane, jibs: Map<Crane, JibLift>): Partial<CraneView> {
-    if (c.kind === 'jib') return this.jibWork(c, jibs.get(c));
-    const serve = c.serving;
-    const p = serve && this.people.find((q) => q.id === serve.id);
-    // Taken off a tractor already gone on, it still has it.
-    const on = !!p || !!serve?.held;
-    if (serve && on && serve.ship !== undefined && c.liftSlot !== undefined) {
-      // Off the tractor straight on board.
-      return {
-        working: 'load',
-        workBoat: serve.ship,
-        workSlot: c.liftSlot,
-        workTruck: serve.id,
-        workLook: this.servedLooks(c, p)[0],
-        workPhase: c.timer / craneTicks(c),
-      };
-    }
-    if (serve && on) {
-      const top = p && serve.give ? Math.max(0, this.takingAt(p, c)) : 0;
-      return {
-        working: serve.give ? 'give' : 'take',
-        workTruck: serve.id,
-        workLook: serve.give ? this.stackLooks(c)[top] : this.servedLooks(c, p)[0],
-        workPhase: c.timer / craneTicks(c),
-        workPlace: serve.give ? this.cranePlaces(c).stack[top] : this.nextCranePlace(c, true),
-      };
-    }
-    const k = c.liftSlot;
-    if (!c.busy || k === undefined || k < 0) return {};
-    const b = this.boats.find((q) => q.id === c.liftBoat);
-    if (!b) return {};
-    const unload = this.liftingFrom(c, b);
-    const top = this.craneTop(c, true);
-    // Straight onto a tractor waiting under it, or onto its stack.
-    const tractor = unload ? this.handingTo(c) : undefined;
-    return {
-      working: unload ? 'unload' : 'load',
-      workBoat: b.id,
-      workSlot: k,
-      workLook: unload ? boxLookOf(b.id, k) : this.outLooks(c)[Math.max(0, top)],
-      workPhase: c.timer / craneTicks(c),
-      workTruck: tractor?.id,
-      workPlace: unload ? this.nextCranePlace(c) : this.cranePlaces(c).out[Math.max(0, top)],
-    };
-  }
-
-  /**
-   * What a jib crane is lifting, for the view: off a boat or on board it,
-   * the slot on its deck, where at the other end the crate goes or comes
-   * from, and how far through the lift it is; and whether its landing stack
-   * is of pallets, counting one being set down on it.
-   */
-  jibWork(c: Crane, lift: JibLift | undefined): Partial<CraneView> {
-    const toStack = !!lift && !lift.load && !lift.store;
-    const pallets = c.stack.length > 0 ? !!c.pallets : toStack && lift!.pallet;
-    if (!lift) return { pallets };
-    return {
-      working: lift.load ? 'load' : 'unload',
-      workBoat: lift.boat.id,
-      workSlot: lift.slot,
-      workPhase: lift.phase,
-      workStore: lift.store?.idx,
-      workPile: lift.pile?.idx,
-      workPlace: lift.place,
-      workPallet: lift.pallet,
-      pallets,
-    };
-  }
-
-  /**
-   * The crates jib cranes are part way through lifting, by crane: which
-   * slot on the boat's deck (the top one unloading, the next free loading)
-   * and which place in storage, on the quay or on its landing stack (the
-   * next free one, or the last taking an export), each crane at the same
-   * boat or store its own.
-   */
-  jibLifts(): Map<Crane, JibLift> {
-    const lifts = new Map<Crane, JibLift>();
-    const ahead = new Map<object, number>();
-    const nth = (key: object) => {
-      const n = ahead.get(key) ?? 0;
-      ahead.set(key, n + 1);
-      return n;
-    };
-    for (const c of this.cranes.values()) {
-      const job = c.kind === 'jib' && c.busy ? this.jibJobs.get(c) : undefined;
-      if (!job) continue;
-      const { boat: b, load, store, pile } = job;
-      const aboard = b.crates + (b.out ?? 0);
-      const slot = load ? aboard + nth(b) : aboard - 1 - nth(b);
-      const there = store
-        ? store.crates.length + (store.exports?.length ?? 0)
-        : pile
-          ? pile.crates.length
-          : c.stack.length;
-      const key = store ?? pile ?? c;
-      const k = load ? there - 1 - nth(key) : there + nth(key);
-      if (slot < 0 || k < 0) continue;
-      // In crate storage, on its pallet, wherever that is.
-      const place = store ? this.crateSlot(store, k, Math.max(k + 1, there)) : k;
-      const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
-      lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
-    }
-    return lifts;
-  }
-
-  /**
-   * Crates jib cranes have set down at `where` (a boat, a store or a
-   * crane's landing stack) and taken from it, that the counts do not have
-   * yet: the sim moves each at the end of the lift, the view as the hook
-   * takes it and sets it down.
-   */
-  jibMoved(lifts: Map<Crane, JibLift>, where: object): { set: number; taken: number } {
-    let set = 0;
-    let taken = 0;
-    for (const [c, l] of lifts) {
-      const [from, to] = l.load ? [l.store ?? l.pile, l.boat] : [l.boat, l.store ?? c];
-      if (from === where && l.phase >= B.CRANE_LIFT_TAKEN) taken++;
-      if (to === where && l.phase >= B.CRANE_LIFT_SET) set++;
-    }
-    return { set, taken };
-  }
-
-  /**
-   * The containers on a feeder's deck, for the view: by slot, with how each
-   * looks. Its line's, less those lifted off, then the exports taken on; one
-   * a crane is lifting leaves the deck as its spreader takes it, and an
-   * export goes on as it is set down.
-   */
-  deckView(b: Boat): { load: number; looks: number[]; deck: number[] } {
-    const deck: number[] = [];
-    const looks: number[] = [];
-    const gone = new Set(b.lifted ?? []);
-    const lifting = [...this.cranes.values()].filter(
-      (c) => c.kind !== 'jib' && c.busy && c.liftBoat === b.id && c.liftSlot !== undefined,
-    );
-    for (const c of lifting) {
-      const late = c.timer / craneTicks(c);
-      if (this.liftingFrom(c, b) && late >= B.CRANE_LIFT_TAKEN) gone.add(c.liftSlot!);
-    }
-    for (let k = 0; k < b.crates + (b.lifted?.length ?? 0); k++) {
-      if (gone.has(k)) continue;
-      deck.push(k);
-      looks.push(boxLookOf(b.id, k));
-    }
-    b.outLooks = aligned(Array(b.out ?? 0).fill(0), b.outLooks, b.id);
-    deck.push(...this.outSlots(b).slice(0, b.out ?? 0));
-    looks.push(...b.outLooks);
-    for (const c of lifting) {
-      const late = c.timer / craneTicks(c);
-      const tractor =
-        c.serving?.ship === b.id ? this.people.find((q) => q.id === c.serving!.id) : undefined;
-      if ((tractor || c.serving?.held) && c.serving?.ship === b.id && late >= B.CRANE_LIFT_SET) {
-        deck.push(c.liftSlot!);
-        looks.push(this.servedLooks(c, tractor)[0]);
-      } else if (!this.liftingFrom(c, b) && late >= B.CRANE_LIFT_SET && c.outStack?.length) {
-        deck.push(c.liftSlot!);
-        looks.push(this.outLooks(c)[Math.max(0, this.craneTop(c, true))]);
-      }
-    }
-    return { load: deck.length, looks, deck };
-  }
-
-  /**
-   * A crane's landing stack has no room for another off the ship: a
-   * container crane's holds what it lifts off and exports set down for it,
-   * or on their way to it, together, in the same places.
-   */
-  stackFull(c: Crane): boolean {
-    if (c.kind === 'jib') return c.stack.length >= craneStack(c);
-    // Exports on their way need stacks of their own to go on.
-    const coming = Math.max(0, (c.outReserved ?? 0) - this.craneRoom(c, true, Infinity));
-    const keep = Math.ceil(coming / (craneStack(c) / craneStacks(c)));
-    return this.craneRoom(c, false, keep) <= 0;
-  }
-
-  /**
-   * Room on a container crane's stack for more exports: up to half of it,
-   * so there is always room to unload a ship before loading it.
-   */
-  exportRoom(c: Crane): number {
-    const out = (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
-    return Math.min(craneStack(c) / 2 - out, this.craneRoom(c, true) - (c.outReserved ?? 0));
-  }
-
-  /** The gantry crane a terminal tractor is under, to have a container lifted on or off, or undefined. */
-  underGantry(p: Dockhand): Crane | undefined {
-    if (p.kind !== 'tractor') return undefined;
-    const at = p.state === 'picking' ? p.craneIdx : p.state === 'dropping' ? (p.toCrane ?? -1) : -1;
-    const c = this.cranes.get(at);
-    return c && c.kind !== 'jib' ? c : undefined;
-  }
-
-  /**
-   * A gantry crane lifts a container off its stack onto a terminal tractor
-   * waiting under it, or an export off one onto its stack, before it goes
-   * on with the ship: between lifts, one at a time. True while it is at it.
-   */
-  serveTractor(c: Crane): boolean {
-    if (c.kind === 'jib') return false;
-    const waiting = (p: Dockhand) => this.underGantry(p) === c && p.timer > 1;
-    let p = c.serving && this.people.find((q) => q.id === c.serving!.id);
-    // One taken off a tractor already gone on: it sees that lift through.
-    if (c.serving?.held) p = undefined;
-    else if (!p || !waiting(p)) {
-      c.serving = undefined;
-      // Only between lifts: never part way through one off the ship or on
-      // board it. One left part way, its ship gone, counts for nothing.
-      const ship = this.boats.find((b) => b.id === c.liftBoat && b.state === 'moored');
-      if (c.timer > 0 && c.liftSlot !== undefined && ship) return false;
-      c.timer = 0;
-      // A ship alongside to unload sets one straight on a tractor; from
-      // its stack while there is none, or its stack is too full to go on
-      // unloading, or the tractor has waited a good while.
-      const fromStack = (q: Dockhand) =>
-        c.stack.length > 0 &&
-        (!this.unloadingAt(c) ||
-          this.stackFull(c) ||
-          B.TRACTOR_WAIT_TICKS - q.timer > B.TRACTOR_GIVE_UP);
-      p = this.people.find(
-        (q) => waiting(q) && !q.handed && (q.state === 'dropping' || fromStack(q)),
-      );
-      if (!p) return false;
-      c.serving = { id: p.id, give: p.state === 'picking' };
-      // An export off a tractor goes straight on board a ship it is loading.
-      const loading =
-        p.state === 'dropping' &&
-        this.boats.find(
-          (b) => b.vessel === 'feeder' && this.wantsLoad(b) && this.craneReaches(c, b),
-        );
-      const slot = loading ? this.deckSlot(c, loading, true) : -1;
-      if (loading && slot >= 0) {
-        c.serving.ship = loading.id;
-        c.liftBoat = loading.id;
-        c.liftSlot = slot;
-      }
-      // The one off the top it lifts onto it.
-      if (p.state === 'picking') {
-        const top = this.craneTop(c, false);
-        p.takeAt = top >= 0 ? this.cranePlaces(c).stack[top] : undefined;
-      }
-    }
-    c.busy = true;
-    ++c.timer;
-    // An export off a tractor: once the spreader has it, the tractor is
-    // free to go on its way, and the crane carries it on by itself.
-    const serving = c.serving!;
-    if (p && !serving.give && !serving.held && c.timer >= this.craneTakenIn(c)) {
-      serving.held = { fees: p.cargoFees, looks: this.carriedLooks(p), planned: p.planned };
-      p.carrying = 0;
-      p.cargoFees = [];
-      p.cargoLooks = undefined;
-      p.planned = 0;
-      p.toBoat = -1;
-      p.toCrane = -1;
-      p.outbound = false;
-      p.state = 'idle';
-      p = undefined;
-    }
-    if (c.timer < craneTicks(c)) return true;
-    c.timer = 0;
-    c.serving = undefined;
-    const on = this.boats.find((b) => b.id === serving.ship && b.state === 'moored');
-    const held = serving.held;
-    if (held) {
-      c.outReserved = Math.max(0, (c.outReserved ?? 0) - held.planned);
-      if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
-        // Set down on board the ship it is loading.
-        (on.outLooks ??= []).push(...held.looks);
-        this.outSlots(on).push(c.liftSlot);
-        this.shipOut(on, held.fees);
-        c.liftSlot = undefined;
-      } else {
-        this.outLooks(c).push(...held.looks);
-        (c.outStack ??= []).push(...held.fees);
-      }
-      return true;
-    }
-    if (!p) return true;
-    if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
-      this.onBoardFrom(c, p, on, c.liftSlot);
-      c.liftSlot = undefined;
-      return true;
-    }
-    // Done: the tractor has it, or the stack has, as it finishes.
-    p.timer = 1;
-    return true;
-  }
-
-  /** Ticks into a container crane's lift until its spreader has the container up. */
-  craneTakenIn(c: Crane): number {
-    // Not before the view has it taken.
-    return Math.ceil(B.CRANE_LIFT_TAKEN * craneTicks(c));
-  }
-
-  /** How the containers a crane is lifting for a tractor look: on its spreader, or still on the tractor. */
-  servedLooks(c: Crane, p: Dockhand | undefined): number[] {
-    return c.serving?.held?.looks ?? (p ? this.carriedLooks(p) : []);
-  }
-
-  /** A crane has lifted a tractor's export straight on board a ship, into deck slot `slot`. */
-  onBoardFrom(c: Crane, p: Dockhand, ship: Boat, slot: number): void {
-    c.outReserved = Math.max(0, (c.outReserved ?? 0) - p.planned);
-    (ship.outLooks ??= []).push(...this.carriedLooks(p));
-    this.outSlots(ship).push(slot);
-    this.shipOut(ship, p.cargoFees);
-    p.carrying = 0;
-    p.cargoFees = [];
-    p.cargoLooks = undefined;
-    p.planned = 0;
-    p.toBoat = -1;
-    p.toCrane = -1;
-    p.outbound = false;
-    p.state = 'idle';
-  }
-
-  /**
-   * A crane's landing stack and exports for the view: as a gantry crane
-   * lifting one onto a tractor or off one has it, off the stack once its
-   * spreader has it, or on once set down.
-   */
-  servedStack(
-    c: Crane,
-    set: number,
-  ): { stack: number; out: number; looks?: number[]; places?: number[] } {
-    const stack = c.stack.length + set;
-    const out = c.outStack?.length ?? 0;
-    if (c.kind === 'jib') return { stack, out };
-    const looks = [...this.stackLooks(c), ...this.outLooks(c)];
-    const gantry = true;
-    const at = this.cranePlaces(c);
-    const places = at && [...at.stack, ...at.out];
-    const less = (i: number) => {
-      looks.splice(i, 1);
-      places?.splice(i, 1);
-    };
-    const serve = c.serving;
-    const p = serve && this.people.find((q) => q.id === serve.id);
-    const phase = c.timer / craneTicks(c);
-    if (serve?.give && p && phase >= B.CRANE_LIFT_TAKEN && stack > 0) {
-      less(Math.max(0, this.takingAt(p, c)));
-      return { stack: stack - 1, out, looks, places };
-    }
-    if (
-      serve &&
-      !serve.give &&
-      serve.ship === undefined &&
-      (p || serve.held) &&
-      phase >= B.CRANE_LIFT_SET
-    ) {
-      places?.push(this.nextCranePlace(c, true));
-      return { stack, out: out + 1, looks: [...looks, ...this.servedLooks(c, p)], places };
-    }
-    // A gantry crane putting an export on board: off the stack once its
-    // spreader has it (the ship shows it once it is set down; see deckView).
-    const ship = this.boats.find((b) => b.id === c.liftBoat);
-    const loading = gantry && c.busy && !serve && ship && !this.liftingFrom(c, ship);
-    if (loading && c.liftSlot !== undefined && phase >= B.CRANE_LIFT_TAKEN && out > 0) {
-      less(stack + Math.max(0, this.craneTop(c, true)));
-      return { stack, out: out - 1, looks, places };
-    }
-    return { stack, out, looks, places };
-  }
-
-  /**
-   * A tractor's load for the view while a gantry crane lifts onto it or off
-   * it: on once set down, off once the spreader has it.
-   */
-  servedLoad(
-    p: Dockhand,
-    view: { load: number; looks?: number[] },
-  ): { load: number; looks?: number[] } {
-    if (p.handed) return { load: p.handed.fees.length, looks: [...p.handed.looks] };
-    const c = this.underGantry(p);
-    if (!c) return view;
-    const phase = c.timer / craneTicks(c);
-    // Set straight on it off the ship.
-    const ship = this.boats.find((b) => b.id === c.liftBoat);
-    if (
-      !c.serving &&
-      this.handingTo(c) === p &&
-      ship &&
-      c.liftSlot !== undefined &&
-      this.liftingFrom(c, ship) &&
-      phase >= B.CRANE_LIFT_SET
-    ) {
-      return { load: 1, looks: [boxLookOf(ship.id, c.liftSlot)] };
-    }
-    const serve = c.serving;
-    if (!serve || serve.id !== p.id) return view;
-    if (serve.give && phase >= B.CRANE_LIFT_SET) {
-      const top = Math.max(0, this.takingAt(p, c));
-      return { load: view.load + 1, looks: [...(view.looks ?? []), this.stackLooks(c)[top]] };
-    }
-    if (!serve.give && phase >= B.CRANE_LIFT_TAKEN) return { load: 0, looks: [] };
-    return view;
-  }
-
-  /** Whether a container crane is part way through a lift from this ship's deck. */
-  liftingFrom(c: Crane, b: Boat): boolean {
-    const k = c.liftSlot;
-    if (c.liftBoat !== b.id || k === undefined || k < 0) return false;
-    return k < b.crates + (b.lifted?.length ?? 0) && !(b.lifted ?? []).includes(k);
-  }
-
-  /** The container cranes working a ship, from its stern to its bow. */
-  shipCranes(b: Boat): Crane[] {
-    const m = this.map;
-    const ax = Math.cos(b.dir);
-    const ay = Math.sin(b.dir);
-    const along = (c: Crane) => {
-      const front = this.craneFront(c);
-      const x = front.reduce((n, t) => n + m.xOf(t) + 0.5, 0) / front.length;
-      const y = front.reduce((n, t) => n + m.yOf(t) + 0.5, 0) / front.length;
-      return (x - b.x) * ax + (y - b.y) * ay;
-    };
-    return [...this.cranes.values()]
-      .filter((c) => c.kind !== 'jib' && this.craneReaches(c, b))
-      .sort((p, q) => along(p) - along(q) || p.idx - q.idx);
-  }
-
-  /** The bays of a ship that are a crane's to work, from..to, shared out with the others on it. */
-  craneBays(c: Crane, b: Boat): [number, number] {
-    const all = this.shipCranes(b);
-    const j = Math.max(0, all.indexOf(c));
-    const n = Math.max(1, all.length);
-    return [Math.floor((B.FEEDER_BAYS * j) / n), Math.floor((B.FEEDER_BAYS * (j + 1)) / n)];
-  }
-
-  /**
-   * The deck slot a container crane lifts from next, or with `load` sets an
-   * export into: a tier at a time across the whole ship, to keep it even,
-   * from the top down unloading and the bottom up loading; in its own bays
-   * while there is work in that tier there; -1 if none is left that another
-   * crane is not already at.
-   */
-  deckSlot(c: Crane, b: Boat, load: boolean): number {
-    const taken = new Set<number>();
-    for (const q of this.cranes.values()) {
-      if (q !== c && q.busy && q.liftBoat === b.id && q.liftSlot !== undefined) {
-        taken.add(q.liftSlot);
-      }
-    }
-    const used = new Set(load ? this.outSlots(b) : (b.lifted ?? []));
-    const total = load
-      ? B.FEEDER_BAYS * B.FEEDER_ROWS * B.FEEDER_TIERS
-      : b.crates + (b.lifted?.length ?? 0);
-    const [lo, hi] = this.craneBays(c, b);
-    const off = (bay: number) => (bay < lo ? lo - bay : bay >= hi ? bay - hi + 1 : 0);
-    let best = -1;
-    let bestKey: number[] = [];
-    for (let k = 0; k < total; k++) {
-      if (used.has(k) || taken.has(k)) continue;
-      const p = deckPlace(k);
-      const key = [load ? p.tier : -p.tier, off(p.bay), p.bay, p.row];
-      const at = key.findIndex((v, i) => v !== bestKey[i]);
-      if (best < 0 || (at >= 0 && key[at] < bestKey[at])) {
-        best = k;
-        bestKey = key;
-      }
-    }
-    return best;
-  }
-
-  /** The deck slot each export on board a feeder is in, filling the lowest free for older saves. */
-  outSlots(b: Boat): number[] {
-    const slots = (b.outSlots ??= []);
-    for (let k = 0; slots.length < (b.out ?? 0); k++) if (!slots.includes(k)) slots.push(k);
-    return slots;
-  }
-
-  /**
-   * A container ship has been unloaded: customs start on all its containers
-   * now, those already in a yard and those still on their way there.
-   */
-  shipUnloaded(b: Boat): void {
-    if (this.unloadedAt.has(b.id)) return;
-    this.unloadedAt.set(b.id, this.tick);
-    for (const y of this.yards.values()) {
-      const ready = this.readyList(y);
-      for (let k = 0; k < ready.length; k++) {
-        if (ready[k] === -b.id) ready[k] = this.tick + B.CUSTOMS_TICKS;
-      }
-    }
-  }
-
-  /** When customs clear a container stacked now that came off ship `from`; see boxReady. */
-  customsFor(from: number | undefined): number {
-    if (from === undefined) return this.tick + B.CUSTOMS_TICKS;
-    const done = this.unloadedAt.get(from);
-    if (done !== undefined) return done + B.CUSTOMS_TICKS;
-    return this.boats.some((b) => b.id === from) ? -from : this.tick + B.CUSTOMS_TICKS;
-  }
-
-  /**
-   * Whether a crane can work a ship: container cranes anywhere along its
-   * hull, so several can work one ship; a jib crane the boat lying under it.
-   */
-  craneReaches(c: Crane, b: Boat): boolean {
-    if (c.kind === 'jib') return this.near(b.berth, c.idx);
-    const front = this.craneFront(c);
-    return (this.mooredTiles(b.berth, b.jetty, this.boatHalf(true)) ?? [b.berth]).some((t) =>
-      front.some((f) => this.near(f, t)),
-    );
-  }
-
-  /** Crate storage a jib crane can swing round to, nearest first. */
-  jibStores(c: Crane): Bay[] {
-    const m = this.map;
-    const r = B.JIB_REACH;
-    const found: Bay[] = [];
-    for (let d = 1; d <= r; d++) {
-      for (let dy = -d; dy <= d; dy++) {
-        for (let dx = -d; dx <= d; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== d) continue;
-          const x = m.xOf(c.idx) + dx;
-          const y = m.yOf(c.idx) + dy;
-          if (!m.inBounds(x, y)) continue;
-          const a = this.bays.get(this.storeOf[m.idx(x, y)]);
-          if (a && !found.includes(a)) found.push(a);
-        }
-      }
-    }
-    return found;
-  }
 
   // ── Trucks and bays ───────────────────────────────────────
 
@@ -11741,6 +7808,14 @@ export class World {
   dist(a: number, b: number): number {
     const m = this.map;
     return Math.abs(m.xOf(a) - m.xOf(b)) + Math.abs(m.yOf(a) - m.yOf(b));
+  }
+
+  /** Whether a gantry crane works this berth. */
+  gantryReaches(berth: number): boolean {
+    for (const c of this.cranes.values()) {
+      if (c.kind === 'gantry' && craneFront(this, c).some((t) => near(this, t, berth))) return true;
+    }
+    return false;
   }
 
   /** People living in the town, which the port's tier waits on. */
