@@ -254,22 +254,127 @@ export class Synth {
     return out;
   }
 
-  /** Water: the sea's wash, and waves slapping at the quay walls up close. */
-  sea(): { wash: Loop; lap: Loop } {
-    const wash = this.loopOut(this.ambience, 0.2);
-    const src = this.noise('pink');
-    const bp = this.filter('bandpass', 520, 0.45);
-    const lp = this.filter('lowpass', 1400);
-    const swell = this.gainNode(0.7);
-    this.lfo(swell.gain, 0.09, 0.3);
-    src.connect(bp).connect(lp).connect(swell).connect(wash.gain);
-    src.start(this.now, Math.random() * 3);
+  /**
+   * Water. The wash of the open sea: a low hiss that is never still, and
+   * over it waves rolling in a few at a time from either side, each
+   * building, breaking in a rush of brighter spray and running out in a
+   * long hiss, the weight of the water swelling under it, no two alike.
+   * And the lap: waves slapping and gurgling at the quay walls up close,
+   * one after another at no fixed beat. Both are planned `ahead` seconds
+   * ahead as they play.
+   */
+  sea(ahead = 12): { wash: Loop; lap: Loop } {
+    const wash = this.loopOut(this.ambience, 0.25);
+    // The hiss under it all, wide: a different stretch of the noise each side.
+    const sides = this.ctx.createChannelMerger(2);
+    for (let ch = 0; ch < 2; ch++) {
+      const n = this.noise('pink');
+      n.connect(sides, 0, ch);
+      n.start(this.now, Math.random() * 3);
+    }
+    const bedLp = this.filter('lowpass', 700, 0.5);
+    sides.connect(bedLp).connect(this.gainNode(0.14)).connect(wash.gain);
+    // The weight of the water, swelling with the waves.
+    const under = this.gainNode(0.15);
+    const underSrc = this.noise('brown');
+    underSrc.connect(this.filter('lowpass', 110)).connect(under).connect(wash.gain);
+    underSrc.start(this.now, Math.random() * 3);
+    // Three waves at a time, each from its own side: one envelope steers a
+    // wave's loudness, how bright it is and the weight under it.
+    const FLOOR = 0.02;
+    const voices: { env: ConstantSourceNode; pan: StereoPannerNode; until: number }[] = [];
+    for (let i = 0; i < 3; i++) {
+      const env = this.ctx.createConstantSource();
+      env.offset.value = FLOOR;
+      env.start();
+      const n = this.noise('pink');
+      const hp = this.filter('highpass', 180, 0.5);
+      const lp = this.filter('lowpass', 300, 0.8);
+      const gain = this.gainNode(0);
+      const pan = this.ctx.createStereoPanner();
+      n.connect(hp).connect(lp).connect(gain).connect(pan).connect(wash.gain);
+      env.connect(gain.gain);
+      env.connect(this.gainNode(2600)).connect(lp.frequency);
+      env.connect(this.gainNode(0.25)).connect(under.gain);
+      n.start(this.now, Math.random() * 3);
+      voices.push({ env, pan, until: this.now + i * 2.5 + Math.random() * 3 });
+    }
+    const roll = () => {
+      const limit = this.now + ahead;
+      for (const v of voices) {
+        if (v.until < this.now) v.until = this.now + rnd(0, 2);
+        while (v.until < limit) {
+          const t0 = v.until;
+          const size = rnd(0.3, 1);
+          const build = rnd(1.5, 3.5);
+          const crest = t0 + build;
+          const run = rnd(3, 7) * (0.6 + 0.4 * size);
+          const o = v.env.offset;
+          o.setValueAtTime(FLOOR, t0);
+          o.exponentialRampToValueAtTime(size, crest);
+          o.linearRampToValueAtTime(size * 0.75, crest + 0.7);
+          o.exponentialRampToValueAtTime(FLOOR, crest + 0.7 + run);
+          v.pan.pan.setValueAtTime(rnd(-0.8, 0.8), t0);
+          v.until = crest + 0.7 + run + rnd(1, 7);
+        }
+      }
+    };
 
     const lap = this.loopOut(this.ambience, 0.1);
-    const lsrc = this.noise('brown');
-    const lbp = this.filter('bandpass', 320, 1.1);
-    lsrc.connect(lbp).connect(lap.gain);
-    lsrc.start(this.now, Math.random() * 3);
+    // Between slaps, the water moving at the wall.
+    const lapBed = this.gainNode(0.14);
+    this.lfo(lapBed.gain, 0.23, 0.04);
+    const lapSrc = this.noise('brown');
+    lapSrc
+      .connect(this.filter('bandpass', 320, 1.1))
+      .connect(lapBed)
+      .connect(lap.gain);
+    lapSrc.start(this.now, Math.random() * 3);
+    // Each slap a short burst of noise, its ring dropping as the water falls
+    // back, some of them gurgling after as it drains out of the wall.
+    let nextSlap = this.now + rnd(0.2, 1);
+    const burst = (
+      t0: number,
+      level: number,
+      from: number,
+      to: number,
+      q: number,
+      fall: number,
+    ) => {
+      const n = this.noise('white', false);
+      const bp = this.filter('bandpass', from, q);
+      bp.frequency.setValueAtTime(from, t0);
+      bp.frequency.exponentialRampToValueAtTime(to, t0 + fall * 0.5);
+      const g = this.gainNode(0);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(level, t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + fall);
+      const pan = this.ctx.createStereoPanner();
+      pan.pan.value = rnd(-0.7, 0.7);
+      n.connect(bp).connect(g).connect(pan).connect(lap.gain);
+      n.start(t0, rnd(0, 3));
+      n.stop(t0 + fall + 0.1);
+    };
+    const slaps = () => {
+      const limit = this.now + ahead;
+      if (nextSlap < this.now) nextSlap = this.now + rnd(0, 0.5);
+      while (nextSlap < limit) {
+        const t0 = nextSlap;
+        const size = rnd(0.25, 1);
+        burst(t0, size * 3, rnd(500, 1100), rnd(150, 300), 1.5, rnd(0.25, 0.6));
+        if (Math.random() < 0.5) burst(t0 + rnd(0.1, 0.3), size * 1.5, 420, 110, 5, rnd(0.5, 0.9));
+        nextSlap = t0 + rnd(0.3, 2.5) * (1.6 - size * 0.6);
+      }
+    };
+
+    roll();
+    slaps();
+    if (!(this.ctx instanceof OfflineAudioContext)) {
+      setInterval(() => {
+        roll();
+        slaps();
+      }, 1000);
+    }
     return { wash, lap };
   }
 

@@ -236,9 +236,9 @@ export class Soundscape {
     const act = mix.activity;
     set(b.hum, (0.1 + 0.6 * far) * (0.25 + 0.75 * act) * (running ? 1 : 0.6), 0, 0.8);
     // The sea, more of it the further out the view.
-    set(b.wash, water * (0.12 + 0.16 * far), 0, 1);
-    // Waves slap the quay walls in fits and starts.
-    set(b.lap, water * near * 0.3 * (0.2 + Math.random() * 0.8), 0, 0.15);
+    set(b.wash, water * (0.14 + 0.2 * far), 0, 1);
+    // Waves slap the quay walls up close.
+    set(b.lap, water * near * 0.3, 0, 0.3);
     const work = running ? near * zoom : 0;
     // Each kind of land diesel on its own note, deeper the bigger the
     // vehicles heard, revving up a little as more of them get going.

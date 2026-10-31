@@ -292,6 +292,7 @@ lab.append(
     'The port from afar',
     loopRow('Port hum', (s) => s.hum(), 0.4),
     loopRow('Sea', (s) => s.sea().wash, 0.15),
+    loopRow('Waves at the quay', (s) => s.sea().lap, 0.3),
     loopRow('Train going by', (s) => s.rumble(), 0.4),
   ),
 );
@@ -367,3 +368,72 @@ async function measure(): Promise<Record<string, { peak: number; rms: number }>>
 }
 
 (window as unknown as { __measure: typeof measure }).__measure = measure;
+
+/**
+ * The sea on its own, rendered offline at the game's levels zoomed out by
+ * the water, from the console: `__renderSea(30)` gives it as a WAV in
+ * base64, to listen to, and how loud it is every half second.
+ */
+async function renderSea(
+  seconds: number,
+  washLevel = 0.28,
+  lapLevel = 0.3,
+): Promise<{ env: string; wav: string }> {
+  const rate = 44100;
+  const ctx = new OfflineAudioContext(2, Math.ceil(rate * seconds), rate);
+  const s = new Synth(ctx);
+  s.master.gain.value = 1;
+  const sea = s.sea(seconds + 1);
+  sea.wash.gain.gain.value = washLevel;
+  sea.lap.gain.gain.value = lapLevel;
+  const buf = await ctx.startRendering();
+  const n = buf.length;
+  const l = buf.getChannelData(0);
+  const r = buf.getChannelData(1);
+  const bytes = new Uint8Array(44 + n * 4);
+  const v = new DataView(bytes.buffer);
+  const ascii = (at: number, text: string) => {
+    for (let i = 0; i < text.length; i++) bytes[at + i] = text.charCodeAt(i);
+  };
+  ascii(0, 'RIFF');
+  v.setUint32(4, 36 + n * 4, true);
+  ascii(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 2, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 4, true);
+  v.setUint16(32, 4, true);
+  v.setUint16(34, 16, true);
+  ascii(36, 'data');
+  v.setUint32(40, n * 4, true);
+  let peak = 0;
+  for (let i = 0; i < n; i++) {
+    peak = Math.max(peak, Math.abs(l[i]), Math.abs(r[i]));
+    v.setInt16(44 + i * 4, Math.max(-1, Math.min(1, l[i])) * 32767, true);
+    v.setInt16(46 + i * 4, Math.max(-1, Math.min(1, r[i])) * 32767, true);
+  }
+  const lines = [`peak ${peak.toFixed(3)}`];
+  const step = rate / 2;
+  for (let at = 0; at + step <= n; at += step) {
+    let sl = 0;
+    let sr = 0;
+    for (let i = at; i < at + step; i++) {
+      sl += l[i] * l[i];
+      sr += r[i] * r[i];
+    }
+    lines.push(
+      `${(at / rate).toFixed(1)}s L ${Math.sqrt(sl / step).toFixed(4)} R ${Math.sqrt(sr / step).toFixed(4)}`,
+    );
+  }
+  let b64 = '';
+  for (let i = 0; i < bytes.length; i += 32766) {
+    b64 += btoa(String.fromCharCode(...bytes.subarray(i, i + 32766)));
+  }
+  return { env: lines.join('\n'), wav: b64 };
+}
+
+(window as unknown as { __renderSea: typeof renderSea }).__renderSea = renderSea;
+
+const page = document.getElementById('lab');
+if (page) soundLab(page);
