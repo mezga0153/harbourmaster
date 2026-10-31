@@ -263,7 +263,7 @@ function TopBar({ actions }: { actions: Actions }) {
           return (
             <button
               key={m.id}
-              class={`btn ${panel.value === m.id ? 'on' : ''}`}
+              class={`btn ${panel.value === m.id ? 'on' : ''} ${m.id === 'contracts' ? 'keep' : ''}`}
               onClick={() => togglePanel(m.id)}
               title={m.title}
             >
@@ -274,7 +274,7 @@ function TopBar({ actions }: { actions: Actions }) {
           );
         })}
         <button
-          class={`btn icon ${panel.value === 'handbook' ? 'on' : ''}`}
+          class={`btn icon keep ${panel.value === 'handbook' ? 'on' : ''}`}
           onClick={() => togglePanel('handbook')}
           title="Handbook: how the port works (?)"
         >

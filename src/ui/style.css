@@ -2097,7 +2097,7 @@ button.drawer-stat:active {
   .topbar .vr,
   .topbar .stat-button:not(.cash):not(.town),
   .topbar-left > .stat,
-  .topbar-right {
+  .topbar-right > :not(.keep) {
     display: none;
   }
 
@@ -2172,6 +2172,11 @@ button.drawer-stat:active {
 /* A phone held upright: the clock, the speeds, the cash and the town all
    squeezed in. */
 @media (max-width: 520px) {
+  /* No room left for the contracts and the handbook: they are in the menu. */
+  .topbar-right {
+    display: none;
+  }
+
   .topbar,
   .topbar-left,
   .topbar .time {
