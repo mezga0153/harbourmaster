@@ -1,124 +1,54 @@
-import { Box3, Group, Vector3, type Object3D } from 'three';
+import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS, WALK_SPEED } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { DEPOT_BACK, DEPOT_HALF, isMachineKind, MACHINE_SIZE } from '../sim/machines';
-import { frontOf } from '../sim/rules';
-import { Build, TICKS_PER_SECOND, type MachineKind } from '../sim/types';
-import { disposeOwned, KeyedObjects } from './keyed';
+import { isMachineKind } from '../sim/machines';
+import { Build, TICKS_PER_SECOND } from '../sim/types';
+import { place, type Entry, type Hand } from './entities/entry';
+import { keepInside, parkIn, parkOut } from './entities/parking';
 import {
-  CARRY_LOW,
-  FORKS_EMPTY,
-  FORKS_LOADED,
-  reachTo,
-  STACKER_REACH,
-  TRAILER_AT,
-} from './machines';
-import { modelFor, type Model } from './model';
+  aroundTrucks,
+  bayFrame,
+  bayStand,
+  byBack,
+  clearOfTruck,
+  FORK_BACK,
+  HAND_REACH,
+  inTruck,
+  LEAN_MOST,
+  offTrucks,
+  type TruckSite,
+} from './entities/trucks';
+import { disposeOwned, KeyedObjects } from './keyed';
+import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from './machines';
+import { modelFor } from './model';
 import { alertMarker, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
+import {
+  aboutAt,
+  driveTo,
+  FORK_KEEP,
+  length,
+  slide,
+  turnAbout,
+  walkVia,
+  type About,
+  type Pose,
+} from './motion';
 import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
-import { clamp01, ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
+import { ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
 import type { Trailer } from './vehicles';
-import { Wakes, type Stir, type Track, type Wake, type Wash } from './wakes';
+import { Wakes, type Stir, type Track, type Wake } from './wakes';
 
 export { turnOf };
+export { turnAbout, type TurnAbout } from './motion';
 
 const SNAPSHOT_MS = 100;
-
-interface Entry extends Wash {
-  view: EntityView;
-  model: Model;
-  alert: Object3D | null;
-  /** Trucks: how far the body reaches each way from its middle, as it faces +x. */
-  size?: Box3;
-  /** Dockhands: the truck they are going round, and along which side of it. */
-  round?: { truck: number; side: number };
-  /** Boats: how far they lean; the wake they lay and the water they stir are in Wash. */
-  heel?: number;
-  /** Articulated trucks: where each trailer's axles and its fifth wheel were last frame. */
-  links?: { axle?: [number, number]; hitch?: [number, number] }[];
-  /** Forklifts' forks, or a dockhand's hands: how far down to the ground, 0 to 1. */
-  down?: number;
-  /** Forklifts turning about: where from, which way to, see turnAbout. */
-  about?: About;
-  /** Forklifts: how far off their way they were when they turned off it part way round. */
-  slip?: { x: number; y: number; yaw: number; left: number };
-  /**
-   * Machines driving into where they park in their depot, from where they
-   * were (`in`), or out of it onto their way.
-   */
-  dock?: { in: boolean; from: Pose; to?: Pose; start: number; out?: number };
-  /** Stackers and tractors: how they stood last frame, and the container they are handing over. */
-  pose?: Pose;
-  hand?: Hand;
-  /** Boats and crate trucks: the order their crates go on, see slotOf; and where that was worked out. */
-  order?: number[];
-  orderAt?: 'bay' | 'quay';
-  /** Dockhands: walking up to a load they handle, or back onto their way. */
-  stepping?: boolean;
-}
-
-interface About {
-  x: number;
-  y: number;
-  dir: number;
-  path: TurnAbout;
-  /** The sim tick of the snapshot it started in, so it starts once. */
-  tick: number;
-  done: boolean;
-}
 
 /** Furthest a trailer folds against its tractor, either way: 80°. */
 const FOLD = (80 * Math.PI) / 180;
 /** How quickly a trailer settles straight behind a truck standing still, per game second. */
 const SETTLE = 3;
-
-/** Where a machine stands and which way it faces; for a stacker, how high it holds a container. */
-interface Pose {
-  x: number;
-  z: number;
-  dir: number;
-  h: number;
-  /**
-   * A dockhand kept on the quay with the crate out over the water, on a
-   * boat: how much further on it is than they reach standing.
-   */
-  over?: number;
-  /** Stood where it must be, as at a truck bay: not moved clear of the truck. */
-  fixed?: boolean;
-}
-
-/** A reach stacker or tractor taking a container off where it is, or setting one down. */
-interface Hand {
-  stage: 'pick' | 'drop';
-  /** How far through it was when first shown, and how it stood. */
-  start?: number;
-  from: Pose;
-  /** Which way it faces to work the container. */
-  face?: number;
-  /** A tractor under a yard gantry: its container, on the map, which it turns about. */
-  pivot?: { x: number; z: number };
-  /** Game time the container changed hands, as it goes back to driving. */
-  done?: number;
-  /**
-   * Where it works it, once known: kept for the whole of it, so it does not
-   * jump when another load comes or goes there meanwhile.
-   */
-  goal?: Pose;
-  /** Dockhands: how much of it they spend walking up to it. */
-  walk?: number;
-  /** A dockhand: where the crate they set down goes, or the one they take up lay. */
-  place?: Vector3;
-  /** Dockhands: how far through it they are. */
-  at?: number;
-  /** Setting down a crate just taken up: where it lay. */
-  taken?: Vector3;
-  /** Taking a crate off a boat or truck: in their hands as it changes hands, never on its way. */
-  early?: boolean;
-  /** Dockhands: corners of a truck they walk round on the way. */
-  via?: { x: number; z: number }[];
-}
 
 /** Furthest a forklift drives up to a pallet, from where it stops for it. */
 const REACH_MOST = 0.8;
@@ -129,102 +59,6 @@ const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
 const CLEAR = 0.1;
 
-/** Straight across from one pose to another, turning as it goes, `a` of the way. */
-function slide(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
-  return {
-    x: from.x + (to.x - from.x) * a,
-    z: from.z + (to.z - from.z) * a,
-    dir: lerpAngle(from.dir, to.dir, a),
-  };
-}
-
-/**
- * Walked from one pose to another, `a` (0 to 1) of the way: turning to the
- * way there as they set off, and to stand as they are as they get there.
- */
-function walkTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
-  const c = clamp01(a);
-  const dx = to.x - from.x;
-  const dz = to.z - from.z;
-  if (Math.hypot(dx, dz) < 0.05) return slide(from, to, ease(c));
-  const way = Math.atan2(dz, dx);
-  const t = ease(c);
-  return {
-    x: from.x + dx * t,
-    z: from.z + dz * t,
-    dir:
-      c < 0.7
-        ? lerpAngle(from.dir, way, ease(c / 0.3))
-        : lerpAngle(way, to.dir, ease((c - 0.7) / 0.3)),
-  };
-}
-
-/** How long a way through these points is. */
-function length(points: { x: number; z: number }[]): number {
-  let d = 0;
-  for (let k = 1; k < points.length; k++) {
-    d += Math.hypot(points[k].x - points[k - 1].x, points[k].z - points[k - 1].z);
-  }
-  return d;
-}
-
-/** As walkTo, by way of the points `via`, round whatever is in the way. */
-function walkVia(
-  from: Pose,
-  via: { x: number; z: number }[],
-  to: Pose,
-  a: number,
-): Omit<Pose, 'h'> {
-  if (via.length === 0) return walkTo(from, to, a);
-  const c = clamp01(a);
-  const points = [from, ...via, to];
-  let left = length(points) * ease(c);
-  for (let k = 1; k < points.length; k++) {
-    const p = points[k - 1];
-    const q = points[k];
-    const d = Math.hypot(q.x - p.x, q.z - p.z);
-    if (left > d && k < points.length - 1) {
-      left -= d;
-      continue;
-    }
-    const f = d > 0 ? Math.min(1, left / d) : 1;
-    const way = Math.atan2(q.z - p.z, q.x - p.x);
-    return {
-      x: p.x + (q.x - p.x) * f,
-      z: p.z + (q.z - p.z) * f,
-      dir:
-        c < 0.15
-          ? lerpAngle(from.dir, way, ease(c / 0.15))
-          : c > 0.85
-            ? lerpAngle(way, to.dir, ease((c - 0.85) / 0.15))
-            : way,
-    };
-  }
-  return { x: to.x, z: to.z, dir: to.dir };
-}
-
-/**
- * Driven from one pose to another, `a` (0 to 1) of the way, as a machine
- * would: it turns to face the way it is going (or straight away from it, to
- * back there), drives straight there, then turns as it is to stand; never
- * sliding sideways. A short way it just edges across.
- */
-function driveTo(from: Pose, to: Pose, a: number): Omit<Pose, 'h'> {
-  const dx = to.x - from.x;
-  const dz = to.z - from.z;
-  const d = Math.hypot(dx, dz);
-  if (d < 0.08) return slide(from, to, ease(a));
-  let way = Math.atan2(dz, dx);
-  // Backing is less turning if the way is behind it.
-  if (Math.cos(way - from.dir) < 0) way += Math.PI;
-  if (a < 0.25) return { x: from.x, z: from.z, dir: lerpAngle(from.dir, way, ease(a / 0.25)) };
-  if (a < 0.75) {
-    const t = ease((a - 0.25) / 0.5);
-    return { x: from.x + dx * t, z: from.z + dz * t, dir: way };
-  }
-  return { x: to.x, z: to.z, dir: lerpAngle(way, to.dir, ease((a - 0.75) / 0.25)) };
-}
-
 /**
  * How far through picking a load up or setting it down the forks, or a
  * dockhand's hands, are down on the ground; and how quickly they go down
@@ -234,8 +68,6 @@ const DOWN_BY = 0.5;
 const DOWN_RATE = 4;
 const UP_RATE = 3;
 
-/** Forklifts: how far to the right of the middle of the way they keep. */
-const FORK_KEEP = 0.16;
 /** Fastest a dockhand closes on where they should be, tiles per game second: a brisk walk. */
 const CATCH_UP = WALK_SPEED * TICKS_PER_SECOND * 1.5;
 /** What a dockhand with nothing to do is doing, as the game has it. */
@@ -246,100 +78,14 @@ const CHAT_NEAR = 0.7;
 const ROOM = 0.36;
 /** How quickly a dockhand turns to the way they step, per game second. */
 const TURN_RATE = 12;
-/** How far in front of a dockhand the crate they pick up or set down is. */
-const HAND_REACH = 0.16;
 /** How far back from the edge of the quay a dockhand stands, toes to the edge. */
 const TOES = 0.05;
-/** Furthest a dockhand leans out over the edge to a crate. */
-const LEAN_MOST = 0.3;
-/** How far in from the back of a truck bay people walk across it, out of the truck's way. */
-const BACK_LANE = 0.18;
-/** How much further back than a dockhand a forklift stands at a truck bay, for its forks. */
-const FORK_BACK = 0.2;
 /** How far ahead of a forklift's middle the pallet on its forks sits. */
 const FORK_REACH = 0.3;
-/** Forklifts turning about: the tighter of the two arcs they go round. */
-const TIGHT_ARC = 0.15;
 /** How far off the way it is going a forklift has to face to turn about. */
 const TURN_FROM = (Math.PI * 2) / 3;
-/**
- * How far it drives on straight after, catching up with where it would be
- * had it not had to go round: it goes not much faster than usual.
- */
-const RUN_OUT = 0.8;
-
 /** Game seconds a forklift takes to ease onto a way it turned onto part way round. */
 const SLIP_TIME = 0.3;
-
-/** Game seconds a machine takes to drive between the middle of its depot and where it parks. */
-const PARK_TIME = 1.6;
-
-/** Where a forklift turning about is and which way it faces; see turnAbout. */
-export interface TurnAbout {
-  /** How far along its way it goes while it turns about. */
-  reach: number;
-  /**
-   * Given how far along the way it has gone from where it stood: how far
-   * ahead of that point and to the right of the middle of the way it is,
-   * and which way it faces, against the way it is going.
-   */
-  at(s: number): { ahead: number; right: number; face: number };
-}
-
-/**
- * A forklift that sets off the way its tail points, as when it drives away
- * from a load it has just picked up or set down, does not spin round on the
- * spot: it backs out with its tail swinging round until it is side on to
- * its way, then pulls forward round onto it, keeping to its own side, and
- * drives on a little to catch up. It starts facing `face` against the way
- * it is going (more than a right angle off), on its own side of where it
- * faced, and ends facing ahead. Whichever way it turns, the arc it backs out
- * on or the one it pulls forward round is wide enough to cross from one side
- * of the way to the other.
- */
-export function turnAbout(face: number): TurnAbout {
-  const quarter = Math.PI / 2;
-  // Worked out turning left, from a face between straight back and side on
-  // to the left; the other way round is the same, mirrored.
-  const mirror = face > 0 && face < Math.PI - 0.01;
-  const f0 = mirror ? -face : face > 0 ? face - Math.PI * 2 : face;
-  const keep = mirror ? -FORK_KEEP : FORK_KEEP;
-  const c = Math.max(0.05, -Math.cos(f0));
-  const back = keep > 0 ? (keep * (1 + c) + TIGHT_ARC) / c : TIGHT_ARC;
-  const pull = keep > 0 ? TIGHT_ARC : back * c - keep * (1 + c);
-  const x0 = -keep * Math.sin(f0);
-  const y0 = keep * Math.cos(f0);
-  const x1 = x0 + back * (Math.sin(f0) + 1);
-  const y1 = y0 - back * Math.cos(f0);
-  const backLength = back * (-quarter - f0);
-  const turned = backLength + pull * quarter;
-  const length = turned + RUN_OUT;
-  const reach = x1 + pull + RUN_OUT;
-  return {
-    reach,
-    at(s: number) {
-      const d = Math.max(0, Math.min(reach, s));
-      const l = (d / reach) * length;
-      let x: number;
-      let y: number;
-      let f: number;
-      if (l < backLength) {
-        f = f0 + l / back;
-        x = x0 + back * (Math.sin(f0) - Math.sin(f));
-        y = y0 + back * (Math.cos(f) - Math.cos(f0));
-      } else if (l < turned) {
-        f = -quarter + (l - backLength) / pull;
-        x = x1 + pull * (1 + Math.sin(f));
-        y = y1 - pull * Math.cos(f);
-      } else {
-        f = 0;
-        x = x1 + pull + (l - turned);
-        y = y1 - pull;
-      }
-      return { ahead: x - d, right: mirror ? -y : y, face: mirror ? -f : f };
-    },
-  };
-}
 
 /** Ships, trucks and people, interpolated between sim snapshots. */
 export class Entities {
@@ -370,7 +116,18 @@ export class Entities {
   viewer?: number;
   private slotAt = new Vector3();
 
-  constructor(private map: GameMap) {}
+  /** What keeping clear of the trucks asks of this; see entities/trucks.ts. */
+  private trucks: TruckSite;
+
+  constructor(private map: GameMap) {
+    this.trucks = {
+      map,
+      entries: () => this.entries.values(),
+      entry: (id) => this.entries.get(id),
+      containerAt: (at, out) => this.containerAt?.(at, out) ?? null,
+      handSlot: (at, out) => this.handSlot(at, out),
+    };
+  }
 
   push(views: EntityView[], now: number, tick: number): void {
     this.prev = new Map([...this.entries].map(([id, e]) => [id, e.view]));
@@ -462,7 +219,7 @@ export class Entities {
         const swing = Math.min(1, Math.abs(turn) / (hull.turn * this.snapTicks));
         this.wash.wash(e, id, hull, x, y, dir, way, along, swing, dt);
       } else if (isMachineKind(cur.kind) && cur.parked) {
-        this.parkIn(e, was, !this.prev.has(id));
+        parkIn(this.map, this.sim, e, was, !this.prev.has(id));
       } else if (
         cur.kind === 'stacker' ||
         cur.kind === 'tractor' ||
@@ -501,7 +258,7 @@ export class Entities {
         }
         if (cur.kind === 'dockhand') {
           // Across a truck bay along its back, out of the truck's way.
-          if (!seated) [rx, ry] = this.byBack(rx, ry);
+          if (!seated) [rx, ry] = byBack(this.trucks, rx, ry);
           // Standing about, they keep a step apart rather than stand in each other.
           if (!cur.moving && !seated) [rx, ry] = this.spread(e, rx, ry);
           // Onto the other side of the way as they turn about, at a walk.
@@ -518,8 +275,8 @@ export class Entities {
       }
       // Straight to work from the depot's door: it is where it works.
       if (e.dock && !cur.parked && (cur.handStage || e.hand)) e.dock = undefined;
-      if (e.dock && !cur.parked) this.parkOut(e, was);
-      this.keepInside(e);
+      if (e.dock && !cur.parked) parkOut(this.map, this.sim, e, was);
+      keepInside(this.map, e);
       if (cur.kind === 'forklift') {
         const down = this.lower(e, prev, t, dt);
         e.model.forks!.position.y = (cur.load > 0 ? FORKS_LOADED : FORKS_EMPTY) * (1 - down);
@@ -540,168 +297,6 @@ export class Entities {
         e.alert.visible = cur.alert;
         e.alert.position.set(x, root.position.y + 0.75 + Math.sin(time * 4) * 0.05, y);
       }
-    }
-  }
-
-  /**
-   * A machine standing in its depot moves from the middle of the garage,
-   * where the game has it, into where it parks (x, y and dir in its view):
-   * turned there first, where there is room to, then across into its place
-   * square on, so it never swings round into a wall; or is drawn there,
-   * seen there from the first.
-   */
-  private parkIn(e: Entry, was: Pose, first: boolean): void {
-    const v = e.view;
-    const slot: Pose = { x: v.x, z: v.y, dir: v.dir, h: CARRY_LOW };
-    const d = e.dock;
-    if (first) e.dock = { in: true, from: slot, to: slot, start: -Infinity };
-    else if (!d?.in || d.to?.x !== slot.x || d.to.z !== slot.z || d.to.dir !== slot.dir) {
-      e.dock = { in: true, from: was, to: slot, start: this.sim };
-    }
-    const { from } = e.dock!;
-    const a = (this.sim - e.dock!.start) / PARK_TIME;
-    const part = (a0: number, a1: number) => ease((a - a0) / (a1 - a0));
-    // Turning about, it does so in the middle of the garage, the one place
-    // there is room to.
-    const spin = Math.abs(lerpAngle(from.dir, slot.dir, 1) - from.dir) > 0.3;
-    const mid = spin
-      ? { x: Math.floor(slot.x) + 0.5, z: Math.floor(slot.z) + 0.5 }
-      : { x: from.x, z: from.z };
-    const [toMid, turn, across] = spin
-      ? [part(0, 0.15), part(0.15, 0.4), part(0.4, 1)]
-      : [1, part(0, 0.3), part(0, 1)];
-    const at = { x: from.x + (mid.x - from.x) * toMid, z: from.z + (mid.z - from.z) * toMid };
-    this.place(e, {
-      x: at.x + (slot.x - at.x) * across,
-      z: at.z + (slot.z - at.z) * across,
-      dir: lerpAngle(from.dir, slot.dir, turn),
-      h: CARRY_LOW,
-    });
-    e.about = e.slip = e.hand = undefined;
-  }
-
-  /**
-   * A machine setting off from where it parked moves out onto its way, as
-   * the game has it: square on as it was parked while still in the garage,
-   * a forklift that drove in backing out, and turning onto its way once
-   * out of the door.
-   */
-  private parkOut(e: Entry, was: Pose): void {
-    const root = e.model.root;
-    const m = this.map;
-    if (e.dock!.in) e.dock = { in: false, from: was, start: this.sim };
-    const dock = e.dock!;
-    const { from } = dock;
-    const live: Pose = {
-      x: root.position.x,
-      z: root.position.z,
-      dir: -root.rotation.y,
-      h: e.pose?.h ?? CARRY_LOW,
-    };
-    const f = ease(Math.min(1, (this.sim - dock.start) / PARK_TIME));
-    // How far from the back of the depot towards its door, and across from its middle.
-    const [tx, ty] = [Math.floor(from.x), Math.floor(from.z)];
-    const facing = m.orient[m.idx(tx, ty)] & 3;
-    const [ox, oy] = [
-      Math.round(Math.cos((facing * Math.PI) / 2)),
-      Math.round(Math.sin((facing * Math.PI) / 2)),
-    ];
-    const local = (p: Pose) => {
-      const [cx, cz] = [p.x - tx - 0.5, p.z - ty - 0.5];
-      return { depth: cx * ox + cz * oy + 0.5, side: -cx * oy + cz * ox };
-    };
-    const [a, b] = [local(from), local(live)];
-    const depth = a.depth + (b.depth - a.depth) * f;
-    let side = a.side + (b.side - a.side) * f;
-    // Square on as it was parked, and between the walls, until all of it
-    // is out of the door, waiting its turn behind others if it must; then
-    // round onto its way, clear of the walls as it swings.
-    const size = MACHINE_SIZE[e.view.kind as MachineKind];
-    const behind = Math.cos(from.dir) * ox + Math.sin(from.dir) * oy > 0 ? size.back : size.front;
-    // Back in again before it was round: as it drives in.
-    if (dock.out !== undefined && local({ ...live, x: e.view.x, z: e.view.y }).depth < 1) {
-      e.dock = undefined;
-      return;
-    }
-    if (dock.out === undefined) {
-      if (depth - Math.hypot(behind, size.half) > 1) dock.out = this.sim;
-      else if (depth - behind < 1) {
-        side = Math.max(-(DEPOT_HALF - size.half), Math.min(DEPOT_HALF - size.half, side));
-      }
-    }
-    const turn = dock.out === undefined ? 0 : Math.min(1, (this.sim - dock.out) / (PARK_TIME / 2));
-    if (f >= 1 && turn >= 1) {
-      e.dock = undefined;
-      return;
-    }
-    const d = depth - 0.5;
-    this.place(e, {
-      x: tx + 0.5 + ox * d - oy * side,
-      z: ty + 0.5 + oy * d + ox * side,
-      dir: lerpAngle(from.dir, live.dir, ease(turn)),
-      h: live.h,
-    });
-  }
-
-  /**
-   * A machine driving into or out of a depot, or turning in front of its
-   * door on its way, kept inside the garage's walls: between them as long
-   * as any of it is in the doorway, and short of the back wall, rather
-   * than poke through them.
-   */
-  private keepInside(e: Entry): void {
-    const v = e.view;
-    if (!isMachineKind(v.kind) || v.parked || v.handStage || e.hand) return;
-    const root = e.model.root;
-    const m = this.map;
-    const tile = (x: number, z: number) =>
-      m.inBounds(Math.floor(x), Math.floor(z)) ? m.idx(Math.floor(x), Math.floor(z)) : -1;
-    const here = tile(root.position.x, root.position.z);
-    if (here < 0) return;
-    const size = MACHINE_SIZE[v.kind];
-    const dir = -root.rotation.y;
-    // The depot it is in, as drawn or as the game has it, or the one whose
-    // door it is in front of, coming or going.
-    for (const depot of new Set([here, tile(v.x, v.y), ...m.neighbors4(here)])) {
-      if (depot < 0 || m.build[depot] !== Build.Depot) continue;
-      const facing = m.orient[depot] & 3;
-      if (depot !== here && frontOf(m, depot, facing) !== here) continue;
-      const [ox, oy] = [
-        Math.round(Math.cos((facing * Math.PI) / 2)),
-        Math.round(Math.sin((facing * Math.PI) / 2)),
-      ];
-      // In the depot's terms: from the back of it towards the door, and
-      // across from its middle; the machine's corners from its middle.
-      const [cx, cz] = [root.position.x - m.xOf(depot) - 0.5, root.position.z - m.yOf(depot) - 0.5];
-      let depth = cx * ox + cz * oy + 0.5;
-      let side = -cx * oy + cz * ox;
-      const [c, s] = [Math.cos(dir), Math.sin(dir)];
-      const [hd, hs, nd, ns] = [
-        c * ox + s * oy,
-        -c * oy + s * ox,
-        -s * ox + c * oy,
-        s * oy + c * ox,
-      ];
-      const deep: number[] = [];
-      const across: number[] = [];
-      for (const f of [-size.back, size.front]) {
-        for (const g of [-size.half, size.half]) {
-          deep.push(f * hd + g * nd);
-          across.push(f * hs + g * ns);
-        }
-      }
-      const [d0, s0, s1] = [Math.min(...deep), Math.min(...across), Math.max(...across)];
-      if (depth + d0 >= 1) continue;
-      depth = Math.max(depth, DEPOT_BACK - d0);
-      if (s1 - s0 <= DEPOT_HALF * 2) {
-        side = Math.max(-DEPOT_HALF - s0, Math.min(DEPOT_HALF - s1, side));
-      }
-      const x = m.xOf(depot) + 0.5 + ox * (depth - 0.5) - oy * side;
-      const z = m.yOf(depot) + 0.5 + oy * (depth - 0.5) + ox * side;
-      if (x !== root.position.x || z !== root.position.z) {
-        this.place(e, { x, z, dir, h: e.pose?.h ?? CARRY_LOW });
-      }
-      return;
     }
   }
 
@@ -839,7 +434,7 @@ export class Entities {
       // Seen part way through, at speed, it does the rest in what is left.
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
-      w.goal ??= this.clearOfTruck(v, this.workPose(v, w, drive), w.from) ?? undefined;
+      w.goal ??= clearOfTruck(this.trucks, v, this.workPose(v, w, drive), w.from) ?? undefined;
       // A forklift the game has too far from its pallet to drive up to it
       // works it from where it is. It is shown a snapshot behind the game,
       // so that is measured from where the game has it, not where it shows.
@@ -856,13 +451,13 @@ export class Entities {
         // bend to it.
         const left = Math.max(1, (v.handTicks ?? 1) * (1 - w.start));
         // Round a truck in the way, not through it.
-        w.via ??= this.aroundTrucks(w.from, goal);
+        w.via ??= aroundTrucks(this.trucks, w.from, goal);
         const d = length([w.from, ...w.via, goal]);
         w.walk ??= Math.min(0.7, Math.max(0.1, d / (WALK_SPEED * left)));
         e.stepping = phase < w.walk;
         w.at = phase;
         pose = { ...walkVia(w.from, w.via, goal, phase / w.walk), h: 0 };
-        this.place(e, pose);
+        place(this.map, e, pose);
         return;
       }
       // Under a gantry, a tractor is lined up before the spreader comes down;
@@ -892,7 +487,7 @@ export class Entities {
       } else if (v.kind === 'dockhand') {
         // Walks back onto their way, catching up with it, or a step clear of
         // the others there if they stand about.
-        const [bx, bz] = this.byBack(drive.x, drive.z);
+        const [bx, bz] = byBack(this.trucks, drive.x, drive.z);
         const [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
         pose = { ...this.catchUp(e, gx, gz, drive.dir, dt, v.moving), h: 0 };
         e.stepping = true;
@@ -907,7 +502,7 @@ export class Entities {
         };
       }
     }
-    this.place(e, pose);
+    place(this.map, e, pose);
   }
 
   /**
@@ -989,13 +584,13 @@ export class Entities {
     if (!e.pose || Math.hypot(x - e.pose.x, z - e.pose.z) > 2) return { x, z, dir };
     // Going on from a truck they loaded, where the game has them walk
     // through it: they make for where they come out the other side, round it.
-    for (let k = 0; leaving && k < 30 && this.inTruck(x, z); k++) {
+    for (let k = 0; leaving && k < 30 && inTruck(this.trucks, x, z); k++) {
       x += Math.cos(dir) * 0.05;
       z += Math.sin(dir) * 0.05;
     }
-    [x, z] = this.offTrucks(e, x, z);
+    [x, z] = offTrucks(this.trucks, e, x, z);
     // Round a truck in the way, by its nearer corner.
-    const via = e.pose && this.aroundTrucks(e.pose, { x, z })[0];
+    const via = e.pose && aroundTrucks(this.trucks, e.pose, { x, z })[0];
     if (via) [x, z] = [via.x, via.z];
     const at = e.pose;
     const d = Math.hypot(x - at.x, z - at.z);
@@ -1004,14 +599,6 @@ export class Entities {
     const nz = d > 0 ? at.z + ((z - at.z) / d) * step : z;
     const way = d - step > 0.03 ? Math.atan2(z - at.z, x - at.x) : dir;
     return { x: nx, z: nz, dir: lerpAngle(at.dir, way, Math.min(1, dt * TURN_RATE)) };
-  }
-
-  private place(e: Entry, pose: Pose): void {
-    e.pose = pose;
-    const root = e.model.root;
-    root.position.set(pose.x, surfaceY(this.map, pose.x, pose.z), pose.z);
-    root.rotation.y = -pose.dir;
-    if (e.model.reach) reachTo(e.model.reach, pose.h);
   }
 
   /** Where a stacker or tractor stands to hand a container over, or null if it is not known. */
@@ -1041,7 +628,7 @@ export class Entities {
     if (heading === null) return null;
     // At a truck bay, to its stack or the truck in it, from the back corner
     // behind the stack, clear of the truck.
-    const corner = (v.kind === 'dockhand' || v.kind === 'forklift') && this.bayStand(v, at);
+    const corner = (v.kind === 'dockhand' || v.kind === 'forklift') && bayStand(this.trucks, v, at);
     if (corner) {
       const back = v.kind === 'forklift' ? FORK_BACK : 0;
       const x = corner.x - corner.ux * back;
@@ -1085,7 +672,8 @@ export class Entities {
     let stand = Math.max(0, Math.min(way, dry - TOES));
     // Nor where a truck stands, other than the one they load: on to the
     // crate's side of it, or else back from it.
-    const clear = (d: number) => !this.inTruck(drive.x + ux * d, drive.z + uz * d, v.handAt?.truck);
+    const clear = (d: number) =>
+      !inTruck(this.trucks, drive.x + ux * d, drive.z + uz * d, v.handAt?.truck);
     if (!clear(stand)) {
       let k = 0.02;
       while (k < 0.8 && !clear(stand + k) && !clear(stand - k)) k += 0.02;
@@ -1096,321 +684,6 @@ export class Entities {
     z = drive.z + uz * stand;
     const over = Math.min(LEAN_MOST, Math.max(0, way - stand));
     return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
-  }
-
-  /**
-   * Where a dockhand or forklift stands at the truck bay it is on, to take
-   * a crate off its stack or set one on it, or on the truck in it: the back
-   * corner behind the stack, and the way into the bay towards the stack
-   * from there. Null off a truck bay.
-   */
-  private bayStand(
-    v: EntityView,
-    at: HandAt,
-  ): { x: number; z: number; ux: number; uz: number } | null {
-    const m = this.map;
-    const tile = m.idx(Math.floor(v.x), Math.floor(v.y));
-    if (!m.inBounds(Math.floor(v.x), Math.floor(v.y)) || m.build[tile] !== Build.TruckBay) {
-      return null;
-    }
-    const onTruck = at.truck !== undefined && this.entries.get(at.truck)?.view.kind === 'truck';
-    if (at.bay !== tile && !onTruck) return null;
-    const f = this.bayFrame(tile);
-    if (!f) return null;
-    // Behind the stack, halfway across it.
-    const [x, z] = f.at(0.8, 0.42);
-    return { x, z, ux: f.ux, uz: f.uz };
-  }
-
-  /**
-   * A truck bay's own frame, from where its stack's first places lie: the
-   * way in from its entrance (u) and across it (s), and where a point in
-   * it, or across it to the stack's side and from its back, lies.
-   */
-  private bayFrame(tile: number): {
-    ux: number;
-    uz: number;
-    at: (across: number, back: number) => [number, number];
-    of: (x: number, z: number) => [number, number];
-  } | null {
-    // The first place, the one across from it, and the first of the row behind.
-    const [a, b, c] = [0, 1, 8].map((slot) => {
-      const out = new Vector3();
-      return (this.containerAt?.({ bay: tile, slot }, out) ?? null) === null ? null : out;
-    });
-    if (!a || !b || !c) return null;
-    // The first place is 0.71 across and 0.89 back from the bay's corner.
-    const ux = (a.x - c.x) / 0.18;
-    const uz = (a.z - c.z) / 0.18;
-    const sx = (b.x - a.x) / 0.18;
-    const sz = (b.z - a.z) / 0.18;
-    return {
-      ux,
-      uz,
-      at: (across, back) => [
-        a.x + sx * (across - 0.71) + ux * (back - 0.89),
-        a.z + sz * (across - 0.71) + uz * (back - 0.89),
-      ],
-      of: (x, z) => [
-        0.71 + (x - a.x) * sx + (z - a.z) * sz,
-        0.89 + (x - a.x) * ux + (z - a.z) * uz,
-      ],
-    };
-  }
-
-  /** On a truck bay, people keep to its back, out of the way of the truck: where x, z goes. */
-  private byBack(x: number, z: number): [number, number] {
-    const m = this.map;
-    const [tx, tz] = [Math.floor(x), Math.floor(z)];
-    if (!m.inBounds(tx, tz) || m.build[m.idx(tx, tz)] !== Build.TruckBay) return [x, z];
-    const f = this.bayFrame(m.idx(tx, tz));
-    if (!f) return [x, z];
-    const [across, back] = f.of(x, z);
-    return back > BACK_LANE ? f.at(across, BACK_LANE) : [x, z];
-  }
-
-  /** Whether x, z is where a truck stands still, other than `but`, with a step's room round it. */
-  private inTruck(x: number, z: number, but?: number): boolean {
-    for (const truck of this.entries.values()) {
-      if (truck.view.kind !== 'truck' || truck.view.moving || truck.view.id === but) continue;
-      const root = truck.model.root;
-      const dx = x - root.position.x;
-      const dz = z - root.position.z;
-      if (dx * dx + dz * dz > 2.5) continue;
-      const box = (truck.size ??= sizeOf(root));
-      const c = Math.cos(-root.rotation.y);
-      const s = Math.sin(-root.rotation.y);
-      const along = dx * c + dz * s;
-      const across = -dx * s + dz * c;
-      const pad = 0.07;
-      if (
-        along > box.min.x - pad &&
-        along < box.max.x + pad &&
-        across > box.min.z - pad &&
-        across < box.max.z + pad
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * A dockhand or forklift loading a truck stands clear of it. A dockhand
-   * stands at its side or tail, whichever of them beside the crate's place
-   * on its bed is nearest, and leans over to it; a forklift backs off as
-   * far as it takes, its forks reaching in over the side.
-   */
-  private clearOfTruck(v: EntityView, at: Pose | null, from: Pose): Pose | null {
-    const id = v.handAt?.truck;
-    const truck = id === undefined ? undefined : this.entries.get(id);
-    if (!at || at.fixed || !truck || truck.view.kind !== 'truck') return at;
-    if (v.kind !== 'dockhand' && v.kind !== 'forklift') return at;
-    const box = (truck.size ??= sizeOf(truck.model.root));
-    const root = truck.model.root;
-    const c = Math.cos(-root.rotation.y);
-    const s = Math.sin(-root.rotation.y);
-    if (v.kind === 'dockhand') {
-      const p = new Vector3();
-      if (this.handSlot(v.handAt!, p) === null) return at;
-      const ox = root.position.x;
-      const oz = root.position.z;
-      const along = (p.x - ox) * c + (p.z - oz) * s;
-      const across = -(p.x - ox) * s + (p.z - oz) * c;
-      const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
-      const gap = 0.1;
-      // Either side, abreast of the crate's place, or at the tail; never the cab.
-      const spots: [number, number][] = [
-        [lie(along, box.min.x, box.max.x), box.min.z - gap],
-        [lie(along, box.min.x, box.max.x), box.max.z + gap],
-        [box.min.x - gap, lie(across, box.min.z, box.max.z)],
-      ];
-      let best: [number, number] | undefined;
-      let least = Infinity;
-      for (const [a, b] of spots) {
-        const x = ox + a * c - b * s;
-        const z = oz + a * s + b * c;
-        if (surfaceY(this.map, x, z) <= 0 || this.inTruck(x, z, id)) continue;
-        const cost = Math.hypot(x - from.x, z - from.z);
-        if (cost < least) [best, least] = [[x, z], cost];
-      }
-      if (!best) return at;
-      const [x, z] = best;
-      return {
-        x,
-        z,
-        dir: Math.atan2(p.z - z, p.x - x),
-        h: p.y - surfaceY(this.map, x, z),
-        over: Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - HAND_REACH)),
-      };
-    }
-    // Points of the body that must keep off it, ahead of and to the right of its middle.
-    const body: [number, number][] = [
-      [0.18, -0.16],
-      [0.18, 0.16],
-      [-0.26, -0.16],
-      [-0.26, 0.16],
-    ];
-    const pad = 0.02;
-    const inside = (x: number, z: number) =>
-      body.some(([f, r]) => {
-        const px = x + Math.cos(at.dir) * f - Math.sin(at.dir) * r - root.position.x;
-        const pz = z + Math.sin(at.dir) * f + Math.cos(at.dir) * r - root.position.z;
-        const along = px * c + pz * s;
-        const across = -px * s + pz * c;
-        return (
-          along > box.min.x - pad &&
-          along < box.max.x + pad &&
-          across > box.min.z - pad &&
-          across < box.max.z + pad
-        );
-      });
-    let back = 0;
-    while (back < 0.6 && inside(at.x - Math.cos(at.dir) * back, at.z - Math.sin(at.dir) * back)) {
-      back += 0.02;
-    }
-    if (back === 0) return at;
-    const x = at.x - Math.cos(at.dir) * back;
-    const z = at.z - Math.sin(at.dir) * back;
-    return { ...at, x, z, h: at.h + surfaceY(this.map, at.x, at.z) - surfaceY(this.map, x, z) };
-  }
-
-  /**
-   * Where a dockhand walking to x, z goes instead, round a truck standing
-   * still rather than through it: to the edge of it on the side they are
-   * on, and along that side, until the way is clear of it.
-   */
-  private offTrucks(e: Entry, x: number, z: number): [number, number] {
-    const me = e.pose;
-    if (!me) return [x, z];
-    for (const truck of this.entries.values()) {
-      if (truck.view.kind !== 'truck' || truck.view.moving) continue;
-      const at = truck.model.root;
-      const dx = x - at.position.x;
-      const dz = z - at.position.z;
-      if (dx * dx + dz * dz > 2.5) continue;
-      const box = (truck.size ??= sizeOf(at));
-      const c = Math.cos(-at.rotation.y);
-      const s = Math.sin(-at.rotation.y);
-      const pad = 0.07;
-      // How far beyond each side of it, back, front, left and right, a point is.
-      const beyond = (px: number, pz: number) => {
-        const along = (px - at.position.x) * c + (pz - at.position.z) * s;
-        const across = -(px - at.position.x) * s + (pz - at.position.z) * c;
-        return [
-          box.min.x - pad - along,
-          along - box.max.x - pad,
-          box.min.z - pad - across,
-          across - box.max.z - pad,
-        ];
-      };
-      const to = beyond(x, z);
-      if (Math.max(...to) >= 0) {
-        if (e.round?.truck === truck.view.id) e.round = undefined;
-        continue;
-      }
-      // Kept to the side they are on, so they go round, never across; at
-      // one loading, to its left, the side its crates are on.
-      const from = beyond(me.x, me.z);
-      const side = /^Loading/.test(truck.view.activity ?? '')
-        ? 2
-        : e.round?.truck === truck.view.id
-          ? e.round.side
-          : from.indexOf(Math.max(...from));
-      e.round = { truck: truck.view.id, side };
-      let a = dx * c + dz * s;
-      let b = -dx * s + dz * c;
-      if (side === 0) a = box.min.x - pad;
-      else if (side === 1) a = box.max.x + pad;
-      else if (side === 2) b = box.min.z - pad;
-      else b = box.max.z + pad;
-      x = at.position.x + a * c - b * s;
-      z = at.position.z + a * s + b * c;
-    }
-    return [x, z];
-  }
-
-  /**
-   * Corners to walk by from one point to another round a truck standing
-   * still in the way, the shorter way round it; none if nothing is in the
-   * way.
-   */
-  private aroundTrucks(
-    from: { x: number; z: number },
-    to: { x: number; z: number },
-  ): { x: number; z: number }[] {
-    for (const truck of this.entries.values()) {
-      if (truck.view.kind !== 'truck' || truck.view.moving) continue;
-      const at = truck.model.root;
-      const mx = (from.x + to.x) / 2 - at.position.x;
-      const mz = (from.z + to.z) / 2 - at.position.z;
-      if (mx * mx + mz * mz > 4) continue;
-      const box = (truck.size ??= sizeOf(at));
-      const c = Math.cos(-at.rotation.y);
-      const s = Math.sin(-at.rotation.y);
-      const local = (p: { x: number; z: number }): [number, number] => {
-        const dx = p.x - at.position.x;
-        const dz = p.z - at.position.z;
-        return [dx * c + dz * s, -dx * s + dz * c];
-      };
-      const [fa, fb] = local(from);
-      const [ta, tb] = local(to);
-      // Whether a way crosses it (Liang-Barsky), kept a body's width off.
-      const pad = 0.06;
-      const crosses = ([fa, fb]: number[], [ta, tb]: number[]) => {
-        let lo = 0;
-        let hi = 1;
-        const clip = (p: number, q: number) => {
-          if (p === 0) return q > 0;
-          const r = q / p;
-          if (p < 0) lo = Math.max(lo, r);
-          else hi = Math.min(hi, r);
-          return lo < hi;
-        };
-        return (
-          clip(-(ta - fa), fa - (box.min.x - pad)) &&
-          clip(ta - fa, box.max.x + pad - fa) &&
-          clip(-(tb - fb), fb - (box.min.z - pad)) &&
-          clip(tb - fb, box.max.z + pad - fb) &&
-          hi - lo > 1e-3
-        );
-      };
-      if (!crosses([fa, fb], [ta, tb])) continue;
-      const out = pad + 0.05;
-      const corners: [number, number][] = [
-        [box.min.x - out, box.min.z - out],
-        [box.max.x + out, box.min.z - out],
-        [box.max.x + out, box.max.z + out],
-        [box.min.x - out, box.max.z + out],
-      ];
-      const near = (a: number, b: number) =>
-        corners.reduce((k, p, i) => {
-          const q = corners[k];
-          return Math.hypot(p[0] - a, p[1] - b) < Math.hypot(q[0] - a, q[1] - b) ? i : k;
-        }, 0);
-      const i = near(fa, fb);
-      const j = near(ta, tb);
-      const ways = [1, 3].map((step) => {
-        const path = [i];
-        while (path[path.length - 1] !== j) path.push((path[path.length - 1] + step) % 4);
-        return path;
-      });
-      const long = (path: number[]) =>
-        length([
-          { x: fa, z: fb },
-          ...path.map((k) => ({ x: corners[k][0], z: corners[k][1] })),
-          { x: ta, z: tb },
-        ]);
-      const best = long(ways[0]) <= long(ways[1]) ? ways[0] : ways[1];
-      // Only the corners it has to go by.
-      while (best.length > 1 && !crosses(corners[best[best.length - 2]], [ta, tb])) best.pop();
-      while (best.length > 1 && !crosses([fa, fb], corners[best[1]])) best.shift();
-      return best.map((k) => {
-        const [a, b] = corners[k];
-        return { x: at.position.x + a * c - b * s, z: at.position.z + a * s + b * c };
-      });
-    }
-    return [];
   }
 
   /**
@@ -1524,7 +797,7 @@ export class Entities {
       const [tx, tz] = [Math.floor(v.x), Math.floor(v.y)];
       const bay =
         !v.moving && m.inBounds(tx, tz) && m.build[m.idx(tx, tz)] === Build.TruckBay
-          ? this.bayFrame(m.idx(tx, tz))
+          ? bayFrame(this.trucks, m.idx(tx, tz))
           : null;
       if (bay && e.orderAt !== 'bay') {
         // In a truck bay: from where those who load it stand. Where its
@@ -1580,30 +853,4 @@ export class Entities {
   worldPositions(): { view: EntityView; pos: Vector3 }[] {
     return [...this.entries.values()].map((e) => ({ view: e.view, pos: e.model.root.position }));
   }
-}
-
-/** How far a model reaches each way from its middle, unturned. */
-function sizeOf(root: Object3D): Box3 {
-  const at = root.position.clone();
-  const turn = root.rotation.y;
-  root.position.set(0, 0, 0);
-  root.rotation.y = 0;
-  root.updateMatrixWorld(true);
-  const box = new Box3().setFromObject(root);
-  root.position.copy(at);
-  root.rotation.y = turn;
-  root.updateMatrixWorld(true);
-  return box;
-}
-
-/** Where a forklift turning about is, at a point of the way, and which way it faces. */
-function aboutAt(about: About, x: number, y: number): [number, number, number] {
-  const ux = Math.cos(about.dir);
-  const uy = Math.sin(about.dir);
-  const at = about.path.at((x - about.x) * ux + (y - about.y) * uy);
-  return [
-    x + ux * at.ahead - uy * at.right,
-    y + uy * at.ahead + ux * at.right,
-    about.dir + at.face,
-  ];
 }
