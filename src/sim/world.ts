@@ -6385,61 +6385,6 @@ export class World {
     }
   }
 
-  /**
-   * Where a dockhand or forklift loading a crate truck takes the crates
-   * from: the truck bay it stands in, or the tile of the crate storage
-   * beside where it stands, nearest it.
-   */
-  private crateTruckSpot(bay: Bay, t: Truck): number {
-    if (!bay.tiles) return bay.idx;
-    const at = this.tileOf(t);
-    const m = this.map;
-    return [...bay.tiles].sort(
-      (a, b) =>
-        Math.hypot(m.xOf(a) - m.xOf(at), m.yOf(a) - m.yOf(at)) -
-        Math.hypot(m.xOf(b) - m.xOf(at), m.yOf(b) - m.yOf(at)),
-    )[0];
-  }
-
-  /** Send a dockhand or forklift to load a crate truck: as many as it carries a trip. */
-  private takeCrateTruckJob(p: Dockhand, src: Source): boolean {
-    const t = src.truck!;
-    const bay = this.dest(t.bayIdx);
-    // One at a time loads a truck bay's trucks, however many stand about
-    // there waiting to set crates down.
-    if (!bay) return false;
-    if (bay.tiles && this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
-    if (
-      !bay.tiles &&
-      this.people.some((q) => q !== p && q.truckId !== undefined && q.stockIdx === bay.idx)
-    ) {
-      return false;
-    }
-    if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
-    // Off an ice works' truck onto the bay's stack: as many as it carries.
-    const unload = !src.load;
-    const room = unload
-      ? t.cargo - (t.taking ?? 0)
-      : Math.min(t.capacity - t.cargo - (t.coming ?? 0), this.cratesFor(t, bay));
-    const n = Math.min(p.capacity, src.avail, room);
-    if (n <= 0) return false;
-    if (!this.headTo(p, src.tile)) return false;
-    if (unload) t.taking = (t.taking ?? 0) + n;
-    else {
-      bay.reserved = (bay.reserved ?? 0) + n;
-      t.coming = (t.coming ?? 0) + n;
-    }
-    p.truckId = t.id;
-    p.truckLoad = !unload;
-    p.bayIdx = bay.idx;
-    p.stockIdx = bay.idx;
-    p.planned = n;
-    p.boatId = -1;
-    p.craneIdx = -1;
-    p.state = 'toPickup';
-    return true;
-  }
-
   /** Whether a business in town still takes crates of this kind today. */
   private wantedToday(c: Cargo): boolean {
     const wants = this.town?.wants ?? {};
@@ -6499,6 +6444,61 @@ export class World {
     if (at < 0) return [];
     t.kind ??= cargoOf(bay.crates[at]);
     return this.takeReady(bay, false, at, n, this.fitsTruck(t));
+  }
+
+  /**
+   * Where a dockhand or forklift loading a crate truck takes the crates
+   * from: the truck bay it stands in, or the tile of the crate storage
+   * beside where it stands, nearest it.
+   */
+  private crateTruckSpot(bay: Bay, t: Truck): number {
+    if (!bay.tiles) return bay.idx;
+    const at = this.tileOf(t);
+    const m = this.map;
+    return [...bay.tiles].sort(
+      (a, b) =>
+        Math.hypot(m.xOf(a) - m.xOf(at), m.yOf(a) - m.yOf(at)) -
+        Math.hypot(m.xOf(b) - m.xOf(at), m.yOf(b) - m.yOf(at)),
+    )[0];
+  }
+
+  /** Send a dockhand or forklift to load a crate truck: as many as it carries a trip. */
+  private takeCrateTruckJob(p: Dockhand, src: Source): boolean {
+    const t = src.truck!;
+    const bay = this.dest(t.bayIdx);
+    // One at a time loads a truck bay's trucks, however many stand about
+    // there waiting to set crates down.
+    if (!bay) return false;
+    if (bay.tiles && this.workersAt(src.tile) >= B.WORKERS_PER_SPOT) return false;
+    if (
+      !bay.tiles &&
+      this.people.some((q) => q !== p && q.truckId !== undefined && q.stockIdx === bay.idx)
+    ) {
+      return false;
+    }
+    if (isMachine(p) && this.nearerMachine(p, src.tile)) return false;
+    // Off an ice works' truck onto the bay's stack: as many as it carries.
+    const unload = !src.load;
+    const room = unload
+      ? t.cargo - (t.taking ?? 0)
+      : Math.min(t.capacity - t.cargo - (t.coming ?? 0), this.cratesFor(t, bay));
+    const n = Math.min(p.capacity, src.avail, room);
+    if (n <= 0) return false;
+    if (!this.headTo(p, src.tile)) return false;
+    if (unload) t.taking = (t.taking ?? 0) + n;
+    else {
+      bay.reserved = (bay.reserved ?? 0) + n;
+      t.coming = (t.coming ?? 0) + n;
+    }
+    p.truckId = t.id;
+    p.truckLoad = !unload;
+    p.bayIdx = bay.idx;
+    p.stockIdx = bay.idx;
+    p.planned = n;
+    p.boatId = -1;
+    p.craneIdx = -1;
+    p.state = 'toPickup';
+    return true;
   }
 
   /**
