@@ -238,6 +238,7 @@ export function makeOffer(
   takenNames: Set<string>,
   tier = 0,
   containersHandled = 0,
+  lobsters = true,
 ): Offer | null {
   const roll = rng.next();
   if (kind === 'shipper') return makeShipper(rng, id, tick, takenNames, tier, roll);
@@ -329,7 +330,7 @@ export function makeOffer(
 
   // A lobsterman now and then, from the same roll so the offers otherwise
   // come as they did: a small catch at a fine price.
-  const lobster = kind === 'fishery' && (roll * 7) % 1 < B.LOBSTER_SHARE;
+  const lobster = lobsters && kind === 'fishery' && (roll * 7) % 1 < B.LOBSTER_SHARE;
   if (lobster) {
     const free = LOBSTERMEN.filter((n) => !takenNames.has(n));
     const cratesMin = rng.int(3, 5);

@@ -24,6 +24,12 @@ thing to aim for.
 
 ## Fishing Jetty: village to town (cap 100 → 300+)
 
+**In the game** (`LANDMARKS` in `src/sim/town.ts`): these three steps, with
+the goals measured as crates of a kind trucked out a day (fish, lobster) or
+put on board fishing boats in all (ice). The landmark goes up as soon as its
+goal is met (no scaffolding yet). After the restaurant the town has no cap
+until the Coastal Wharf's steps are built.
+
 | # | Landmark | Goal | Opens | Cap after |
 |---|---|---|---|---|
 | 0 | Fishing village | | fishery (fish) contracts | 100 |

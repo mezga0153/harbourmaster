@@ -76,6 +76,9 @@ export const Build = {
   Highway: 37,
   /** A harbourmaster's hut by the jetties: looks after a few jetties, not quays. */
   HarbourHut: 38,
+  // Landmarks the town opens as the port keeps it supplied; see LANDMARKS in town.ts.
+  IceHouse: 39,
+  Restaurant: 40,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -136,7 +139,11 @@ export function isBuoy(code: number): boolean {
 
 /** Built and kept by the town, never the player. */
 export function isTownBuilding(code: number): boolean {
-  return code >= Build.Cottage && code <= Build.Factory;
+  return (
+    (code >= Build.Cottage && code <= Build.Factory) ||
+    code === Build.IceHouse ||
+    code === Build.Restaurant
+  );
 }
 
 /** Public roads trucks drive along, level crossings included. */

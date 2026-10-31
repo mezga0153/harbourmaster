@@ -510,6 +510,22 @@ export interface TownView {
   /** What the businesses will still take today. */
   wants: { crates: number; boxes: number };
   businesses: { label: string; count: number; boxes: boolean; perDay: number }[];
+  /** People it may grow to, as far as its landmarks let it; null for no limit. */
+  cap: number | null;
+  /** Landmarks it has opened, and the next one with how far the port is towards it. */
+  opened: string[];
+  next: {
+    name: string;
+    aim: string;
+    opens: string;
+    /** Crates so far: today's, or in all for a total. */
+    have: number;
+    need: number;
+    /** For a goal kept up for days: days running so far, of how many. */
+    days?: { done: number; need: number };
+    /** People it may grow to once it is open; null for no limit. */
+    cap: number | null;
+  } | null;
   /** The chapel square the town grows out from. */
   x: number;
   y: number;

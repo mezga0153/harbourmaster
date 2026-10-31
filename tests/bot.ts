@@ -21,6 +21,15 @@ export function playDay(w: World): string[] {
     w.command({ type: 'upgrade' });
     did.push(`upgrade to ${TIERS[w.tier].name}`);
   }
+  // The ice works, once the town's fish market wants ice: cheap, and the
+  // town's next step. It needs a truck bay, which the port has.
+  const ice = w.offers.find(
+    (o) => o.terms.kind === 'shipper' && o.terms.goods === 'ice' && o.signingFee < w.cash - 1500,
+  );
+  if (ice && w.bays.size > 0) {
+    w.command({ type: 'signContract', id: ice.id });
+    did.push('ice works');
+  }
   // Good staff are worth keeping: grant raises while the books are healthy.
   for (const p of w.people) {
     if (p.raiseAsk > 0) w.command({ type: 'raise', id: p.id, accept: w.cash > 1500 });
@@ -182,10 +191,12 @@ function connect(w: World, from: number[]): boolean {
 
 function buildOffice(w: World): boolean {
   const m = w.map;
-  const spot = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+  // On a fishing jetty, a harbourmaster's hut: the office comes with the wharf.
+  const kind = w.tier >= 1 ? 'office' : 'harbourHut';
+  const spot = m.build.findIndex((_, i) => !placementError(m, kind, i));
   if (spot < 0) return false;
-  w.command({ type: 'build', kind: 'office', tiles: [spot] });
-  return m.build[spot] === Build.Office;
+  w.command({ type: 'build', kind, tiles: [spot] });
+  return m.build[spot] === (kind === 'office' ? Build.Office : Build.HarbourHut);
 }
 
 /** Put a truck bay beside the road, as close to the jetty as possible. */

@@ -4,7 +4,14 @@ import { crossingClosed, railColumn } from '../src/sim/railway';
 import { exitRows, HIGHWAY_COLUMNS } from '../src/sim/roads';
 import { bulldozeError, OUTSIDE, placementError, terraformError } from '../src/sim/rules';
 import type { GameMap } from '../src/sim/map';
-import { isTownStreet, ownedByTown, TOWN_LAYOUT, TOWN_STAGES, townHomes } from '../src/sim/town';
+import {
+  isTownStreet,
+  LANDMARKS,
+  ownedByTown,
+  TOWN_LAYOUT,
+  TOWN_STAGES,
+  townHomes,
+} from '../src/sim/town';
 import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, townBand } from '../src/sim/types';
 import { World } from '../src/sim/world';
 
@@ -107,7 +114,9 @@ describe('Town', () => {
     expect(t.stage).toBe(0);
     expect(townHomes(m)).toBeGreaterThanOrEqual(B.TOWN_START);
     expect(m.build.some((b) => b === Build.Chapel)).toBe(true);
-    expect(m.build.some((b) => b === Build.FishMarket)).toBe(true);
+    // Its fish market comes once the port sends out fish enough.
+    expect(m.build.some((b) => b === Build.FishMarket)).toBe(false);
+    expect(t.landmarks).toBe(0);
     // Out in the country past the port's land, with a road to its own exit off the highway.
     for (let i = 0; i < m.build.length; i++) {
       if (ownedByTown(m, i)) expect(m.yOf(i)).toBeGreaterThan(m.limit);
@@ -129,6 +138,10 @@ describe('Town', () => {
 
   it('takes deliveries from the hauliers, for a bonus', () => {
     const world = World.create(7, 96);
+    // With its fish market open, to take them.
+    world.town!.landmarks = 1;
+    world['openLandmark'](LANDMARKS[0]);
+    expect(world.map.build.some((b) => b === Build.FishMarket)).toBe(true);
     for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
     let unloading = 0;
     for (let d = 0; d < 8; d++) {

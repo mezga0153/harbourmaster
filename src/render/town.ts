@@ -258,6 +258,35 @@ function fishMarket(g: Group, y: number) {
   g.add(box(0.36, 0.08, 0.012, C.sign, 0.5, y + 0.34, 0.86));
 }
 
+function iceHouse(g: Group, y: number) {
+  // A squat white store with thick walls, a low blue roof and a frosty door,
+  // a block of ice and an ice cart out front.
+  g.add(box(0.72, 0.26, 0.6, 0xe9f1f5, 0.5, y, 0.42));
+  g.add(gable(0.8, 0.14, 0.68, 0x5b8fb9, 0.5, y + 0.26, 0.42));
+  g.add(box(0.18, 0.2, 0.02, 0xbfe3f2, 0.5, y, 0.73));
+  g.add(box(0.5, 0.05, 0.02, 0x2f6fd0, 0.5, y + 0.2, 0.735));
+  for (const x of [0.2, 0.32]) g.add(box(0.1, 0.1, 0.1, 0xcdeefb, x, y, 0.86));
+  g.add(box(0.16, 0.06, 0.1, C.wood, 0.75, y + 0.04, 0.86));
+  for (const x of [0.69, 0.81]) g.add(cyl(0.03, 0.02, 0x333333, x, y, 0.86));
+}
+
+function restaurant(g: Group, y: number) {
+  // A white seafood restaurant: a red roof, a striped awning over tables
+  // outside, and a big red lobster on the sign.
+  g.add(box(0.74, 0.3, 0.5, 0xf4f1ea, 0.5, y, 0.36));
+  g.add(gable(0.82, 0.16, 0.58, 0xc0392b, 0.5, y + 0.3, 0.36));
+  for (let k = 0; k < 5; k++) {
+    g.add(box(0.15, 0.02, 0.18, k % 2 ? 0xffffff : 0xc0392b, 0.2 + k * 0.15, y + 0.24, 0.68));
+  }
+  for (const x of [0.28, 0.72]) {
+    g.add(cyl(0.07, 0.015, 0xffffff, x, y + 0.1, 0.84));
+    g.add(cyl(0.012, 0.1, 0x555555, x, y, 0.84));
+  }
+  g.add(box(0.22, 0.12, 0.02, 0xffffff, 0.5, y + 0.34, 0.62));
+  g.add(box(0.12, 0.06, 0.025, 0xd8452f, 0.5, y + 0.37, 0.62));
+  for (const x of [0.42, 0.58]) g.add(box(0.04, 0.04, 0.025, 0xd8452f, x, y + 0.4, 0.62));
+}
+
 function cannery(g: Group, y: number) {
   // A brick works with a sawtooth roof, a tall chimney and its loading door.
   g.add(box(0.86, 0.36, 0.7, BRICK[0], 0.5, y, 0.45));
@@ -367,6 +396,12 @@ export function townBuilding(code: number, top: number, v: number): Group | null
       break;
     case Build.Cannery:
       cannery(g, top);
+      break;
+    case Build.IceHouse:
+      iceHouse(g, top);
+      break;
+    case Build.Restaurant:
+      restaurant(g, top);
       break;
     case Build.Store:
       store(g, top, v);

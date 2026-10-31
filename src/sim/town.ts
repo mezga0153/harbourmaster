@@ -56,31 +56,81 @@ export interface Business {
 /** The town's shops and works, which the hauliers deliver some of the port's goods to. */
 export const BUSINESSES: Partial<Record<number, Business>> = {
   [Build.FishMarket]: { label: 'fish market', boxes: false, perDay: 12, industry: false },
+  [Build.Restaurant]: { label: 'seafood restaurant', boxes: false, perDay: 6, industry: false },
   [Build.Cannery]: { label: 'cannery', boxes: false, perDay: 24, industry: true },
   [Build.Store]: { label: 'department store', boxes: false, perDay: 20, industry: false },
   [Build.Factory]: { label: 'factory', boxes: true, perDay: 10, industry: true },
 };
 
-/** Businesses a town has by each stage. */
+/**
+ * The landmarks a town opens one after another as the port keeps it
+ * supplied (see progression.md): each has a goal the port meets, lifts how
+ * many people the town may grow to, and opens something for the port.
+ */
+export interface Landmark {
+  code: number;
+  name: string;
+  /** What the port must do: crates of `cargo` trucked out, `perDay` for `days` days running; or put on board fishing boats, `total` in all. */
+  goal: { cargo: 'fish' | 'ice' | 'lobster'; perDay?: number; days?: number; total?: number };
+  /** The goal in words, for the town panel. */
+  aim: string;
+  /** What opening it brings, in words. */
+  opens: string;
+  /** People the town may grow to once it is open. */
+  cap: number;
+}
+
+export const LANDMARKS: Landmark[] = [
+  {
+    code: Build.FishMarket,
+    name: 'Fish market',
+    goal: { cargo: 'fish', perDay: 12, days: 3 },
+    aim: 'Truck out 12 crates of fish a day, 3 days running',
+    opens:
+      'The market wants ice to keep its fish: an ice works offers its ice for the fishing boats',
+    cap: 150,
+  },
+  {
+    code: Build.IceHouse,
+    name: 'Ice house',
+    goal: { cargo: 'ice', total: 20 },
+    aim: 'Put 20 crates of ice on board fishing boats',
+    opens: 'With ice on board, boats go further out: lobster boats offer their catch',
+    cap: 200,
+  },
+  {
+    code: Build.Restaurant,
+    name: 'Seafood restaurant',
+    goal: { cargo: 'lobster', perDay: 6, days: 3 },
+    aim: 'Truck out 6 crates of lobster a day, 3 days running',
+    opens:
+      'Visitors come for the seafood: the town grows past 300, so the port may become a Coastal Wharf',
+    cap: Infinity,
+  },
+];
+
+/** People a village with none of its landmarks yet may grow to. */
+export const VILLAGE_CAP = 100;
+
+/** How many people the town may grow to, as far as its landmarks let it. */
+export function townCap(t: Town): number {
+  return t.landmarks > 0 ? LANDMARKS[t.landmarks - 1].cap : VILLAGE_CAP;
+}
+
+/** Businesses a town has by each stage, besides its landmarks. */
 const WANTED: readonly (readonly [number, number])[][] = [
-  [[Build.FishMarket, 1]],
+  [],
+  [],
   [
-    [Build.FishMarket, 1],
-    [Build.Cannery, 1],
-  ],
-  [
-    [Build.FishMarket, 1],
     [Build.Cannery, 1],
     [Build.Store, 1],
   ],
   [
-    [Build.FishMarket, 1],
     [Build.Cannery, 1],
     [Build.Store, 1],
     [Build.Factory, 1],
   ],
   [
-    [Build.FishMarket, 1],
     [Build.Cannery, 2],
     [Build.Store, 2],
     [Build.Factory, 2],
@@ -111,6 +161,12 @@ export interface Town {
   layout: number;
   /** Where its road leaves the map for the highway, or -1. */
   gate: number;
+  /** How many of LANDMARKS it has opened. */
+  landmarks: number;
+  /** Towards the next landmark: days running its goal was met, or crates so far towards a total. */
+  streak: number;
+  /** Crates of each kind trucked out so far today, or put on board, for the landmark's goal. */
+  goal: number;
 }
 
 /** Steps for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
@@ -320,11 +376,15 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
     undefined,
   );
 
-  const missing = WANTED[t.stage].find(([code, n]) => (have.get(code) ?? 0) < n);
+  const wanted: (readonly [number, number])[] = [
+    ...LANDMARKS.slice(0, t.landmarks).map((l) => [l.code, 1] as const),
+    ...WANTED[t.stage],
+  ];
+  const missing = wanted.find(([code, n]) => (have.get(code) ?? 0) < n);
   if (missing && plot) {
     // Shops in the middle of town; works out on its edge, but not beyond it.
-    const def = BUSINESSES[missing[0]]!;
-    const site = def.industry ? (plots.filter((p) => p.score <= edge + 1).pop() ?? plot) : plot;
+    const def = BUSINESSES[missing[0]];
+    const site = def?.industry ? (plots.filter((p) => p.score <= edge + 1).pop() ?? plot) : plot;
     place(map, site.tile, missing[0], facingStreet(map, site.tile), touch);
   } else if (plot && t.stage >= 2 && parks < t.stage - 1) {
     // Each bigger town gets another green square near the middle.
@@ -360,6 +420,30 @@ export function townDay(t: Town, jobs: number, map: GameMap): void {
   t.jobs = jobs;
   t.wants = townWants(map);
   t.demand += (townTarget(t) - t.demand) * B.TOWN_GROWTH;
+  // No more than its landmarks let it grow to.
+  t.demand = Math.min(t.demand, townCap(t));
+}
+
+/**
+ * At the end of a day, or as crates go on board: whether the town's next
+ * landmark's goal is met. Returns the landmark it opens, if it does.
+ */
+export function landmarkDue(t: Town, endOfDay: boolean): Landmark | null {
+  const next = LANDMARKS[t.landmarks];
+  if (!next) return null;
+  const g = next.goal;
+  if (g.total !== undefined) {
+    if (t.goal < g.total) return null;
+  } else {
+    if (!endOfDay) return null;
+    t.streak = t.goal >= (g.perDay ?? 0) ? t.streak + 1 : 0;
+    t.goal = 0;
+    if (t.streak < (g.days ?? 1)) return null;
+  }
+  t.landmarks++;
+  t.streak = 0;
+  t.goal = 0;
+  return next;
 }
 
 /** The stage the town has grown into, if it just moved up one. */
@@ -576,6 +660,9 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
     stage: 0,
     layout: TOWN_LAYOUT,
     gate: -1,
+    landmarks: 0,
+    streak: 0,
+    goal: 0,
   };
   const street = (i: number) => {
     if (i < 0) return;
@@ -623,8 +710,9 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
       }
     }
   }
-  // The chapel and the fish market on the square, then the cottages.
-  for (const code of [Build.Chapel, Build.FishMarket]) {
+  // The chapel on the square, then the cottages: the fish market comes
+  // once the port sends out fish enough (see LANDMARKS).
+  for (const code of [Build.Chapel]) {
     const spot = [
       step(map, best, 0),
       step(map, step(map, best, 1), 0),

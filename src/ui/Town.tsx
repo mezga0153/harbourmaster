@@ -17,6 +17,65 @@ const BLURBS = [
 
 const count = (n: number) => Math.round(n).toLocaleString('en-US');
 
+/**
+ * The town's next landmark, on top of its panel: what the port must do for
+ * it, how far it has got, what opening it brings, and how big the town may
+ * grow till then and after.
+ */
+function NextStep() {
+  const t = snapshot.value?.town;
+  if (!t) return null;
+  const n = t.next;
+  const cap = (c: number | null) => (c === null ? 'grow on' : `grow to ${count(c)} people`);
+  if (!n) {
+    return (
+      <div class="card town-next">
+        <div class="card-head">
+          <strong>Every landmark open</strong>
+          <span class="badge good">{t.opened.length} open</span>
+        </div>
+        <p class="muted">
+          {t.opened.join(', ')}. The town may {cap(t.cap)}.
+        </p>
+      </div>
+    );
+  }
+  const total = n.days === undefined;
+  return (
+    <div class="card town-next">
+      <div class="card-head">
+        <strong>Next: {n.name.toLowerCase()}</strong>
+        {t.cap !== null && (
+          <span class={`badge ${t.population >= t.cap ? 'bad' : ''}`}>
+            {count(t.population)} / {count(t.cap)} people
+          </span>
+        )}
+      </div>
+      <p>{n.aim}.</p>
+      <div class="req">
+        <span>{total ? 'So far' : 'Today'}</span>
+        <Meter value={n.need > 0 ? n.have / n.need : 1} tone={n.have >= n.need ? 'good' : 'ok'} />
+        <span class="req-value">
+          {count(Math.min(n.have, n.need))} / {count(n.need)}
+        </span>
+      </div>
+      {n.days && (
+        <div class="req">
+          <span>Days running</span>
+          <Meter value={n.days.done / n.days.need} tone="ok" />
+          <span class="req-value">
+            {n.days.done} / {n.days.need}
+          </span>
+        </div>
+      )}
+      <p class="muted">
+        {n.opens}. Till then the town can {cap(t.cap)}; once it opens, {cap(n.cap)}.
+      </p>
+      {t.opened.length > 0 && <p class="muted">Open already: {t.opened.join(', ')}.</p>}
+    </div>
+  );
+}
+
 export function TownPanel({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   const t = s?.town;
@@ -37,6 +96,7 @@ export function TownPanel({ actions }: { actions: Actions }) {
       <InfoHeader kicker={TOWN_STAGES[t.stage].name} title={t.name} onClose={close} />
       <PortTownTabs on="town" />
       <p class="muted">{BLURBS[t.stage]}</p>
+      <NextStep />
       <button class="btn" onClick={close}>
         Back to the port
       </button>
