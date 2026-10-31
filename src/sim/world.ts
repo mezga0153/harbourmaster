@@ -246,6 +246,11 @@ export class World {
   anchorageTile = -1;
   /** Ticks today with a full truck bay, for the advisor. Not saved. */
   bayFullTicks = 0;
+  /**
+   * How far, in tiles, the dockhands lately walked each crate off a boat
+   * to where they set it down, as a running average; see longCarry. Not saved.
+   */
+  carryWalk = 0;
   /** Cached planning estimate; cleared when the port changes. Not saved. */
   capacityCache: Capacity | null = null;
   /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */

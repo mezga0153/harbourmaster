@@ -236,6 +236,12 @@ export const TOPICS: Record<TopicId, Topic> = {
           it before moving or rebuilding an area, so nothing is lost with it.
         </p>
         <p>
+          Mark out crate storage for cargo coming in, and for cargo going out, on the quay right by
+          the berths: dockhands carry every crate off a boat themselves, a few steps there rather
+          than across the port, and boats unload about twice as fast. Trucks load beside it, or
+          forklifts move the crates on to the truck bays.
+        </p>
+        <p>
           Storage beside a jib crane fills straight from the boats. Where trucks cannot reach it,
           forklifts take its crates on.
         </p>

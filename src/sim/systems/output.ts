@@ -59,6 +59,24 @@ export function departTips(w: World): void {
   tipUnless(w, id, id === 'jetty' && docks(w).length > 1);
 }
 
+/**
+ * A dockhand off with a crate from a boat, `tiles` of walk to where they
+ * set it down: kept as a running average, and with boats kept waiting a
+ * good while meanwhile (at anchor, or alongside past their fair time or a
+ * day) and that walk long, the advisor says to mark storage out on the quay.
+ */
+export function longCarry(w: World, tiles: number): void {
+  w.carryWalk += (tiles - w.carryWalk) * 0.1;
+  // Storage is marked out on quays from the Coastal Wharf on.
+  if (w.tier < 1 || w.tipsSeen.has('quayStorage') || w.carryWalk < B.LONG_CARRY_TILES) return;
+  const kept = w.boats.some(
+    (b) =>
+      (b.state === 'anchored' && b.anchorTicks > B.ANCHOR_PENALTY_TICKS) ||
+      (b.state === 'moored' && b.crates > 0 && b.mooredTicks > Math.min(b.grace, TICKS_PER_DAY)),
+  );
+  if (kept) tip(w, 'quayStorage');
+}
+
 export function moneyAt(w: World, amount: number, i: number): void {
   w.events.push({ kind: 'money', amount, x: w.map.xOf(i) + 0.5, y: w.map.yOf(i) + 0.5 });
 }

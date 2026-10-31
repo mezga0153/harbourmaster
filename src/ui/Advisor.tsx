@@ -52,6 +52,11 @@ const TIPS: Record<string, Tip> = {
     text: 'Coasters bring their crates on pallets, and a lot of them. Dockhands carry each straight into crate storage or a truck bay, never setting one down on the quay, so mark out crate storage near the berth; a jib crane swings them straight into storage beside it instead.',
     topic: 'boats',
   },
+  quayStorage: {
+    title: 'Storage on the quay',
+    text: 'Boats are kept waiting while the dockhands walk each crate off them a long way to storage or a truck bay. Mark out crate storage for cargo coming in, and crate storage for cargo going out, on the quay right by the berths, so they carry each a few steps rather than across the port. Trucks load beside it, or forklifts move the crates on to the truck bays.',
+    topic: 'storage',
+  },
   cranes: {
     title: 'Machines only round a crane',
     text: `The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. A jib crane swings crates only into crate storage for cargo coming in right next to it, in that red ground: mark some out there, or it unloads nothing. What a container crane lands, reach stackers take on.`,

@@ -57,7 +57,7 @@ import type { ParkPose } from '../../machines';
 import { Build, isBay } from '../../types';
 import type { MachineKind } from '../../types';
 import { MACHINE_TIER, TIERS } from '../../tiers';
-import { message, moneyAt, nag, tip } from '../output';
+import { longCarry, message, moneyAt, nag, tip } from '../output';
 import { machinePlacementError, walkableAt } from '../../rules/placement';
 import { book } from '../economy';
 import {
@@ -520,6 +520,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
       if (!gantryFor(w, p)) return;
       if (--p.timer > 0) return;
       gantryDone(w, w.yards.get(p.stockIdx), p.id);
+      const offBoat = p.craneIdx < 0 && p.stockIdx < 0 && p.boatId >= 0;
       const fees = takeFromSource(w, p);
       if (fees.length === 0) return cancelJob(w, p);
       // Fewer than planned: hand back the spare room in the bay.
@@ -545,8 +546,9 @@ export function updateDockhand(w: World, p: Dockhand): void {
         return;
       }
       const goal = bay ? dropAt(w, p, bay, w.tileOf(p)) : -1;
-      if (goal < 0 || !headTo(w, p, goal)) retargetCrate(w, p);
-      else p.state = 'toDrop';
+      if (goal < 0 || !headTo(w, p, goal)) return retargetCrate(w, p);
+      p.state = 'toDrop';
+      if (offBoat) longCarry(w, p.path.length);
       return;
     }
     case 'toDrop': {
