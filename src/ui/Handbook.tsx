@@ -49,7 +49,8 @@ export const TOPICS: Record<TopicId, Topic> = {
             for forklifts to take.
           </li>
           <li>
-            <b>Waits</b> in the bay or storage. Containers also wait for customs.
+            <b>Waits</b> in the bay or storage. Containers, and crates of timber and goods, also
+            wait for customs.
           </li>
           <li>
             <b>Trucked away</b> by the hauliers you sign. You are paid when a truck leaves with it.
@@ -232,6 +233,17 @@ export const TOPICS: Record<TopicId, Topic> = {
           Storage beside a jib crane fills straight from the boats. Where trucks cannot reach it,
           forklifts take its crates on.
         </p>
+        <p>
+          <b>Customs and export papers.</b> Crates of timber and goods off the coasters go into
+          crate storage for cargo coming in, never a truck bay nor straight onto a truck, and wait
+          there about {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a truck may take them.
+          The cannery's canned fish waits in the outgoing storage about{' '}
+          {hours(B.EXPORT_PAPERS_TICKS)} hours for its export papers before it may go on board.
+          Fish, lobster and ice are fresh and go at once. Crates still waiting have a slip of paper
+          under a red seal on the lid; select storage to see how many wait and when the next clear.
+          A busy Coastal Wharf needs room for a day of the coasters' timber and goods: when the
+          storage is full of crates in customs, the coasters cannot be unloaded.
+        </p>
       </>
     ),
   },
@@ -327,6 +339,9 @@ export const TOPICS: Record<TopicId, Topic> = {
           <li>
             A shipper's truck parks outside the port, on parking joined to a public road, for about{' '}
             {hours(B.PAPERWORK_TICKS)} hours of paperwork. With nowhere to park, it does not come.
+            The cannery's trucks, from the town, park only to wait their turn: their canned fish has
+            its export papers done in the outgoing storage instead, about{' '}
+            {hours(B.EXPORT_PAPERS_TICKS)} hours, before it may go on board.
           </li>
           <li>
             Then it drives in and unloads into crate storage or a container yard. While every spot

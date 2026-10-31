@@ -480,6 +480,27 @@ export function setCrateIcon(c: Object3D | undefined, k: Cargo | undefined): voi
   }
 }
 
+/**
+ * A crate waiting in storage on customs or its export papers shows a slip
+ * of paper on its lid under a red seal; one cleared, nothing.
+ */
+export function setCrateSeal(c: Object3D | undefined, waiting: boolean): void {
+  if (!c || !!c.userData.sealed === waiting) return;
+  c.userData.sealed = waiting;
+  let tag = c.children.find((d) => d.userData.seal);
+  if (!tag && waiting) {
+    const size = (c.userData.size as number | undefined) ?? 0.3;
+    tag = new Group();
+    tag.userData.seal = true;
+    tag.add(
+      box(size * 0.46, size * 0.02, size * 0.34, C.sealPaper, size * 0.1, size, -size * 0.08),
+    );
+    tag.add(box(size * 0.13, size * 0.035, size * 0.13, C.seal, size * 0.18, size, 0));
+    c.add(tag);
+  }
+  if (tag) tag.visible = waiting;
+}
+
 /** Paint each of `crates` as holding what `cargo` says, in order, as far as it says. */
 export function paintCargo(crates: Object3D[], cargo: Cargo[] | undefined): void {
   if (!cargo) return;
@@ -490,6 +511,7 @@ export function paintCargo(crates: Object3D[], cargo: Cargo[] | undefined): void
 
 export function crate(size: number, x = 0, y = 0, z = 0): Group {
   const g = new Group();
+  g.userData.size = size;
   // Body and lid are stacked, not overlapping, so no faces share a plane.
   g.add(box(size, size * 0.82, size, C.crate));
   g.add(box(size * 1.04, size * 0.18, size * 1.04, C.crateLid, 0, size * 0.82));

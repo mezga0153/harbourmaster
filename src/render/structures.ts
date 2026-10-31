@@ -68,6 +68,7 @@ import {
   paintContainer,
   PALLET_CRATE,
   setCrateIcon,
+  setCrateSeal,
 } from './models';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
@@ -1511,8 +1512,9 @@ export class Structures {
     for (const b of bays) {
       if (b.tiles) {
         this.areas.set(b.idx, b.tiles);
-        if (b.places) this.palletise(b.tiles, b.stock + b.exports, b.places, b.cargo);
-        else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo);
+        if (b.places) {
+          this.palletise(b.tiles, b.stock + b.exports, b.places, b.cargo, b.waiting);
+        } else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo, b.waiting);
         continue;
       }
       const stack = this.stacks.get(b.idx);
@@ -1585,6 +1587,7 @@ export class Structures {
     boxes: boolean,
     looks?: number[],
     cargo?: Cargo[],
+    waiting?: boolean[],
   ): void {
     let left = count;
     let at = 0;
@@ -1598,6 +1601,7 @@ export class Structures {
         o.visible = k < left;
         if (order && o.visible && at + k < order.length) paintContainer(o, order[at + k]);
         if (!boxes && cargo && at + k < cargo.length) setCrateIcon(o, cargo[at + k]);
+        if (!boxes) setCrateSeal(o, !!waiting?.[at + k]);
       });
       at += Math.min(left, items.length);
       left = Math.max(0, left - items.length);
@@ -1605,7 +1609,13 @@ export class Structures {
   }
 
   /** Crate storage's crates, `count` of them, four to each pallet, the pallets in `places`. */
-  private palletise(tiles: number[], count: number, places: number[], cargo?: Cargo[]): void {
+  private palletise(
+    tiles: number[],
+    count: number,
+    places: number[],
+    cargo?: Cargo[],
+    waiting?: boolean[],
+  ): void {
     const per = CRATES_PER_STORE_TILE / PALLET;
     const on = new Map<number, number>();
     places.forEach((k, j) => on.set(k, Math.min(PALLET, Math.max(0, count - j * PALLET))));
@@ -1617,6 +1627,8 @@ export class Structures {
         const j = places.indexOf(place);
         const c = j >= 0 ? cargo?.[j * PALLET + (k % PALLET)] : undefined;
         if (c) setCrateIcon(o, c);
+        // Still in customs, or waiting on its export papers: sealed.
+        setCrateSeal(o, j >= 0 && !!waiting?.[j * PALLET + (k % PALLET)]);
       });
     });
   }

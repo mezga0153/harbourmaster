@@ -97,6 +97,16 @@ const TIPS: Record<string, Tip> = {
     text: `Customs start on a ship's containers once the whole ship is unloaded, and clear them about ${hours(B.CUSTOMS_TICKS)} hours later. Until then they wait in the yard. Build yards to hold that much: when they fill, the cranes stop.`,
     topic: 'containers',
   },
+  crateCustoms: {
+    title: 'Customs on timber and goods',
+    text: `Crates of timber and goods off the coasters go into crate storage, and wait there about ${hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a truck may take them; they never go straight onto a truck. Fish and lobster are fresh and go at once. Mark out enough crate storage for cargo coming in to hold a day of them: when it is full, the coasters cannot be unloaded.`,
+    topic: 'storage',
+  },
+  papers: {
+    title: 'Export papers',
+    text: `The cannery's canned fish waits in the outgoing crate storage about ${hours(B.EXPORT_PAPERS_TICKS)} hours for its export papers before it may go on board, so a coaster takes only what is ready. Give the outgoing storage room for half a day of it, or the cannery's trucks wait outside with their loads.`,
+    topic: 'exports',
+  },
   noHands: {
     title: 'Nobody to unload by hand',
     text: 'With no dockhands, boats only take berths under a jib crane and wait at anchor for one. Hire dockhands, or build more jib cranes.',

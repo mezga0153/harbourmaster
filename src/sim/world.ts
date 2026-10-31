@@ -302,6 +302,8 @@ interface Dockhand extends Agent {
   restack?: { yard: number; tile: number };
   /** Stackers: when customs clear each container carried, where that is known already (restacking). */
   cargoReady?: number[];
+  /** Crates carried out of storage, so cleared already: no customs again where they go. */
+  cleared?: boolean;
   /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
   blocker?: number;
   /** The tile of crane stack on its way it last looked for a way round; see walk. */
@@ -643,6 +645,18 @@ interface Bay {
   boxIncoming: number;
   /** Fee of each crate waiting here. */
   crates: number[];
+  /**
+   * When customs clear each crate of timber or goods here still waiting on
+   * them, soonest first: they are the newest of those crates, as the oldest
+   * clear first. Older saves have none: all clear.
+   */
+  customs?: number[];
+  /**
+   * Outgoing crate storage: when the export papers are done for each crate
+   * of canned fish still waiting on them, soonest first, the newest of them
+   * as with customs.
+   */
+  papers?: number[];
   /** Crates being carried here right now. */
   incoming: number;
   nextTruckTick: number;
@@ -970,6 +984,21 @@ function truckBay(b: Bay): boolean {
 function bayIncoming(b: Bay, boxes: boolean, delta: number): void {
   if (boxes) b.boxIncoming = Math.max(0, b.boxIncoming + delta);
   else b.incoming = Math.max(0, b.incoming + delta);
+}
+
+/**
+ * Crates of timber and goods off the coasters wait in storage for customs
+ * to clear them before a truck may take them; the catch and ice are fresh,
+ * and need none.
+ */
+function needsCustoms(fee: number): boolean {
+  const c = cargoOf(fee);
+  return c === 'timber' || c === 'goods';
+}
+
+/** Crates of canned fish wait in storage for their export papers before they may go on board. */
+function needsPapers(fee: number): boolean {
+  return cargoOf(fee, 'goods') === 'canned';
 }
 
 /** Crates and exports in a bay or crate storage. */
@@ -1446,6 +1475,8 @@ export class World {
       world.bays.set(bay.idx, {
         ...bay,
         crates: [...bay.crates],
+        customs: bay.customs && [...bay.customs],
+        papers: bay.papers && [...bay.papers],
         places: bay.places && [...bay.places],
         boxes: [...(bay.boxes ?? [])],
         boxIncoming: bay.boxIncoming ?? 0,
@@ -2280,6 +2311,18 @@ export class World {
       const room = area ? Math.max(0, bayRoom(area, !!a.yard)) : 0;
       if (area) (area.exports ??= []).push(...goods.slice(0, room));
       lost[a.yard ? 'boxes' : 'crates'] += Math.max(0, goods.length - room);
+      // Crates waiting on customs or papers wait on where they went.
+      if (area && !area.yard) {
+        for (const [from, out] of [
+          [a.customs, false],
+          [a.papers, true],
+        ] as const) {
+          if (!from?.length) continue;
+          const list = out ? (area.papers ??= []) : (area.customs ??= []);
+          list.push(...from);
+          list.sort((x, y) => x - y);
+        }
+      }
     }
     for (const t of this.trucks) {
       const area = this.dest(t.bayIdx);
@@ -5783,8 +5826,11 @@ export class World {
         .filter((q) => q.stockIdx === b.idx)
         .map((q) => q.takeAt),
     );
+    // Never a pallet with crates on it still waiting on customs or papers.
+    const wait = this.heldMask(b);
+    const cleared = (j: number) => !wait.slice(j * per, (j + 1) * per).includes(true);
     for (let j = last; j >= 0; j--) {
-      if (j * per >= from && (j + 1) * per <= to && !taken.has(places[j])) return j;
+      if (j * per >= from && (j + 1) * per <= to && !taken.has(places[j]) && cleared(j)) return j;
     }
     return last;
   }
@@ -6425,11 +6471,15 @@ export class World {
    * that no dockhand or forklift is already going for.
    */
   private cratesFor(t: Truck, bay: Bay): number {
-    const free = bay.crates.length - (bay.reserved ?? 0);
+    // Crates still in customs wait: no truck may have them yet.
+    const free = this.readyIn(bay, false) - (bay.reserved ?? 0);
     if (!t.kind || free <= 0) return free;
     const fits = this.fitsTruck(t);
+    const wait = this.waitMask(bay, false);
     let n = 0;
-    for (const f of bay.crates) if (fits(f)) n++;
+    bay.crates.forEach((f, i) => {
+      if (!wait[i] && fits(f)) n++;
+    });
     return Math.min(free, n);
   }
 
@@ -6440,17 +6490,12 @@ export class World {
    */
   private cratesOff(t: Truck, bay: Bay, at: number, n: number): number[] {
     if (n <= 0 || bay.crates.length === 0) return [];
-    if (at >= bay.crates.length) at = 0;
+    // Never one still in customs.
+    const wait = this.waitMask(bay, false);
+    if (at >= bay.crates.length || wait[at]) at = wait.indexOf(false);
+    if (at < 0) return [];
     t.kind ??= cargoOf(bay.crates[at]);
-    const fits = this.fitsTruck(t);
-    const run = bay.crates.slice(at, at + n);
-    if (run.length === n && run.every(fits)) return bay.crates.splice(at, n);
-    const out: number[] = [];
-    for (let i = 0; i < bay.crates.length && out.length < n;) {
-      if (fits(bay.crates[i])) out.push(...bay.crates.splice(i, 1));
-      else i++;
-    }
-    return out;
+    return this.takeReady(bay, false, at, n, this.fitsTruck(t));
   }
 
   /**
@@ -9072,6 +9117,9 @@ export class World {
           (onto.fees ??= []).push(...p.cargoFees);
           onto.idle = 0;
         } else (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
+        // Timber and goods wait in crate storage for customs.
+        if (!onto && !boxy && !p.cleared) this.startHolds(bay, p.cargoFees, false);
+        p.cleared = undefined;
         if (boxy) this.tip('customs');
         if (bay.pile) this.tip('landed');
         bayIncoming(bay, boxy, -p.planned);
@@ -9253,7 +9301,7 @@ export class World {
     // on by forklift to storage or a truck bay they can.
     if (forks) {
       for (const store of this.bays.values()) {
-        const avail = store.crates.length - (store.reserved ?? 0);
+        const avail = this.readyIn(store, false) - (store.reserved ?? 0);
         // A full load at a time: there is no boat waiting on it.
         if (!store.tiles || avail < p.capacity || this.truckable(store)) continue;
         // At the pallet it would take.
@@ -9304,12 +9352,23 @@ export class World {
       if (isMachine(p) && this.nearerMachine(p, src.tile)) continue;
       // Containers go to a container yard, crates to a truck bay or storage,
       // or off a boat onto the quay.
+      // Timber and goods go through crate storage, for customs.
+      const held =
+        !boxy &&
+        (src.boat
+          ? needsCustoms(src.boat.fee)
+          : src.crane
+            ? src.crane.stack.some(needsCustoms)
+            : !src.pile?.tiles && !!src.pile?.crates.some(needsCustoms));
       const bay = boxy
         ? this.yardWithRoom(p, src.tile)
         : src.boat
-          ? this.landing(p, src.tile, src.boat.vessel === 'coaster')
-          : this.bayWithRoom(p, src.tile, !!src.pile?.tiles);
-      if (!bay) continue;
+          ? this.landing(p, src.tile, src.boat.vessel === 'coaster', held)
+          : this.bayWithRoom(p, src.tile, !!src.pile?.tiles, held);
+      if (!bay) {
+        if (held) this.noCustomsStore();
+        continue;
+      }
       if (!this.headTo(p, src.tile)) continue;
       const planned = Math.min(p.capacity, src.avail, this.dropRoom(bay, boxy));
       if (src.crane) src.crane.reserved += planned;
@@ -9462,14 +9521,30 @@ export class World {
    * the forklifts when there are any (pallets always wait for them), else
    * carried on to a truck bay or storage.
    */
-  private landing(p: Dockhand, t: number, pallets: boolean): Bay | null {
+  private landing(p: Dockhand, t: number, pallets: boolean, held = false): Bay | null {
     const store = this.bays.get(this.storeOf[t]);
     if (store && bayRoom(store, false) > 0 && this.takesImports(store)) return store;
     if (pallets || this.forklifts()) {
       const pile = this.pileAt(t, pallets);
       if (pile || pallets) return pile;
     }
-    return this.bayWithRoom(p, t);
+    return this.bayWithRoom(p, t, false, held);
+  }
+
+  /**
+   * Timber or goods with no crate storage for cargo coming in with room to
+   * wait for customs in: say so, as the coasters cannot be unloaded.
+   */
+  private noCustomsStore(): void {
+    const room = [...this.bays.values()].some(
+      (b) => b.tiles && this.takesImports(b) && bayRoom(b, false) > 0,
+    );
+    if (room) return;
+    this.nag(
+      'customsStore',
+      'Timber and goods wait in crate storage for customs, and none has room: the coasters cannot be unloaded. Mark out more crate storage for cargo coming in.',
+      'bad',
+    );
   }
 
   /**
@@ -9533,7 +9608,8 @@ export class World {
     if (!this.boats.some((b) => this.wantsLoad(b) && (b.vessel === 'feeder') === boxy)) return;
     const stores = boxy ? this.yards.values() : this.bays.values();
     for (const store of stores) {
-      const avail = (store.exports?.length ?? 0) - (store.outReserved ?? 0);
+      // Canned fish waits for its export papers.
+      const avail = this.readyIn(store, true) - (store.outReserved ?? 0);
       if (!store.tiles || avail <= 0 || !this.servesYard(p, store)) continue;
       const tile =
         p.kind === 'stacker' && store.yard
@@ -9742,7 +9818,8 @@ export class World {
     let n = 0;
     // Fishing boats take the ice in the truck bays, coasters what is in storage.
     for (const s of boxes ? this.yards.values() : this.bays.values()) {
-      if (boxes || truckBay(s) === (b.vessel === 'smack')) n += s.exports?.length ?? 0;
+      // Not canned fish still waiting on its export papers.
+      if (boxes || truckBay(s) === (b.vessel === 'smack')) n += this.readyIn(s, true);
     }
     if (b.vessel === 'smack') return n;
     if (boxes) {
@@ -9824,7 +9901,12 @@ export class World {
       others: ', letting a ship ready before it go first',
       room: ', waiting for a ship turning off its berth',
     };
-    return `Ready to sail${out > 0 ? ` with ${out} exports` : ''}${b.holdUp ? why[b.holdUp] : ''}`;
+    // Canned fish still waiting on its papers stays for the next coaster.
+    let papers = 0;
+    if (b.vessel === 'coaster')
+      for (const s of this.bays.values()) papers += this.holds(s, true).length;
+    const later = papers > 0 ? `; ${papers} crates of canned fish wait on their export papers` : '';
+    return `Ready to sail${out > 0 ? ` with ${out} exports` : ''}${b.holdUp ? why[b.holdUp] : ''}${later}`;
   }
 
   /** What each crate on a crate truck holds, in load order. */
@@ -9894,6 +9976,7 @@ export class World {
     const sign = (trade: 'canned' | 'timber' | 'goods', what: string) =>
       `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
     const noBerth = `Coasters need a berth: build a quay 2 wide, in ${B.COASTER_DRAFT} m of water`;
+    let held: string | undefined;
     switch (l.code) {
       case Build.Cannery:
         if (!coasters) return 'Needs coasters: build a quay 2 wide and sign a shipping line';
@@ -9903,19 +9986,46 @@ export class World {
         if (!signed('canned')) return sign('canned', 'the cannery');
         if (!coasters) return 'The canned fish goes out on coasters: sign a shipping line';
         if (!berth) return noBerth;
+        held = this.storeHint(true);
         break;
       case Build.School:
         if (!signed('timber')) return sign('timber', 'the timber line');
         if (!berth) return noBerth;
+        held = this.storeHint(false);
         break;
       case Build.TownHall:
         if (!signed('goods')) return sign('goods', 'the goods line');
         if (!berth) return noBerth;
+        held = this.storeHint(false);
         break;
     }
+    // Storage full of crates still in customs, or none at all.
+    if (held) return held;
     // Crates trucked out need hauliers to take them.
     if (!l.goal.aboard && !this.contracts.some((c) => c.terms.kind === 'haulier')) {
       return 'Needs a haulier to truck the crates out: sign one on the contracts board (C)';
+    }
+    return undefined;
+  }
+
+  /**
+   * What holds up the Coastal Wharf's trade in crate storage, if anything:
+   * timber and goods wait for customs in storage for cargo coming in, and
+   * canned fish for its export papers in storage for cargo going out.
+   */
+  private storeHint(out: boolean): string | undefined {
+    const stores = [...this.bays.values()].filter(
+      (b) => b.tiles && (out ? this.takesExports(b) : this.takesImports(b)),
+    );
+    const what = out ? 'cargo going out' : 'cargo coming in';
+    const waits = out
+      ? 'The canned fish waits in crate storage for its export papers'
+      : 'Timber and goods wait in crate storage for customs';
+    if (stores.length === 0) return `${waits}: mark out crate storage for ${what}`;
+    // Full, with crates still waiting in it.
+    const full = stores.every((b) => bayRoom(b, false) <= 0);
+    if (full && stores.some((b) => this.holds(b, out).length > 0)) {
+      return `${waits}, and the crate storage for ${what} is full: mark out more`;
     }
     return undefined;
   }
@@ -9975,15 +10085,18 @@ export class World {
         };
       }
     } else {
-      const store = this.jibStores(c).find(
-        (a) => (a.exports?.length ?? 0) - (a.outReserved ?? 0) > 0,
-      );
+      const store = this.jibStores(c).find((a) => this.readyIn(a, true) - (a.outReserved ?? 0) > 0);
       const pile = [...this.piles.values()].find(
         (q) => q.out && q.crates.length - (q.reserved ?? 0) > 0 && this.inJibReach(c, q.idx),
       );
       from = store ? { store } : pile ? { pile } : {};
-      if (store) take = () => store.exports!.shift()!;
-      else if (pile) {
+      if (store) {
+        take = () =>
+          this.takeReady(store, true, 0, 1, undefined, {
+            from: this.exportLooks(store),
+            to: [],
+          })[0];
+      } else if (pile) {
         take = () => {
           const fee = pile.crates.shift()!;
           this.tidyPile(pile.idx);
@@ -9998,14 +10111,16 @@ export class World {
     c.angle = Math.atan2(ship.y - (m.yOf(c.idx) + 0.5), ship.x - (m.xOf(c.idx) + 0.5));
     if (++c.timer < craneTicks(c)) return;
     c.timer = 0;
-    this.shipOut(ship, [take()]);
+    const fee = take();
+    if (fee !== undefined) this.shipOut(ship, [fee]);
   }
 
   /**
    * Shippers' trucks come in on their timetable, each to a parking space
    * outside the port to have its paperwork done. With nowhere to park, they
    * do not come. An ice works' trucks need no paperwork: they drive
-   * straight to a truck bay, like the hauliers'.
+   * straight to a truck bay, like the hauliers'. The cannery's park only to
+   * wait their turn: their crates have their export papers done in storage.
    */
   private spawnShipments(): void {
     const m = this.map;
@@ -10231,6 +10346,7 @@ export class World {
 
   /** Lift up to the planned number of crates; returns their fees. */
   private takeFromSource(p: Dockhand): number[] {
+    p.cleared = undefined;
     if (p.craneIdx >= 0) {
       const crane = this.cranes.get(p.craneIdx);
       p.craneIdx = -1;
@@ -10280,9 +10396,11 @@ export class World {
         const out = (pile.exports ??= []);
         const n = Math.min(p.planned, out.length, this.onPallet(p, pile));
         if (!pile.yard) {
-          const at = this.takenFrom(p, pile, n);
-          p.cargoLooks = this.exportLooks(pile).splice(at, n);
-          return out.splice(at, n);
+          // Never canned fish still waiting on its export papers.
+          const looks = { from: this.exportLooks(pile), to: [] as number[] };
+          const fees = this.takeReady(pile, true, this.takenFrom(p, pile, n), n, undefined, looks);
+          p.cargoLooks = looks.to;
+          return fees;
         }
         // Off the top of the stacks in a yard.
         const fees: number[] = [];
@@ -10299,7 +10417,12 @@ export class World {
       }
       pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
       const n = Math.min(p.planned, pile.crates.length, this.onPallet(p, pile));
-      const fees = pile.crates.splice(pile.tiles ? this.takenFrom(p, pile, n) : 0, n);
+      // Out of storage, never a crate still in customs; and those taken
+      // have cleared, wherever they go.
+      const fees = pile.tiles
+        ? this.takeReady(pile, false, this.takenFrom(p, pile, n), n)
+        : pile.crates.splice(0, n);
+      if (pile.tiles) p.cleared = true;
       this.tidyPile(at);
       return fees;
     }
@@ -10316,8 +10439,10 @@ export class World {
    * Nearest truck bay or crate storage with room that this worker can reach
    * from `from`; with `onward`, only those the trucks can get to.
    */
-  private bayWithRoom(p: Dockhand, from: number, onward = false): Bay | null {
-    return this.nearestWithRoom(p, from, this.bays, false, onward);
+  private bayWithRoom(p: Dockhand, from: number, onward = false, held = false): Bay | null {
+    // Crates waiting on customs only into crate storage, not a truck bay.
+    const only = held ? (b: Bay) => !!b.tiles : undefined;
+    return this.nearestWithRoom(p, from, this.bays, false, onward, only);
   }
 
   /** Nearest container yard with room this stacker or tractor can reach from `from`. */
@@ -10438,6 +10563,19 @@ export class World {
   /** A truck bay given over to ice for the boats, with some in it or on its way. */
   private holdsIce(b: Bay): boolean {
     return truckBay(b) && ((b.exports?.length ?? 0) > 0 || (b.exportIncoming ?? 0) > 0);
+  }
+
+  /** What a crate truck loading at storage waits on, when it is crates still in customs. */
+  private customsHold(t: Truck): string {
+    const bay = this.dest(t.bayIdx);
+    if (t.boxes || !bay?.tiles || this.holds(bay, false).length === 0) return '';
+    if (this.cratesFor(t, bay) + (t.coming ?? 0) > 0) return '';
+    return `, waiting for crates still in customs: the next clear in ${Math.ceil((this.nextHold(bay, false) / TICKS_PER_DAY) * 24)} h`;
+  }
+
+  /** The cannery's truck bringing canned fish: its export papers are done in the port. */
+  private cannedTruck(t: Truck): boolean {
+    return !!t.exports && !t.boxes && cargoOf(t.value, 'goods') === 'canned';
   }
 
   /** A shipper's truck bringing ice. */
@@ -10887,7 +11025,131 @@ export class World {
 
   /** What a truck could take away from this bay now. */
   private collectable(b: Bay): number {
-    return b.crates.length + (b.yard ? this.reachable(b) : b.boxes.length);
+    return this.readyIn(b, false) + (b.yard ? this.reachable(b) : b.boxes.length);
+  }
+
+  // ── Customs and export papers on crates ───────────────────
+
+  /**
+   * When each crate at a bay still waiting on customs, or (`out`) each of
+   * its exports on export papers, clears, soonest first: those cleared are
+   * dropped, and never more than there are crates of the kinds that wait.
+   */
+  private holds(b: Bay, out: boolean): number[] {
+    const list = out ? b.papers : b.customs;
+    if (!list) return [];
+    let gone = 0;
+    while (gone < list.length && list[gone] <= this.tick) gone++;
+    const fees = out ? (b.exports ?? []) : b.crates;
+    const waits = out ? needsPapers : needsCustoms;
+    let n = 0;
+    for (const f of fees) if (waits(f)) n++;
+    list.splice(0, Math.max(gone, list.length - n));
+    if (list.length > 0) return list;
+    if (out) b.papers = undefined;
+    else b.customs = undefined;
+    return [];
+  }
+
+  /**
+   * Which of a bay's crates, or (`out`) its exports, still wait: the newest
+   * of the kinds that do. Shorter than the list where the rest do not.
+   */
+  private waitMask(b: Bay, out: boolean): boolean[] {
+    let n = this.holds(b, out).length;
+    // None waits: an empty list does, as every index of it is not set.
+    if (n === 0) return [];
+    const fees = out ? (b.exports ?? []) : b.crates;
+    const mask = fees.map(() => false);
+    const waits = out ? needsPapers : needsCustoms;
+    for (let i = fees.length - 1; i >= 0 && n > 0; i--) {
+      if (waits(fees[i])) {
+        mask[i] = true;
+        n--;
+      }
+    }
+    return mask;
+  }
+
+  /** Which of a bay's crates then its exports, in that order, still wait. */
+  private heldMask(b: Bay): boolean[] {
+    const into = this.waitMask(b, false);
+    const out = this.waitMask(b, true);
+    if (into.length + out.length === 0) return [];
+    return [...b.crates.map((_, i) => !!into[i]), ...out];
+  }
+
+  /** Crates at a bay, or (`out`) exports, free to go: none waiting on customs or papers. */
+  private readyIn(b: Bay, out: boolean): number {
+    return (out ? (b.exports?.length ?? 0) : b.crates.length) - this.holds(b, out).length;
+  }
+
+  /**
+   * Crates just set down at a bay start on customs, or as exports on their
+   * papers, if they are of a kind that waits: in crate storage, as only
+   * there may they wait. Those carried out of storage cleared do not.
+   */
+  private startHolds(b: Bay, fees: number[], out: boolean): void {
+    if (!b.tiles || b.yard) return;
+    const waits = out ? needsPapers : needsCustoms;
+    const n = fees.filter(waits).length;
+    if (n === 0) return;
+    const until = this.tick + (out ? B.EXPORT_PAPERS_TICKS : B.CRATE_CUSTOMS_TICKS);
+    const list = out ? (b.papers ??= []) : (b.customs ??= []);
+    for (let k = 0; k < n; k++) list.push(until);
+    this.tip(out ? 'papers' : 'crateCustoms');
+  }
+
+  /**
+   * Up to `n` crates off a bay's crates, or (`out`) its exports, none of
+   * them still waiting and all of them ones `fits` lets through: those from
+   * `at` on if they all may go, else the first that may. How each looks,
+   * where the bay keeps that, comes off with it into `looks`.
+   */
+  private takeReady(
+    b: Bay,
+    out: boolean,
+    at: number,
+    n: number,
+    fits: (fee: number) => boolean = () => true,
+    looks?: { from: number[]; to: number[] },
+  ): number[] {
+    const list = out ? (b.exports ??= []) : b.crates;
+    if (n <= 0 || list.length === 0) return [];
+    const wait = this.waitMask(b, out);
+    const ok = (i: number) => !wait[i] && fits(list[i]);
+    let pick: number[] = [];
+    if (at >= 0 && at + n <= list.length) {
+      pick = Array.from({ length: n }, (_, k) => at + k);
+      if (!pick.every(ok)) pick = [];
+    }
+    if (pick.length === 0) {
+      for (let i = 0; i < list.length && pick.length < n; i++) if (ok(i)) pick.push(i);
+    }
+    const fees: number[] = [];
+    for (let k = pick.length - 1; k >= 0; k--) {
+      fees.unshift(list.splice(pick[k], 1)[0]);
+      if (looks && pick[k] < looks.from.length) looks.to.unshift(...looks.from.splice(pick[k], 1));
+    }
+    return fees;
+  }
+
+  /** Ticks until the next crate at a bay, or (`out`) export, clears; -1 if none waits. */
+  private nextHold(b: Bay, out: boolean): number {
+    const h = this.holds(b, out);
+    return h.length > 0 ? h[0] - this.tick : -1;
+  }
+
+  /** What a crate storage's view says of the crates waiting in it on customs and papers. */
+  private holdsView(b: Bay): Pick<BayView, 'waiting' | 'customs' | 'papers'> {
+    const customs = this.holds(b, false).length;
+    const papers = this.holds(b, true).length;
+    if (customs + papers === 0) return {};
+    return {
+      waiting: this.heldMask(b),
+      customs: customs > 0 ? { n: customs, next: this.nextHold(b, false) } : undefined,
+      papers: papers > 0 ? { n: papers, next: this.nextHold(b, true) } : undefined,
+    };
   }
 
   /**
@@ -10900,7 +11162,7 @@ export class World {
       ? b.yard
         ? this.reachable(b) - (b.truckReserved ?? 0)
         : b.boxes.length
-      : b.crates.length;
+      : this.readyIn(b, false);
     let claimed = 0;
     for (const t of this.trucks) {
       if (t === except || t.bayIdx !== b.idx || t.exports || t.boxes !== boxes) continue;
@@ -10986,7 +11248,8 @@ export class World {
     if (old) bayIncoming(old, boxy, -p.planned);
     this.tidyPile(p.bayIdx);
     const here = this.tileOf(p);
-    const bay = boxy ? this.yardWithRoom(p, here) : this.bayWithRoom(p, here);
+    const held = !boxy && !p.cleared && p.cargoFees.some(needsCustoms);
+    const bay = boxy ? this.yardWithRoom(p, here) : this.bayWithRoom(p, here, false, held);
     const goal = bay ? this.dropAt(p, bay, here) : -1;
     if (bay && goal >= 0 && this.headTo(p, goal)) {
       bayIncoming(bay, boxy, p.planned);
@@ -11153,6 +11416,7 @@ export class World {
     boat.crates--;
     if (store) {
       store.crates.push(boat.fee);
+      this.startHolds(store, [boat.fee], false);
       this.stats.cratesHandled++;
       return;
     }
@@ -12957,8 +13221,12 @@ export class World {
           const space = this.spaceAt(t.park);
           if (space) t.lot = space.tiles;
           this.parkUp(t);
-          // A shipper's truck has its paperwork done while it waits.
-          if (t.exports && t.papers === undefined) t.papers = this.tick + B.PAPERWORK_TICKS;
+          // A shipper's truck has its paperwork done while it waits; the
+          // cannery's, from the town, have their export papers done inside
+          // the port instead, crate by crate in storage.
+          if (t.exports && t.papers === undefined) {
+            t.papers = this.tick + (this.cannedTruck(t) ? 0 : B.PAPERWORK_TICKS);
+          }
         }
         return;
       }
@@ -13073,6 +13341,8 @@ export class World {
           if (++t.timer % this.truckTicks(t, bay) !== 0) return;
           this.exportLooks(bay).push(boxLookOf(t.id, t.cargo - 1));
           (bay.exports ??= []).push(t.value);
+          // Canned fish waits there for its export papers.
+          this.startHolds(bay, [t.value], true);
           bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
         }
         if (--t.cargo <= 0) {
@@ -15015,11 +15285,13 @@ export class World {
           t.exports && (t.state === 'toPark' || t.state === 'parked')
             ? t.staged !== undefined && t.state === 'toPark'
               ? `Paperwork done, driving to parking nearer the outgoing storage to wait for a spot`
-              : this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
-                ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
-                : this.outgoingRoom(t)
-                  ? `Paperwork done, waiting for a free spot to unload at the outgoing storage`
-                  : `Paperwork done, waiting for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
+              : this.cannedTruck(t) && t.state === 'toPark'
+                ? `Bringing ${t.cargo} crates of canned fish to ship: to parking outside the port, to wait for a spot in the outgoing storage`
+                : this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
+                  ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
+                  : this.outgoingRoom(t)
+                    ? `${this.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
+                    : `${this.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
             : t.exports && t.state === 'toBay'
               ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
               : t.state === 'delivering'
@@ -15031,7 +15303,7 @@ export class World {
                     : t.state === 'toBay'
                       ? 'Driving to the truck bay'
                       : t.state === 'loading'
-                        ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}`
+                        ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${this.customsHold(t)}`
                         : t.state === 'toTown' || t.state === 'unloading'
                           ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : this.cratesOf(t)} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
                           : 'Heading out to the highway',
@@ -15061,6 +15333,7 @@ export class World {
         ...b.crates.map((f) => cargoOf(f)),
         ...(b.exports ?? []).map((f) => cargoOf(f, 'goods')),
       ],
+      ...this.holdsView(b),
     }));
     const contracts: ContractView[] = this.contracts.map((c) => ({
       id: c.id,

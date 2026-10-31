@@ -545,7 +545,11 @@ function OfferCard({
           ? `${t.cargo ? 'A container yard' : 'Crate storage'} for cargo going out`
           : `Needs ${t.cargo ? 'a container yard' : 'crate storage'} marked out for cargo going out`}
       </Check>,
-      <Check ok={true}>Its trucks need parking outside the port for a day of paperwork</Check>,
+      <Check ok={true}>
+        {t.goods === 'canned'
+          ? `Its trucks wait in parking outside the port for a spot; the canned fish waits in storage about ${Math.round((B.EXPORT_PAPERS_TICKS / TICKS_PER_DAY) * 24)} h for its export papers`
+          : 'Its trucks need parking outside the port for a day of paperwork'}
+      </Check>,
     );
   } else if (t.kind === 'fishery') {
     const after = cap.demand + Math.round(fisheryDailyCrates(t));
@@ -560,6 +564,17 @@ function OfferCard({
         Trucking: {after} needed, {cap.trucking} possible
       </Check>,
     );
+    // Timber and goods wait a day in crate storage for customs.
+    if (t.catch === 'timber' || t.catch === 'goods') {
+      const room = (snapshot.value?.bays ?? []).some((b) => b.tiles && !b.outgoing);
+      checks.push(
+        <Check ok={room}>
+          {room
+            ? `Its ${t.catch} waits about ${Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24)} h in crate storage for customs: room for a day of it`
+            : `Needs crate storage for cargo coming in: its ${t.catch} waits there about ${Math.round((B.CRATE_CUSTOMS_TICKS / TICKS_PER_DAY) * 24)} h for customs`}
+        </Check>,
+      );
+    }
     if (t.vessel === 'coaster') {
       const ok = cap.deepBerths > 0;
       blocked = !ok;

@@ -67,6 +67,16 @@ export const PARKING_COST = 60;
 export const TRUCK_ROUND_TRIP = 40;
 /** Ticks a container waits in the yard for customs to clear it before a truck may take it: a day. */
 export const CUSTOMS_TICKS = TICKS_PER_DAY;
+/**
+ * Ticks a crate of timber or goods off a coaster waits in crate storage for
+ * customs to clear it before a truck may take it: a day.
+ */
+export const CRATE_CUSTOMS_TICKS = TICKS_PER_DAY;
+/**
+ * Ticks a crate of canned fish waits in outgoing crate storage for its
+ * export papers before it may go on board: half a day.
+ */
+export const EXPORT_PAPERS_TICKS = TICKS_PER_DAY / 2;
 export const BAY_CAPACITY = 12;
 export const LARGE_BAY_CAPACITY = 28;
 // Ticks to put one crate on a truck: by hand at a truck bay, quicker with

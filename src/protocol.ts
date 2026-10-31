@@ -365,6 +365,12 @@ export interface BayView {
   noAccessWhy?: string;
   /** What each crate holds: those in it, then its exports. */
   cargo?: Cargo[];
+  /** Which of those still wait: on customs (timber, goods), or on export papers (canned fish). */
+  waiting?: boolean[];
+  /** Crates waiting on customs: how many, and ticks till the next clears. */
+  customs?: { n: number; next: number };
+  /** Exports waiting on their export papers: how many, and ticks till the next are done. */
+  papers?: { n: number; next: number };
 }
 
 export interface YardView {

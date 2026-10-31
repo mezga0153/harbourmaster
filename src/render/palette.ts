@@ -43,6 +43,9 @@ export const C = {
 
   crate: 0xc58d50,
   crateLid: 0xa8733c,
+  /** The slip of paper and red seal on a crate waiting on customs or its export papers. */
+  sealPaper: 0xf1ead8,
+  seal: 0xb3261e,
 
   vest: 0xff8a1f,
   skin: 0xf1c59b,

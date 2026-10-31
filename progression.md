@@ -59,6 +59,20 @@ has its cannery, 600+ its builders' yard, 700+ its school.
 | 6 | **School** | timber trucked out, 25 crates in all | families settle; the **department store** opens, and a coaster line offers **goods** for it | 700 |
 | 7 | **Town hall** | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day) | the town charter: grows past 800, which lets the port become a **Container Port** | no limit |
 
+**Storage holds it back** (`startHolds` and `holds` in `src/sim/world.ts`):
+crates of timber and goods off the coasters go into crate storage for cargo
+coming in (never a truck bay, nor straight onto a truck) and wait there a
+day for customs (`CRATE_CUSTOMS_TICKS`) before a truck may take them; the
+cannery's canned fish waits half a day in the outgoing storage for its
+export papers (`EXPORT_PAPERS_TICKS`) before it may go on board (its trucks,
+from the town, do no paperwork outside as other shippers' do). Fish,
+lobster and ice are fresh and go at once. So the Coastal Wharf's later
+steps need storage for about a day of the coasters' timber and goods: with
+both lines signed, about 35 crates a day, two tiles (32 crates) is full
+half the time and the coasters wait at anchor, four tiles (64) is hardly
+ever full (`tests/coastal-storage.test.ts`). The Next step card says when
+storage full of crates in customs, or no storage at all, holds the town up.
+
 ## Container Port and on (sketch)
 
 The same shape: a factory that wants containers, a railway station, a

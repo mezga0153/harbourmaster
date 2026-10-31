@@ -592,6 +592,24 @@ function InfoPanel({ actions }: { actions: Actions }) {
               <dd>{bay.exports}</dd>
             </>
           )}
+          {bay.customs && (
+            <>
+              <dt>In customs</dt>
+              <dd>
+                {bay.customs.n}
+                <span class="muted"> · next clears in {duration(bay.customs.next)}</span>
+              </dd>
+            </>
+          )}
+          {bay.papers && (
+            <>
+              <dt>Export papers</dt>
+              <dd>
+                {bay.papers.n} waiting
+                <span class="muted"> · next ready in {duration(bay.papers.next)}</span>
+              </dd>
+            </>
+          )}
           {bay.tiles && (
             <>
               <dt>Area</dt>
@@ -610,6 +628,13 @@ function InfoPanel({ actions }: { actions: Actions }) {
             outgoing={bay.outgoing}
             onToggle={(shut) => actions.send({ type: 'shutStore', idx: bay.idx, shut })}
           />
+        )}
+        {(bay.customs || bay.papers) && bay.stock + bay.exports >= bay.capacity && (
+          <p class="note bad">
+            {bay.customs
+              ? 'Full, with crates still in customs: no more can come in off the coasters until they clear. Mark out more crate storage for cargo coming in.'
+              : 'Full, with canned fish still waiting on its export papers: the cannery’s trucks wait outside until there is room. Mark out more crate storage for cargo going out.'}
+          </p>
         )}
         {bay.noAccess && (
           <p class="note bad">
