@@ -1,3 +1,4 @@
+import { TOWN_STAGES } from './town';
 import type { BuildKind, MachineKind } from './types';
 
 // Port progression. See plan.md §3.
@@ -36,7 +37,7 @@ export const TIERS: Tier[] = [
     name: 'Coastal Wharf',
     blurb: 'Concrete quays reach deep water, machines move cargo faster and coasters call.',
     cost: 4000,
-    town: 300,
+    town: TOWN_STAGES[2].from,
     unlocks: [
       'Concrete quay, up to 8 m deep',
       'The harbour office, for quays and more docks',
@@ -54,7 +55,7 @@ export const TIERS: Tier[] = [
     name: 'Container Port',
     blurb: 'Feeder ships bring containers: harbour cranes lift them, reach stackers move them.',
     cost: 25000,
-    town: 800,
+    town: TOWN_STAGES[3].from,
     unlocks: [
       'Mobile harbour cranes (on a 2-wide quay)',
       'Ship-to-shore gantry cranes, quick, with a bay between their legs for reach stackers',
@@ -70,7 +71,7 @@ export const TIERS: Tier[] = [
     name: 'Bulk Terminal',
     blurb: 'Coal, grain and ore on conveyor belts, silos and trains.',
     cost: 80000,
-    town: 2000,
+    town: TOWN_STAGES[4].from,
     unlocks: ['Conveyor belts', 'Grab cranes', 'Silos', 'Rail sidings'],
     comingSoon: true,
   },

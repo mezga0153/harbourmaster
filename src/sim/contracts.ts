@@ -1,5 +1,6 @@
 import * as B from './balance';
 import type { Rng } from './rng';
+import { TICKS_PER_DAY } from './types';
 
 // Fisheries send boats; hauliers supply the trucks that carry crates away.
 
@@ -286,7 +287,7 @@ export function makeOffer(
   }
   if (names.length === 0) return null;
   const name = rng.pick(names);
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
 
   if (feeder) {
     // Feeders bring few, valuable containers and need a harbour crane. The
@@ -415,7 +416,7 @@ export function makeIceOffer(
     fee: rng.int(6, 10),
     goods: 'ice',
   };
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 25) * 25;
   return { id, terms, signingFee, expires };
 }
@@ -444,7 +445,7 @@ export function makeLobsterOffer(
     fee: rng.int(40, 60),
     catch: 'lobster',
   };
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((fisheryDailyValue(terms) * 1.5) / 50) * 50;
   return { id, terms, signingFee, expires };
 }
@@ -474,7 +475,7 @@ export function makeCannedOffer(
     fee: rng.int(14, 20),
     goods: 'canned',
   };
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 50) * 50;
   return { id, terms, signingFee, expires };
 }
@@ -506,7 +507,7 @@ export function makeTownLineOffer(
     fee: rng.int(22, 30),
     catch: cargo,
   };
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 50) * 50;
   return { id, terms, signingFee, expires };
 }
@@ -550,7 +551,7 @@ function makeShipper(
   }
   if (names.length === 0) return null;
   const name = rng.pick(names);
-  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const terms: ShipperTerms = boxes
     ? {
         kind: 'shipper',
