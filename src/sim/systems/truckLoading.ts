@@ -211,6 +211,15 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
     return false;
   }
   if (isMachine(p) && nearerMachine(w, p, src.tile)) return false;
+  // One forklift at a time unloads a truck, a pallet a trip: two would
+  // stand in each other's way at it.
+  if (
+    !src.load &&
+    isMachine(p) &&
+    w.people.some((q) => q !== p && isMachine(q) && q.truckId === t.id)
+  ) {
+    return false;
+  }
   // Off a shipper's truck into storage, or ice onto the bay's stack: as
   // many as it carries.
   const unload = !src.load;
