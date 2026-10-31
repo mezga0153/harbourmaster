@@ -176,8 +176,27 @@ export function cratesOff(w: World, t: Truck, bay: Bay, at: number, n: number): 
   const wait = waitMask(w, bay, false);
   if (at < 0 || at >= bay.crates.length || wait[at]) at = wait.lastIndexOf(false);
   if (at < 0) return [];
-  t.kind ??= cargoOf(bay.crates[at]);
+  t.kind ??= fullestKind(w, bay, wait) ?? cargoOf(bay.crates[at]);
   return takeReady(w, bay, false, at, n, fitsTruck(w, t));
+}
+
+/**
+ * The kind of crate there is most of ready at a bay, of those the town
+ * still takes today if any: what an empty truck there loads, so it goes
+ * full rather than with the one crate of another kind that lay on top.
+ */
+function fullestKind(w: World, bay: Bay, wait: boolean[]): Cargo | undefined {
+  const count = new Map<Cargo, number>();
+  bay.crates.forEach((f, i) => {
+    if (!wait[i]) count.set(cargoOf(f), (count.get(cargoOf(f)) ?? 0) + 1);
+  });
+  let best: Cargo | undefined;
+  let most = -1;
+  for (const [c, n] of count) {
+    const score = n + (wantedToday(w, c) ? 1000 : 0);
+    if (score > most) [best, most] = [c, score];
+  }
+  return best;
 }
 
 /**
