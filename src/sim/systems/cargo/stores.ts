@@ -22,7 +22,7 @@ import {
 import { boatHalf, mooredTiles } from '../boats/berthing';
 import { Build, TICKS_PER_DAY, isDock } from '../../types';
 import { craneKinds, cranePlaces, craneTop, jibStores } from '../cranes';
-import { onPallet, palletTile, takenFrom } from '../yardGantry';
+import { onPallet, palletPlaces, palletTile, takenFrom } from '../yardGantry';
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
 import { cargoOf } from '../../cargo';
@@ -467,6 +467,27 @@ export function machineGround(w: World): Set<number> {
     }
   }
   return (w.machineCache = seen);
+}
+
+/**
+ * Tiles with crates standing on them, this tick, for forklifts to go round:
+ * crate storage tiles with pallets on them, truck bays with a stack, piles
+ * on the quay and jib cranes' landing stacks.
+ */
+export function crateTiles(w: World): Set<number> {
+  if (w.crateTileCache?.tick === w.tick) return w.crateTileCache.at;
+  const at = new Set<number>();
+  const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
+  const held = (b: Bay) => b.crates.length + (b.exports?.length ?? 0) > 0;
+  for (const b of w.bays.values()) {
+    if (b.yard || !held(b)) continue;
+    if (!b.tiles) at.add(b.idx);
+    else for (const k of palletPlaces(w, b)) if (k >= 0) at.add(b.tiles[Math.floor(k / per)]);
+  }
+  for (const p of w.piles.values()) if (held(p)) at.add(p.idx);
+  for (const c of w.cranes.values()) if (c.kind === 'jib' && c.stack.length > 0) at.add(c.idx);
+  w.crateTileCache = { tick: w.tick, at };
+  return at;
 }
 
 /**

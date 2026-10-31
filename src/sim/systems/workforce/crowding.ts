@@ -8,7 +8,7 @@
 
 import type { World } from '../../world';
 import { costFor, headTo } from './dockhands';
-import { machineGround } from '../cargo/stores';
+import { crateTiles, machineGround } from '../cargo/stores';
 import { docked, gantryRailWays } from '../roads/bays';
 import { clearAcross, onRoad, onWay, passRing, vehicleLength } from '../roads/traffic';
 import { Build, isBay, isCrane } from '../../types';
@@ -200,7 +200,7 @@ export function sidestep(w: World, p: Dockhand): void {
 }
 
 export function reroute(w: World, p: Dockhand): void {
-  const base = costFor(w, p);
+  const base = p.kind === 'forklift' ? forkCost(w, p.goal) : costFor(w, p);
   const crowded: CostFn = (i) => base(i) + (tileBusy(w, i) ? 6 : 0);
   const path = findPath(w.map.w, w.map.h, w.tileOf(p), p.goal, crowded, true);
   if (path) p.path = path;
@@ -286,6 +286,7 @@ export function seatAtHut(w: World, p: Dockhand): void {
 
 export function pathFor(w: World, p: Dockhand, from: number, goal: number): number[] | null {
   const m = w.map;
+  if (p.kind === 'forklift') return findPath(m.w, m.h, from, goal, forkCost(w, goal), true);
   if (p.kind !== 'tractor') return findPath(m.w, m.h, from, goal, costFor(w, p), true);
   // A tractor and its trailer drive like a truck: square round corners,
   // and turning about only where there is room to come round.
@@ -310,6 +311,32 @@ export function pathFor(w: World, p: Dockhand, from: number, goal: number): numb
     if (best) return best;
   }
   return findDrivePath(m.w, m.h, from, back, goal, cost, turn);
+}
+
+/**
+ * A forklift's way to `goal`: as other machines drive, but round crates
+ * standing on the tiles it passes rather than across them, and off the
+ * corners of those it cuts past, where there is a way round; only those
+ * at `goal`, where it works, it drives in among.
+ */
+export function forkCost(w: World, goal: number): CostFn {
+  const crates = crateTiles(w);
+  const width = w.map.w;
+  const near = (i: number) => i !== goal && crates.has(i);
+  return (i, from) => {
+    const c = w.driveCost(i, from);
+    if (!Number.isFinite(c) || crates.size === 0) return c;
+    let extra = near(i) ? B.CRATE_DETOUR : 0;
+    if (from !== undefined && from >= 0) {
+      const dx = (i % width) - (from % width);
+      const dy = Math.floor(i / width) - Math.floor(from / width);
+      // Across a corner, between the two tiles beside it.
+      if (dx !== 0 && dy !== 0 && (near(from + dx) || near(from + dy * width))) {
+        extra += B.CRATE_DETOUR / 2;
+      }
+    }
+    return c + extra;
+  };
 }
 
 /**

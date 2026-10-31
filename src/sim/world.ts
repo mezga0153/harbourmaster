@@ -211,6 +211,8 @@ export class World {
   junctionCache: Uint8Array | null = null;
   /** Where quay gantry cranes have containers set down, this tick; see craneStackTiles. */
   craneStackCache: { tick: number; at: Set<number> } | null = null;
+  /** Where crates stand on the ground, this tick; see crateTiles. */
+  crateTileCache: { tick: number; at: Set<number> } | null = null;
   /** Which way tractors stand where cranes lift onto them; see lineUpAt. */
   lineUpCache: Map<number, [number, number]> | null = null;
   /** Trucks and port machines by id, this tick; see ring. */
@@ -646,6 +648,7 @@ export class World {
     this.runsCache = null;
     this.machineCache = null;
     this.craneStackCache = null;
+    this.crateTileCache = null;
     this.lineUpCache = null;
     switch (cmd.type) {
       case 'build':

@@ -331,6 +331,12 @@ export const GANTRY_RAILS = 6;
  * containers a gantry crane has set down along the quay.
  */
 export const CRANE_STACK_DETOUR = 40;
+/**
+ * Tiles further a forklift will go round sooner than drive across crates
+ * standing on a tile it is not working at: pallets in crate storage, a
+ * truck bay's stack, a pile on the quay, a jib crane's landing stack.
+ */
+export const CRATE_DETOUR = 6;
 export const GANTRY_RUNNING_COST = 225;
 /** A yard gantry, which loads the trucks at a container yard. */
 export const YARD_GANTRY_COST = 12000;
