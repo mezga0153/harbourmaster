@@ -79,6 +79,9 @@ export const Build = {
   // Landmarks the town opens as the port keeps it supplied; see LANDMARKS in town.ts.
   IceHouse: 39,
   Restaurant: 40,
+  BuildersYard: 41,
+  School: 42,
+  TownHall: 43,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 

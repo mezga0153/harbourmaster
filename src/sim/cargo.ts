@@ -3,7 +3,8 @@
 // rides along on that fee as a few millionths, so wherever a crate goes
 // what it holds goes with it, and the money is unchanged to the cent.
 
-export const CARGO = ['fish', 'ice', 'lobster', 'goods'] as const;
+// New kinds go on the end, so the tags in older saves keep what they held.
+export const CARGO = ['fish', 'ice', 'lobster', 'goods', 'canned', 'timber'] as const;
 export type Cargo = (typeof CARGO)[number];
 
 const TAG = 1e-6;
