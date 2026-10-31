@@ -405,7 +405,8 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
           <li>
             Only a plot beside one the port owns can be bought, so the port grows outwards. The
-            first costs {money(B.PLOT_PRICE)}, and each after it a quarter more than the one before:{' '}
+            first costs {money(B.PLOT_PRICE)}, and each after it{' '}
+            {Math.round((B.PLOT_PRICE_RISE - 1) * 100)}% more than the one before:{' '}
             {money(Math.round((B.PLOT_PRICE * B.PLOT_PRICE_RISE ** 4) / 100) * 100)} for the fifth,{' '}
             {money(Math.round((B.PLOT_PRICE * B.PLOT_PRICE_RISE ** 9) / 100) * 100)} for the tenth.
           </li>

@@ -179,7 +179,7 @@ const TIPS: Record<string, Tip> = {
   },
   land: {
     title: 'The port’s land',
-    text: 'The port builds only on land it owns. Pick up Land in the bar at the bottom: plots beside yours are outlined with their price, and a click buys one. Each plot costs a quarter more than the last; a plot all of sea, less.',
+    text: `The port builds only on land it owns. Pick up Land in the bar at the bottom: plots beside yours are outlined with their price, and a click buys one. Each plot costs ${Math.round((B.PLOT_PRICE_RISE - 1) * 100)}% more than the last; a plot all of sea, less.`,
     topic: 'land',
   },
   tier1: {

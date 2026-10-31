@@ -34,7 +34,7 @@ export function LandDialog({ send }: { send(cmd: Command): void }) {
             : 'The port may build anything on it, dredge and fill it in, and clear its trees and rocks.'}{' '}
           {land.value && (
             <>
-              {`The port owns ${land.value.owned} plots. Each plot bought costs a quarter more than the last: the next after this, ${money(land.value.after)}.`}
+              {`The port owns ${land.value.owned} plots. Each plot bought costs ${Math.round((B.PLOT_PRICE_RISE - 1) * 100)}% more than the last: the next after this, ${money(land.value.after)}.`}
             </>
           )}
         </p>

@@ -20,6 +20,8 @@ export interface MapData {
   plots?: number[];
   /** Plots bought so far, not counting those the port was given. */
   plotsBought?: number;
+  /** PLOT_SIZE when it was saved; saves without one had plots of 16. */
+  plotSize?: number;
 }
 
 /**
@@ -154,6 +156,7 @@ export class GameMap {
       limit: this.limit,
       plots: Array.from(this.plots),
       plotsBought: this.plotsBought,
+      plotSize: PLOT_SIZE,
     };
   }
 
@@ -167,8 +170,20 @@ export class GameMap {
     m.orient.set(d.orient);
     if (d.store) m.store.set(d.store);
     // Older saves own it all; World.fromSave keeps just what they built on.
-    if (d.plots?.length === m.plots.length) m.plots.set(d.plots);
-    m.plotsBought = d.plotsBought ?? 0;
+    const size = d.plotSize ?? 16;
+    if (d.plots && size === PLOT_SIZE && d.plots.length === m.plots.length) m.plots.set(d.plots);
+    else if (d.plots) {
+      // Saved in plots of another size: a plot now is owned if its middle
+      // lay on one owned then (World.fromSave adds any built on), and as
+      // much land counts as bought.
+      const wide = Math.ceil(m.w / size);
+      for (let p = 0; p < m.plots.length; p++) {
+        const x = Math.min(m.w - 1, ((p % m.plotsWide) + 0.5) * PLOT_SIZE);
+        const y = Math.min(m.limit - 1, (Math.floor(p / m.plotsWide) + 0.5) * PLOT_SIZE);
+        m.plots[p] = d.plots[Math.floor(y / size) * wide + Math.floor(x / size)] ? 1 : 0;
+      }
+    }
+    m.plotsBought = Math.round(((d.plotsBought ?? 0) * size * size) / (PLOT_SIZE * PLOT_SIZE));
     // Old forklift lanes are port roads marked forklift-only.
     for (let i = 0; i < m.build.length; i++) {
       if (m.build[i] === Build.ForkliftLane) {

@@ -5,6 +5,7 @@ import {
   landError,
   nextPrice,
   ownedPlots,
+  plotBounds,
   plotPrice,
   plotTiles,
   seaPlot,
@@ -39,7 +40,7 @@ describe('Land', () => {
     const w = fresh();
     const m = w.map;
     expect(ownedPlots(m)).toBeGreaterThanOrEqual(2);
-    expect(ownedPlots(m)).toBeLessThanOrEqual(4);
+    expect(ownedPlots(m)).toBeLessThanOrEqual(6);
     expect(m.plotsBought).toBe(0);
     // The jetty, bay and the path between them are on the port's own land.
     for (let i = 0; i < m.build.length; i++) {
@@ -133,9 +134,9 @@ describe('Land', () => {
       expect(m.plots[p]).toBe(1);
       expect(w.cash).toBe(before - prices[k]);
     }
-    expect(prices.slice(0, 6)).toEqual([2000, 2500, 3100, 3900, 4900, 6100]);
+    expect(prices.slice(0, 6)).toEqual([1200, 1400, 1600, 1800, 2100, 2400]);
     expect(m.plotsBought).toBe(10);
-    expect(nextPrice(m)).toBe(18600);
+    expect(nextPrice(m)).toBe(4900);
     // Bought land can be built on, and stays bought through a save.
     const back = World.fromSave(w.toSave());
     expect(Array.from(back.map.plots)).toEqual(Array.from(m.plots));
@@ -169,6 +170,39 @@ describe('Land', () => {
     start.forEach((o, p) => o && expect(old.map.plots[p]).toBe(1));
     // The road in from the highway that every game starts with needs none.
     expect(ownedPlots(old.map)).toBe(start.filter(Boolean).length + 1);
+  });
+
+  it('keeps a save’s land, built on or bought, when it was saved in plots of another size', () => {
+    const w = fresh();
+    const m = w.map;
+    const start = Array.from(m.plots);
+    const save = w.toSave();
+    // Saved in plots of 16, before plots were 12: it had bought one far off
+    // the start, and 3 in all.
+    const wide = Math.ceil(m.w / 16);
+    const middle = (p: number) => {
+      const { x0, y0 } = plotBounds(m, p);
+      const x = Math.min(m.w - 1, x0 + B.PLOT_SIZE / 2);
+      const y = Math.min(m.limit - 1, y0 + B.PLOT_SIZE / 2);
+      return Math.floor(y / 16) * wide + Math.floor(x / 16);
+    };
+    const far = m.plots.findIndex((o, p) => !o && !buyable(m, p) && !seaPlot(m, p));
+    save.map.plots = Array(wide * Math.ceil(m.limit / 16)).fill(0);
+    save.map.plots[middle(far)] = 1;
+    save.map.plotsBought = 3;
+    delete save.map.plotSize;
+    const old = World.fromSave(save);
+    expect(old.map.plots[far]).toBe(1);
+    // As much land counts as bought, in plots of the size now.
+    expect(old.map.plotsBought).toBe(Math.round((3 * 256) / B.PLOT_SIZE ** 2));
+    // What it owns now lay on what it owned then, or is built on, or a new
+    // game's own.
+    for (let p = 0; p < old.map.plots.length; p++) {
+      if (!old.map.plots[p]) continue;
+      const built = plotTiles(old.map, p).some((i) => old.map.build[i] !== Build.None);
+      expect(built || start[p] === 1 || save.map.plots[middle(p)] === 1).toBe(true);
+    }
+    expect(World.fromSave(old.toSave()).map.plots).toEqual(old.map.plots);
   });
 
   it('starts every map with room for a second jetty and truck bay, reached by road from the highway', () => {

@@ -115,7 +115,7 @@ export function isLandError(err: string): boolean {
  * and truck bay behind it with some of the road in, the water off the
  * jetty's end, and the plots beside
  * them along the coast, towards the side the jetty lies nearer, for a
- * second jetty and bay. Two plots, or four where they straddle a line
+ * second jetty and bay. Two plots to six, as they straddle lines
  * between plots. The public road in from the highway is the town's and
  * needs none.
  */

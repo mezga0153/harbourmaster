@@ -440,8 +440,16 @@ export class World {
       m.build[i] = m.orient[i] & ON_QUAY ? Build.Quay : Build.PortRoad;
       m.orient[i] = 0;
     }
-    // Saves from before land was bought own every plot they built on, free.
+    // Saves from before land was bought own every plot they built on, free;
+    // saved in plots of another size, those too as well as what they owned.
     if (!s.map.plots) ownBuilt(m, generateMap(s.seed, m.w).map);
+    else if ((s.map.plotSize ?? 16) !== B.PLOT_SIZE) {
+      const kept = Uint8Array.from(m.plots);
+      const bought = m.plotsBought;
+      ownBuilt(m, generateMap(s.seed, m.w).map);
+      for (let p = 0; p < kept.length; p++) if (kept[p]) m.plots[p] = 1;
+      m.plotsBought = bought;
+    }
     for (const bay of s.bays) {
       world.bays.set(bay.idx, {
         ...bay,

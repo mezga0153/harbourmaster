@@ -103,7 +103,7 @@ export const LAND_TOOL: ToolDef = {
   icon: 'map',
   label: 'Land',
   note: 'Buy plots',
-  hint: `The port builds only on land it owns, in plots of ${B.PLOT_SIZE}×${B.PLOT_SIZE} tiles. Click a plot outlined in yellow, beside the port’s own land, to buy it. Each plot costs a quarter more than the one before; a plot all of sea is a seabed lease, for ${Math.round(B.SEA_PLOT_SHARE * 100)}% of the price of land`,
+  hint: `The port builds only on land it owns, in plots of ${B.PLOT_SIZE}×${B.PLOT_SIZE} tiles. Click a plot outlined in yellow, beside the port’s own land, to buy it. Each plot costs ${Math.round((B.PLOT_PRICE_RISE - 1) * 100)}% more than the one before; a plot all of sea is a seabed lease, for ${Math.round(B.SEA_PLOT_SHARE * 100)}% of the price of land`,
 };
 
 export const CATEGORIES: Category[] = [
