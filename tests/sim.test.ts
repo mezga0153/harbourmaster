@@ -31,6 +31,8 @@ import { Build, Deco, Store, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { Rng } from '../src/sim/rng';
 import { World } from '../src/sim/world';
+import { tip } from '../src/sim/systems/output';
+import { berthTrouble, craneWhy, parkedWords, truckWhy } from '../src/sim/systems/snapshot';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -165,12 +167,12 @@ describe('World', () => {
     expect(tips(world)).toEqual(['welcome']);
     world.tier = 2;
     world.cash = 1_000_000;
-    world['tip']('cranes');
-    world['tip']('cranes');
+    tip(world, 'cranes');
+    tip(world, 'cranes');
     expect(tips(world)).toEqual(['cranes']);
     const loaded = World.fromSave(world.toSave());
-    loaded['tip']('cranes');
-    loaded['tip']('customs');
+    tip(loaded, 'cranes');
+    tip(loaded, 'customs');
     expect(tips(loaded)).toEqual(['customs']);
   });
 
@@ -1699,10 +1701,10 @@ describe('Rules of the road', () => {
     world.tick = 10 - (t.id % 10);
     world['updateTruck'](t);
     expect(t.state).toBe('parked');
-    expect(world['parkedWords'](t)).toBe('Parked, waiting for a loading spot');
+    expect(parkedWords(world, t)).toBe('Parked, waiting for a loading spot');
     // Cut off from it, as by a dead end trucks cannot turn round in.
     world['cutOff'](bay, true);
-    expect(world['truckWhy'](t)).toMatch(/not drive away again/);
+    expect(truckWhy(world, t)).toMatch(/not drive away again/);
     world.tick += 10;
     world['updateTruck'](t);
     // Off out of the port, or gone already where it cannot drive.
@@ -2347,7 +2349,7 @@ describe('Container Port tier', () => {
     for (const s of spots) {
       world.command({ type: 'build', kind: 'gantryCrane', tiles: [s.at], facing: s.f });
       const crane = world.cranes.get(s.at);
-      if (crane && world['berthTrouble'](crane) === null) return s;
+      if (crane && berthTrouble(world, crane) === null) return s;
       world.command({ type: 'bulldoze', tiles: [s.at] });
     }
     throw new Error('No spot on the pier where a feeder lies centred on a gantry crane');
@@ -2530,7 +2532,7 @@ describe('Container Port tier', () => {
       expect(yard.boxes.length).toBeLessThanOrEqual(most);
       if (
         k % 20 === 0 &&
-        world['craneWhy'](world.cranes.get(t.crane)!).startsWith(
+        craneWhy(world, world.cranes.get(t.crane)!).startsWith(
           'Every container yard with room has stopped',
         )
       ) {

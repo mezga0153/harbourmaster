@@ -20,11 +20,8 @@ import type {
   BayView,
   Capacity,
   CargoSample,
-  CargoStats,
   Command,
-  ContractView,
   CraneView,
-  ProblemView,
   BoatVisit,
   EntityView,
   FinanceDay,
@@ -32,10 +29,7 @@ import type {
   Ledger,
   LedgerCategory,
   SimEvent,
-  Snapshot,
-  StaffView,
   Stats,
-  TileChange,
   TownView,
 } from '../protocol';
 import * as B from './balance';
@@ -107,7 +101,6 @@ import {
   townDay,
   townHomes,
   townStageUp,
-  townTarget,
   townWants,
   type Business,
   landmarkDue,
@@ -118,7 +111,7 @@ import {
   type Landmark,
   type Town,
 } from './town';
-import { makeCandidate, paceFactor, thought, traitDef, type Candidate } from './staff';
+import { makeCandidate, paceFactor, traitDef, type Candidate } from './staff';
 import { findDrivePath, findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import {
@@ -210,7 +203,6 @@ import {
   FINANCE_DAYS,
   YARD_STACKS,
   YARD_TIERS,
-  activity,
   aligned,
   bayCap,
   bayIncoming,
@@ -240,11 +232,20 @@ import {
   yardPlace,
 } from './helpers';
 import type { Crossing, Source, Vehicle } from './helpers';
+import { departTips, message, moneyAt, nag, tip, tipUnless } from './systems/output';
+import { cargoStats } from './systems/snapshot';
+import { buildSnapshot } from './systems/snapshot';
+import {
+  drainEvents as eventsOut,
+  drainPlotChanges as plotsOut,
+  drainTileChanges as tilesOut,
+  FIRST_STEPS,
+} from './systems/output';
+import type { Snapshot } from '../protocol/views';
+import type { TileChange } from '../protocol/messages';
 
 export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
-/** The advisor's first steps, one each time a boat leaves; see departTips. */
-const FIRST_STEPS = ['speed', 'jetty', 'contract', 'screens'];
 
 /** The advisor's tip as the town opens each of these landmarks; see Advisor.tsx. */
 const LANDMARK_TIPS: Partial<Record<number, string>> = {
@@ -465,8 +466,8 @@ export class World {
     world.addOffer('fishery');
     world.addOffer('haulier');
     world.events = [];
-    world.message('Welcome to your new port! Boats will bring crates to the jetty.', 'info');
-    world.tip('welcome');
+    message(world, 'Welcome to your new port! Boats will bring crates to the jetty.', 'info');
+    tip(world, 'welcome');
     return world;
   }
 
@@ -809,7 +810,7 @@ export class World {
   build(kind: BuildKind, tiles: number[], facing?: number): void {
     const def = BUILDABLES[kind];
     if (BUILD_TIER[kind] > this.tier) {
-      return this.message(`${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
+      return message(this, `${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
     }
     let spent = 0;
     let firstError: string | null = null;
@@ -856,9 +857,9 @@ export class World {
         if (kind === 'truckBay' || kind === 'largeBay') this.addBay(i);
         if (kind === 'jibCrane') this.addCrane(i, 'jib');
         if (kind === 'jibCrane' || kind === 'harbourCrane' || kind === 'gantryCrane') {
-          this.tip('cranes');
+          tip(this, 'cranes');
         }
-        if (kind === 'yardGantry') this.tip('yardGantry');
+        if (kind === 'yardGantry') tip(this, 'yardGantry');
         if (kind === 'harbourCrane') this.addCrane(i, 'harbour');
         if (kind === 'gantryCrane') {
           this.addCrane(i, 'gantry');
@@ -869,15 +870,16 @@ export class World {
       left = skipped;
     }
     // Built only partly, the rest off the port's land: the advisor explains, once.
-    if (firstError && isLandError(firstError)) this.tip('land');
-    if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
+    if (firstError && isLandError(firstError)) tip(this, 'land');
+    if (spent > 0) moneyAt(this, -spent, tiles[tiles.length - 1]);
     if (spent > 0 && kind === 'road') this.exitsFor(tiles);
     if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
       this.dockCache = null;
       const idle = this.docks().some((g) => !g.coordinated);
       if (idle && !this.warnedOffice) {
         this.warnedOffice = true;
-        this.message(
+        message(
+          this,
           kind === 'quay'
             ? 'Quays need a harbour office to coordinate them. Boats will not use this one until you build one.'
             : `Only ${B.FREE_DOCKS} jetties can run without a harbour office or harbourmaster's hut. Build one so boats use this jetty.`,
@@ -886,10 +888,11 @@ export class World {
       }
     } else if (spent > 0 && kind === 'office') {
       this.warnedOffice = false;
-      this.message('The harbour office is open and coordinating berths.', 'good');
+      message(this, 'The harbour office is open and coordinating berths.', 'good');
     } else if (spent > 0 && kind === 'harbourHut') {
       this.warnedOffice = false;
-      this.message(
+      message(
+        this,
         `The harbourmaster's hut is open, looking after ${B.JETTIES_PER_HUT} more jetties.`,
         'good',
       );
@@ -899,18 +902,19 @@ export class World {
       this.reachCache = null;
       const lot = this.parkingLots().find((l) => l.tiles.some((i) => tiles.includes(i)));
       const trouble = lot && this.lotTrouble(lot);
-      if (trouble) this.message(`This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
-    } else if (firstError) this.message(firstError, 'bad');
+      if (trouble) message(this, `This parking is no use yet: ${trouble.toLowerCase()}.`, 'bad');
+    } else if (firstError) message(this, firstError, 'bad');
   }
 
   /** Buy plot `p` of the port's land, beside the land it owns, if there is cash for it. */
   buyPlot(p: number): void {
     const m = this.map;
     const err = plotError(m, p);
-    if (err) return this.message(err, 'bad');
+    if (err) return message(this, err, 'bad');
     const price = plotPrice(m, p);
     if (price > this.cash) {
-      return this.message(
+      return message(
+        this,
         `Not enough money: this plot costs $${price.toLocaleString('en-US')}.`,
         'bad',
       );
@@ -920,8 +924,9 @@ export class World {
     m.plotsBought++;
     this.plotsChanged = true;
     const b = plotBounds(m, p);
-    this.moneyAt(-price, m.idx((b.x0 + b.x1) >> 1, (b.y0 + b.y1) >> 1));
-    this.message(
+    moneyAt(this, -price, m.idx((b.x0 + b.x1) >> 1, (b.y0 + b.y1) >> 1));
+    message(
+      this,
       `The plot is the port’s to build on: ${ownedPlots(m)} plots owned. The next plot of land costs $${nextPrice(m).toLocaleString('en-US')}.`,
       'good',
     );
@@ -949,7 +954,8 @@ export class World {
 
   markForkliftOnly(tiles: number[], on: boolean): void {
     if (this.tier < B.FORKLIFT_ONLY_TIER) {
-      return this.message(
+      return message(
+        this,
         `Machines-only areas unlock at the ${TIERS[B.FORKLIFT_ONLY_TIER].name}.`,
         'bad',
       );
@@ -972,10 +978,10 @@ export class World {
       spent += B.FORKLIFT_ONLY_COST;
       this.map.orient[i] ^= FORKLIFT_ONLY;
       this.dirty.add(i);
-      if (on) this.tip('machinesOnly');
+      if (on) tip(this, 'machinesOnly');
     }
-    if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
-    else if (firstError) this.message(firstError, 'bad');
+    if (spent > 0) moneyAt(this, -spent, tiles[tiles.length - 1]);
+    else if (firstError) message(this, firstError, 'bad');
   }
 
   // ── Roads: the highway's exits, one-way roads, lights, gates ────
@@ -1003,7 +1009,7 @@ export class World {
   openExit(row: number, auto = false): void {
     const m = this.map;
     const why = (text: string) =>
-      this.message(auto ? `The road meets the highway, but no exit opens: ${text}` : text, 'bad');
+      message(this, auto ? `The road meets the highway, but no exit opens: ${text}` : text, 'bad');
     if (this.tier < B.EXIT_TIER) {
       return why(
         auto
@@ -1027,8 +1033,8 @@ export class World {
       m.deco[beside] = Deco.None;
     }
     for (let x = 0; x <= HIGHWAY_COLUMNS; x++) this.dirty.add(m.idx(x, row));
-    this.moneyAt(-B.EXIT_COST, beside);
-    this.tip('exits');
+    moneyAt(this, -B.EXIT_COST, beside);
+    tip(this, 'exits');
   }
 
   /**
@@ -1054,7 +1060,7 @@ export class World {
     tiles = tiles.filter((i) => m.build[i] !== Build.Parking);
     if (tiles.length === 0) return;
     if (this.tier < B.ONE_WAY_TIER) {
-      return this.message(`One-way roads unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
+      return message(this, `One-way roads unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
     }
     let spent = 0;
     let firstError: string | null = null;
@@ -1098,9 +1104,9 @@ export class World {
       this.dirty.add(i);
     });
     if (spent > 0) {
-      this.moneyAt(-spent, tiles[tiles.length - 1]);
-      this.tip('oneWay');
-    } else if (firstError) this.message(firstError, 'bad');
+      moneyAt(this, -spent, tiles[tiles.length - 1]);
+      tip(this, 'oneWay');
+    } else if (firstError) message(this, firstError, 'bad');
   }
 
   /** Put up traffic lights at a junction, or take them down again for nothing back. */
@@ -1108,17 +1114,17 @@ export class World {
     const m = this.map;
     if (i < 0 || i >= m.build.length) return;
     if (this.tier < B.LIGHTS_TIER) {
-      return this.message(`Traffic lights unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
+      return message(this, `Traffic lights unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
     }
     const err = lightsError(m, i);
-    if (err) return this.message(err, 'bad');
+    if (err) return message(this, err, 'bad');
     const tiles = [i];
     const on = !hasLights(m, i);
-    if (on && this.cash < B.LIGHTS_COST) return this.message('Not enough money', 'bad');
+    if (on && this.cash < B.LIGHTS_COST) return message(this, 'Not enough money', 'bad');
     if (on) {
       this.book('construction', -B.LIGHTS_COST);
-      this.moneyAt(-B.LIGHTS_COST, i);
-      this.tip('lights');
+      moneyAt(this, -B.LIGHTS_COST, i);
+      tip(this, 'lights');
     }
     for (const t of tiles) {
       m.orient[t] = on ? m.orient[t] | LIGHTS : m.orient[t] & ~LIGHTS;
@@ -1131,14 +1137,14 @@ export class World {
     const m = this.map;
     if (i < 0 || i >= m.build.length) return;
     const g = anchorOf(m, i);
-    if (m.build[g] !== Build.Gate) return this.message('Pick a port gate', 'bad');
+    if (m.build[g] !== Build.Gate) return message(this, 'Pick a port gate', 'bad');
     if (this.tier < B.ONE_WAY_TIER) {
-      return this.message(`One-way gates unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
+      return message(this, `One-way gates unlock at the ${TIERS[B.ONE_WAY_TIER].name}.`, 'bad');
     }
     if (gateWay(m, g) === way) return;
-    if (this.cash < B.GATE_WAY_COST) return this.message('Not enough money', 'bad');
+    if (this.cash < B.GATE_WAY_COST) return message(this, 'Not enough money', 'bad');
     this.book('construction', -B.GATE_WAY_COST);
-    this.moneyAt(-B.GATE_WAY_COST, g);
+    moneyAt(this, -B.GATE_WAY_COST, g);
     const bits = way === 'in' ? GATE_IN : way === 'out' ? GATE_OUT : 0;
     m.orient[g] = (m.orient[g] & ~(GATE_IN | GATE_OUT)) | bits;
     this.dirty.add(g);
@@ -1149,14 +1155,14 @@ export class World {
     const m = this.map;
     if (c < 0 || c >= m.build.length) return;
     if (this.tier < B.LIGHTS_TIER) {
-      return this.message(`Roundabouts unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
+      return message(this, `Roundabouts unlock at the ${TIERS[B.LIGHTS_TIER].name}.`, 'bad');
     }
     const err = roundaboutError(m, c);
-    if (err) return this.message(err, 'bad');
+    if (err) return message(this, err, 'bad');
     const cost = roundaboutCost(m, c);
-    if (this.cash < cost) return this.message('Not enough money', 'bad');
+    if (this.cash < cost) return message(this, 'Not enough money', 'bad');
     this.book('construction', -cost);
-    this.moneyAt(-cost, c);
+    moneyAt(this, -cost, c);
     const cx = m.xOf(c);
     const cy = m.yOf(c);
     // The island in the middle.
@@ -1171,7 +1177,7 @@ export class World {
       m.deco[i] = Deco.None;
       this.dirty.add(i);
     }
-    this.tip('roundabout');
+    tip(this, 'roundabout');
   }
 
   /**
@@ -1245,15 +1251,15 @@ export class World {
     if (stores) this.rebuildStores();
     if (refund > 0) {
       this.book('construction', refund);
-      this.moneyAt(refund, tiles[tiles.length - 1]);
+      moneyAt(this, refund, tiles[tiles.length - 1]);
     }
-    if (!any) this.message('Nothing marked out here that can be cleared', 'bad');
+    if (!any) message(this, 'Nothing marked out here that can be cleared', 'bad');
   }
 
   markStore(tiles: number[], kind: StoreKind, on: boolean): void {
     const tier = STORE_TIER[kind];
     if (this.tier < tier) {
-      return this.message(`${STORE_LABEL[kind]} unlocks at the ${TIERS[tier].name}.`, 'bad');
+      return message(this, `${STORE_LABEL[kind]} unlocks at the ${TIERS[tier].name}.`, 'bad');
     }
     let net = 0;
     let firstError: string | null = null;
@@ -1279,9 +1285,9 @@ export class World {
       changed = true;
     }
     if (changed) this.rebuildStores();
-    if (changed && on) this.tip(kind === 'boxes' ? 'yards' : 'storage');
-    if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
-    else if (firstError) this.message(firstError, 'bad');
+    if (changed && on) tip(this, kind === 'boxes' ? 'yards' : 'storage');
+    if (net !== 0) moneyAt(this, net, tiles[tiles.length - 1]);
+    else if (firstError) message(this, firstError, 'bad');
   }
 
   /**
@@ -1432,7 +1438,8 @@ export class World {
       lost.boxes > 0 && `${lost.boxes} container${lost.boxes === 1 ? '' : 's'}`,
     ].filter(Boolean);
     if (what.length > 0) {
-      this.message(
+      message(
+        this,
         `${what.join(' and ')} stored there ${lost.crates + lost.boxes === 1 ? 'was' : 'were'} lost.`,
         'bad',
       );
@@ -1446,7 +1453,7 @@ export class World {
   terraform(tiles: number[], raise: boolean): void {
     if (this.tier < B.TERRAFORM_TIER) {
       const what = raise ? 'Land reclamation' : 'Dredging';
-      return this.message(`${what} unlocks at the ${TIERS[B.TERRAFORM_TIER].name}.`, 'bad');
+      return message(this, `${what} unlocks at the ${TIERS[B.TERRAFORM_TIER].name}.`, 'bad');
     }
     const m = this.map;
     let spent = 0;
@@ -1491,9 +1498,9 @@ export class World {
       this.dockCache = null;
       this.capacityCache = null;
     }
-    if (firstError && isLandError(firstError)) this.tip('land');
-    if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
-    else if (firstError) this.message(firstError, 'bad');
+    if (firstError && isLandError(firstError)) tip(this, 'land');
+    if (spent > 0) moneyAt(this, -spent, tiles[tiles.length - 1]);
+    else if (firstError) message(this, firstError, 'bad');
   }
 
   bulldoze(tiles: number[]): void {
@@ -1564,15 +1571,15 @@ export class World {
       this.map.orient[t] &= ~FORKLIFT_ONLY;
       this.dirty.add(t);
     }
-    if (net !== 0) this.moneyAt(net, tiles[tiles.length - 1]);
-    else if (lastError && tiles.length === 1) this.message(lastError, 'bad');
+    if (net !== 0) moneyAt(this, net, tiles[tiles.length - 1]);
+    else if (lastError && tiles.length === 1) message(this, lastError, 'bad');
   }
 
   /** Testing shortcuts. The worker only forwards these on the dev server. */
   debug(cmd: Extract<Command, { type: 'debug' }>): void {
     if (cmd.cash) {
       this.cash += cmd.cash;
-      this.message(`Debug: +$${cmd.cash.toLocaleString('en-US')}`, 'good');
+      message(this, `Debug: +$${cmd.cash.toLocaleString('en-US')}`, 'good');
     }
     if (cmd.tier !== undefined) this.tier = cmd.tier;
     if (cmd.town !== undefined && this.town) {
@@ -1630,17 +1637,17 @@ export class World {
     if (amount > 0) {
       const room = B.LOAN_MAX - this.loan;
       const borrow = Math.min(amount, room);
-      if (borrow <= 0) return this.message('The bank will not lend you any more.', 'bad');
+      if (borrow <= 0) return message(this, 'The bank will not lend you any more.', 'bad');
       this.loan += borrow;
       this.cash += borrow;
-      this.message(`Borrowed $${borrow.toLocaleString('en-US')} from the bank.`, 'info');
+      message(this, `Borrowed $${borrow.toLocaleString('en-US')} from the bank.`, 'info');
     } else {
       const repay = Math.min(-amount, this.loan);
       if (repay <= 0) return;
-      if (this.cash < repay) return this.message('Not enough cash to repay that much.', 'bad');
+      if (this.cash < repay) return message(this, 'Not enough cash to repay that much.', 'bad');
       this.loan -= repay;
       this.cash -= repay;
-      this.message(`Repaid $${repay.toLocaleString('en-US')} of the loan.`, 'good');
+      message(this, `Repaid $${repay.toLocaleString('en-US')} of the loan.`, 'good');
     }
   }
 
@@ -1656,7 +1663,8 @@ export class World {
     if (this.tierReadyTold >= this.tier + 1) return;
     this.tierReadyTold = this.tier + 1;
     const name = this.town?.name ?? 'The town';
-    this.message(
+    message(
+      this,
       `${name} has grown to ${this.townSize().toLocaleString('en-US')} people: the harbour authority will let the port become a ${next.name}. See the Port panel (P).`,
       'good',
     );
@@ -1681,15 +1689,17 @@ export class World {
 
   upgrade(): void {
     const next = TIERS[this.tier + 1];
-    if (!next || next.comingSoon) return this.message('No further upgrades yet.', 'info');
+    if (!next || next.comingSoon) return message(this, 'No further upgrades yet.', 'info');
     if (this.townSize() < next.town) {
-      return this.message(
+      return message(
+        this,
         `The harbour authority waits for the town to grow: ${next.name} needs ${next.town.toLocaleString('en-US')} people in town, it has ${this.townSize().toLocaleString('en-US')}.`,
         'bad',
       );
     }
     if (this.cash < next.cost) {
-      return this.message(
+      return message(
+        this,
         `Not enough cash for the harbour authority's fee of $${next.cost.toLocaleString('en-US')}.`,
         'bad',
       );
@@ -1697,22 +1707,23 @@ export class World {
     this.book('construction', -next.cost);
     this.tier++;
     this.capacityCache = null;
-    this.message(
+    message(
+      this,
       `The port is now a ${next.name}! New buildings and machines are unlocked.`,
       'good',
     );
-    this.tip(`tier${this.tier}`);
+    tip(this, `tier${this.tier}`);
     this.addOffer('fishery');
   }
 
   hire(candidateId: number): void {
     const c = this.candidates.find((x) => x.id === candidateId);
-    if (!c) return this.message('That candidate has taken another job.', 'bad');
-    if (this.cash < B.HIRE_FEE) return this.message('Not enough money to hire', 'bad');
+    if (!c) return message(this, 'That candidate has taken another job.', 'bad');
+    if (this.cash < B.HIRE_FEE) return message(this, 'Not enough money to hire', 'bad');
     this.book('hiring', -B.HIRE_FEE);
     this.candidates = this.candidates.filter((x) => x !== c);
     const p = this.spawnDockhand(this.muster(), c);
-    this.message(`${p.name} has been hired and reports at the truck bay.`, 'good');
+    message(this, `${p.name} has been hired and reports at the truck bay.`, 'good');
   }
 
   /** Replace one candidate each day and top the list up. */
@@ -1731,13 +1742,13 @@ export class World {
       this.cancelJob(p);
       this.people = this.people.filter((q) => q !== p);
       this.book('construction', refund);
-      this.message(`Sold ${p.name} for $${refund}.`, 'info');
+      message(this, `Sold ${p.name} for $${refund}.`, 'info');
       return;
     }
-    if (p.carrying) this.message(`${p.name} dropped their crate on the way out.`, 'bad');
+    if (p.carrying) message(this, `${p.name} dropped their crate on the way out.`, 'bad');
     this.cancelJob(p);
     this.people = this.people.filter((q) => q !== p);
-    this.message(`${p.name} has left the port.`, 'info');
+    message(this, `${p.name} has left the port.`, 'info');
   }
 
   // ── Contracts ─────────────────────────────────────────────
@@ -1776,7 +1787,7 @@ export class World {
     const expired = this.offers.filter((o) => o.expires <= this.tick);
     this.offers = this.offers.filter((o) => o.expires > this.tick);
     if (expired.length > 0 && this.offers.length === 0) {
-      this.message('Some contract offers have expired.', 'info');
+      message(this, 'Some contract offers have expired.', 'info');
     }
     // An ice works offering its ice for the fishing boats, while none has a
     // contract: besides the other offers, drawn apart so they come as ever.
@@ -1831,7 +1842,7 @@ export class World {
       if (this.offers.length === before) this.addOffer(kind === 'haulier' ? 'fishery' : 'haulier');
       // The Contracts button counts the offers: only an empty board is news.
       if (before === 0 && this.offers.length > 0) {
-        this.message(`New contract offer from ${this.offers.at(-1)!.terms.name}.`, 'info');
+        message(this, `New contract offer from ${this.offers.at(-1)!.terms.name}.`, 'info');
       }
     }
   }
@@ -1868,13 +1879,13 @@ export class World {
 
   signContract(offerId: number): void {
     const offer = this.offers.find((o) => o.id === offerId);
-    if (!offer) return this.message('That offer is no longer available.', 'bad');
-    if (this.cash < offer.signingFee) return this.message('Not enough money to sign', 'bad');
+    if (!offer) return message(this, 'That offer is no longer available.', 'bad');
+    if (this.cash < offer.signingFee) return message(this, 'Not enough money to sign', 'bad');
     this.book('contracts', -offer.signingFee);
     this.offers = this.offers.filter((o) => o !== offer);
     // A new fishery sends its first boat soon after signing.
     this.addContract(offer.terms, this.tick + this.rng.int(60, 240), offer.signingFee);
-    this.message(`Signed with ${offer.terms.name}.`, 'good');
+    message(this, `Signed with ${offer.terms.name}.`, 'good');
     this.firstBoat.add(offer.terms.name);
     this.tipsSeen.add('contract');
   }
@@ -1886,14 +1897,15 @@ export class World {
     this.book('contracts', -fee);
     this.stats.penalties += fee;
     this.contracts = this.contracts.filter((x) => x !== c);
-    this.message(
+    message(
+      this,
       fee > 0
         ? `Contract with ${c.terms.name} ended. Buyout: $${fee}.`
         : `Contract with ${c.terms.name} ended.`,
       'info',
     );
     if (!this.contracts.some((x) => x.terms.kind === 'haulier')) {
-      this.message('No haulier is under contract. No trucks will come for crates!', 'bad');
+      message(this, 'No haulier is under contract. No trucks will come for crates!', 'bad');
     }
   }
 
@@ -1923,7 +1935,7 @@ export class World {
     if (amount <= 0) return;
     this.book('penalties', -amount);
     this.stats.penalties += amount;
-    this.moneyAt(-amount, at);
+    moneyAt(this, -amount, at);
   }
 
   /**
@@ -2006,7 +2018,8 @@ export class World {
     if (gaveUp && b.crates > 0) {
       const claim = Math.round(b.crates * b.fee * B.LOST_CARGO_SHARE);
       this.penalty(claim, this.tileOf(b));
-      this.message(
+      message(
+        this,
         `A ${b.company} boat gave up and left with ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'}. They claim $${claim}.`,
         'bad',
       );
@@ -2022,13 +2035,14 @@ export class World {
       this.contracts = this.contracts.filter((x) => x !== c);
       const breach = breachPenalty(c);
       this.penalty(breach, this.tileOf(b));
-      this.message(
+      message(
+        this,
         `${c.terms.name} has walked out and claims $${breach} for breach of contract.`,
         'bad',
       );
     } else if (c.satisfaction < 25 && !c.warned) {
       c.warned = true;
-      this.message(`${c.terms.name} is unhappy. Their boats are waiting too long.`, 'bad');
+      message(this, `${c.terms.name} is unhappy. Their boats are waiting too long.`, 'bad');
     } else if (c.satisfaction >= 40) {
       c.warned = false;
     }
@@ -2039,7 +2053,8 @@ export class World {
     this.bayFullTicks = 0;
     if (!fullForLong) return;
     const trucks = this.hauliers().reduce((n, c) => n + c.terms.fleet, 0);
-    this.nag(
+    nag(
+      this,
       'bays',
       trucks < this.bays.size
         ? 'Crates are piling up in the truck bays. Sign another haulier for more trucks.'
@@ -2253,7 +2268,7 @@ export class World {
     if (this.tick % TICKS_PER_DAY === 0) this.newDay();
     // The cargo counts, ten times a day for a week, for the statistics charts.
     if (this.tick % CARGO_EVERY === 0) {
-      this.cargoLog.push({ tick: this.tick, cargo: this.cargoStats() });
+      this.cargoLog.push({ tick: this.tick, cargo: cargoStats(this) });
       if (this.cargoLog.length > CARGO_SAMPLES) this.cargoLog.shift();
     }
     this.spawnBoats();
@@ -2282,7 +2297,7 @@ export class World {
     const stage = townStageUp(t, this.map);
     if (stage) {
       const a = /^[aeiou]/i.test(stage) ? 'an' : 'a';
-      this.message(`${t.name} has grown into ${a} ${stage.toLowerCase()}.`, 'good');
+      message(this, `${t.name} has grown into ${a} ${stage.toLowerCase()}.`, 'good');
     }
   }
 
@@ -2332,10 +2347,10 @@ export class World {
     if (accept) {
       p.wage = p.raiseAsk;
       this.changeMorale(p, B.RAISE_ACCEPT_MORALE);
-      this.message(`${p.name} is delighted with the raise.`, 'good');
+      message(this, `${p.name} is delighted with the raise.`, 'good');
     } else {
       this.changeMorale(p, B.RAISE_REFUSE_MORALE);
-      this.message(`${p.name} is not happy about being turned down.`, 'bad');
+      message(this, `${p.name} is not happy about being turned down.`, 'bad');
     }
     p.raiseAsk = 0;
   }
@@ -2346,7 +2361,8 @@ export class World {
       if (p.raiseAsk > 0) this.answerRaise(p.id, false);
       else if (p.morale < B.RAISE_MORALE_BELOW && this.rng.next() < B.RAISE_CHANCE) {
         p.raiseAsk = p.wage + B.RAISE_STEP;
-        this.message(
+        message(
+          this,
           `${p.name} asks for a raise to $${p.raiseAsk}/day. Answer in the Staff panel by tomorrow.`,
           'info',
         );
@@ -2359,11 +2375,11 @@ export class World {
     for (const p of [...this.people]) {
       p.lowMoraleDays = p.morale < B.QUIT_MORALE ? p.lowMoraleDays + 1 : 0;
       if (p.lowMoraleDays === 1) {
-        this.message(`${p.name} is miserable and thinking about quitting.`, 'bad');
+        message(this, `${p.name} is miserable and thinking about quitting.`, 'bad');
       } else if (p.lowMoraleDays >= B.QUIT_DAYS) {
         this.cancelJob(p);
         this.people = this.people.filter((q) => q !== p);
-        this.message(`${p.name} has quit. Morale was too low.`, 'bad');
+        message(this, `${p.name} has quit. Morale was too low.`, 'bad');
       }
     }
   }
@@ -2381,7 +2397,8 @@ export class World {
     const late = this.demurrageToday;
     this.demurrageToday = { amount: 0, ships: 0 };
     if (late.amount >= B.DEMURRAGE_NOTICE) {
-      this.nag(
+      nag(
+        this,
         'demurrage',
         `Ships kept waiting cost $${late.amount.toLocaleString('en-US')} in demurrage today, from ${late.ships} ship${late.ships === 1 ? '' : 's'}.`,
         'bad',
@@ -2422,7 +2439,7 @@ export class World {
     this.capacityCache = null;
 
     if (this.cash >= 0) {
-      if (this.daysInRed > 0) this.message('The port is back in the black.', 'good');
+      if (this.daysInRed > 0) message(this, 'The port is back in the black.', 'good');
       this.daysInRed = 0;
       return;
     }
@@ -2431,14 +2448,15 @@ export class World {
     if (left <= 0) {
       this.bankrupt = true;
       this.speed = 0;
-      this.message('The bank has closed the port. You are bankrupt.', 'bad');
+      message(this, 'The bank has closed the port. You are bankrupt.', 'bad');
     } else if (this.daysInRed === 1) {
-      this.message(
+      message(
+        this,
         `The port is in the red! Get back above $0 within ${left} days or the bank will close it.`,
         'bad',
       );
     } else if (left <= 3) {
-      this.message(`${left} day${left === 1 ? '' : 's'} until the bank closes the port.`, 'bad');
+      message(this, `${left} day${left === 1 ? '' : 's'} until the bank closes the port.`, 'bad');
     }
   }
 
@@ -3205,7 +3223,7 @@ export class World {
       }
     }
     const hands = needCrane || this.people.some((q) => q.kind === 'dockhand');
-    if (!hands && cranes && out.some((b) => !b.craned)) this.tip('noHands');
+    if (!hands && cranes && out.some((b) => !b.craned)) tip(this, 'noHands');
     return out
       .filter((b) => hands || !cranes || b.craned)
       .sort((a, b) => a.d - b.d || a.berth - b.berth);
@@ -3419,7 +3437,12 @@ export class World {
           b.speed = 0;
           const queue = this.boats.filter((q) => q.state === 'anchored').length;
           if (!this.tryBerth(b) && queue === 1) {
-            this.nag('queue', 'Boats are queueing at the anchorage. Every berth is taken.', 'info');
+            nag(
+              this,
+              'queue',
+              'Boats are queueing at the anchorage. Every berth is taken.',
+              'info',
+            );
           }
         }
         return;
@@ -3471,11 +3494,12 @@ export class World {
                 : 'crates';
           // Only a new line's first boat is news; the rest are routine.
           if (this.firstBoat.delete(b.company)) {
-            this.message(`A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
+            message(this, `A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');
           }
-          if (b.vessel === 'coaster') this.tip('pallets');
+          if (b.vessel === 'coaster') tip(this, 'pallets');
           if (b.vessel === 'coaster' && !this.people.some((p) => p.kind === 'forklift')) {
-            this.nag(
+            nag(
+              this,
               'pallets',
               'Pallets wait on the quay until a forklift takes them on. Buy one at a depot.',
               'bad',
@@ -4807,7 +4831,7 @@ export class World {
       y.boxes.push(...h.fees);
       bayIncoming(y, true, -h.planned);
       this.stats.containers += h.fees.length;
-      this.tip('customs');
+      tip(this, 'customs');
     }
     y.gantryHeld = y.gantryTo = undefined;
     // It stands where it set the container down, for the next.
@@ -5698,7 +5722,7 @@ export class World {
       (bay.exports ??= []).push(fee);
     }
     bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
-    this.tip('exports');
+    tip(this, 'exports');
   }
 
   /** Crates a dockhand or forklift has for a truck: on it if it is still loading, else back where they came from. */
@@ -5969,7 +5993,7 @@ export class World {
   /** Buy a tug at a tug berth: the one at `tile`, or any without its tug. */
   buyTug(tile?: number): void {
     if (this.tier < B.TUG_TIER) {
-      return this.message(`Tugs unlock at the ${TIERS[B.TUG_TIER].name}.`, 'bad');
+      return message(this, `Tugs unlock at the ${TIERS[B.TUG_TIER].name}.`, 'bad');
     }
     const m = this.map;
     const free = (i: number) =>
@@ -5978,14 +6002,18 @@ export class World {
     if (tile === undefined) {
       for (let i = 0; i < m.build.length && home < 0; i++) if (free(i)) home = i;
       if (home < 0) {
-        return this.message('Build a tug berth first, in the water beside a jetty or quay.', 'bad');
+        return message(
+          this,
+          'Build a tug berth first, in the water beside a jetty or quay.',
+          'bad',
+        );
       }
     } else if (tile < 0 || tile >= m.build.length || m.build[tile] !== Build.TugBerth) {
-      return this.message('Click a tug berth to buy a tug there', 'bad');
+      return message(this, 'Click a tug berth to buy a tug there', 'bad');
     } else if (!free(tile)) {
-      return this.message('That berth has its tug already. Each takes one.', 'bad');
+      return message(this, 'That berth has its tug already. Each takes one.', 'bad');
     }
-    if (this.cash < B.TUG_PRICE) return this.message('Not enough money', 'bad');
+    if (this.cash < B.TUG_PRICE) return message(this, 'Not enough money', 'bad');
     this.book('construction', -B.TUG_PRICE);
     const name = `Tug ${TUG_NAMES[this.tugs.length % TUG_NAMES.length]}`;
     this.tugs.push({
@@ -6000,8 +6028,8 @@ export class World {
       path: [],
       plan: 0,
     });
-    this.moneyAt(-B.TUG_PRICE, home);
-    this.message(`${name} is ready at its berth.`, 'good');
+    moneyAt(this, -B.TUG_PRICE, home);
+    message(this, `${name} is ready at its berth.`, 'good');
   }
 
   /** Where a tug lies at its berth: in the middle, alongside the dock. */
@@ -6028,7 +6056,8 @@ export class World {
       }
       this.tugs = this.tugs.filter((q) => q !== t);
       this.book('construction', B.TUG_PRICE / 2);
-      this.message(
+      message(
+        this,
         `With its berth gone, ${t.name} was sold for $${(B.TUG_PRICE / 2).toLocaleString('en-US')}.`,
         'info',
       );
@@ -7153,7 +7182,7 @@ export class World {
 
   depart(b: Boat, gaveUp: boolean): void {
     this.judgeVisit(b, gaveUp);
-    this.departTips();
+    departTips(this);
     // Leaving with containers still on board: customs start on those it landed.
     if (b.vessel === 'feeder') this.shipUnloaded(b);
     if (b.state === 'moored') {
@@ -7270,7 +7299,8 @@ export class World {
   /** Buy a forklift at a depot: the one at `tile`, or any with room. */
   buyMachine(kind: MachineKind, tile?: number): void {
     if (this.tier < MACHINE_TIER[kind]) {
-      return this.message(
+      return message(
+        this,
         `${MACHINES[kind].label}s unlock at the ${TIERS[MACHINE_TIER[kind]].name}.`,
         'bad',
       );
@@ -7283,22 +7313,23 @@ export class World {
         }
       }
       if (depot < 0)
-        return this.message('Build a forklift depot first. Forklifts live there.', 'bad');
+        return message(this, 'Build a forklift depot first. Forklifts live there.', 'bad');
     } else {
       const err =
         tile >= 0 && tile < this.map.build.length
           ? machinePlacementError(this.map, tile)
           : 'Off the map';
-      if (err) return this.message(err, 'bad');
+      if (err) return message(this, err, 'bad');
     }
     if (this.depotRoom(depot) < MACHINES[kind].room) {
-      return this.message(
+      return message(
+        this,
         `That depot is full. Each houses ${B.DEPOT_SLOTS} forklifts or tractors, a reach stacker taking two places.`,
         'bad',
       );
     }
     const spec = MACHINES[kind];
-    if (this.cash < spec.price) return this.message('Not enough money', 'bad');
+    if (this.cash < spec.price) return message(this, 'Not enough money', 'bad');
     this.book('construction', -spec.price);
     const p = this.spawnDockhand(depot, {
       id: 0,
@@ -7309,10 +7340,10 @@ export class World {
     });
     p.kind = kind;
     p.capacity = spec.capacity;
-    this.tip(kind === 'forklift' ? 'forklifts' : kind === 'tractor' ? 'tractors' : 'stackers');
+    tip(this, kind === 'forklift' ? 'forklifts' : kind === 'tractor' ? 'tractors' : 'stackers');
     p.home = depot;
-    this.moneyAt(-spec.price, depot);
-    this.message(`A new ${spec.label.toLowerCase()} is ready at the depot.`, 'good');
+    moneyAt(this, -spec.price, depot);
+    message(this, `A new ${spec.label.toLowerCase()} is ready at the depot.`, 'good');
   }
 
   /**
@@ -7374,7 +7405,8 @@ export class World {
       if (this.goToDepot(p, 'repair')) return true;
       // No depot to reach: a mechanic comes out, at double the price.
       this.startRepair(p, B.REPAIR_COST * 2);
-      this.nag(
+      nag(
+        this,
         'callout',
         `${p.name} has broken down with no depot to reach. Mechanic called out at double the price.`,
         'bad',
@@ -7389,7 +7421,7 @@ export class World {
     p.state = 'broken';
     p.timer = B.REPAIR_TICKS;
     this.book('maintenance', -cost);
-    this.moneyAt(-cost, this.tileOf(p));
+    moneyAt(this, -cost, this.tileOf(p));
   }
 
   /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
@@ -7792,7 +7824,7 @@ export class World {
 
   goOnBreak(p: Dockhand): void {
     p.path = [];
-    if (!this.tipsSeen.has('hut')) this.tipUnless('hut', this.map.build.includes(Build.BreakHut));
+    if (!this.tipsSeen.has('hut')) tipUnless(this, 'hut', this.map.build.includes(Build.BreakHut));
     const here = this.tileOf(p);
     const huts: number[] = [];
     for (let i = 0; i < this.map.build.length; i++) {
@@ -8186,8 +8218,8 @@ export class World {
         // Timber and goods wait in crate storage for customs.
         if (!onto && !boxy && !p.cleared) this.startHolds(bay, p.cargoFees, false);
         p.cleared = undefined;
-        if (boxy) this.tip('customs');
-        if (bay.pile) this.tip('landed');
+        if (boxy) tip(this, 'customs');
+        if (bay.pile) tip(this, 'landed');
         bayIncoming(bay, boxy, -p.planned);
         // Landed on the quay, a crate has not been handled yet.
         if (boxy) this.stats.containers += p.carrying;
@@ -8250,7 +8282,7 @@ export class World {
     p.stuck = stuck;
     if (stuck && !this.warnedStuck) {
       this.warnedStuck = true;
-      this.message(`${p.name}: ${stuck}.`, 'bad');
+      message(this, `${p.name}: ${stuck}.`, 'bad');
     }
   }
 
@@ -8606,7 +8638,8 @@ export class World {
       (b) => b.tiles && this.takesImports(b) && bayRoom(b, false) > 0,
     );
     if (room) return;
-    this.nag(
+    nag(
+      this,
       'customsStore',
       'Timber and goods wait in crate storage for customs, and none has room: the coasters cannot be unloaded. Mark out more crate storage for cargo coming in.',
       'bad',
@@ -8993,7 +9026,7 @@ export class World {
     this.book('exports', total);
     this.stats.earned += total;
     this.stats.exported = (this.stats.exported ?? 0) + fees.length;
-    this.moneyAt(total, b.berth);
+    moneyAt(this, total, b.berth);
     // Ice on board a fishing boat, towards the town's ice house, or canned
     // fish on a coaster, towards its builders' yard.
     const goal = this.town && landmarkGoal(this.town, this.tier)?.goal;
@@ -9107,10 +9140,14 @@ export class World {
     const then = next
       ? ` Next it wants a ${next.name.toLowerCase()}: ${next.aim.toLowerCase()}${later}.`
       : '';
-    this.message(`${this.town.name} opens its ${l.name.toLowerCase()}. ${l.opens}.${then}`, 'good');
+    message(
+      this,
+      `${this.town.name} opens its ${l.name.toLowerCase()}. ${l.opens}.${then}`,
+      'good',
+    );
     // The advisor says what it brings and what comes next.
-    const tip = LANDMARK_TIPS[l.code];
-    if (tip) this.tip(tip);
+    const tipId = LANDMARK_TIPS[l.code];
+    if (tipId) tip(this, tipId);
     // Its builders put it up straight away, and the school's department store.
     for (let k = l.code === Build.School ? 2 : 1; k > 0; k--) {
       growTown(this.town, this.map, (i) => this.dirty.add(i));
@@ -9203,8 +9240,9 @@ export class World {
       const into = space ? this.intoSpace(from.tile, space, -1) : null;
       if (!space || !into) {
         c.nextBoatTick = this.tick + 60;
-        this.tip('parking');
-        this.nag(
+        tip(this, 'parking');
+        nag(
+          this,
           'parking',
           `${c.terms.name}'s trucks need parking outside the port, by a public road, to do their paperwork.`,
           'bad',
@@ -9250,7 +9288,7 @@ export class World {
     const bay = [...this.bays.values()].find((b) => truckBay(b) && !b.large);
     if (!bay) {
       c.nextBoatTick = this.tick + 60;
-      this.nag('iceBay', `${c.terms.name}'s trucks bring ice to a truck bay. Build one.`, 'bad');
+      nag(this, 'iceBay', `${c.terms.name}'s trucks bring ice to a truck bay. Build one.`, 'bad');
       return;
     }
     const from = this.arrival(bay.idx);
@@ -9280,7 +9318,8 @@ export class World {
     if (!to) {
       c.nextBoatTick = this.tick + 60;
       if (![...this.bays.values()].some((b) => this.iceBay(b))) {
-        this.nag(
+        nag(
+          this,
           'iceBayFree',
           `${c.terms.name}'s ice waits for a truck bay of its own: the catch and the ice never share one. Build another truck bay.`,
           'bad',
@@ -9329,7 +9368,8 @@ export class World {
   outgoingFull(boxes: boolean): void {
     const kind = boxes ? 'boxes' : 'crates';
     const stores = [...(boxes ? this.yards : this.bays).values()].filter((b) => b.outgoing);
-    this.nag(
+    nag(
+      this,
       `outFull:${kind}`,
       stores.length === 0
         ? `Shippers' trucks are waiting with ${boxes ? 'containers' : 'crates'} to ship: mark out ${boxes ? 'a container yard' : 'crate storage'} for cargo going out.`
@@ -9354,7 +9394,7 @@ export class World {
   removePile(i: number): void {
     const pile = this.piles.get(i);
     if (pile && pile.crates.length > 0) {
-      this.message(`${pile.crates.length} crates waiting on the quay were lost.`, 'bad');
+      message(this, `${pile.crates.length} crates waiting on the quay were lost.`, 'bad');
     }
     this.piles.delete(i);
   }
@@ -9664,7 +9704,8 @@ export class World {
       (a) => a.tiles && !!a.outgoing === !!b.outgoing,
     );
     if (kind.every((a) => a.shut)) {
-      this.message(
+      message(
+        this,
         `Every ${b.outgoing ? 'outgoing ' : ''}${what} has stopped taking ${b.yard ? 'containers' : 'crates'}: ${b.outgoing ? "shippers' trucks will wait" : b.yard ? 'the cranes will stop once their stacks fill' : 'forklifts will take crates to the truck bays'}.`,
         'bad',
       );
@@ -10163,7 +10204,7 @@ export class World {
     const until = this.tick + (out ? B.EXPORT_PAPERS_TICKS : B.CRATE_CUSTOMS_TICKS);
     const list = out ? (b.papers ??= []) : (b.customs ??= []);
     for (let k = 0; k < n; k++) list.push(until);
-    this.tip(out ? 'papers' : 'crateCustoms');
+    tip(this, out ? 'papers' : 'crateCustoms');
   }
 
   /**
@@ -10323,7 +10364,7 @@ export class World {
       p.state = 'toDrop';
       return;
     }
-    this.nag('putDown', `${p.name} had nowhere to take their load and put it down.`, 'bad');
+    nag(this, 'putDown', `${p.name} had nowhere to take their load and put it down.`, 'bad');
     p.carrying = 0;
     p.cargoFees = [];
     p.planned = 0;
@@ -10370,7 +10411,8 @@ export class World {
       this.exportLooks(store).push(...this.carriedLooks(p));
       (store.exports ??= []).push(...p.cargoFees);
     } else
-      this.nag(
+      nag(
+        this,
         'putDownExports',
         `${p.name} had nowhere to take the exports and put them down.`,
         'bad',
@@ -11696,7 +11738,8 @@ export class World {
   removeBay(i: number): void {
     const bay = this.bays.get(i);
     if (bay && bay.crates.length + bay.boxes.length > 0) {
-      this.message(
+      message(
+        this,
         `${bay.crates.length} crates and ${bay.boxes.length} containers were lost with the truck bay.`,
         'bad',
       );
@@ -12173,18 +12216,18 @@ export class World {
             )
           : undefined);
       if (!haulier) {
-        if (hauliers.some((h) => (h.returns?.length ?? 0) > 0)) this.tip('roundTrip');
+        if (hauliers.some((h) => (h.returns?.length ?? 0) > 0)) tip(this, 'roundTrip');
         const stuck = hauliers.some(
           (h) => h.terms.capacity > B.TRUCK_CAPACITY && (out.get(h.id) ?? 0) < h.terms.fleet,
         );
         if (stuck && !this.warnedBigTrucks && ![...this.bays.values()].some((b) => b.large)) {
           this.warnedBigTrucks = true;
-          this.message('Big trucks need a large truck bay. Build one so they can collect.', 'bad');
+          message(this, 'Big trucks need a large truck bay. Build one so they can collect.', 'bad');
         }
         const boxTrucks = hauliers.some((h) => h.terms.cargo === 'container');
         if (bay.yard && !boxTrucks && !this.warnedBoxTrucks) {
           this.warnedBoxTrucks = true;
-          this.message('Containers are piling up in the yard. Sign a container haulier.', 'bad');
+          message(this, 'Containers are piling up in the yard. Sign a container haulier.', 'bad');
         }
         continue;
       }
@@ -12258,7 +12301,7 @@ export class World {
         ? `Trucks cannot reach this ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
         : `Trucks cannot reach this ${what}: it needs a public road to the highway, or port roads from a port gate.`;
     // Crate storage out of the trucks' way is a buffer the forklifts empty.
-    if (!bay.noAccess && !bay.warehouse) this.message(why, 'bad');
+    if (!bay.noAccess && !bay.warehouse) message(this, why, 'bad');
     bay.noAccess = true;
     bay.noAccessWhy = why;
     bay.nextTruckTick = this.tick + 100;
@@ -12384,7 +12427,7 @@ export class World {
         // Containers at a yard with no gantry come off by reach stacker.
         if (this.byStacker(t, bay)) {
           if (t.cargo <= 0) {
-            this.tip('exports');
+            tip(this, 'exports');
             this.headOut(t);
           }
           return;
@@ -12412,7 +12455,7 @@ export class World {
           bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
         }
         if (--t.cargo <= 0) {
-          this.tip('exports');
+          tip(this, 'exports');
           this.headOut(t);
         }
         return;
@@ -12525,7 +12568,7 @@ export class World {
         if (bonus > 0) {
           this.book('town', bonus);
           this.stats.earned += bonus;
-          this.moneyAt(bonus, t.drop ?? this.tileOf(t));
+          moneyAt(this, bonus, t.drop ?? this.tileOf(t));
         }
         if (this.town) this.town.local += t.boxes ? n * B.CONTAINER_GOODS : n;
         t.value -= Math.round(worth);
@@ -13309,7 +13352,7 @@ export class World {
       this.book(t.boxes ? 'containers' : 'cargo', income);
       this.stats.earned += income;
       this.stats.trucks++;
-      this.moneyAt(income, this.tileOf(t));
+      moneyAt(this, income, this.tileOf(t));
       if (this.deliverInTown(t)) return;
     }
     this.headOut(t);
@@ -13730,809 +13773,26 @@ export class World {
 
   // ── Output ────────────────────────────────────────────────
 
-  message(text: string, tone: 'info' | 'good' | 'bad'): void {
-    this.events.push({ kind: 'message', text, tone });
-    // Refused for want of land: the advisor says how land is bought, once.
-    if (tone === 'bad' && isLandError(text)) this.tip('land');
+  /** What the view sees of the game this frame; see systems/snapshot.ts. */
+  snapshot(): Snapshot {
+    return buildSnapshot(this);
   }
 
-  /**
-   * A warning that comes back while the trouble lasts: given at once, then
-   * again after a day, two, four and at most eight, so it is never noise.
-   */
-  nag(key: string, text: string, tone: 'info' | 'good' | 'bad'): void {
-    const n = this.nags.get(key);
-    if (n && this.tick < n.next) return;
-    const gap = n ? Math.min(n.gap * 2, TICKS_PER_DAY * 8) : TICKS_PER_DAY;
-    this.nags.set(key, { next: this.tick + gap, gap });
-    this.message(text, tone);
-  }
-
-  /** Have the advisor explain something, the first time it comes up in a game. */
-  tip(id: string): void {
-    if (this.tipsSeen.has(id)) return;
-    this.tipsSeen.add(id);
-    this.events.push({ kind: 'tip', id });
-  }
-
-  /** As tip, but not if the player has already `done` what it would teach them. */
-  tipUnless(id: string, done: boolean): void {
-    if (done) this.tipsSeen.add(id);
-    else this.tip(id);
-  }
-
-  /**
-   * The first steps, a boat leaving at a time: speeding the game up, then
-   * another jetty, another contract and the finance and statistics screens.
-   * Each comes after the one before, the next boat but one, and none the
-   * player has already got round to.
-   */
-  departTips(): void {
-    const n = ++this.departed;
-    const at = FIRST_STEPS.findIndex((id) => !this.tipsSeen.has(id));
-    // One a boat, the first after the first boat has left.
-    if (at < 0 || n <= at) return;
-    const id = FIRST_STEPS[at];
-    this.tipUnless(id, id === 'jetty' && this.docks().length > 1);
-  }
-
-  moneyAt(amount: number, i: number): void {
-    this.events.push({ kind: 'money', amount, x: this.map.xOf(i) + 0.5, y: this.map.yOf(i) + 0.5 });
-  }
-
-  depotViews(): { idx: number; forklifts: number }[] {
-    const out: { idx: number; forklifts: number }[] = [];
-    for (let i = 0; i < this.map.build.length; i++) {
-      if (this.map.build[i] === Build.Depot) {
-        out.push({ idx: i, forklifts: B.DEPOT_SLOTS - this.depotRoom(i) });
-      }
-    }
-    return out;
-  }
-
+  /** What happened since the last frame, for the view; see systems/output.ts. */
   drainEvents(): SimEvent[] {
-    const out = this.events;
-    this.events = [];
-    return out;
+    return eventsOut(this);
   }
 
   drainTileChanges(): TileChange[] {
-    const out = [...this.dirty].map((i) => ({
-      i,
-      terrain: this.map.terrain[i],
-      depth: this.map.depth[i],
-      ocean: this.map.ocean[i],
-      build: this.map.build[i],
-      orient: this.map.orient[i],
-      deco: this.map.deco[i],
-      store: this.map.store[i],
-    }));
-    this.dirty.clear();
-    return out;
+    return tilesOut(this);
   }
 
-  /** The port's plots and how many were bought, when that has changed since last asked. */
   drainPlotChanges(): { plots: number[]; bought: number } | undefined {
-    if (!this.plotsChanged) return undefined;
-    this.plotsChanged = false;
-    return { plots: Array.from(this.map.plots), bought: this.map.plotsBought };
+    return plotsOut(this);
   }
 
   // ── Explanations ──────────────────────────────────────────
   //
   // Why something is held up, in words, for the info panels: the same
   // checks the sim makes, said out loud.
-
-  /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
-  arrivingWords(b: Boat): string {
-    const o = b.waitingOn !== undefined && this.boats.find((q) => q.id === b.waitingOn);
-    if (!o || (b.waitedFor ?? 0) <= B.BERTH_BLOCKED_TICKS) return 'Sailing to the jetty';
-    const what =
-      o.vessel === 'feeder' ? 'feeder ship' : o.vessel === 'coaster' ? 'coaster' : 'boat';
-    return `Waiting for the ${o.company} ${what} moored in its way to sail`;
-  }
-
-  boatWhy(b: Boat): string | undefined {
-    const hands = this.people.some((q) => q.kind === 'dockhand');
-    if (b.state === 'anchored') {
-      if (b.vessel === 'feeder' && this.berthCount(b.draft, true, true) === 0) {
-        return `No berth for a feeder ship: it needs a harbour or gantry crane on a quay two tiles wide, in ${B.FEEDER_DRAFT} m of water.`;
-      }
-      if (b.vessel === 'coaster' && this.berthCount(b.draft, true) === 0) {
-        return `No berth for a coaster: it needs a quay two tiles wide, in ${B.COASTER_DRAFT} m of water.`;
-      }
-      if (
-        b.vessel !== 'feeder' &&
-        !hands &&
-        [...this.cranes.values()].some((c) => c.kind === 'jib')
-      ) {
-        return 'With no dockhands to unload by hand, boats wait for a berth under a jib crane. Hire dockhands, or build more jib cranes.';
-      }
-      return 'Every berth it fits is taken, or a boat is coming or going in the way. More berths help.';
-    }
-    if (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS) {
-      return 'A ship moored across its way in must sail first. One still taking exports on board takes those already on their way, then sails.';
-    }
-    if (b.state !== 'moored' || b.crates === 0) return undefined;
-    if (b.vessel === 'feeder') {
-      const cranes = [...this.cranes.values()].filter((c) => c.kind !== 'jib');
-      if (cranes.length > 0 && cranes.every((c) => this.stackFull(c))) {
-        return 'The cranes have set down all they can: reach stackers must take the containers to a container yard first.';
-      }
-      return undefined;
-    }
-    const jib = [...this.cranes.values()].find(
-      (c) => c.kind === 'jib' && this.near(c.idx, b.berth),
-    );
-    const spots = this.pickupSpots(b).filter((t) => walkableAt(this.map, t));
-    if (!jib && (spots.length === 0 || !hands)) {
-      return hands
-        ? 'Dockhands cannot get to it: it lies by machines-only ground. Forklifts cannot unload boats.'
-        : 'Nobody to unload it: forklifts cannot unload boats. Hire dockhands, or berth boats under a jib crane.';
-    }
-    if (jib && jib.stack.length >= B.CRANE_STACK && !this.jibStows(jib)) {
-      return "The crane's landing stack is full: a forklift must take it away. Crate storage within reach would take crates straight in.";
-    }
-    if (b.vessel === 'coaster' && !this.forklifts() && !(jib && this.jibStows(jib))) {
-      return 'Its crates are on pallets: dockhands set them down on the quay, but only forklifts take them on.';
-    }
-    return undefined;
-  }
-
-  workerWhy(p: Dockhand): string | undefined {
-    if (p.state !== 'idle' || p.kind !== 'dockhand') return undefined;
-    const waiting = this.boats.filter(
-      (b) => b.state === 'moored' && b.vessel !== 'feeder' && b.crates - b.reserved > 0,
-    );
-    const outOfReach = waiting.filter(
-      (b) => !this.pickupSpots(b).some((t) => walkableAt(this.map, t)),
-    );
-    if (waiting.length > 0 && outOfReach.length === waiting.length) {
-      return 'Boats are waiting, but dockhands keep off machines-only ground and the ground round cranes.';
-    }
-    return undefined;
-  }
-
-  /** What a truck waiting in the parking to load is waiting for. */
-  parkedWords(t: Truck): string {
-    const bay = this.dest(t.bayIdx);
-    if (bay && t.boxes && !this.handlerFree(bay, t)) {
-      return 'Parked, waiting for a free reach stacker to load it';
-    }
-    return 'Parked, waiting for a loading spot';
-  }
-
-  truckWhy(t: Truck): string | undefined {
-    if (t.exports && t.state === 'parked' && this.tick >= (t.papers ?? Infinity)) {
-      const store = t.boxes ? 'container yard' : 'crate storage';
-      if (!this.outgoingRoom(t)) return `No outgoing ${store} has room for its load.`;
-      const stores = [...(t.boxes ? this.yards : this.bays).values()].filter(
-        (b) => this.takesFrom(b, t) && bayRoom(b, t.boxes) >= t.cargo,
-      );
-      // Those parked nearer, inside the port, take the spots first.
-      const nearer =
-        t.staged === undefined
-          ? this.stagingSpace(t)
-            ? ''
-            : ' No free parking nearer the storage, inside the port, for it to wait at instead.'
-          : '';
-      if (t.staged === undefined && stores.some((b) => this.stagedFor(b, t))) {
-        return `Waiting its turn: shippers' trucks parked nearer the outgoing ${store}, inside the port, unload first.${nearer}`;
-      }
-      if (stores.some((b) => this.oneWayLane(b)) && !stores.some((b) => this.queueRoom(b))) {
-        return `Waiting its turn: the queue at the outgoing ${store}'s yard gantry is full. A longer yard along the gantry's lane gives room for more.${nearer}`;
-      }
-      // Spots free, but those on their way in to the others have to get past them first.
-      const free = stores.some((b) => this.freeDockSet(b, this.lengthOf(t)).size > 0);
-      return free
-        ? `Waiting its turn: trucks already on their way in to unload at the outgoing ${store} go first, so it would not stand in their way.${nearer}`
-        : `Outgoing ${t.boxes ? 'container yards have' : 'crate storage has'} room, but every spot beside it to unload is taken${t.boxes ? ', or spoken for by trucks on their way in' : ''}. More tiles along the side trucks use give more spots.${nearer}`;
-    }
-    if (t.state === 'parked' && !t.exports) {
-      const bay = this.dest(t.bayIdx);
-      if (!bay) return undefined;
-      const what = bay.yard ? 'container yard' : bay.tiles ? 'crate storage' : 'truck bay';
-      if (bay.noAccess) return bay.noAccessWhy;
-      if (this.oneWayLane(bay)) {
-        const n = this.inQueue(bay);
-        return `The queue at the yard gantry is full: ${n} ${n === 1 ? 'truck is' : 'trucks are'} loading or lined up for it. A longer yard along the gantry's lane gives room for more.`;
-      }
-      if (!t.boxes || this.handlerFree(bay, t)) {
-        const going = this.trucks.filter(
-          (o) => o.bayIdx === bay.idx && (o.state === 'toBay' || this.docked(o)),
-        ).length;
-        return this.freeDockSet(bay, this.lengthOf(t)).size === 0
-          ? `Every loading spot at the ${what} is taken: ${going} ${going === 1 ? 'truck is' : 'trucks are'} loading there or on the way.${bay.tiles ? ' A truck longer than a tile takes the spots either side of it too.' : ''}${bay.yard ? " A longer yard along the gantry's lane gives more spots." : ''}`
-          : `Spots at the ${what} are free, but trucks on their way in go first, so it would not stand in their way.`;
-      }
-      const stackers = this.people.filter((p) => p.kind === 'stacker').length;
-      return `This yard has no yard gantry: reach stackers load its trucks, and ${stackers === 0 ? 'there are none' : `all ${stackers} are busy`}. More reach stackers, or a yard gantry here, load trucks sooner.`;
-    }
-    if (t.state !== 'loading') return undefined;
-    const bay = this.dest(t.bayIdx);
-    if (!bay) return undefined;
-    if (t.boxes && bay.yard && this.cleared(bay) === 0 && bay.boxes.length > 0) {
-      return 'Waiting for customs to clear the containers in the yard.';
-    }
-    if (this.collectable(bay) === 0) {
-      return 'Waiting for more cargo. It leaves part-loaded if none comes soon.';
-    }
-    if (this.byHand(t, bay) && (t.coming ?? 0) === 0) {
-      const crew = this.people.filter((p) => p.kind === 'dockhand' || p.kind === 'forklift');
-      return crew.length === 0
-        ? 'Dockhands or forklifts load crate trucks, and there are none. Hire some.'
-        : 'Waiting for a dockhand or forklift to load it: they are busy, or cannot walk or drive here. More of them, or a path to this bay, load it sooner.';
-    }
-    return undefined;
-  }
-
-  craneWhy(c: Crane): string {
-    const full = this.stackFull(c);
-    if (c.kind === 'jib') {
-      const stores = this.jibStores(c);
-      if (c.busy) {
-        return stores.some((a) => bayRoom(a, false) > 0 && this.takesImports(a))
-          ? 'Swinging crates straight into crate storage.'
-          : 'Lifting crates onto its landing stack.';
-      }
-      if (full) {
-        return 'Landing stack full: waiting for a forklift to take it away. Dockhands keep off the ground round a crane.';
-      }
-      if (c.stack.length > 0) return 'Waiting for a forklift to collect its landing stack.';
-      return this.berthTrouble(c) ? 'No boat can come alongside it.' : 'No boat lying under it.';
-    }
-    if (c.busy) return 'Lifting containers off the ship.';
-    // Nowhere for them to go: every yard with room has stopped taking them.
-    const yards = [...this.yards.values()].filter((y) => !y.outgoing && bayRoom(y, true) > 0);
-    if (c.stack.length > 0 && yards.length > 0 && yards.every((y) => y.shut)) {
-      return 'Every container yard with room has stopped taking containers: open one to them again, or mark out another.';
-    }
-    if (full) {
-      return c.kind === 'gantry'
-        ? 'The bay between its legs is full: waiting for reach stackers.'
-        : 'Stack full: waiting for reach stackers.';
-    }
-    return c.stack.length > 0
-      ? 'Waiting for reach stackers to take the containers to a yard.'
-      : this.berthTrouble(c)
-        ? 'No container ship can come alongside it.'
-        : 'No container ship alongside.';
-  }
-
-  /**
-   * Why no ship can ever come alongside this crane, as the harbour master
-   * would see it, or null if one could and there is simply none there now.
-   * A jib crane takes any boat; a container crane a feeder, against a quay
-   * two wide, with room for its hull and water deep enough.
-   */
-  berthTrouble(c: Crane): string | null {
-    const m = this.map;
-    const feeder = c.kind !== 'jib';
-    const draft = feeder ? B.FEEDER_DRAFT : B.BOAT_DRAFT;
-    const water = this.boatCostFor(draft);
-    const what = feeder ? 'a container ship' : 'a boat';
-    let deepest = -1;
-    let office = false;
-    let wide = false;
-    let room = false;
-    // Berths square in front of it, where a ship lies centred on it, as the
-    // harbour master looks for them (see freeBerths).
-    for (const j of feeder ? this.craneFront(c) : [c.idx]) {
-      for (const n of m.neighbors4(j)) {
-        if (m.ocean[n] !== 1 || m.build[n] !== Build.None) continue;
-        deepest = Math.max(deepest, m.depth[n]);
-        if (!this.dockInUse(j)) continue;
-        office = true;
-        if (feeder && !this.wideQuay(j, n)) continue;
-        wide = true;
-        if (!this.footprint(n, j, this.boatHalf(feeder))) continue;
-        room = true;
-        if (water(n) === 1) return null;
-      }
-    }
-    if (deepest < 0) return `No open water beside it for ${what} to lie in.`;
-    if (!office) {
-      return 'No ship will come: this quay is not run by a harbour office. Build one nearby.';
-    }
-    if (!wide)
-      return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
-    if (!room) {
-      const reach = this.boatHalf(feeder);
-      return `No room alongside for ${what}'s hull: it lies centred on the crane, and needs open water ${reach} tile${reach === 1 ? '' : 's'} either way along the quay from it.`;
-    }
-    return `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`;
-  }
-
-  /**
-   * Everything on the map that cannot work as it is built, for a red mark
-   * over it: a crane no ship can come alongside, storage or a truck bay the
-   * trucks cannot reach, parking no truck can use.
-   */
-  problems(): ProblemView[] {
-    const m = this.map;
-    const out: ProblemView[] = [];
-    const middle = (tiles: number[]) => ({
-      x: tiles.reduce((n, i) => n + m.xOf(i) + 0.5, 0) / tiles.length,
-      y: tiles.reduce((n, i) => n + m.yOf(i) + 0.5, 0) / tiles.length,
-    });
-    for (const c of this.cranes.values()) {
-      const text = this.berthTrouble(c);
-      const h = c.kind === 'jib' ? 1.7 : c.kind === 'gantry' ? 2.9 : 2.3;
-      if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
-    }
-    // Yard gantries working no yard: beside none, or a second by one.
-    for (const [g, text] of this.gantries().idle) {
-      out.push({ ...middle([g]), h: 1.6, text, type: 'yardGantry', idx: g });
-    }
-    for (const b of [...this.bays.values(), ...this.yards.values()]) {
-      // Crate storage the trucks cannot reach is still a buffer the forklifts empty.
-      if (!b.noAccess || b.warehouse || (b.tiles && !b.yard)) continue;
-      out.push({
-        ...middle(b.tiles ?? [b.idx]),
-        h: 1.2,
-        text: b.noAccessWhy ?? 'Trucks cannot reach it.',
-        type: b.yard ? 'yard' : 'bay',
-        idx: b.idx,
-      });
-    }
-    for (const lot of this.parkingLots()) {
-      const why = this.lotTrouble(lot);
-      if (why)
-        out.push({
-          ...middle(lot.tiles),
-          h: 0.9,
-          text: `Not in use: ${why}.`,
-          type: 'parking',
-          idx: lot.tiles[0],
-        });
-    }
-    return out;
-  }
-
-  /** Cargo waiting at each step from boat to truck, for the cargo flow. */
-  waitingCargo(): Snapshot['stock'] {
-    const cranes = [...this.cranes.values()];
-    const yards = [...this.yards.values()];
-    const boxes = yards.reduce((n, y) => n + y.boxes.length, 0);
-    const cleared = yards.reduce((n, y) => n + this.cleared(y), 0);
-    return {
-      landed:
-        [...this.piles.values()].reduce((n, p) => n + p.crates.length, 0) +
-        cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + c.stack.length, 0),
-      stored: [...this.bays.values()].reduce((n, b) => n + b.crates.length, 0),
-      crateExports: this.exportsWaiting(false),
-      boxExports: this.exportsWaiting(true),
-      boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + c.stack.length, 0),
-      boxCustoms: boxes - cleared,
-      boxCleared: cleared,
-    };
-  }
-
-  /** Every crate and container in the port, by where it is; see CargoStats. */
-  cargoStats(): CargoStats {
-    const into = () => ({
-      atSea: 0,
-      onShips: 0,
-      landed: 0,
-      carried: 0,
-      customs: 0,
-      ready: 0,
-      onTrucks: 0,
-    });
-    const out = () => ({ waiting: 0, comingIn: 0, stored: 0, carried: 0, atCrane: 0, aboard: 0 });
-    const c: CargoStats = {
-      crates: into(),
-      containers: into(),
-      crateExports: out(),
-      containerExports: out(),
-    };
-    for (const b of this.boats) {
-      if (b.state === 'leaving') continue;
-      const boxes = b.vessel === 'feeder';
-      const f = boxes ? c.containers : c.crates;
-      if (b.state === 'moored') {
-        f.onShips += b.crates;
-        (boxes ? c.containerExports : c.crateExports).aboard += b.out ?? 0;
-      } else f.atSea += b.crates;
-    }
-    for (const k of this.cranes.values()) {
-      const boxes = k.kind !== 'jib';
-      (boxes ? c.containers : c.crates).landed += k.stack.length;
-      (boxes ? c.containerExports : c.crateExports).atCrane += k.outStack?.length ?? 0;
-    }
-    for (const p of this.piles.values()) c.crates.landed += p.crates.length;
-    for (const b of this.bays.values()) {
-      // Storage no truck can reach is a buffer by the cranes.
-      if (b.noAccess && b.tiles) c.crates.landed += b.crates.length;
-      else c.crates.ready += b.crates.length;
-      c.containers.ready += b.boxes.length;
-      c.crateExports.stored += b.exports?.length ?? 0;
-    }
-    for (const y of this.yards.values()) {
-      const clear = this.cleared(y);
-      c.containers.ready += clear;
-      c.containers.customs += y.boxes.length - clear;
-      c.containerExports.stored += y.exports?.length ?? 0;
-    }
-    for (const p of this.people) {
-      if (!p.carrying) continue;
-      const boxes = isBoxy(p);
-      if (p.outbound) (boxes ? c.containerExports : c.crateExports).carried += p.carrying;
-      else (boxes ? c.containers : c.crates).carried += p.carrying;
-    }
-    for (const t of this.trucks) {
-      if (t.cargo <= 0) continue;
-      if (!t.exports) {
-        (t.boxes ? c.containers : c.crates).onTrucks += t.cargo;
-        continue;
-      }
-      const e = t.boxes ? c.containerExports : c.crateExports;
-      if (t.state === 'parked' || t.state === 'toPark') e.waiting += t.cargo;
-      else if (t.state === 'toBay' || t.state === 'delivering') e.comingIn += t.cargo;
-    }
-    return c;
-  }
-
-  snapshot(): Snapshot {
-    const entities: EntityView[] = [];
-    const staff: StaffView[] = [];
-    const lifts = this.gantryLifts();
-    const jibs = this.jibLifts();
-    const moved = (where: object) => this.jibMoved(jibs, where);
-    const parked = this.parkedPoses();
-    for (const p of this.people) {
-      const park = parked.get(p.id);
-      entities.push({
-        id: p.id,
-        kind: p.kind,
-        x: park?.x ?? p.x,
-        y: park?.y ?? p.y,
-        dir: park?.dir ?? p.dir,
-        parked: park ? true : undefined,
-        ...this.servedLoad(
-          p,
-          this.liftedLoad(
-            p.carrying,
-            isBoxy(p) ? [...this.carriedLooks(p)] : undefined,
-            lifts.get(p.id),
-          ),
-        ),
-        moving: p.path.length > 0,
-        cargo: isBoxy(p)
-          ? undefined
-          : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),
-        handling: this.handlingPhase(p),
-        sitting:
-          p.state === 'resting' && p.hutIdx >= 0 && this.map.build[p.hutIdx] === Build.BreakHut,
-        name: p.name,
-        activity:
-          p.blocked > 3
-            ? 'Waiting for someone to get out of the way'
-            : activity(p, this.piles.has(p.bayIdx)),
-        variant: 0,
-        capacity: p.capacity,
-        alert: p.state === 'broken' || (p.state === 'idle' && !!p.stuck),
-        why: this.workerWhy(p),
-        ...this.handView(p),
-      });
-      staff.push({
-        id: p.id,
-        kind: p.kind,
-        broken: p.state === 'broken',
-        fuel: Math.round(p.fuel),
-        home: p.home,
-        name: p.name,
-        skill: p.skill,
-        trait: p.trait,
-        wage: p.wage,
-        energy: Math.round(p.energy),
-        morale: Math.round(p.morale),
-        activity: activity(p, this.piles.has(p.bayIdx)),
-        thought: thought({
-          blocked: p.blocked > 3,
-          energy: p.energy,
-          morale: p.morale,
-          resting: p.state === 'resting',
-          hasHut: p.hutIdx >= 0,
-          carrying: p.carrying > 0,
-          idle: p.state === 'idle' || p.state === 'wander',
-        }),
-        raiseAsk: p.raiseAsk,
-      });
-    }
-    const kind = (q: Boat) =>
-      q.vessel === 'feeder' ? 'feeder ship' : q.vessel === 'coaster' ? 'coaster' : 'boat';
-    for (const b of this.boats) {
-      const plot = this.plots.get(b);
-      const clear = this.keepingClear.get(b);
-      const giving =
-        clear && clear.pace < 1 ? this.boats.find((q) => q.id === clear.of) : undefined;
-      entities.push({
-        id: b.id,
-        kind: 'boat',
-        x: b.x,
-        y: b.y,
-        dir: b.dir,
-        ...(b.vessel === 'feeder'
-          ? this.deckView(b)
-          : {
-              load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken,
-              catch: cargoOf(b.fee),
-              // Its catch, then what it has taken on board to go out.
-              cargo: [
-                ...Array<Cargo>(b.crates).fill(cargoOf(b.fee)),
-                ...(b.outFees ?? []).map((f) => cargoOf(f, 'goods')),
-              ],
-            }),
-        moving: b.path.length > 0,
-        name: b.company,
-        activity:
-          (b.state === 'approaching'
-            ? 'Sailing in from sea'
-            : b.state === 'anchored'
-              ? 'Waiting at anchor for a berth'
-              : b.state === 'arriving'
-                ? this.arrivingWords(b)
-                : b.state === 'moored' && b.crates === 0 && b.reserved === 0
-                  ? this.readyWords(b)
-                  : b.state === 'moored'
-                    ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
-                    : 'Heading back out to sea') +
-          (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : '') +
-          (this.tugged(b) ? ', with a tug alongside' : ''),
-        plot: plot && [...plot].flatMap((v, k) => (k % 9 < 2 ? [Math.round(v * 100) / 100] : [])),
-        givingWayTo: giving?.id,
-        variant: b.variant,
-        capacity:
-          b.vessel === 'feeder'
-            ? B.FEEDER_MAX_LOAD
-            : b.vessel === 'coaster'
-              ? B.COASTER_MAX_LOAD
-              : B.BOAT_MAX_LOAD,
-        alert:
-          b.state === 'anchored' ||
-          (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS),
-        why: this.boatWhy(b),
-        vessel: b.vessel,
-        boxes: b.vessel === 'feeder',
-        visit: this.visitView(b),
-      });
-    }
-    for (const t of this.tugs) {
-      const ship = this.boats.find((b) => b.id === t.ship);
-      const whose = ship ? `the ${ship.company} ${kind(ship)}` : 'a ship';
-      entities.push({
-        id: t.id,
-        kind: 'boat',
-        x: t.x,
-        y: t.y,
-        dir: t.dir,
-        load: 0,
-        moving: t.state !== 'idle',
-        name: t.name,
-        activity:
-          t.state === 'idle'
-            ? 'Lying at its berth'
-            : t.state === 'out'
-              ? `Heading out to ${whose}`
-              : t.state === 'assist'
-                ? ship?.state === 'leaving'
-                  ? `Working ${whose} out of its berth`
-                  : `Working ${whose} in alongside`
-                : 'Heading back to its berth',
-        variant: 0,
-        capacity: 0,
-        alert: false,
-        vessel: 'tug',
-      });
-    }
-    for (const t of this.trucks) {
-      const shown = t.backing
-        ? this.backingPose(t)
-        : { x: this.lanePos(t)[0], y: this.lanePos(t)[1], dir: t.dir };
-      entities.push({
-        id: t.id,
-        kind: 'truck',
-        ...shown,
-        // A shipper's containers are all alike; the rest as they were loaded.
-        ...this.liftedLoad(
-          t.cargo,
-          t.boxes
-            ? t.exports
-              ? Array.from({ length: t.cargo }, (_, k) => boxLookOf(t.id, k))
-              : [...aligned(Array(t.cargo).fill(0), t.looks, t.id)]
-            : undefined,
-          lifts.get(t.id),
-        ),
-        cargo: t.boxes ? undefined : this.truckCargo(t),
-        moving: t.path.length > 0,
-        name: t.company,
-        activity:
-          t.exports && (t.state === 'toPark' || t.state === 'parked')
-            ? t.staged !== undefined && t.state === 'toPark'
-              ? `Paperwork done, driving to parking nearer the outgoing storage to wait for a spot`
-              : this.cannedTruck(t) && t.state === 'toPark'
-                ? `Bringing ${t.cargo} crates of canned fish to ship: to parking outside the port, to wait for a spot in the outgoing storage`
-                : this.tick < (t.papers ?? Infinity) || t.state === 'toPark'
-                  ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
-                  : this.outgoingRoom(t)
-                    ? `${this.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
-                    : `${this.cannedTruck(t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
-            : t.exports && t.state === 'toBay'
-              ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to storage, to ship`
-              : t.state === 'delivering'
-                ? `Unloading ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship`
-                : t.state === 'toPark'
-                  ? 'Driving to the parking'
-                  : t.state === 'parked'
-                    ? this.parkedWords(t)
-                    : t.state === 'toBay'
-                      ? 'Driving to the truck bay'
-                      : t.state === 'loading'
-                        ? `Loading, ${t.cargo}/${t.capacity} ${t.boxes ? 'containers' : 'crates'}${this.customsHold(t)}`
-                        : t.state === 'toTown' || t.state === 'unloading'
-                          ? `${t.state === 'toTown' ? 'Delivering' : 'Unloading'} ${t.dropCount} ${t.boxes ? 'containers' : this.cratesOf(t)} at the ${BUSINESSES[this.map.build[t.drop ?? 0]]?.label ?? 'town'} in ${this.town?.name ?? 'town'}`
-                          : 'Heading out to the highway',
-        variant: t.variant,
-        capacity: t.capacity,
-        alert: false,
-        boxes: t.boxes,
-        why: this.truckWhy(t),
-      });
-    }
-    const bays: BayView[] = [...this.bays.values()].map((b) => ({
-      idx: b.idx,
-      stock: b.crates.length + moved(b).set,
-      boxes: b.boxes.length,
-      capacity: bayCap(b),
-      large: b.large,
-      warehouse: !!b.warehouse,
-      exports: (b.exports?.length ?? 0) - moved(b).taken,
-      places: b.tiles && this.palletPlaces(b, heldIn(b) + moved(b).set),
-      outgoing: !!b.outgoing,
-      shut: !!b.shut,
-      byCrane: this.byCrane(b),
-      tiles: b.tiles && [...b.tiles],
-      noAccess: b.noAccess,
-      noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
-      cargo: [
-        ...b.crates.map((f) => cargoOf(f)),
-        ...(b.exports ?? []).map((f) => cargoOf(f, 'goods')),
-      ],
-      ...this.holdsView(b),
-    }));
-    const contracts: ContractView[] = this.contracts.map((c) => ({
-      id: c.id,
-      terms: c.terms,
-      satisfaction: c.satisfaction,
-      cancelFee: cancelFee(c),
-      breach: breachPenalty(c),
-      active:
-        c.terms.kind === 'fishery'
-          ? this.boats.filter((b) => b.contractId === c.id).length
-          : this.trucks.filter((t) => t.contractId === c.id && !t.away).length,
-      away: (c.returns ?? []).filter((at) => at > this.tick).length,
-      backIn: (c.returns ?? []).reduce(
-        (n, at) => (at > this.tick && (n < 0 || at - this.tick < n) ? at - this.tick : n),
-        -1,
-      ),
-      waiting: this.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
-      nextIn: c.terms.kind !== 'haulier' ? Math.max(0, c.nextBoatTick - this.tick) : -1,
-    }));
-    const cap = this.capacity();
-    return {
-      tick: this.tick,
-      cash: this.cash,
-      speed: this.speed,
-      seed: this.seed,
-      staff: this.people.length,
-      wages: this.wageBill(),
-      people: staff,
-      candidates: this.candidates.map((c) => ({ ...c })),
-      contractFees: this.dailyFees(),
-      loan: this.loan,
-      interest: this.interestDue(),
-      today: { ...this.today },
-      yesterday: this.yesterday ? { ...this.yesterday } : null,
-      history: this.history,
-      daysInRed: this.daysInRed,
-      bankrupt: this.bankrupt,
-      stats: { ...this.stats },
-      cargo: this.cargoStats(),
-      cargoLog: this.cargoLog,
-      entities,
-      bays,
-      yards: [...this.yards.values()].map((y) => ({
-        idx: y.idx,
-        boxes: y.boxes.length,
-        exports: y.exports?.length ?? 0,
-        ...this.yardLooks(y, lifts),
-        outgoing: !!y.outgoing,
-        shut: !!y.shut,
-        byCrane: this.byCrane(y),
-        gantry: this.yardGantry(y),
-        cleared: this.cleared(y),
-        buried: this.buriedCount(y),
-        nextClear: this.nextClear(y),
-        pending: this.pending(y),
-        capacity: bayCap(y),
-        tiles: [...(y.tiles ?? [y.idx])],
-        noAccess: y.noAccess,
-        noAccessWhy: y.noAccess ? y.noAccessWhy : undefined,
-      })),
-      problems: this.problems(),
-      parking: this.parkingLots().map((lot) => {
-        const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
-        return {
-          tiles: lot.tiles,
-          outside: lot.outside,
-          wide: lot.wide,
-          spaces: lot.spaces.length,
-          used: this.trucks.filter((t) => t.park !== undefined && keys.has(t.park)).length,
-          why: this.lotTrouble(lot),
-        };
-      }),
-      piles: [...this.piles.values()].map((p) => ({
-        idx: p.idx,
-        crates: p.crates.length - moved(p).taken,
-        pallets: !!p.pallets,
-        out: !!p.out,
-        cargo: p.crates.map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
-      })),
-      contracts,
-      capacity: this.capacity(),
-      stock: this.waitingCargo(),
-      docks: {
-        total: this.docks().length,
-        coordinated: this.docks().filter((g) => g.coordinated).length,
-        offices: this.map.build.filter((b) => b === Build.Office).length,
-        huts: this.map.build.filter((b) => b === Build.HarbourHut).length,
-        inUse: this.docks().flatMap((g) => (g.coordinated ? g.tiles : [])),
-        idle: this.docks().flatMap((g) => (g.coordinated ? [] : g.tiles)),
-      },
-      depots: this.depotViews(),
-      progress: {
-        tier: this.tier,
-        town: this.townSize(),
-        canUpgrade: this.canUpgrade(),
-        waitsOn: this.tierWaitsOn(),
-      },
-      cranes: [...this.cranes.values()].map((c) => ({
-        idx: c.idx,
-        kind: c.kind,
-        ...this.servedStack(c, moved(c).set),
-        max: craneStack(c),
-        angle: c.angle,
-        busy: c.busy,
-        stores: c.kind === 'jib' ? this.jibStores(c).length : 0,
-        why: this.craneWhy(c),
-        trouble: this.berthTrouble(c) ?? undefined,
-        ...this.craneWork(c, jibs),
-      })),
-      town: this.town && {
-        name: this.town.name,
-        stage: this.town.stage,
-        population: population(this.town, this.map),
-        homes: townHomes(this.map),
-        target: Math.round(townTarget(this.town)),
-        jobs: this.town.jobs,
-        goods: Math.round(this.town.goods),
-        supplied: Math.round(this.town.supplied),
-        wants: this.wantsView(),
-        businesses: this.businessViews(),
-        ...this.landmarkView(this.town),
-        x: this.map.xOf(this.town.centre),
-        y: this.map.yOf(this.town.centre),
-      },
-      train: this.rail.train && { ...this.rail.train, cars: [...this.rail.train.cars] },
-      offers: this.offers.map((o) => ({
-        id: o.id,
-        terms: o.terms,
-        signingFee: o.signingFee,
-        expiresIn: o.expires - this.tick,
-        breach: breachPenalty(o),
-        truckingAfter: o.terms.kind === 'haulier' ? this.truckingWith(o.terms) : cap.trucking,
-      })),
-    };
-  }
 }
