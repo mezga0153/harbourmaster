@@ -55,6 +55,14 @@ export const UNMARK_TOOL: ToolDef = {
   hint: 'Drag over storage areas, machines-only ground, one-way roads and traffic lights to clear their marks, whatever kind they are, leaving the port road or quay as it was. Storage gives back what bulldozing it would; cargo stored on cleared tiles is lost. The ground round cranes and a gantry crane’s rails stays kept for port machines',
 };
 
+export const LAND_TOOL: ToolDef = {
+  tool: 'land',
+  icon: 'map',
+  label: 'Land',
+  note: 'Buy plots',
+  hint: `The port builds only on land it owns, in plots of ${B.PLOT_SIZE}×${B.PLOT_SIZE} tiles. Click a plot outlined in yellow, beside the port’s own land, to buy it. Each plot costs a quarter more than the one before; a plot all of sea is a seabed lease, for ${Math.round(B.SEA_PLOT_SHARE * 100)}% of the price of land`,
+};
+
 export const CATEGORIES: Category[] = [
   {
     id: 'roads',

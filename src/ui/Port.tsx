@@ -1,7 +1,7 @@
 import { TIERS } from '../sim/tiers';
 import type { Actions } from './App';
 import { money } from './format';
-import { panel, snapshot } from './store';
+import { land, panel, snapshot, tool } from './store';
 import { InfoHeader, Meter, More, PortTownTabs } from './widgets';
 
 /** The handbook page on what each step up brings. */
@@ -37,6 +37,30 @@ export function PortPanel({ actions }: { actions: Actions }) {
         authority lets you upgrade, for a fee, to unlock new quays, machines and bigger ships. Jobs
         at the port and goods sent into town make it grow.
       </p>
+      {land.value && (
+        <div class="card">
+          <div class="card-head">
+            <strong>Land</strong>
+            <span class="badge">{land.value.owned} plots</span>
+          </div>
+          <p class="muted">
+            The port builds only on plots it owns, buying them one at a time beside its own: the
+            next plot of land costs {money(land.value.next)}, of sea {money(land.value.nextSea)}.
+          </p>
+          <div class="actions">
+            <button
+              class="btn"
+              onClick={() => {
+                tool.value = 'land';
+                panel.value = null;
+              }}
+            >
+              Buy land
+            </button>
+            <More topic="land" label="How it works" />
+          </div>
+        </div>
+      )}
       {TIERS.map((t, k) => {
         const state =
           k < tier ? 'done' : k === tier ? 'current' : k === tier + 1 ? 'next' : 'later';

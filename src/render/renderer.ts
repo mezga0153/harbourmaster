@@ -62,6 +62,8 @@ export class Renderer {
   private sun: DirectionalLight;
   private layers: MapLayers | null = null;
   private floaters: Floater[] = [];
+  /** Words pinned to places on the map, such as what plots of land cost; see setLabels. */
+  private labels: { el: HTMLElement; pos: Vector3 }[] = [];
   private keys = new Set<string>();
   private raycaster = new Raycaster();
   private last = performance.now();
@@ -326,6 +328,21 @@ export class Renderer {
     this.floaters.push({ el, pos: new Vector3(x, 0.8, y), born: performance.now() });
   }
 
+  /**
+   * Pin words to places on the map, `x`, `y` in tiles, replacing those
+   * shown before; `tone` styles one (see .map-label in style.css).
+   */
+  setLabels(labels: { x: number; y: number; text: string; tone?: string }[]): void {
+    for (const l of this.labels) l.el.remove();
+    this.labels = labels.map((l) => {
+      const el = document.createElement('div');
+      el.className = `map-label ${l.tone ?? ''}`;
+      el.textContent = l.text;
+      this.floaterLayer.appendChild(el);
+      return { el, pos: new Vector3(l.x, 0.5, l.y) };
+    });
+  }
+
   private groundPoint(clientX: number, clientY: number): Vector3 | null {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new Vector2(
@@ -444,6 +461,13 @@ export class Renderer {
 
   private updateFloaters(now: number): void {
     const rect = this.canvas.getBoundingClientRect();
+    for (const l of this.labels) {
+      const s = this.tmp.copy(l.pos).project(this.cam.camera);
+      const off = s.z > 1 || Math.abs(s.x) > 1.2 || Math.abs(s.y) > 1.2;
+      l.el.style.display = off ? 'none' : '';
+      if (!off)
+        l.el.style.transform = `translate(${((s.x + 1) / 2) * rect.width}px, ${((1 - s.y) / 2) * rect.height}px) translate(-50%, -50%)`;
+    }
     this.floaters = this.floaters.filter((f) => {
       const age = (now - f.born) / 1600;
       if (age >= 1) {

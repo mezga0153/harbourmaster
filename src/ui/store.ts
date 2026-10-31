@@ -26,6 +26,8 @@ export type Tool =
   | 'forkliftOnly'
   | 'dredge'
   | 'reclaim'
+  /** Buying plots of land for the port; see land.ts. */
+  | 'land'
   | RoadTool;
 
 /** Tools for the rules of the road rather than for building. */
@@ -77,6 +79,8 @@ export interface Preview {
   error: string | null;
   /** How what is being built will work, shown under the cost. */
   note?: string;
+  /** What is counted, if not tiles. */
+  unit?: string;
 }
 
 export const snapshot = signal<Snapshot | null>(null);
@@ -89,6 +93,16 @@ export const preview = signal<Preview | null>(null);
 /** Which way the next building faces; null picks a way that fits. */
 export const rotation = signal<number | null>(null);
 export const newGameOpen = signal(false);
+/** The port's land: plots owned, and what the next plot of land and of seabed costs. */
+export const land = signal<{
+  owned: number;
+  next: number;
+  nextSea: number;
+  /** The plot of land after the next. */
+  after: number;
+} | null>(null);
+/** A plot of land the player has clicked to buy, to ask first; see Land.tsx. */
+export const landOffer = signal<{ plot: number; price: number; sea: boolean } | null>(null);
 /** The build category whose tools are showing above the bar. */
 export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */

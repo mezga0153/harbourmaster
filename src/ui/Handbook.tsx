@@ -23,6 +23,7 @@ export type TopicId =
   | 'containers'
   | 'exports'
   | 'money'
+  | 'land'
   | 'growth';
 
 interface Topic {
@@ -380,6 +381,38 @@ export const TOPICS: Record<TopicId, Topic> = {
           <li>
             The bank lends up to {money(B.LOAN_MAX)}. After {B.BANKRUPT_DAYS} days in the red it
             closes the port.
+          </li>
+        </ul>
+      </>
+    ),
+  },
+  land: {
+    title: 'The port’s land',
+    body: () => (
+      <>
+        <p>
+          The port builds only on land and water it owns, in plots of {B.PLOT_SIZE} by {B.PLOT_SIZE}{' '}
+          tiles. A new port owns the few plots round its first jetty and truck bay. Anything built,
+          dredged, filled in, marked out or cleared needs its plot owned; boats and trucks pass
+          through the rest, and the public roads, the highway and the railway already there are free
+          to use.
+        </p>
+        <ul>
+          <li>
+            Pick up Land in the bar at the bottom: plots for sale are outlined in yellow with their
+            price, the land beyond them shaded. Click one to buy it. With any other tool in hand,
+            the land the port does not own is faintly shaded.
+          </li>
+          <li>
+            Only a plot beside one the port owns can be bought, so the port grows outwards. The
+            first costs {money(B.PLOT_PRICE)}, and each after it a quarter more than the one before:{' '}
+            {money(Math.round((B.PLOT_PRICE * B.PLOT_PRICE_RISE ** 4) / 100) * 100)} for the fifth,{' '}
+            {money(Math.round((B.PLOT_PRICE * B.PLOT_PRICE_RISE ** 9) / 100) * 100)} for the tenth.
+          </li>
+          <li>
+            A plot all of sea is a seabed lease from the harbour authority, for{' '}
+            {Math.round(B.SEA_PLOT_SHARE * 100)}% of the price of land: room for jetties, quays,
+            buoys and dredging.
           </li>
         </ul>
       </>

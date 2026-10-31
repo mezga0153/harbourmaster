@@ -17,7 +17,8 @@ import { buoyGates, craneGround, driveNetwork, loadingSpots, truckReach } from '
 import { Build, isBay, isTownBuilding, TICKS_PER_DAY } from './sim/types';
 import { App, type Actions } from './ui/App';
 import { graphics } from './ui/prefs';
-import { advise, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
+import { nextPrice, ownedPlots } from './sim/land';
+import { advise, land, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
 import './ui/style.css';
 import { applyView, readView, trackView } from './view-url';
 
@@ -221,6 +222,18 @@ function showGround(): void {
   renderer.overlay.setHints(m, 'selection', hints);
 }
 
+/** The port's land as it now stands, for the bar and panels, and drawn over the map. */
+function showLand(): void {
+  if (!map) return;
+  land.value = {
+    owned: ownedPlots(map),
+    next: nextPrice(map),
+    nextSea: nextPrice(map, true),
+    after: nextPrice(map, false, 1),
+  };
+  input.refreshLand();
+}
+
 /** With a boat selected, show where it plots it will be, and the boat it gives way to. */
 function showPlots(): void {
   const s = selection.peek();
@@ -277,6 +290,7 @@ function handle(msg: WorkerMessage): void {
     logInit();
     selection.value = null;
     renderer.setMap(map);
+    showLand();
     if (urlView?.seed === msg.seed) applyView(renderer.cam, urlView);
     urlView = null;
     return;
@@ -298,6 +312,11 @@ function handle(msg: WorkerMessage): void {
     map.store[c.i] = c.store;
   }
   renderer.applyTiles(msg.tiles, treesChanged, terrainChanged, seaChanged);
+  if (msg.plots) {
+    map.plots.set(msg.plots.plots);
+    map.plotsBought = msg.plots.bought;
+    showLand();
+  }
   if (msg.tiles.length > 0) {
     showReach();
     showGround();

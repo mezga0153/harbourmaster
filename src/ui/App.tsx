@@ -12,6 +12,7 @@ import { Advisor } from './Advisor';
 import { FeedbackPanel } from './Feedback';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
+import { LandDialog } from './Land';
 import { SettingsPanel } from './Settings';
 import { SoundControl } from './Sound';
 import { soundSettings } from '../audio/sound';
@@ -25,6 +26,7 @@ import { thumbnail } from '../render/thumbs';
 import {
   BULLDOZE_TOOL,
   CATEGORIES,
+  LAND_TOOL,
   SELECT_TOOL,
   UNMARK_TOOL,
   type Category,
@@ -41,6 +43,7 @@ import {
   hover,
   messages,
   newGameOpen,
+  land,
   preview,
   seed,
   selection,
@@ -110,6 +113,7 @@ export function App({ actions }: { actions: Actions }) {
       <MobileMenu actions={actions} />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
+      <LandDialog send={actions.send} />
     </>
   );
 }
@@ -1062,7 +1066,11 @@ function PreviewTip() {
   if (p.count === 0) return null;
   return (
     <div class={`tip preview ${openCategory.value ? 'raised' : ''}`}>
-      {!p.rotatable && <span class="muted">{p.count === 1 ? '1 tile' : `${p.count} tiles`}</span>}
+      {!p.rotatable && (
+        <span class="muted">
+          {p.count === 1 ? `1 ${p.unit ?? 'tile'}` : `${p.count} ${p.unit ?? 'tile'}s`}
+        </span>
+      )}
       <strong class={p.value < 0 ? 'neg' : 'pos'}>{money(p.value)}</strong>
       {p.rotatable && <span class="muted">Right-click to rotate</span>}
       {p.note && <span class="muted">{p.note}</span>}
@@ -1311,6 +1319,10 @@ function BuildBar() {
         <div class="dock-group">
           <ToolButton t={BULLDOZE_TOOL} active={current === 'bulldoze'} />
           <ToolButton t={UNMARK_TOOL} active={current === 'unmark'} />
+          <ToolButton
+            t={{ ...LAND_TOOL, note: land.value ? money(land.value.next) : LAND_TOOL.note }}
+            active={current === 'land'}
+          />
           <button
             class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
             onClick={() => togglePanel('staff')}

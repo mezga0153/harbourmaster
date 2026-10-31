@@ -22,6 +22,17 @@ thing to aim for.
 - One step at a time: the next goal only shows once the last landmark has
   opened.
 
+## The port's land
+
+Beside the steps, the port grows in space by buying land (`src/sim/land.ts`):
+plots of 16 by 16 tiles over the port's rows, each bought beside one it
+owns, for $2,000 rising by a quarter with every plot bought (about $6,100
+for the sixth, $18,600 for the eleventh), 60% of that for a plot all of sea.
+A new game owns the two or four plots round its first jetty and truck bay,
+enough for a second jetty and bay; everything built, dredged, filled in,
+marked out or cleared needs its plot owned. Saves from before land was
+bought own every plot they built on, free.
+
 ## Fishing Jetty: village to town (cap 100 → 300+)
 
 **In the game** (`LANDMARKS` in `src/sim/town.ts`): these three steps, with

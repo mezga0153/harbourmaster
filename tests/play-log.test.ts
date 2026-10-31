@@ -34,6 +34,8 @@ describe('The play log', () => {
     expect(done.staff).toBeGreaterThan(0);
     // How big the port is, what is in it, and the town.
     expect(done.size).toBeGreaterThan(0);
+    // How much land it owns.
+    expect(done.plots).toBe(w.map.plots.length);
     expect(done.port).toMatchObject({ jetty: expect.any(Number), docks: expect.any(Number) });
     expect(done.town).toMatchObject({ homes: expect.any(Number), target: expect.any(Number) });
     const kept = dayIn(done, 1);
@@ -45,6 +47,11 @@ describe('The play log', () => {
     // Turned away whole when anything is off.
     expect(dayIn({ ...done, cash: 'lots' }, 1)).toBeNull();
     expect(dayIn({ ...done, game: 'X' }, 1)).toBeNull();
+    expect(dayIn({ ...done, plots: -1 }, 1)).toBeNull();
+    // Kept with the day, and days sent before land was bought still taken.
+    expect(kept![COLUMNS.indexOf('plots')]).toBe(done.plots);
+    const { plots: _, ...older } = done;
+    expect(dayIn(older, 1)![COLUMNS.indexOf('plots')]).toBeNull();
   });
 
   it('counts messages by kind, without names or numbers', () => {

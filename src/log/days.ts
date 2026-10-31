@@ -1,4 +1,5 @@
 import type { Command, SimEvent, Snapshot } from '../protocol';
+import { ownedPlots } from '../sim/land';
 import type { GameMap } from '../sim/map';
 import { TICKS_PER_DAY } from '../sim/types';
 import { gist, keep, LOG_ON, newId, post, recall, tally, VERSION, visitId } from './common';
@@ -8,7 +9,8 @@ import { visitAction, visitDay, visitGame } from './visit';
 
 // Each day of a game is sent to /api/days as it ends: the port as it stands
 // (money, the tier and whether the next could be bought, the town, the cargo
-// and boats handled, how much is built and which features: port.ts), what the player
+// and boats handled, how much is built and which features: port.ts, the plots of
+// land it owns), what the player
 // did that day (built, hired, signed, the screens looked at), the red marks
 // on the map, the bad news, the advisor's tips, and how long it took in real
 // time, paused, sped up or not, at how many frames a second. The day under way is sent
@@ -229,6 +231,7 @@ export function dayRow(
     townStage: s.town?.stage ?? null,
     town: townNow(s),
     size,
+    plots: ownedPlots(m),
     port,
     capacity: {
       demand: c.demand,

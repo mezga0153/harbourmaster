@@ -42,12 +42,14 @@ import {
 import { exitError, hasLights, HIGHWAY_COLUMNS, oneWay, stepFacing } from './sim/roads';
 import { TIERS } from './sim/tiers';
 import * as B from './sim/balance';
+import { buyable, landError, plotError, plotPrice, seaPlot } from './sim/land';
 import { isMachineKind, MACHINES } from './sim/machines';
 import { ownedByTown } from './sim/town';
 import { Build, isTownBuilding, STORE_CODE, type BuildKind } from './sim/types';
 import {
   hover,
   isRoadTool,
+  landOffer,
   isStoreTool,
   openCategory,
   type RoadTool,
@@ -74,6 +76,18 @@ const TOOL_NOTES: Partial<Record<string, string>> = {
 };
 
 const SPEED_KEYS: Record<string, number> = { '1': 1, '2': 2, '3': 4, '4': 8 };
+
+/**
+ * For a drag running off the port's land: why nothing is built on the red
+ * there, and what the plot costs. Undefined when the drag stays on it.
+ */
+function landNote(map: GameMap, tiles: number[], ok: boolean[]): string | undefined {
+  for (let k = 0; k < tiles.length; k++) {
+    const why = ok[k] ? null : landError(map, tiles[k]);
+    if (why) return `Red is not the port’s land: ${why[0].toLowerCase()}${why.slice(1)}`;
+  }
+  return undefined;
+}
 
 /** Tools that drag out a rectangle rather than a line (storage tools do too). */
 const AREA_TOOLS: ReadonlySet<string> = new Set(['parking', 'unmark', 'bulldoze', 'portRoad']);
@@ -123,6 +137,7 @@ export class Input {
     tool.subscribe(() => {
       rotation.value = null;
       this.refreshPreview(null);
+      this.refreshLand();
     });
   }
 
@@ -245,7 +260,8 @@ export class Input {
       const tiles = this.tilesFor(i);
       const t = tool.value;
       if (tiles.length > 0) {
-        if (t === 'tug') this.send({ type: 'buyTug', tile: tiles[0] });
+        if (t === 'land') this.offerLand(tiles[0]);
+        else if (t === 'tug') this.send({ type: 'buyTug', tile: tiles[0] });
         else if (isMachineKind(t)) this.send({ type: 'buyMachine', kind: t, tile: tiles[0] });
         else if (t === 'bulldoze') this.send({ type: 'bulldoze', tiles });
         else if (t === 'unmark') this.send({ type: 'unmark', tiles });
@@ -405,6 +421,7 @@ export class Input {
       preview.value = null;
       return;
     }
+    if (t === 'land') return this.previewLand(map, i);
     if (ROTATABLE.has(t as BuildKind)) return this.previewBuilding(map, t as BuildKind, i);
     if (t === 'forkliftOnly') return this.previewMarking(map, this.tilesFor(i));
     if (isRoadTool(t)) return this.previewRoad(map, t, this.tilesFor(i));
@@ -491,7 +508,7 @@ export class Input {
       rotatable: false,
       value,
       error: pending.size === 0 ? error : null,
-      note,
+      note: pending.size > 0 ? (landNote(map, tiles, ok) ?? note) : note,
     };
   }
 
@@ -655,6 +672,7 @@ export class Input {
       rotatable: false,
       value: -changed * B.FORKLIFT_ONLY_COST,
       error: ok.some(Boolean) ? null : forkliftOnlyError(map, tiles[0]),
+      note: ok.some(Boolean) ? landNote(map, tiles, ok) : undefined,
     };
   }
 
@@ -694,7 +712,7 @@ export class Input {
       rotatable: false,
       value: count * each,
       error: count > 0 ? null : storeError(map, tiles[0], kind, on),
-      note,
+      note: count > 0 ? (landNote(map, tiles, ok) ?? note) : note,
     };
   }
 
@@ -759,6 +777,7 @@ export class Input {
       rotatable: false,
       value,
       error: done.size === 0 ? error : null,
+      note: done.size > 0 ? landNote(map, tiles, ok) : undefined,
     };
   }
 
@@ -783,6 +802,85 @@ export class Input {
       error,
       note: TOOL_NOTES[kind],
     };
+  }
+
+  /**
+   * Show the port's plots of land: with the Land tool, those for sale
+   * outlined with their price and the rest dimmed, and with any other tool
+   * in hand the land the port does not own faintly shaded.
+   */
+  refreshLand(hoverTile: number | null = null): void {
+    const map = this.getMap();
+    if (!map) return;
+    const t = tool.value;
+    const unowned: number[] = [];
+    for (let p = 0; p < map.plots.length; p++) if (!map.plots[p]) unowned.push(p);
+    if (t === 'select' || unowned.length === 0) {
+      this.renderer.overlay.setLand(map, { mode: 'off' }, B.PLOT_SIZE);
+      this.renderer.setLabels([]);
+      return;
+    }
+    if (t !== 'land') {
+      this.renderer.overlay.setLand(map, { mode: 'edge', plots: unowned }, B.PLOT_SIZE);
+      this.renderer.setLabels([]);
+      return;
+    }
+    const forSale = unowned.filter((p) => buyable(map, p));
+    const hover = hoverTile === null ? -1 : map.plotOf(hoverTile);
+    this.renderer.overlay.setLand(
+      map,
+      {
+        mode: 'tool',
+        forSale,
+        dim: unowned.filter((p) => !buyable(map, p)),
+        hover: hover >= 0 && !map.plots[hover] ? hover : -1,
+        hoverOk: buyable(map, hover),
+      },
+      B.PLOT_SIZE,
+    );
+    this.renderer.setLabels(
+      forSale.map((p) => {
+        const x = (p % map.plotsWide) * B.PLOT_SIZE + B.PLOT_SIZE / 2;
+        const y = Math.floor(p / map.plotsWide) * B.PLOT_SIZE + B.PLOT_SIZE / 2;
+        const sea = seaPlot(map, p);
+        return {
+          x,
+          y: Math.min(y, map.limit - 2),
+          text: `$${plotPrice(map, p).toLocaleString('en-US')}${sea ? ' seabed' : ''}`,
+          tone: p === hover ? 'hot' : '',
+        };
+      }),
+    );
+  }
+
+  /** What buying the plot under the pointer would cost, and why not if it cannot be bought. */
+  private previewLand(map: GameMap, i: number): void {
+    this.renderer.overlay.setGhosts(map, [], []);
+    this.renderer.overlay.setArrow(map, null, 0);
+    this.refreshLand(i);
+    const p = map.plotOf(i);
+    const price = p >= 0 ? plotPrice(map, p) : 0;
+    const cash = snapshot.value?.cash ?? 0;
+    const error = plotError(map, p) ?? (price > cash ? 'Not enough money' : null);
+    preview.value = {
+      count: error ? 0 : 1,
+      rotatable: false,
+      unit: 'plot',
+      value: error && p >= 0 && map.plots[p] ? 0 : -price,
+      error,
+      note:
+        p >= 0 && seaPlot(map, p)
+          ? 'All sea: a seabed lease from the harbour authority'
+          : undefined,
+    };
+  }
+
+  /** Ask before buying the plot clicked, if it can be bought. */
+  private offerLand(i: number): void {
+    const map = this.getMap();
+    const p = map ? map.plotOf(i) : -1;
+    if (!map || plotError(map, p)) return;
+    landOffer.value = { plot: p, price: plotPrice(map, p), sea: seaPlot(map, p) };
   }
 
   private setHover(i: number | null): void {

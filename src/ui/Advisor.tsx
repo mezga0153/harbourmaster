@@ -177,6 +177,11 @@ const TIPS: Record<string, Tip> = {
     text: 'The town has its charter, and may grow on past 800 people: then the harbour authority lets the port become a Container Port. See the Port panel (P).',
     topic: 'growth',
   },
+  land: {
+    title: 'The port’s land',
+    text: 'The port builds only on land it owns. Pick up Land in the bar at the bottom: plots beside yours are outlined with their price, and a click buys one. Each plot costs a quarter more than the last; a plot all of sea, less.',
+    topic: 'land',
+  },
   tier1: {
     title: 'Coastal Wharf',
     text: 'Quays reach deeper water for coasters, forklifts and jib cranes speed up the work, and storage can be marked out on port roads and quays.',

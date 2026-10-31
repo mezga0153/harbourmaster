@@ -1779,6 +1779,8 @@ export class World {
       if (skipped.length === left.length) break;
       left = skipped;
     }
+    // Built only partly, the rest off the port's land: the advisor explains, once.
+    if (firstError && isLandError(firstError)) this.tip('land');
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     if (spent > 0 && kind === 'road') this.exitsFor(tiles);
     if (spent > 0 && (kind === 'jetty' || kind === 'quay')) {
@@ -2400,6 +2402,7 @@ export class World {
       this.dockCache = null;
       this.capacityCache = null;
     }
+    if (firstError && isLandError(firstError)) this.tip('land');
     if (spent > 0) this.moneyAt(-spent, tiles[tiles.length - 1]);
     else if (firstError) this.message(firstError, 'bad');
   }

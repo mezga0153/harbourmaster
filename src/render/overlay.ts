@@ -36,6 +36,18 @@ const HINT: Record<HintKind, Color> = {
 };
 export type Hints = { kind: HintKind; tiles: number[] }[];
 
+/**
+ * How the port's plots of land are shown: not at all, the land it does not
+ * own faintly shaded while a build tool is in hand, or with the Land tool,
+ * plots for sale outlined and the rest dimmed. See setLand.
+ */
+export type LandView =
+  | { mode: 'off' }
+  | { mode: 'edge'; plots: number[] }
+  | { mode: 'tool'; forSale: number[]; dim: number[]; hover: number; hoverOk: boolean };
+/** Just over the tops of jetties and quays, so plots lie flat over the port. */
+const LAND_Y = 0.46;
+
 /** Hover outline, build previews and the selection ring. */
 export class Overlay {
   readonly group = new Group();
@@ -51,6 +63,12 @@ export class Overlay {
   private channels: LineSegments[];
   /** Where a selected boat plots it will be, and the boat it is giving way to. */
   private plots: Line[];
+  /** The port's plots of land: the shade over land it does not own, plots for sale, the one pointed at. */
+  private landDim: Mesh;
+  private landFaint: Mesh;
+  private landSale: Mesh;
+  private landHover: Mesh;
+  private landLines: LineSegments;
 
   constructor() {
     const square = new BufferGeometry();
@@ -168,7 +186,41 @@ export class Overlay {
       return line;
     });
 
+    const flat = (color: number, opacity: number) => {
+      const mesh = new Mesh(
+        new BufferGeometry(),
+        new MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          depthTest: false,
+          depthWrite: false,
+          side: DoubleSide,
+        }),
+      );
+      mesh.renderOrder = 5;
+      mesh.frustumCulled = false;
+      mesh.visible = false;
+      return mesh;
+    };
+    this.landDim = flat(0x0b1220, 0.42);
+    this.landFaint = flat(0x0b1220, 0.16);
+    this.landSale = flat(0xffd23f, 0.08);
+    this.landHover = flat(0xffd23f, 0.22);
+    this.landLines = new LineSegments(
+      new BufferGeometry(),
+      new LineBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    this.landLines.renderOrder = 6;
+    this.landLines.frustumCulled = false;
+    this.landLines.visible = false;
+
     this.group.add(
+      this.landDim,
+      this.landFaint,
+      this.landSale,
+      this.landHover,
+      this.landLines,
       this.hover,
       this.ghosts,
       this.ring,
@@ -293,6 +345,59 @@ export class Overlay {
     this.arrow.position.set(x, top + 0.08, y);
     // The arrow points along +z (facing 1); turn it like the buildings.
     this.arrow.rotation.y = Math.atan2(dx, dy);
+  }
+
+  /**
+   * The port's plots of land, laid flat over the map: see LandView. Plots
+   * are given by their number, row by row, `size` tiles square.
+   */
+  setLand(map: GameMap, view: LandView, size: number): void {
+    const corners = (p: number) => {
+      const x0 = (p % map.plotsWide) * size;
+      const y0 = Math.floor(p / map.plotsWide) * size;
+      return [x0, y0, Math.min(map.w, x0 + size), Math.min(map.limit, y0 + size)];
+    };
+    const fill = (mesh: Mesh, plots: number[]) => {
+      mesh.visible = plots.length > 0;
+      mesh.geometry.dispose();
+      mesh.geometry = new BufferGeometry();
+      if (!mesh.visible) return;
+      const pos: number[] = [];
+      for (const p of plots) {
+        const [x0, y0, x1, y1] = corners(p);
+        pos.push(x0, LAND_Y, y0, x0, LAND_Y, y1, x1, LAND_Y, y1);
+        pos.push(x0, LAND_Y, y0, x1, LAND_Y, y1, x1, LAND_Y, y0);
+      }
+      mesh.geometry.setAttribute('position', new Float32BufferAttribute(pos, 3));
+    };
+    const tool = view.mode === 'tool' ? view : null;
+    fill(this.landDim, tool ? tool.dim : []);
+    fill(this.landFaint, view.mode === 'edge' ? view.plots : []);
+    fill(this.landSale, tool ? tool.forSale.filter((p) => p !== tool.hover) : []);
+    fill(this.landHover, tool && tool.hover >= 0 ? [tool.hover] : []);
+    (this.landHover.material as MeshBasicMaterial).color.set(tool?.hoverOk ? 0xffd23f : 0xff5a4f);
+    // Plots for sale outlined, each edge once.
+    const lines = this.landLines;
+    lines.visible = !!tool && tool.forSale.length > 0;
+    lines.geometry.dispose();
+    lines.geometry = new BufferGeometry();
+    if (!tool || !lines.visible) return;
+    const edges = new Set<string>();
+    const pos: number[] = [];
+    const edge = (ax: number, ay: number, bx: number, by: number) => {
+      const key = `${ax},${ay},${bx},${by}`;
+      if (edges.has(key)) return;
+      edges.add(key);
+      pos.push(ax, LAND_Y + 0.01, ay, bx, LAND_Y + 0.01, by);
+    };
+    for (const p of tool.forSale) {
+      const [x0, y0, x1, y1] = corners(p);
+      edge(x0, y0, x1, y0);
+      edge(x0, y1, x1, y1);
+      edge(x0, y0, x0, y1);
+      edge(x1, y0, x1, y1);
+    }
+    lines.geometry.setAttribute('position', new Float32BufferAttribute(pos, 3));
   }
 
   setHover(map: GameMap, i: number | null): void {
