@@ -8,6 +8,7 @@ import type { EntityView } from '../src/protocol';
 import { Entities } from '../src/render/entities';
 import { headingOf } from '../src/render/models';
 import { Structures } from '../src/render/structures';
+import { addContract } from '../src/sim/systems/economy';
 
 /**
  * A container terminal north of the starting jetty, as in sim.test.ts: a
@@ -89,7 +90,8 @@ function feederPort(): World {
   }
   world.command({ type: 'build', kind: 'tugBerth', tiles: [berth] });
   world.command({ type: 'buyTug', tile: berth });
-  world['addContract'](
+  addContract(
+    world,
     {
       kind: 'fishery',
       vessel: 'feeder',
@@ -103,7 +105,8 @@ function feederPort(): World {
     world.tick + 10,
     0,
   );
-  world['addContract'](
+  addContract(
+    world,
     {
       kind: 'haulier',
       name: 'Test Box Haul',

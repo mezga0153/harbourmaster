@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { playthrough } from './bot';
+import { capacity } from '../src/sim/systems/economy';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -27,7 +28,7 @@ describe('Playthrough', () => {
       expect(w.cash).toBeGreaterThan(1000);
       // At least 2.5x the starting fishery. Crowding on narrow jetties keeps
       // pure staff-scaling slow, so the bar is modest.
-      expect(w.capacity().demand).toBeGreaterThanOrEqual(25);
+      expect(capacity(w).demand).toBeGreaterThanOrEqual(25);
       expect(w.contracts.every((c) => c.satisfaction >= 50)).toBe(true);
     },
     // The bot looks over every tile of the big map for where to build.

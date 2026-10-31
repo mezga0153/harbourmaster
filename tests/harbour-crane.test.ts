@@ -6,6 +6,7 @@ import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { Entities, turnOf } from '../src/render/entities';
 import { Structures } from '../src/render/structures';
+import { addContract } from '../src/sim/systems/economy';
 
 /**
  * A two-wide pier out to water deep enough for feeders with a harbour crane
@@ -80,7 +81,8 @@ describe('Harbour crane', () => {
     world.cash = 1_000_000;
     const crane = terminal(world);
     expect(world.map.build[crane]).toBe(Build.HarbourCrane);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',

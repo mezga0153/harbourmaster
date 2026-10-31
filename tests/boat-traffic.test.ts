@@ -3,6 +3,7 @@ import * as B from '../src/sim/balance';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { playDay } from './bot';
+import { addContract } from '../src/sim/systems/economy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -50,7 +51,8 @@ function gap(a: Any, b: Any): number {
 function busySmacks(): Any {
   const world: Any = World.create(844241);
   for (let k = 0; k < 3; k++) {
-    world.addContract(
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'smack',

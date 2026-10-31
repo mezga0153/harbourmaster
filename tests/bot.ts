@@ -9,6 +9,7 @@ import { placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
+import { canUpgrade, capacity } from '../src/sim/systems/economy';
 
 /**
  * A simple bot that plays like a sensible beginner, once per in-game day.
@@ -18,7 +19,7 @@ import { World } from '../src/sim/world';
 export function playDay(w: World): string[] {
   const did: string[] = [];
   // Upgrade the port when it is affordable with a cushion to spare.
-  if (w.canUpgrade() && w.cash > TIERS[w.tier + 1].cost + 3000) {
+  if (canUpgrade(w) && w.cash > TIERS[w.tier + 1].cost + 3000) {
     w.command({ type: 'upgrade' });
     did.push(`upgrade to ${TIERS[w.tier].name}`);
   }
@@ -36,7 +37,7 @@ export function playDay(w: World): string[] {
     if (p.raiseAsk > 0) w.command({ type: 'raise', id: p.id, accept: w.cash > 1500 });
   }
   const waiting = w.boats.filter((b) => b.state === 'anchored').length;
-  const cap = w.capacity();
+  const cap = capacity(w);
   const fleet = w.contracts.reduce(
     (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),
     0,
@@ -298,8 +299,8 @@ export function playthrough(seed: number, days: number) {
     log.push(
       `d${String(d).padStart(2)} $${String(w.cash).padStart(6)} staff ${w.people.length} ` +
         `boats ${w.boats.length} (anch ${anchored}) bays ${bays} trucks ${w.trucks.length} ` +
-        `cap ${w.capacity().demand}/${w.capacity().unloading}/${w.capacity().trucking} ` +
-        `pen ${w.stats.penalties} cong ${w.capacity().congestion.toFixed(2)} moods ${moods || '-'} ${did.join(', ')}`,
+        `cap ${capacity(w).demand}/${capacity(w).unloading}/${capacity(w).trucking} ` +
+        `pen ${w.stats.penalties} cong ${capacity(w).congestion.toFixed(2)} moods ${moods || '-'} ${did.join(', ')}`,
     );
   }
   return { w, log };

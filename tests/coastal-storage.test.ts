@@ -4,6 +4,7 @@ import { cargoOf } from '../src/sim/cargo';
 import { placementError } from '../src/sim/rules';
 import { Build, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { addContract } from '../src/sim/systems/economy';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -123,7 +124,7 @@ function wharf(inTiles: number, outTiles: number): Any {
   // Only the town's trade, and the haulier to take it away.
   for (const c of world.contracts) c.nextBoatTick = Infinity;
   world.boats.length = 0;
-  const add = world.addContract.bind(world);
+  const add = addContract.bind(null, world);
   for (const [cargo, min, max] of [
     ['timber', 16, 21],
     ['goods', 17, 22],

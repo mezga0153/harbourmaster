@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { World } from '../src/sim/world';
+import { heldView } from '../src/sim/systems/economy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -25,7 +26,7 @@ describe('A ship held up by one moored in its way', () => {
     expect(coming.waitingOn).toBe(1);
     expect(coming.waitedFor).toBeGreaterThan(B.BERTH_BLOCKED_TICKS);
     expect(world.waitingFor(moored)).toBe(coming);
-    expect(world.heldView(coming)).toEqual({
+    expect(heldView(world, coming)).toEqual({
       heldBy: 'the Blue Box Line feeder ship',
       heldFor: coming.waitedFor,
     });
@@ -42,6 +43,6 @@ describe('A ship held up by one moored in its way', () => {
     moored.state = 'leaving';
     world.countWait(coming, undefined);
     expect(coming.waitedFor).toBe(0);
-    expect(world.heldView(coming)).toEqual({});
+    expect(heldView(world, coming)).toEqual({});
   });
 });

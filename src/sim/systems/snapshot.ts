@@ -30,6 +30,18 @@ import type {
   Snapshot,
   StaffView,
 } from '../../protocol/views';
+import {
+  canUpgrade,
+  capacity,
+  dailyFees,
+  interestDue,
+  tierWaitsOn,
+  truckingWith,
+  visitView,
+  wageBill,
+} from './economy';
+import { businessViews, landmarkView, wantsView } from './townBusiness';
+import { tugged } from './tugs';
 
 /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
 export function arrivingWords(w: World, b: Boat): string {
@@ -160,7 +172,7 @@ export function truckWhy(w: World, t: Truck): string | undefined {
     const crew = w.people.filter((p) => p.kind === 'dockhand' || p.kind === 'forklift');
     return crew.length === 0
       ? 'Dockhands or forklifts load crate trucks, and there are none. Hire some.'
-      : 'Waiting for a dockhand or forklift to load it: they are busy, or cannot walk or drive here. More of them, or a path to w bay, load it sooner.';
+      : 'Waiting for a dockhand or forklift to load it: they are busy, or cannot walk or drive here. More of them, or a path to this bay, load it sooner.';
   }
   return undefined;
 }
@@ -199,7 +211,7 @@ export function craneWhy(w: World, c: Crane): string {
 }
 
 /**
- * Why no ship can ever come alongside w crane, as the harbour master
+ * Why no ship can ever come alongside this crane, as the harbour master
  * would see it, or null if one could and there is simply none there now.
  * A jib crane takes any boat; a container crane a feeder, against a quay
  * two wide, with room for its hull and water deep enough.
@@ -224,14 +236,14 @@ export function berthTrouble(w: World, c: Crane): string | null {
       office = true;
       if (feeder && !w.wideQuay(j, n)) continue;
       wide = true;
-      if (!w.footprint(n, j, w.boatHalf(feeder))) continue;
+      if (!w.mooredTiles(n, j, w.boatHalf(feeder))) continue;
       room = true;
       if (water(n) === 1) return null;
     }
   }
   if (deepest < 0) return `No open water beside it for ${what} to lie in.`;
   if (!office) {
-    return 'No ship will come: w quay is not run by a harbour office. Build one nearby.';
+    return 'No ship will come: this quay is not run by a harbour office. Build one nearby.';
   }
   if (!wide)
     return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
@@ -274,7 +286,7 @@ export function problems(w: World): ProblemView[] {
       idx: b.idx,
     });
   }
-  for (const lot of w.parkingLots()) {
+  for (const lot of w.lots()) {
     const why = w.lotTrouble(lot);
     if (why)
       out.push({
@@ -472,7 +484,7 @@ export function buildSnapshot(w: World): Snapshot {
                   ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
                   : 'Heading back out to sea') +
         (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : '') +
-        (w.tugged(b) ? ', with a tug alongside' : ''),
+        (tugged(w, b) ? ', with a tug alongside' : ''),
       plot: plot && [...plot].flatMap((v, k) => (k % 9 < 2 ? [Math.round(v * 100) / 100] : [])),
       givingWayTo: giving?.id,
       variant: b.variant,
@@ -488,7 +500,7 @@ export function buildSnapshot(w: World): Snapshot {
       why: boatWhy(w, b),
       vessel: b.vessel,
       boxes: b.vessel === 'feeder',
-      visit: w.visitView(b),
+      visit: visitView(w, b),
     });
   }
   for (const t of w.tugs) {
@@ -612,19 +624,19 @@ export function buildSnapshot(w: World): Snapshot {
     waiting: w.boats.filter((b) => b.contractId === c.id && b.state === 'anchored').length,
     nextIn: c.terms.kind !== 'haulier' ? Math.max(0, c.nextBoatTick - w.tick) : -1,
   }));
-  const cap = w.capacity();
+  const cap = capacity(w);
   return {
     tick: w.tick,
     cash: w.cash,
     speed: w.speed,
     seed: w.seed,
     staff: w.people.length,
-    wages: w.wageBill(),
+    wages: wageBill(w),
     people: staff,
     candidates: w.candidates.map((c) => ({ ...c })),
-    contractFees: w.dailyFees(),
+    contractFees: dailyFees(w),
     loan: w.loan,
-    interest: w.interestDue(),
+    interest: interestDue(w),
     today: { ...w.today },
     yesterday: w.yesterday ? { ...w.yesterday } : null,
     history: w.history,
@@ -654,7 +666,7 @@ export function buildSnapshot(w: World): Snapshot {
       noAccessWhy: y.noAccess ? y.noAccessWhy : undefined,
     })),
     problems: problems(w),
-    parking: w.parkingLots().map((lot) => {
+    parking: w.lots().map((lot) => {
       const keys = new Set(lot.spaces.map((sp) => sp.tiles[0]));
       return {
         tiles: lot.tiles,
@@ -673,7 +685,7 @@ export function buildSnapshot(w: World): Snapshot {
       cargo: p.crates.map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
     })),
     contracts,
-    capacity: w.capacity(),
+    capacity: capacity(w),
     stock: waitingCargo(w),
     docks: {
       total: w.docks().length,
@@ -687,8 +699,8 @@ export function buildSnapshot(w: World): Snapshot {
     progress: {
       tier: w.tier,
       town: w.townSize(),
-      canUpgrade: w.canUpgrade(),
-      waitsOn: w.tierWaitsOn(),
+      canUpgrade: canUpgrade(w),
+      waitsOn: tierWaitsOn(w),
     },
     cranes: [...w.cranes.values()].map((c) => ({
       idx: c.idx,
@@ -711,9 +723,9 @@ export function buildSnapshot(w: World): Snapshot {
       jobs: w.town.jobs,
       goods: Math.round(w.town.goods),
       supplied: Math.round(w.town.supplied),
-      wants: w.wantsView(),
-      businesses: w.businessViews(),
-      ...w.landmarkView(w.town),
+      wants: wantsView(w),
+      businesses: businessViews(w),
+      ...landmarkView(w, w.town),
       x: w.map.xOf(w.town.centre),
       y: w.map.yOf(w.town.centre),
     },
@@ -724,7 +736,7 @@ export function buildSnapshot(w: World): Snapshot {
       signingFee: o.signingFee,
       expiresIn: o.expires - w.tick,
       breach: breachPenalty(o),
-      truckingAfter: o.terms.kind === 'haulier' ? w.truckingWith(o.terms) : cap.trucking,
+      truckingAfter: o.terms.kind === 'haulier' ? truckingWith(w, o.terms) : cap.trucking,
     })),
   };
 }

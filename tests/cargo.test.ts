@@ -5,6 +5,7 @@ import { Rng } from '../src/sim/rng';
 import { placementError } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { addContract } from '../src/sim/systems/economy';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -69,12 +70,6 @@ describe('Cargo', () => {
     world.cash = 50_000;
     // No parking anywhere: an ice works' trucks need none.
     expect(world.map.build.some((b: number) => b === Build.Parking)).toBe(false);
-    const said: string[] = [];
-    const message = world.message.bind(world);
-    world.message = (text: string, tone: string) => {
-      said.push(text);
-      return message(text, tone);
-    };
     // A second truck bay, on the road beside the first and a path from it to
     // the port's: the catch and the ice keep to bays of their own.
     const m = world.map;
@@ -93,7 +88,8 @@ describe('Cargo', () => {
     let byHand = 0;
     const wait = new Map<number, number>();
     let waited = 0;
-    world['addContract'](
+    addContract(
+      world,
       { kind: 'shipper', name: 'Test Ice', color: 0, perDay: 8, capacity: 6, fee: 8, goods: 'ice' },
       world.tick + 10,
       0,
@@ -134,6 +130,9 @@ describe('Cargo', () => {
     // Fishing boats sail with ice on board, paid for as it goes on.
     expect(iced.size).toBeGreaterThanOrEqual(2);
     expect(world.stats.exported).toBeGreaterThan(0);
-    expect(said.filter((t) => /parking|paperwork/i.test(t))).toEqual([]);
+    const said = world
+      .drainEvents()
+      .flatMap((e: { kind: string; text?: string }) => (e.kind === 'message' ? [e.text] : []));
+    expect(said.filter((t: string) => /parking|paperwork/i.test(t))).toEqual([]);
   });
 });

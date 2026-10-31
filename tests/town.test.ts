@@ -14,6 +14,7 @@ import {
 } from '../src/sim/town';
 import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, townBand } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { openLandmark } from '../src/sim/systems/townBusiness';
 
 /** Public road joined to `from`. */
 function roadsFrom(m: GameMap, from: number): Set<number> {
@@ -140,7 +141,7 @@ describe('Town', () => {
     const world = World.create(7, 96);
     // With its fish market open, to take them.
     world.town!.landmarks = 1;
-    world['openLandmark'](LANDMARKS[0]);
+    openLandmark(world, LANDMARKS[0]);
     expect(world.map.build.some((b) => b === Build.FishMarket)).toBe(true);
     for (const o of [...world.offers]) world.command({ type: 'signContract', id: o.id });
     let unloading = 0;

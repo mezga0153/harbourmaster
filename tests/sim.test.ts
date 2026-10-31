@@ -33,6 +33,7 @@ import { Rng } from '../src/sim/rng';
 import { World } from '../src/sim/world';
 import { tip } from '../src/sim/systems/output';
 import { berthTrouble, craneWhy, parkedWords, truckWhy } from '../src/sim/systems/snapshot';
+import { addContract, capacity, newDay, refreshOffers } from '../src/sim/systems/economy';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -229,7 +230,7 @@ describe('Contracts', () => {
       world.contracts.push({ ...world.contracts[1], terms: { ...world.contracts[1].terms, name } });
     }
     world.offers.length = 0;
-    for (let d = 0; d < 10; d++) world['refreshOffers']();
+    for (let d = 0; d < 10; d++) refreshOffers(world);
     expect(world.offers.length).toBeGreaterThan(0);
   });
 
@@ -582,7 +583,7 @@ describe('Coastal Wharf tier', () => {
     // One row of quay alongside the jetty: one tile wide.
     const row1 = [0, 1, 2, 3].map((k) => m.idx(x - k, r - 1));
     world.command({ type: 'build', kind: 'quay', tiles: row1 });
-    const wideBefore = world.capacity().deepBerths;
+    const wideBefore = capacity(world).deepBerths;
     // A second row behind it makes the quay two wide.
     const row2 = [0, 1, 2, 3].map((k) => m.idx(x - k, r - 2));
     world.command({ type: 'build', kind: 'quay', tiles: row2 });
@@ -591,7 +592,7 @@ describe('Coastal Wharf tier', () => {
       kind: 'quay',
       tiles: [m.idx(x + 1, r - 1), m.idx(x + 1, r - 2)],
     });
-    expect(world.capacity().deepBerths).toBeGreaterThan(wideBefore);
+    expect(capacity(world).deepBerths).toBeGreaterThan(wideBefore);
   });
 
   it('sends big trucks only to large truck bays', () => {
@@ -1284,7 +1285,7 @@ describe('Buildings', () => {
       parkFrom: inEnd,
       path: [],
     };
-    const way: number[] = world['routeFrom'](t as never, m.entry, world['truckCost'](m.entry))!;
+    const way: number[] = world['routeFrom'](t as never, m.entry, world['truckCostFor'](m.entry))!;
     expect(way).not.toBeNull();
     const k = way.indexOf(outEnd);
     expect(k).toBeGreaterThanOrEqual(0);
@@ -1294,7 +1295,7 @@ describe('Buildings', () => {
     // However its way is found, as when held up on the way: into its space
     // only off the in side, out of it only onto the other.
     const going = { ...t, state: 'toPark', x: m.xOf(inEnd) + 0.5, y: m.yOf(inEnd) + 0.5 };
-    const own = world['truckCost'](-1, -1, going as never);
+    const own = world['truckCostFor'](-1, -1, going as never);
     expect(own(space.tiles[0], outEnd)).toBe(Infinity);
     expect(Number.isFinite(own(space.tiles[0], inEnd))).toBe(true);
     // Turned round with the one-way tool, in off the other side.
@@ -1746,7 +1747,7 @@ describe('Rules of the road', () => {
     const t = truck(world, 10.5, 14.1, Math.PI / 2, way);
     t.goal = goal;
     t.state = 'toPark' as never;
-    const cost = world['truckCost'](goal);
+    const cost = world['truckCostFor'](goal);
     let v = 0;
     for (let k = 0; k <= B.REROUTE_AFTER; k++) v = world['pace'](t, cost)();
     // It pulls up behind it, then finds a way round it.
@@ -2050,7 +2051,8 @@ describe('Buoys', () => {
     // Buoys leave the water open, and stand a tile apart.
     expect(placementError(m, 'buoyIn', ins[0][0] + 1)).not.toBeNull();
     world.boats.length = 0;
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'smack',
@@ -2395,7 +2397,8 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     if (tug) withTug(world, t.crane);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -2441,8 +2444,8 @@ describe('Container Port tier', () => {
     const t = terminal(world);
     expect(t).not.toBeNull();
     withTug(world, t!.crane);
-    expect(world.capacity().boxes.berths).toBeGreaterThan(0);
-    const add = world['addContract'].bind(world);
+    expect(capacity(world).boxes.berths).toBeGreaterThan(0);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -2490,7 +2493,7 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     withTug(world, t.crane);
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -2581,7 +2584,8 @@ describe('Container Port tier', () => {
       world.command({ type: 'bulldoze', tiles: turn });
       world.command({ type: 'build', kind: 'portRoad', tiles: turn });
     }
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -2627,7 +2631,7 @@ describe('Container Port tier', () => {
     const t = terminal(world);
     expect(t).not.toBeNull();
     withTug(world, t!.crane);
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -2713,7 +2717,8 @@ describe('Container Port tier', () => {
 
   it('keeps a container looking the same from the ship to the yard and the truck', () => {
     const world = feederPort(true);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -2777,7 +2782,7 @@ describe('Container Port tier', () => {
     m.build[side] = Build.PortRoad;
     world['railCache'] = null;
     world['laneCache'] = null;
-    const truck = world['truckCost'](-1);
+    const truck = world['truckCostFor'](-1);
     const drive = world['driveCost'];
     // Onto the lane from the side, or off it that way: no; along it: yes.
     for (const cost of [truck, drive]) {
@@ -2827,7 +2832,8 @@ describe('Container Port tier', () => {
     expect(m.build[spot]).toBe(Build.YardGantry);
     // The trucks load under the gantry, where it reaches out of the yard.
     expect(world['storeSpots'](yard)).toEqual([spot]);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -3057,7 +3063,8 @@ describe('Container Port tier', () => {
     }
     const depot = m.build.findIndex((b) => b === Build.Depot);
     world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3180,7 +3187,8 @@ describe('Container Port tier', () => {
       world.command({ type: 'buyMachine', kind: 'tractor', tile: d });
     }
     expect(world.people.filter((p) => p.kind === 'tractor').length).toBe(6);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3264,7 +3272,8 @@ describe('Container Port tier', () => {
     }
     const depot = m.build.findIndex((b) => b === Build.Depot);
     for (let k = 0; k < 4; k++) world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3322,7 +3331,8 @@ describe('Container Port tier', () => {
     tractorGantry(world, yard);
     const depot = m.build.findIndex((b) => b === Build.Depot);
     world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3406,7 +3416,8 @@ describe('Container Port tier', () => {
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3505,8 +3516,9 @@ describe('Container Port tier', () => {
     const tiles = footprint(m, 'gantryCrane', at, f);
     expect(tiles.every((i) => m.build[i] === Build.Gantry)).toBe(true);
     expect(world.cranes.get(at)!.kind).toBe('gantry');
-    expect(world.capacity().boxes.berths).toBeGreaterThan(0);
-    world['addContract'](
+    expect(capacity(world).boxes.berths).toBeGreaterThan(0);
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3597,7 +3609,8 @@ describe('Container Port tier', () => {
       world.command({ type: 'build', kind: 'gantryCrane', tiles: [at], facing: f });
       expect(world.cranes.get(at)?.kind).toBe('gantry');
     }
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'feeder',
@@ -3639,7 +3652,8 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -3668,7 +3682,8 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -3764,7 +3779,7 @@ describe('Container Port tier', () => {
     world.cash = 1_000_000;
     const t = terminal(world)!;
     expect(t).not.toBeNull();
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -3828,7 +3843,7 @@ describe('Container Port tier', () => {
     world.command({ type: 'build', kind: 'portRoad', tiles: out });
     world.command({ type: 'store', tiles: out, kind: 'boxesOut', on: true });
     expect(world.yards.get(corner)?.outgoing).toBe(true);
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -3904,7 +3919,7 @@ describe('Container Port tier', () => {
     }
     const lot = parkingLot(world);
     expect(m.build[lot[0]]).toBe(Build.Parking);
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -4091,7 +4106,8 @@ describe('Container Port tier', () => {
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
-    world['addContract'](
+    addContract(
+      world,
       { kind: 'shipper', name: 'Test Exports', color: 0, perDay: 10, capacity: 6, fee: 20 },
       world.tick + 10,
       0,
@@ -4129,7 +4145,8 @@ describe('Container Port tier', () => {
     world.tier = 2;
     world.cash = 1_000_000;
     expect(terminal(world)).not.toBeNull();
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'fishery',
         vessel: 'coaster',
@@ -4230,7 +4247,8 @@ describe('Container Port tier', () => {
       ['coaster', 0.4],
       ['smack', 0.15],
     ] as const) {
-      world['addContract'](
+      addContract(
+        world,
         {
           kind: 'fishery',
           vessel,
@@ -4323,7 +4341,7 @@ describe('Container Port tier', () => {
     const t = terminal(world)!;
     expect(t).not.toBeNull();
     withTug(world, t.crane);
-    const add = world['addContract'].bind(world);
+    const add = addContract.bind(null, world);
     add(
       {
         kind: 'fishery',
@@ -4396,7 +4414,8 @@ describe('Container Port tier', () => {
     expect(world['storeSpots'](world.yards.get(t.yard)!)).toEqual([]);
     world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: false });
     yard.boxes.push(100, 100);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -4439,7 +4458,8 @@ describe('Container Port tier', () => {
     const bay = [...world.bays.values()][0];
     bay.large = true;
     bay.boxes.push(100, 100);
-    world['addContract'](
+    addContract(
+      world,
       {
         kind: 'haulier',
         name: 'Test Box Haul',
@@ -4545,7 +4565,7 @@ describe('The Coastal Wharf’s landmarks', () => {
       // Timber does not count towards fish.
       truckOut(world, 'timber', 5);
       expect(t.landmarks).toBe(at(Build.Cannery));
-      world['newDay']();
+      newDay(world);
     }
     expect(t.landmarks).toBe(at(Build.Cannery) + 1);
     expect(townCap(t)).toBe(LANDMARKS[at(Build.Cannery)].cap);
@@ -4554,12 +4574,12 @@ describe('The Coastal Wharf’s landmarks', () => {
     expect(offer).toBeDefined();
     // Still there when it runs out, till one is signed.
     world.offers = world.offers.filter((o) => o !== offer);
-    world['refreshOffers']();
+    refreshOffers(world);
     const again = world.offers.find((o) => townTrade(o.terms) === 'canned')!;
     expect(again).toBeDefined();
     world.command({ type: 'signContract', id: again.id });
     expect(world.contracts.some((c) => townTrade(c.terms) === 'canned')).toBe(true);
-    world['refreshOffers']();
+    refreshOffers(world);
     expect(world.offers.some((o) => townTrade(o.terms) === 'canned')).toBe(false);
   });
 
@@ -4606,7 +4626,7 @@ describe('The Coastal Wharf’s landmarks', () => {
   it('land the crates a town line’s coasters bring as what they carry', () => {
     const world = wharfTown(1);
     opened(world, at(Build.School) + 1);
-    world['refreshOffers']();
+    refreshOffers(world);
     const goods = world.offers.find((o) => townTrade(o.terms) === 'goods')!;
     world.command({ type: 'signContract', id: goods.id });
     const c = world.contracts.find((k) => townTrade(k.terms) === 'goods')!;

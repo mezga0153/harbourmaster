@@ -3,6 +3,7 @@ import * as B from '../src/sim/balance';
 import { withCargo, type Cargo } from '../src/sim/cargo';
 import { Build, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { storeHint } from '../src/sim/systems/townBusiness';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -154,12 +155,12 @@ describe('Customs and export papers on crates', () => {
 
   it('say on the Next step card when storage full of crates in customs holds the town up', () => {
     const { world, into } = port();
-    expect(world.storeHint(false)).toBeUndefined();
+    expect(storeHint(world, false)).toBeUndefined();
     setDown(world, into, 'timber', B.CRATES_PER_STORE_TILE * into.tiles.length);
-    expect(world.storeHint(false)).toMatch(/customs.*full/);
+    expect(storeHint(world, false)).toMatch(/customs.*full/);
     // Cleared, the trucks take them away: nothing holds it up.
     world.tick += B.CRATE_CUSTOMS_TICKS;
-    expect(world.storeHint(false)).toBeUndefined();
+    expect(storeHint(world, false)).toBeUndefined();
     // The canned fish has nowhere to wait for its papers with no outgoing storage.
     world.command({
       type: 'store',
@@ -167,7 +168,7 @@ describe('Customs and export papers on crates', () => {
       kind: 'cratesOut',
       on: false,
     });
-    expect(world.storeHint(true)).toMatch(/export papers: mark out/);
+    expect(storeHint(world, true)).toMatch(/export papers: mark out/);
   });
 
   it('let the cannery’s trucks in without the shippers’ day of paperwork outside', () => {
