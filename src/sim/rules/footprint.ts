@@ -6,7 +6,7 @@ import type { GameMap } from '../map';
 import { Build, storesBoxes, type BuildKind } from '../types';
 import { storeArea } from './marking';
 import { BUILDABLES, ROTATABLE } from './buildables';
-import { placementError } from './placement';
+import { depotDoorTrouble, placementError } from './placement';
 
 /**
  * How far through a yard gantry's lift, as a share of it, the spreader has
@@ -158,6 +158,12 @@ export function bestFacing(
   pending?: ReadonlySet<number>,
 ): number {
   if (!ROTATABLE.has(kind)) return 0;
+  // A depot can go up facing anywhere, but faces a way its machines can drive out if there is one.
+  if (kind === 'depot') {
+    for (let f = 0; f < 4; f++) {
+      if (!placementError(map, kind, i, pending, f) && !depotDoorTrouble(map, i, f)) return f;
+    }
+  }
   for (let f = 0; f < 4; f++) if (!placementError(map, kind, i, pending, f)) return f;
   return 0;
 }

@@ -89,6 +89,7 @@ function DepotInfo({ depot, actions, onClose: close }: InfoProps & { depot: Depo
   const fleet = (snapshot.value?.people ?? []).filter(
     (p) => p.kind !== 'dockhand' && p.home === idx,
   );
+  const trouble = snapshot.value?.problems.find((p) => p.type === 'depot' && p.idx === idx);
   return (
     <aside class="side panel">
       <InfoHeader kicker="Building" title="Forklift depot" onClose={close} />
@@ -96,6 +97,7 @@ function DepotInfo({ depot, actions, onClose: close }: InfoProps & { depot: Depo
         Forklifts refuel here, are repaired here and park here when there is nothing to do.{' '}
         <More topic="machines" />
       </p>
+      {trouble && <Why topic="machines">Not working: {trouble.text}</Why>}
       <dl class="props">
         <dt>Places taken</dt>
         <dd>

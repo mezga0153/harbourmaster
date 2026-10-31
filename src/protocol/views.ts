@@ -419,7 +419,7 @@ export interface ProblemView {
   h: number;
   text: string;
   /** What picking it selects. */
-  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry';
+  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry' | 'depot';
   idx: number;
 }
 

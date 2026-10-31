@@ -115,11 +115,13 @@ export function placementError(
     const along = map.neighbors4(i).some((n) => map.build[n] === Build.Crossing);
     return along ? 'Roads cross the railway straight over, not along it' : null;
   }
-  // A jetty can be paved over into a quay and a port path into a port road;
-  // nothing else is built over.
+  // A jetty can be paved over into a quay and a port path into a port road,
+  // and a harbour office or hut put up on a port path or road not marked
+  // out for storage; nothing else is built over.
   const upgrade =
     (kind === 'quay' && map.build[i] === Build.Jetty) ||
-    (kind === 'portRoad' && map.build[i] === Build.Footpath);
+    (kind === 'portRoad' && map.build[i] === Build.Footpath) ||
+    ((kind === 'office' || kind === 'harbourHut') && onPath(map, i));
   if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
 
   if (kind === 'quay') {
@@ -200,14 +202,30 @@ export function placementError(
   if (kind === 'truckBay' || kind === 'largeBay') {
     return truckable ? null : 'The entrance must face a public road or a port road';
   }
-  if (kind === 'depot') {
-    return drivable(f) ? null : 'The garage door must face a port road or quay';
-  }
+  // A depot goes anywhere, but its machines are shut in till its door faces
+  // a port road or quay: see depotDoorTrouble.
+  if (kind === 'depot') return null;
   if (kind === 'office' || kind === 'harbourHut') {
     const ok = walkableAt(map, front) || f === Build.Road;
     return ok ? null : 'The door must face a port path or road';
   }
   return walkableAt(map, front) ? null : 'The door must face a port path, quay or truck bay';
+}
+
+/** A port path or road a harbour office or hut may go up on: not storage, not by a crane. */
+function onPath(map: GameMap, i: number): boolean {
+  const b = map.build[i];
+  return (b === Build.Footpath || b === Build.PortRoad) && map.store[i] === 0 && !nearCrane(map, i);
+}
+
+/**
+ * Why a forklift depot at `i`, facing `facing`, is no use: its garage door
+ * opens onto nothing its machines can drive on. Null when it does.
+ */
+export function depotDoorTrouble(map: GameMap, i: number, facing: number): string | null {
+  const front = frontOf(map, i, facing);
+  if (front >= 0 && drivable(map.build[front])) return null;
+  return 'Its garage door faces no port road or quay, so its machines cannot drive out. Turn it round, or build a port road up to its door.';
 }
 
 /**

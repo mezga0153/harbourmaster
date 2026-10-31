@@ -5,7 +5,7 @@
 import type { World } from '../world';
 import type { Boat, CargoStats, Crane, Dockhand, Truck } from '../state';
 import * as B from '../balance';
-import { walkableAt } from '../rules/placement';
+import { depotDoorTrouble, walkableAt } from '../rules/placement';
 import {
   activity,
   aligned,
@@ -339,6 +339,12 @@ export function problems(w: World): ProblemView[] {
       type: b.yard ? 'yard' : 'bay',
       idx: b.idx,
     });
+  }
+  // Depots whose machines cannot drive out of the door.
+  for (let i = 0; i < m.build.length; i++) {
+    if (m.build[i] !== Build.Depot) continue;
+    const why = depotDoorTrouble(m, i, m.orient[i] & 3);
+    if (why) out.push({ ...middle([i]), h: 1, text: why, type: 'depot', idx: i });
   }
   for (const lot of lots(w)) {
     const why = lotTrouble(w, lot);

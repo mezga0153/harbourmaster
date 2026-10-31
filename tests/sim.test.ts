@@ -12,6 +12,7 @@ import {
   bestFacing,
   drivable,
   EXTENSION,
+  depotDoorTrouble,
   footprint,
   forkliftOnly,
   frontOf,
@@ -633,7 +634,8 @@ describe('Coastal Wharf tier', () => {
 
   function buildOffice(world: World): number {
     const m = world.map;
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'office', i));
+    // On open ground, not over the port's paths.
+    const spot = m.build.findIndex((b, i) => b === Build.None && !placementError(m, 'office', i));
     world.command({ type: 'build', kind: 'office', tiles: [spot] });
     expect(m.build[spot]).toBe(Build.Office);
     return spot;
@@ -698,7 +700,11 @@ describe('Coastal Wharf tier', () => {
   /** Build a forklift depot beside the starting footpath. */
   function buildDepot(world: World): number {
     const m = world.map;
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'depot', i));
+    // Its door onto a port road or quay.
+    const spot = m.build.findIndex(
+      (_, i) =>
+        !placementError(m, 'depot', i) && [0, 1, 2, 3].some((f) => !depotDoorTrouble(m, i, f)),
+    );
     world.command({ type: 'build', kind: 'depot', tiles: [spot] });
     expect(m.build[spot]).toBe(Build.Depot);
     return spot;
