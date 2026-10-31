@@ -2,6 +2,7 @@ import type { Cargo } from '../sim/cargo';
 import {
   BoxGeometry,
   CanvasTexture,
+  CylinderGeometry,
   Group,
   Mesh,
   MeshBasicMaterial,
@@ -15,6 +16,7 @@ import { hash01 } from '../sim/noise';
 import { BOX_HEIGHT, BOX_LENGTH, BOX_WIDTH, CONTAINERS, instance } from './assets';
 import { C } from './palette';
 import { box, mat } from './parts';
+import { shadowed } from './util/mesh';
 import type { Model } from './model';
 import { headingOf } from './util/math';
 
@@ -23,8 +25,15 @@ import { headingOf } from './util/math';
 
 export { headingOf };
 
+/**
+ * How big a crate is, wherever it is: in a dockhand's arms, on a forklift's
+ * forks, a truck's bed, a boat's deck, a jib crane's hook, in a truck bay's
+ * stack, on a storage pallet or a pile on the quay. One size, so a crate
+ * handed from one to another stays the same crate.
+ */
+export const CRATE = 0.16;
 /** The crates on a pallet, as a forklift carries them and storage keeps them, two by two. */
-export const PALLET_CRATE = 0.15;
+export const PALLET_CRATE = CRATE;
 
 /**
  * Paints a container can come in, as [column, row] of a shaded swatch in
@@ -391,17 +400,56 @@ function drawIcon(g: CanvasRenderingContext2D, name: Cargo): void {
   }
 }
 
-/** Paint crate `c` as holding `k`: its picture on its sides, or none. */
+/** A log: unit cylinder, its bark one material and its cut ends another. */
+const logGeometry = new CylinderGeometry(1, 1, 1, 8);
+const BARK = 0x8a5a3a;
+const CUT_END = 0xe8c48c;
+const STRAP = 0xd6453d;
+
+/**
+ * Timber: four logs strapped together, two on two, filling just the space
+ * a crate of `size` takes, lying along the crate's x.
+ */
+function logs(size: number): Group {
+  const g = new Group();
+  g.userData.logs = true;
+  const r = size * 0.245;
+  for (const y of [size * 0.25, size * 0.75]) {
+    for (const z of [-size * 0.25, size * 0.25]) {
+      const log = new Mesh(logGeometry, [mat(BARK), mat(CUT_END), mat(CUT_END)]);
+      log.scale.set(r, size, r);
+      log.rotation.z = Math.PI / 2;
+      log.position.set(0, y, z);
+      g.add(shadowed(log));
+    }
+  }
+  // Two straps over the top, holding the bundle.
+  for (const x of [-size * 0.3, size * 0.3]) {
+    g.add(box(size * 0.06, size * 0.03, size * 1.02, STRAP, x, size * 0.97));
+  }
+  return g;
+}
+
+/**
+ * Paint crate `c` as holding `k`: its picture on its sides, or none; timber
+ * is not a crate at all but a bundle of logs the size of one.
+ */
 export function setCrateIcon(c: Object3D | undefined, k: Cargo | undefined): void {
   if (!c || k === undefined || c.userData.icon === k) return;
   c.userData.icon = k;
+  const timber = k === 'timber';
+  if (timber && !c.children.some((d) => d.userData.logs)) {
+    c.add(logs((c.userData.size as number | undefined) ?? 0.3));
+  }
   const mats = iconMaterials();
-  if (!mats) return;
   for (const d of c.children) {
-    if (!d.userData.decal) continue;
-    const m = mats[k];
-    d.visible = !!m;
-    if (m) (d as Mesh).material = m;
+    if (d.userData.seal) continue;
+    if (d.userData.logs) d.visible = timber;
+    else if (d.userData.decal) {
+      const m = mats?.[k];
+      d.visible = !timber && !!m;
+      if (m) (d as Mesh).material = m;
+    } else d.visible = !timber;
   }
 }
 
