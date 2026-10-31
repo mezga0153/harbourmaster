@@ -479,14 +479,13 @@ export function dropSlot(w: World, p: Dockhand, b: Bay): number {
 /**
  * The stacks (by tile) of crate storage a forklift sets its load down on
  * where a jib crane is beside it: exports for a ship under it on those it
- * reaches, for it to lift on board; crates it is moving within the same
- * storage, to make room for the crane, off them. Anywhere otherwise.
+ * reaches, for it to lift on board; other crates, moved within the same
+ * storage to make room for the crane or brought from elsewhere, off them,
+ * as those are kept for the crane. Anywhere otherwise.
  */
 function forkliftOnly(w: World, p: Dockhand, b: Bay): Set<number> | undefined {
   if (!b.tiles || b.yard) return undefined;
   if (p.outbound) return jibLoadReach(w, b);
-  const within = p.shiftIn === b.idx || (p.stockIdx === b.idx && p.truckId === undefined);
-  if (!within) return undefined;
   const near = jibTiles(w, b);
   if (near.size === 0) return undefined;
   return new Set(b.tiles.map((_, n) => n).filter((n) => !near.has(n)));

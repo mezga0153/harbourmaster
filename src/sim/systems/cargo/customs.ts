@@ -13,7 +13,9 @@ import {
   carriedLooks,
   dropAt,
   exportLooks,
+  jibTiles,
   nearestWithRoom,
+  offJibRoom,
   outLooks,
   reachable,
   servesYard,
@@ -262,7 +264,9 @@ export function retargetCrate(w: World, p: Dockhand): void {
   tidyPile(w, p.bayIdx);
   const here = w.tileOf(p);
   const held = !boxy && !p.cleared && p.cargoFees.some(needsCustoms);
-  const bay = boxy ? yardWithRoom(w, p, here) : bayWithRoom(w, p, here, false, held);
+  const bay = boxy
+    ? yardWithRoom(w, p, here)
+    : (onwardFor(w, p, here, (b) => !held || !!b.tiles) ?? bayWithRoom(w, p, here, false, held));
   const goal = bay ? dropAt(w, p, bay, here) : -1;
   if (bay && goal >= 0 && headTo(w, p, goal)) {
     bayIncoming(bay, boxy, p.planned);
@@ -280,24 +284,51 @@ export function retargetCrate(w: World, p: Dockhand): void {
 }
 
 /**
+ * The nearest truck bay or crate storage the crates in a worker's hands
+ * may go on to and leave from: one the trucks get to and are not kept out
+ * of (see cutOff), taking cargo coming in, with room for them, `ok` by it,
+ * and in storage room off the tiles a jib crane swings into, which are
+ * kept for it. Null if there is none.
+ */
+export function onwardFor(
+  w: World,
+  p: Dockhand,
+  here: number,
+  ok: (b: Bay) => boolean,
+): Bay | null {
+  const room = (b: Bay) =>
+    b.tiles && jibTiles(w, b).size > 0
+      ? offJibRoom(w, b, Math.max(1, p.carrying))
+      : loadFits(w, b, p.carrying, p);
+  return nearestWithRoom(w, p, here, w.bays, false, true, (b) => !b.noAccess && ok(b) && room(b));
+}
+
+/**
  * A forklift come to set its load down where there is no place for it
- * level, nor empty ground, as those there now stand: to other storage
- * with one, or it waits there, saying why.
+ * level, nor empty ground, as those there now stand: on to a truck bay or
+ * storage the trucks get to with one (see onwardFor), else, with crates
+ * not yet through storage, the nearest storage with one as they may wait
+ * there; or it waits there, saying why, never taking crates out of storage
+ * into other storage the trucks cannot reach, only to move them again.
  */
 export function noPlace(w: World, p: Dockhand, bay: Bay): void {
   const here = w.tileOf(p);
   const held = !p.cleared && !p.outbound && p.cargoFees.some(needsCustoms);
+  const ok = (b: Bay) => b !== bay && (!held || !!b.tiles);
   const other = p.outbound
     ? null
-    : nearestWithRoom(
-        w,
-        p,
-        here,
-        w.bays,
-        false,
-        false,
-        (b) => b !== bay && (!held || !!b.tiles) && loadFits(w, b, p.carrying, p),
-      );
+    : (onwardFor(w, p, here, ok) ??
+      (p.cleared
+        ? null
+        : nearestWithRoom(
+            w,
+            p,
+            here,
+            w.bays,
+            false,
+            false,
+            (b) => ok(b) && loadFits(w, b, p.carrying, p),
+          )));
   const goal = other ? dropAt(w, p, other, here) : -1;
   if (other && goal >= 0 && headTo(w, p, goal)) {
     bayIncoming(bay, false, -p.planned);
