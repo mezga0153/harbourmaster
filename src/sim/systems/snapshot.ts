@@ -129,6 +129,15 @@ export function boatWhy(w: World, b: Boat): string | undefined {
     if (b.vessel !== 'feeder' && idle) {
       return 'Every berth it fits is taken, or under a jib crane with no room in crate storage next to it, where it would not be unloaded. Mark out storage for cargo coming in beside the crane, or build more berths.';
     }
+    // Berths nothing can unload a boat at are never handed out.
+    const wide = b.vessel !== 'smack';
+    if (
+      b.vessel !== 'feeder' &&
+      berthCount(w, b.draft, wide) > 0 &&
+      berthCount(w, b.draft, wide, false, true) === 0
+    ) {
+      return 'No berth it fits is one it could be unloaded at: dockhands cannot walk from any to a truck bay or crate storage for cargo coming in, and no jib crane with crate storage beside it stands over one. Join the quay to them with footpaths or quay, or build a jib crane with storage next to it.';
+    }
     return 'Every berth it fits is taken, or a boat is coming or going in the way. More berths help.';
   }
   if (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS) {

@@ -29,9 +29,10 @@ import { walkableAt } from '../../rules/placement';
 import { message, nag, tip } from '../output';
 import { sail } from './seamanship';
 import { tugReady } from '../tugs';
-import { muster } from '../workforce/dockhands';
+import { landingReach, muster } from '../workforce/dockhands';
 import { exportsComing, stillLoading } from '../cargo/exports';
 import { jibStore } from '../cargo/stores';
+import { jibStores } from '../cranes';
 
 export function spawnBoats(w: World): void {
   for (const c of fisheries(w)) {
@@ -589,7 +590,6 @@ export function boatHalf(_w: World, feeder: boolean): number {
   return feeder ? B.FEEDER_HALF_BERTH : 1;
 }
 
-/** How many boats of this draft could moor at once, ignoring current traffic. */
 /**
  * Docks (connected jetty or quay structures) and whether the harbour
  * office coordinates each. Without an office only the first FREE_DOCKS
@@ -674,6 +674,22 @@ export function jibAt(w: World, berth: number): boolean {
   );
 }
 
+/**
+ * Dockhands can unload a boat lying at this berth: from a dock tile
+ * alongside it (see pickupSpots) they can walk to a truck bay or crate
+ * storage for cargo coming in. Never from the ground round a crane or off
+ * machines-only quay, nor from a jetty nothing but grass joins to the port.
+ */
+export function handsReach(w: World, berth: number, jetty: number, half = 1): boolean {
+  const m = w.map;
+  const reach = landingReach(w);
+  if (reach[jetty]) return true;
+  for (const t of mooredTiles(w, berth, jetty, half) ?? [berth]) {
+    for (const n of m.neighbors4(t)) if (isDock(m.build[n]) && reach[n]) return true;
+  }
+  return false;
+}
+
 /** A harbour or gantry crane stands over this berth. */
 export function harbourCraneReaches(w: World, berth: number): boolean {
   for (const c of w.cranes.values()) {
@@ -711,7 +727,18 @@ export function pickTile(w: World, c: Crane): number {
   return footprint(w.map, 'gantryCrane', c.idx, w.map.orient[c.idx])[2];
 }
 
-export function berthCount(w: World, draft: number, wide = false, needCrane = false): number {
+/**
+ * How many boats of this draft could moor at once, ignoring current
+ * traffic; with `unloadable`, only where they could be unloaded: by hand
+ * (see handsReach) or by a jib crane with crate storage beside it.
+ */
+export function berthCount(
+  w: World,
+  draft: number,
+  wide = false,
+  needCrane = false,
+  unloadable = false,
+): number {
   const m = w.map;
   const water = boatCostFor(w, draft);
   const vessel = vesselFor(w, wide, needCrane);
@@ -725,6 +752,11 @@ export function berthCount(w: World, draft: number, wide = false, needCrane = fa
       if (!needCrane && !walkableAt(m, j) && !jibAt(w, n)) continue;
       const here = { berth: n, jetty: j, vessel };
       if (!mooredTiles(w, n, j, boatHalf(w, needCrane))) continue;
+      if (unloadable && !needCrane) {
+        const jib = w.cranes.get(j);
+        const craned = !!jib && jib.kind === 'jib' && jibStores(w, jib).length > 0;
+        if (!craned && !handsReach(w, n, j, boatHalf(w, needCrane))) continue;
+      }
       if (!chosen.some((c) => berthsClash(w, here, c))) chosen.push(here);
     }
   }
@@ -764,8 +796,10 @@ export function freeBerths(
       const jib = w.cranes.get(j);
       const craned = !!jib && jib.kind === 'jib' && !!jibStore(w, jib);
       cranes ||= craned;
-      // Nobody could unload it by hand next to a crane, or off machines-only quay.
-      if (!needCrane && !craned && !walkableAt(m, j)) continue;
+      // Nobody could unload it by hand next to a crane, off machines-only
+      // quay, or at a jetty the dockhands cannot walk to storage from: a
+      // boat is never sent where nothing can unload it.
+      if (!needCrane && !craned && !handsReach(w, n, j, boatHalf(w, needCrane))) continue;
       const here = { berth: n, jetty: j, vessel };
       if (taken.some((t) => berthsClash(w, here, t))) continue;
       // Not while another boat is still pulling out of it.

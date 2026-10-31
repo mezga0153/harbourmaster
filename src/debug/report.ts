@@ -88,7 +88,7 @@ export function report(s: Snapshot, x: ReportExtras): string {
     'Truck bays and crate storage',
     s.bays.map(
       (b) =>
-        `- ${b.name} ${b.tiles ? `crate storage (${b.tiles.length} tiles)` : b.large ? 'large bay' : 'bay'} ${at(b.idx)}: ${b.stock}/${b.capacity} crates` +
+        `- ${b.name} ${b.tiles ? `crate storage (${b.tiles.length} tiles)` : b.large ? 'large bay' : 'bay'} ${at(b.idx)}: ${b.stock + b.exports}/${b.capacity} crates${b.exports ? ` (${b.exports} exports)` : ''}` +
         `${b.boxes ? `, ${b.boxes} containers` : ''}${b.shut ? ', SHUT' : ''}${b.noAccess ? ', NO TRUCK ACCESS' : ''}`,
     ),
   );

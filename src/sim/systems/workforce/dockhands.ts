@@ -1035,6 +1035,38 @@ export function landing(w: World, p: Dockhand, t: number, held = false): Bay | n
 }
 
 /**
+ * The tiles a dockhand can walk from to some truck bay or crate storage
+ * for cargo coming in, full or not: where a boat can be unloaded by hand
+ * at all. Flooded out from the storage over the ground dockhands walk on,
+ * once, until the port changes.
+ */
+export function landingReach(w: World): Uint8Array {
+  if (w.landingCache) return w.landingCache;
+  const m = w.map;
+  const reach = new Uint8Array(m.build.length);
+  const queue: number[] = [];
+  for (const b of w.bays.values()) {
+    if (b.tiles && b.outgoing) continue;
+    for (const t of b.tiles ?? [b.idx]) {
+      if (!walkableAt(m, t) || reach[t]) continue;
+      reach[t] = 1;
+      queue.push(t);
+    }
+  }
+  for (let k = 0; k < queue.length; k++) {
+    const t = queue[k];
+    for (const n of m.neighbors4(t)) {
+      // Walking the other way: from n onto t.
+      if (reach[n] || !walkableAt(m, n) || !throughDoor(w, t, n)) continue;
+      reach[n] = 1;
+      queue.push(n);
+    }
+  }
+  w.landingCache = reach;
+  return reach;
+}
+
+/**
  * A boat the dockhands found nowhere to carry its crates into: it waits,
  * saying why (see boatWhy), and the player is told once in a while.
  */

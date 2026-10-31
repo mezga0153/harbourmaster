@@ -3474,6 +3474,14 @@ describe('Container Port tier', () => {
     }
     const depot = m.build.findIndex((b) => b === Build.Depot);
     for (let k = 0; k < 4; k++) world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    // Only the feeders: the starter's smacks have nowhere here the
+    // dockhands could unload them, and would only get in the way.
+    for (const c of world.contracts) {
+      if (c.terms.kind === 'fishery' && c.terms.vessel !== 'feeder') {
+        world.command({ type: 'cancelContract', id: c.id });
+      }
+    }
+    world.boats.length = 0;
     addContract(
       world,
       {

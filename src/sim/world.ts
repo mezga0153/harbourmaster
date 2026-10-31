@@ -250,6 +250,8 @@ export class World {
   capacityCache: Capacity | null = null;
   /** Dock groups and the coordinated tiles; cleared when the map changes. Not saved. */
   dockCache: ReturnType<typeof docks> | null = null;
+  /** Tiles dockhands can walk to a truck bay or crate storage from; see landingReach. Not saved. */
+  landingCache: Uint8Array | null = null;
   gateCache: Set<number>[] | null = null;
   /** Boats held up this tick only by a ship pulling out. Not saved. */
   roomWait = new WeakSet<Boat>();
@@ -630,6 +632,7 @@ export class World {
     if (this.bankrupt) return;
     this.capacityCache = null;
     this.dockCache = null;
+    this.landingCache = null;
     this.gateCache = null;
     this.buoyCache = null;
     this.anchorageTile = -1;
