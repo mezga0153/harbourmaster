@@ -13,11 +13,21 @@
 // filling the place they started first. Crates that will wait in storage
 // on customs or export papers go on the ground while there is room, so
 // they never bury ones free to go.
+//
+// A forklift gets its forks under a pallet only from the end of the stack
+// its row faces: the front row from the tile before it, the back row from
+// the one after (see forksAlongZ). Where that side has no ground to drive
+// on, or a truck stands there, it reaches the row only through the other
+// while that is empty; so it takes and sets down only pallets it can get
+// to, and where a stack has ground at just one end, its far row fills
+// first and is emptied last.
 
 import type { World } from '../../world';
 import type { Bay, Dockhand } from '../../state';
 import * as B from '../../balance';
 import { needsCustoms, needsPapers } from '../../helpers';
+import { drivable, forksAlongZ } from '../../rules';
+import { Build } from '../../types';
 
 /** Crates in a crate storage pallet place, and in a layer of one. */
 export const PLACE = B.FORKLIFT_CAPACITY;
@@ -28,6 +38,9 @@ const BAY_SLOTS = 16;
 /** A large bay's yard: crates in a layer, and how many slots in all. */
 const LARGE_LAYER = 16;
 const LARGE_SLOTS = 28;
+
+/** Pallet places on each tile of crate storage. */
+const PLACES = PER_TILE / PLACE;
 
 /** Whether each crate at this bay keeps a slot of its own: crate storage and truck bays. */
 export function slotted(b: Bay): boolean {
@@ -77,6 +90,96 @@ function shape(b: Bay): Shape {
   };
 }
 
+/** Which ends of a crate storage tile's stack a forklift can drive up to: now, and with no trucks about. */
+interface Ends {
+  now: [boolean, boolean];
+  ever: [boolean, boolean];
+}
+
+/** Each storage tile's ends, worked out once a tick. */
+let endsCache: { w: World; tick: number; trucks: Set<number>; at: Map<number, Ends> } | undefined;
+
+/**
+ * Which ends of the stack on crate storage tile `t` a forklift can drive
+ * up to, the front row's then the back row's: port ground (not a depot),
+ * and now, no truck standing there.
+ */
+function stackEnds(w: World, t: number): Ends {
+  if (endsCache?.w !== w || endsCache.tick !== w.tick) {
+    // Trucks standing still, loading, unloading or parked, stand in the way.
+    const trucks = new Set<number>();
+    for (const q of w.trucks) {
+      if (q.state === 'loading' || q.state === 'delivering' || q.state === 'parked') {
+        trucks.add(w.tileOf(q));
+      }
+    }
+    endsCache = { w, tick: w.tick, trucks, at: new Map() };
+  }
+  const cache = endsCache;
+  let ends = cache.at.get(t);
+  if (ends) return ends;
+  const m = w.map;
+  const z = forksAlongZ(m, t);
+  const side = (d: number) => {
+    const [x, y] = [m.xOf(t) + (z ? 0 : d), m.yOf(t) + (z ? d : 0)];
+    if (!m.inBounds(x, y)) return -1;
+    const n = m.idx(x, y);
+    return drivable(m.build[n]) && m.build[n] !== Build.Depot ? n : -1;
+  };
+  const [a, b] = [side(-1), side(1)];
+  ends = {
+    ever: [a >= 0, b >= 0],
+    now: [a >= 0 && !cache.trucks.has(a), b >= 0 && !cache.trucks.has(b)],
+  };
+  cache.at.set(t, ends);
+  return ends;
+}
+
+/** The tile (as an index into its tiles) and row of crate storage's pallet place `k`. */
+function rowOf(k: number): [number, number] {
+  return [Math.floor(k / PLACES), Math.floor((k % PLACES) / 2)];
+}
+
+/** Whether none of `used` is in row `row` of the stack on storage tile `n` (an index into its tiles). */
+function rowEmpty(n: number, row: number, used: Set<number>): boolean {
+  const first = n * PER_TILE + row * BAY_ROW;
+  for (let s = first; s < first + BAY_ROW; s++) if (used.has(s)) return false;
+  return true;
+}
+
+/**
+ * Whether a forklift can get its forks under pallet place `k` in crate
+ * storage now, `used` the slots with crates in them (or kept for some):
+ * from the end of the stack its row faces, else through the other row
+ * while that is empty. Anywhere else, always.
+ */
+export function reachable(w: World, b: Bay, k: number, used: Set<number>): boolean {
+  if (!b.tiles || b.yard) return true;
+  const [n, row] = rowOf(k);
+  const t = b.tiles[n];
+  if (t === undefined) return false;
+  const { now } = stackEnds(w, t);
+  if (now[row]) return true;
+  return now[1 - row] && rowEmpty(n, 1 - row, used);
+}
+
+/**
+ * Whether pallet place `k` is in the near row of a stack with ground at
+ * one end only while its far row still has room: filled only once that
+ * is full, so nothing is shut in behind it with room going spare.
+ */
+function shutsIn(w: World, b: Bay, k: number, used: Set<number>): boolean {
+  if (!b.tiles || b.yard) return false;
+  const [n, row] = rowOf(k);
+  const t = b.tiles[n];
+  if (t === undefined) return false;
+  const { ever } = stackEnds(w, t);
+  if (ever[0] === ever[1] || !ever[row]) return false;
+  const first = n * PER_TILE + (1 - row) * BAY_ROW;
+  for (let s = first; s < first + BAY_ROW; s++) if (!used.has(s)) return true;
+  return false;
+}
+
 /**
  * The slot of each of a bay's crates, and of each of its exports, kept
  * beside them: brought up to date with the lists, any new ones at the end
@@ -112,7 +215,7 @@ export function crateSlots(w: World, b: Bay): { crates: number[]; exports: numbe
   ] as const) {
     for (let i = 0; i < fees.length; i++) {
       if (i < list.length && list[i] >= 0) continue;
-      const s = freeSlot(b, used, kept, waitsIn(b, isOut, [fees[i]]), waitingSlots(w, b, list));
+      const s = freeSlot(b, used, kept, waitsIn(b, isOut, [fees[i]]), waitingSlots(w, b, list), w);
       list[i] = s;
       if (s >= 0) used.add(s);
     }
@@ -223,29 +326,38 @@ export function freeSlot(
   kept = new Set<number>(),
   ground = false,
   waiting?: Set<number>,
+  w?: World,
 ): number {
   const sh = shape(b);
+  const taken = new Set([...used, ...kept]);
   const open = (s: number) => {
     if (used.has(s) || kept.has(s)) return false;
     const under = sh.below(s);
     return under < 0 || used.has(under);
   };
+  // The near row of a stack with ground at one end only, last.
+  const later = (s: number) => (w && shutsIn(w, b, placeIn(s), taken) ? 1 : 0);
   if (ground) {
     let first = -1;
+    let beside = -1;
     for (let s = 0; s < sh.cap; s++) {
       if (!open(s) || sh.below(s) >= 0) continue;
-      if (first < 0) first = s;
+      if (first < 0 || later(s) < later(first)) first = s;
       // Beside one already on the ground first.
       const start = sh.stack(s) * PER_TILE;
-      for (let k = start; k < start + PER_TILE; k++) if (used.has(k)) return s;
+      let near = false;
+      for (let k = start; k < start + PER_TILE && !near; k++) near = used.has(k);
+      if (near && (beside < 0 || later(s) < later(beside))) beside = s;
     }
+    if (beside >= 0 && later(beside) <= later(first)) return beside;
     if (first >= 0) return first;
     // Else on another that waits, so it buries none free to go.
     if (waiting) for (let s = 0; s < sh.cap; s++) if (open(s) && waiting.has(sh.below(s))) return s;
   }
   // In storage, a stack already started first; in it the pallet on the
   // ground in one row, then in the other, before those on top of them, so
-  // a forklift always has a whole one it may lift off clear.
+  // a forklift always has a whole one it may lift off clear; but where it
+  // has ground at one end only, the far row full first.
   if (b.tiles) {
     let best = -1;
     let least = Infinity;
@@ -255,7 +367,7 @@ export function freeSlot(
       let started = false;
       for (let k = first; k < first + PER_TILE && !started; k++) started = used.has(k);
       const rank = [0, 2, 1, 3][Math.floor((s % PER_TILE) / PLACE)];
-      const v = (started ? 0 : 1e6) + first * 10 + rank * PLACE + (s % PLACE);
+      const v = (started ? 0 : 1e6) + first * 10 + later(s) * 100 + rank * PLACE + (s % PLACE);
       if (v < least) [best, least] = [s, v];
     }
     return best;
@@ -267,20 +379,24 @@ export function freeSlot(
 /**
  * Where a forklift's load of `n` goes: the first of `n` slots one after
  * another in one pallet place, set on empty ground or on a whole layer,
- * never on one with a crate missing from its top. On the lowest free
- * ground first, so the whole pallets already there stay clear to lift
- * off; on top of a stack when there is none. -1 if none fits.
+ * never on one with a crate missing from its top; in crate storage only
+ * where it can get its forks in (see reachable), the near row of a stack
+ * with ground at one end only once the far one is full. On the lowest
+ * free ground first, so the whole pallets already there stay clear to
+ * lift off; on top of a stack when there is none. -1 if none fits.
  */
 export function loadSlot(
   b: Bay,
   n: number,
   used: Set<number>,
   kept = new Set<number>(),
-  _ground = false,
+  w?: World,
 ): number {
   const sh = shape(b);
   if (n <= 0) return -1;
-  let stacked = -1;
+  const taken = new Set([...used, ...kept]);
+  let best = -1;
+  let least = Infinity;
   for (let s = 0; s + n <= sh.cap; s += 2) {
     if (placeIn(s) !== placeIn(s + n - 1)) continue;
     let ok = true;
@@ -289,17 +405,27 @@ export function loadSlot(
     const under = [sh.below(s), sh.below(s + 1)];
     if (!ok || !under.every((u) => u < 0 || used.has(u))) continue;
     if (n === 1 && (used.has(s + 1) || kept.has(s + 1))) continue;
-    if (under[0] < 0) return s;
-    if (stacked < 0) stacked = s;
+    if (w && !reachable(w, b, placeIn(s), taken)) continue;
+    const v = (w && shutsIn(w, b, placeIn(s), taken) ? 2 : 0) + (under[0] < 0 ? 0 : 1);
+    if (v < least) [best, least] = [s, v];
+    if (v === 0) break;
   }
-  return stacked;
+  return best;
 }
 
 /** Whether a forklift's load sits level at slot `s` of this bay; see loadSlot. */
-function fitsAt(b: Bay, s: number, n: number, used: Set<number>, kept: Set<number>): boolean {
+function fitsAt(
+  w: World,
+  b: Bay,
+  s: number,
+  n: number,
+  used: Set<number>,
+  kept: Set<number>,
+): boolean {
   const sh = shape(b);
   if (s < 0 || s % 2 !== 0 || s + n > sh.cap || placeIn(s) !== placeIn(s + n - 1)) return false;
   for (let k = s; k < s + n; k++) if (used.has(k) || kept.has(k)) return false;
+  if (!reachable(w, b, placeIn(s), new Set([...used, ...kept]))) return false;
   return [sh.below(s), sh.below(s + 1)].every((u) => u < 0 || used.has(u));
 }
 
@@ -315,8 +441,8 @@ export function dropSlot(w: World, p: Dockhand, b: Bay): number {
   const kept = reserved(w, b, p);
   const ground = waitsIn(b, !!p.outbound, p.cargoFees, p.cleared);
   return p.kind === 'forklift'
-    ? loadSlot(b, Math.max(1, p.carrying), used, kept, ground)
-    : freeSlot(b, used, kept, ground, waitingSlots(w, b));
+    ? loadSlot(b, Math.max(1, p.carrying), used, kept, w)
+    : freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
 }
 
 /**
@@ -330,7 +456,8 @@ export function claimDrop(w: World, p: Dockhand, b: Bay): boolean {
     const used = usedSlots(w, b);
     const kept = reserved(w, b, p);
     const n = Math.max(1, p.carrying);
-    const ok = p.kind === 'forklift' ? fitsAt(b, p.dropAt!, n, used, kept) : !used.has(p.dropAt!);
+    const ok =
+      p.kind === 'forklift' ? fitsAt(w, b, p.dropAt!, n, used, kept) : !used.has(p.dropAt!);
     if (ok) return true;
   }
   p.dropAt = undefined;
@@ -344,7 +471,7 @@ export function claimDrop(w: World, p: Dockhand, b: Bay): boolean {
 /** Whether a forklift's load of `n` has a level place to go at this bay. */
 export function loadFits(w: World, b: Bay, n: number, p?: Dockhand): boolean {
   if (!slotted(b)) return true;
-  return loadSlot(b, Math.max(1, n), usedSlots(w, b), reserved(w, b, p)) >= 0;
+  return loadSlot(b, Math.max(1, n), usedSlots(w, b), reserved(w, b, p), w) >= 0;
 }
 
 /**
@@ -366,10 +493,10 @@ export function setDown(w: World, b: Bay, out: boolean, n: number, p?: Dockhand)
   const ground = waitsIn(b, out, fees, p?.cleared);
   let first = claimed;
   if (first < 0 || ![...Array(n).keys()].every((k) => !used.has(first + k))) {
-    first = p?.kind === 'forklift' ? loadSlot(b, n, used, kept, ground) : -1;
+    first = p?.kind === 'forklift' ? loadSlot(b, n, used, kept, w) : -1;
   }
   for (let k = 0; k < n; k++) {
-    const s = first >= 0 ? first + k : freeSlot(b, used, kept, ground, waitingSlots(w, b));
+    const s = first >= 0 ? first + k : freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
     list[list.length - n + k] = s;
     if (s >= 0) used.add(s);
   }
@@ -408,10 +535,12 @@ export function takeOrder(
       const up = s >= 0 ? sh.above(s) : -1;
       if (up >= 0 && used.has(up)) return;
       // In storage off a pallet not whole first, so those that are stay
-      // whole for the forklifts; at a truck bay the last slot of its stack
-      // first, as it fills them.
+      // whole for the forklifts, and one a forklift can get to before any
+      // other; at a truck bay the last slot of its stack first, as it
+      // fills them.
       const v = b.tiles
         ? (s >= 0 && placeIn(s) === want ? 1e6 : 0) +
+          (s >= 0 && reachable(w, b, placeIn(s), used) ? 1e7 : 0) +
           (s >= 0 && !whole(placeIn(s)) ? 1e5 : 0) +
           (s >= 0 ? sh.height(s) : 0) * 1e3 +
           i
@@ -465,7 +594,7 @@ export function nextSlots(w: World, b: Bay, n: number, ground = false): number[]
   const kept = reserved(w, b);
   const out: number[] = [];
   for (let k = 0; k < n; k++) {
-    const s = freeSlot(b, used, kept, ground, waitingSlots(w, b));
+    const s = freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
     out.push(s);
     if (s >= 0) used.add(s);
   }

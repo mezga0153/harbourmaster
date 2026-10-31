@@ -30,6 +30,7 @@ import {
   freeSlot,
   inPlace,
   placeOf,
+  reachable,
   reserved,
   takeOrder,
   usedSlots,
@@ -382,7 +383,9 @@ export function palletPlaces(w: World, b: Bay): number[] {
  * else the last full one, with none on it waiting on customs or papers,
  * that no other is lifting, so it leaves alone one being filled, by a jib
  * crane say; with none full, or when it is taking less than a pallet's
- * worth, the place of the newest. -1 if there are none.
+ * worth, the place of the newest. Only one it can get its forks under
+ * (see reachable), on the tile it stands on first if it is loading a
+ * truck there. -1 if there are none.
  */
 export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number {
   const places = palletPlaces(w, b);
@@ -392,12 +395,19 @@ export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number
   if (at >= 0 && mine(p!.takeAt!).length > 0) return at;
   const { crates, exports } = crateSlots(w, b);
   const slots = out ? exports : crates;
+  const used = usedSlots(w, b);
+  const can = (k: number) => reachable(w, b, k, used);
   const newest = () => {
     for (let i = slots.length - 1; i >= 0; i--) {
-      if (slots[i] >= 0) return places.indexOf(placeOf(b, slots[i]));
+      if (slots[i] >= 0 && can(placeOf(b, slots[i]))) return places.indexOf(placeOf(b, slots[i]));
     }
     return -1;
   };
+  // Loading a truck from where it stands, off the stack there first.
+  const tiles = b.tiles ?? [b.idx];
+  const here = p?.truckId !== undefined ? tiles.indexOf(w.tileOf(p)) : -1;
+  const away = (k: number) =>
+    here >= 0 && Math.floor(k / (B.CRATES_PER_STORE_TILE / PLACE)) !== here ? 1 : 0;
   if (list.length === 0) return -1;
   // Fewer than a pallet's worth: off one not whole, clear on top, if
   // there is one, so whole ones stay whole; else off the top of a stack.
@@ -406,8 +416,8 @@ export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number
     let least = Infinity;
     places.forEach((k, j) => {
       const on = mine(k).length;
-      if (on === 0 || !clearOnTop(w, b, k)) return;
-      const v = (on < PLACE ? 0 : 100) + (on >= p.planned ? 0 : 10) - (k % 2);
+      if (on === 0 || !clearOnTop(w, b, k) || !can(k)) return;
+      const v = away(k) * 1000 + (on < PLACE ? 0 : 100) + (on >= p.planned ? 0 : 10) - (k % 2);
       if (v < least) [best, least] = [j, v];
     });
     return best >= 0 ? best : newest();
@@ -419,11 +429,14 @@ export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number
       .map((q) => q.takeAt),
   );
   const wait = waitMask(w, b, out);
-  for (let j = places.length - 1; j >= 0; j--) {
-    const on = mine(places[j]);
-    const all = inPlace(w, b, places[j], !out).length === 0;
-    if (on.length !== PLACE || !all || taken.has(places[j]) || on.some((i) => wait[i])) continue;
-    if (clearOnTop(w, b, places[j])) return j;
+  for (const far of here >= 0 ? [0, 1] : [1]) {
+    for (let j = places.length - 1; j >= 0; j--) {
+      const on = mine(places[j]);
+      const all = inPlace(w, b, places[j], !out).length === 0;
+      if (on.length !== PLACE || !all || taken.has(places[j]) || on.some((i) => wait[i])) continue;
+      if (away(places[j]) > far || !can(places[j])) continue;
+      if (clearOnTop(w, b, places[j])) return j;
+    }
   }
   return newest();
 }
@@ -445,7 +458,9 @@ export function palletTile(
   let place = 0;
   if (pick) place = palletPlaces(w, b)[pickPallet(w, b, out, p)] ?? 0;
   else {
-    const s = p ? dropSlot(w, p, b) : freeSlot(b, usedSlots(w, b), reserved(w, b));
+    const s = p
+      ? dropSlot(w, p, b)
+      : freeSlot(b, usedSlots(w, b), reserved(w, b), false, undefined, w);
     place = s >= 0 ? placeOf(b, s) : 0;
   }
   return tiles[Math.min(tiles.length - 1, Math.floor(place / per))];

@@ -11,7 +11,7 @@ import { surfaceY } from '../src/render/terrain';
 import { boat, person, truck } from '../src/render/model';
 import { forklift } from '../src/render/machines';
 import { CRATE } from '../src/render/models';
-import { wharf } from './wharf';
+import { shutIn, wharf } from './wharf';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -848,9 +848,13 @@ describe('Forklifts handling crates', () => {
     expect(inTrucks).toBe(0);
   }, 120_000);
 
-  it('keep their bodies off the crates in full crate storage they drive round, into and out of', () => {
-    // The Coastal Wharf's storage behind its gate, every tile of it full.
-    const world: World = wharf(4, 2);
+  /**
+   * The Coastal Wharf's storage behind its gate, every tile of it full,
+   * run for three days, drawn: how often a forklift's body was a little
+   * into crates, of the frames it was out of its depot, and the pallet
+   * places in storage it took from or set down in, as `store/place`.
+   */
+  function fullStorage(world: World): { frames: number; inCrates: number; places: Set<string> } {
     for (const b of world.bays.values()) {
       if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 56 }, () => 25);
     }
@@ -869,6 +873,7 @@ describe('Forklifts handling crates', () => {
     let frames = 0;
     let inCrates = 0;
     let hands = 0;
+    const places = new Set<string>();
     const loads = new Map<number, number>();
     for (let t = 0, now = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
@@ -886,6 +891,7 @@ describe('Forklifts handling crates', () => {
           if (v.kind !== 'forklift' || v.parked || e.dock) continue;
           if (v.load !== (loads.get(v.id) ?? 0)) hands++;
           loads.set(v.id, v.load);
+          if (v.handAt?.store !== undefined) places.add(`${v.handAt.store}/${v.handAt.place}`);
           // Every frame out of its depot: driving, lining up, driving in
           // and backing out; its body, not its forks, a little into one at most.
           frames++;
@@ -904,13 +910,27 @@ describe('Forklifts handling crates', () => {
     }
     expect(hands).toBeGreaterThan(30);
     expect(frames).toBeGreaterThan(5000);
-    // Where a crate stands in the way of the one it works there may be no
-    // clear way round at all: a stack's back row is reached only from its
-    // far side, which a truck parked beside the storage, or the edge of
-    // the port at a corner tile, may leave no room on; and a forklift
-    // unloading a shipper's truck parked right beside the outgoing storage
-    // stands in that storage's aisle, with the stack at its back.
-    expect(inCrates / frames).toBeLessThan(0.02);
+    return { frames, inCrates, places };
+  }
+
+  it('keep their bodies off the crates in full crate storage they drive round, into and out of', () => {
+    const { frames, inCrates } = fullStorage(wharf(4, 2));
+    // A stack's back row is reached from its far end, round the stack;
+    // where a truck stands there, or there is no ground, through the
+    // front row once that is empty, never through its crates.
+    expect(inCrates / frames).toBeLessThan(0.003);
+  }, 240_000);
+
+  it('go round to the far end of a stack for its back row, or take another, never reaching through the crates', () => {
+    const world: World = wharf(4, 2);
+    const tile = shutIn(world);
+    const store = [...world.bays.values()].find((b) => b.tiles?.includes(tile))!;
+    const { frames, inCrates, places } = fullStorage(world);
+    expect(inCrates / frames).toBeLessThan(0.003);
+    // The stack with ground at its south end only: its north row, the
+    // first two places, taken once the south row was emptied.
+    const n = store.tiles!.indexOf(tile) * 4;
+    expect(places.has(`${store.idx}/${n}`) || places.has(`${store.idx}/${n + 1}`)).toBe(true);
   }, 240_000);
 });
 

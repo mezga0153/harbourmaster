@@ -12,9 +12,9 @@ import { DEPOT_BACK } from '../../sim/machines';
 import { hash01 } from '../../sim/noise';
 import { hasHighway, hasLights, HIGHWAY_COLUMNS, isExit, oneWay } from '../../sim/roads';
 import {
-  drivable,
   EXTENSION,
   FACING,
+  forksAlongZ,
   machinesOnly,
   ON_QUAY,
   type ParkingFlow,
@@ -628,19 +628,7 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
     // crates wide and two high. The forks go in to the front row from one
     // side, to the back row from the other: the way there is ground to
     // drive on at both, across the area's length where either will do.
-    const area = storeArea(m, i);
-    const xs = area.map((t) => m.xOf(t));
-    const ys = area.map((t) => m.yOf(t));
-    const ground = (dx: number, dy: number) => {
-      const n = offset(m, i, dx, dy);
-      return n >= 0 && drivable(m.build[n]) ? 1 : 0;
-    };
-    const acrossX = ground(-1, 0) + ground(1, 0);
-    const acrossZ = ground(0, -1) + ground(0, 1);
-    const alongX =
-      acrossZ !== acrossX
-        ? acrossZ > acrossX
-        : Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+    const alongX = forksAlongZ(m, i);
     for (const a of STORE_ROWS) {
       for (let level = 0; level < 2; level++) {
         const place = new Group();

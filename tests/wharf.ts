@@ -203,3 +203,20 @@ export function oldPile(world: World, t: number, fees: number[], out = false): B
   world.piles.set(t, pile);
   return pile;
 }
+
+/**
+ * The port road taken up along the north and west of the Coastal Wharf's
+ * storage for cargo coming in, beside its first tile, so the stack there
+ * has ground to drive on at its south end only: its north row is reached
+ * only through the south one once that is empty. Returns that tile.
+ */
+export function shutIn(world: Any): number {
+  const m = world.map;
+  const store = [...(world.bays.values() as Iterable<Bay>)].find((b) => b.tiles && !b.outgoing)!;
+  const x0 = Math.min(...store.tiles!.map((t) => m.xOf(t)));
+  const y0 = Math.min(...store.tiles!.map((t) => m.yOf(t)));
+  const road = [m.idx(x0 - 1, y0), m.idx(x0 - 1, y0 + 1), m.idx(x0, y0 - 1), m.idx(x0 + 1, y0 - 1)];
+  world.command({ type: 'bulldoze', tiles: road });
+  for (const t of road) expect(m.build[t]).toBe(Build.None);
+  return m.idx(x0, y0);
+}

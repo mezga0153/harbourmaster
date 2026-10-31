@@ -3,9 +3,10 @@ import { Group, Vector3, type Object3D } from 'three';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { depotDoorTrouble, frontOf, placementError } from '../src/sim/rules';
 import { World } from '../src/sim/world';
-import { crateSlots } from '../src/sim/systems/cargo/places';
+import { crateSlots, reachable, reserved, usedSlots } from '../src/sim/systems/cargo/places';
+import { crateAt } from '../src/sim/systems/yardGantry';
 import { Structures } from '../src/render/structures';
-import { wharf } from './wharf';
+import { shutIn, wharf } from './wharf';
 
 // Each crate in crate storage or a truck bay's stack keeps the slot it was
 // set down in until it is taken (see src/sim/systems/cargo/places.ts), and
@@ -154,6 +155,55 @@ describe('Crates in storage and at truck bays', () => {
     }
     expect(changes).toBeGreaterThan(50);
   }, 180_000);
+
+  it('are taken and set down by forklifts in storage only where they can get their forks in, the far row of a stack open at one end filled first and emptied last', () => {
+    // The storage for cargo coming in full, one of its stacks with ground
+    // at its south end only; a shipper's trucks stand beside the outgoing
+    // storage's stack that has ground at one end only.
+    const world: Any = wharf(4, 2);
+    const tile = shutIn(world);
+    const store = [...world.bays.values()].find((b: Any) => b.tiles?.includes(tile));
+    store.crates = Array.from({ length: 56 }, () => 25);
+    const n = store.tiles.indexOf(tile);
+    const row = (s: number) => Math.floor((s % 16) / 8);
+    const was = new Map<number, string>();
+    let picks = 0;
+    let drops = 0;
+    let farRow = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
+      world.step();
+      for (const p of world.people) {
+        if (p.kind !== 'forklift') continue;
+        const now = p.state;
+        const fresh = was.get(p.id) !== now;
+        was.set(p.id, now);
+        if (!fresh || (now !== 'picking' && now !== 'dropping')) continue;
+        const pick = now === 'picking';
+        const at = crateAt(world, p, pick);
+        if (at?.store === undefined || at.place === undefined) continue;
+        const b = world.bays.get(at.store);
+        const used = usedSlots(world, b);
+        if (!pick) for (const s of reserved(world, b, p)) used.add(s);
+        // From the end its row faces, or through the other row while that is empty.
+        expect(reachable(world, b, at.place, used)).toBe(true);
+        if (pick) picks++;
+        else drops++;
+        if (b === store && pick && Math.floor(at.place / 4) === n && at.place % 4 < 2) farRow++;
+      }
+      // In the stack open at one end, nothing in its far row while its
+      // near row has crates but was set down before them: its near row
+      // only ever goes on a full far row, or one emptied since.
+      const slots = new Set(crateSlots(world, store).crates);
+      const mine = [...slots].filter((s) => s >= 0 && Math.floor(s / 16) === n);
+      if (mine.some((s) => row(s) === 1) && t % 50 === 0) {
+        expect(mine.filter((s) => row(s) === 0).length).toBeGreaterThan(0);
+      }
+    }
+    expect(picks).toBeGreaterThan(10);
+    expect(drops).toBeGreaterThan(2);
+    // Its far row emptied, from the near end, once the near row was.
+    expect(farRow).toBeGreaterThan(0);
+  }, 240_000);
 
   it('keep their slots through a save and load', () => {
     const world: Any = wharf(4, 2);

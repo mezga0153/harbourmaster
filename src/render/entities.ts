@@ -61,7 +61,7 @@ const FOLD = (80 * Math.PI) / 180;
 const SETTLE = 3;
 
 /** Furthest a forklift drives up to a pallet, from where it stops for it. */
-const REACH_MOST = 0.8;
+const REACH_MOST = 1.3;
 /** Furthest a dockhand walks up to a crate, from where they stop for it. */
 const WALK_MOST = 1.6;
 /** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
@@ -718,9 +718,15 @@ export class Entities {
       const up = at.slot !== undefined && at.slot % 4 >= 2 ? CRATE : 0;
       crates.push({ x: p.x, y: p.y + ON_PALLET + up, z: p.z });
       // The forks go in only the way the pallets lie, from either end of
-      // the stack: from its sides they would be under the other row.
+      // the stack: from its sides they would be under the other row. From
+      // the end its row faces, the near half of the tile, rather than
+      // through the other row, which may be filled meanwhile.
       const along = heading;
-      prefer = (face) => (Math.abs(Math.cos(face - along)) > 0.5 ? 0 : Infinity);
+      const [ox, oz] = [p.x - Math.floor(p.x) - 0.5, p.z - Math.floor(p.z) - 0.5];
+      prefer = (face) => {
+        if (Math.abs(Math.cos(face - along)) <= 0.5) return Infinity;
+        return ox * Math.cos(face) + oz * Math.sin(face) < 0 ? 0 : 3;
+      };
     } else {
       const k = at.slot ?? 0;
       const pick = v.handStage === 'pick';

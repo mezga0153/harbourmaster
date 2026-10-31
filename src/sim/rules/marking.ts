@@ -18,6 +18,7 @@ import {
   type StoreKind,
 } from '../types';
 import { gantryOver } from './footprint';
+import { drivable } from './placement';
 import { nearCrane } from './placement';
 import { truckCost } from './truckNav';
 import { BUILDABLES } from './buildables';
@@ -246,6 +247,27 @@ export function storeArea(map: GameMap, i: number): Set<number> {
     }
   }
   return out;
+}
+
+/**
+ * Which way a forklift's forks go into the stack on crate storage tile
+ * `i`, along z or (false) along x: the way there is ground to drive on at
+ * both ends, across the area's length where either will do. The front
+ * row of the stack (nearer x or z of 0.4) is reached from the tile before
+ * it that way, the back row (0.6) from the one after.
+ */
+export function forksAlongZ(map: GameMap, i: number): boolean {
+  const ground = (dx: number, dy: number) => {
+    const [x, y] = [map.xOf(i) + dx, map.yOf(i) + dy];
+    return map.inBounds(x, y) && drivable(map.build[map.idx(x, y)]) ? 1 : 0;
+  };
+  const acrossX = ground(-1, 0) + ground(1, 0);
+  const acrossZ = ground(0, -1) + ground(0, 1);
+  if (acrossZ !== acrossX) return acrossZ > acrossX;
+  const area = [...storeArea(map, i)];
+  const xs = area.map((t) => map.xOf(t));
+  const ys = area.map((t) => map.yOf(t));
+  return Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
 }
 
 /** Which way trucks may go through a port gate. */
