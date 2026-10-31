@@ -208,6 +208,20 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
           <span>Start a new port</span>
         </button>
       </div>
+
+      <div class="section-title">
+        <span>Tell us</span>
+      </div>
+      <p class="muted">
+        Found a bug, or thought of something the game should have? It goes straight to the people
+        making it.
+      </p>
+      <div class="actions">
+        <button class="btn" onClick={() => (panel.value = 'feedback')}>
+          <Icon name="chat" />
+          <span>Report a bug or share an idea</span>
+        </button>
+      </div>
       <input
         ref={picker}
         type="file"

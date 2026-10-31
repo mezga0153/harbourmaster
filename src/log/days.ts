@@ -61,7 +61,7 @@ export const fresh = (g: string, d: number): Tallies => ({
 });
 
 if (LOG_ON) {
-  setWhere(() => ({ game, day: day || null }));
+  setWhere(playing);
   const count = () => {
     frames++;
     requestAnimationFrame(count);
@@ -76,6 +76,11 @@ if (LOG_ON) {
       if (map) void post(URL_, { days: [dayRow(latest, map, false, t)] }, true);
     }
   });
+}
+
+/** The game being played and its day, as the log has them, if it has. */
+export function playing(): { game: string | null; day: number | null } {
+  return { game, day: day || null };
 }
 
 /** The worker has sent a game: a new one, a save loaded, or the autosave. */
@@ -139,6 +144,7 @@ export function logFrame(s: Snapshot, events: SimEvent[], m: GameMap): void {
 /** Something the player did: a command, as what kind of thing it is. */
 export function logCommand(cmd: Command): void {
   if (!LOG_ON || !t || NOT_ACTIONS.has(cmd.type)) return;
+  if (cmd.type === 'exportSave' && cmd.forReport) return;
   const what =
     cmd.type === 'build'
       ? `build:${cmd.kind}`

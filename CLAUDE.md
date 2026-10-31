@@ -49,6 +49,12 @@ hash, `scripts/version.mjs`). `server/` (the Worker beside the game's files, see
 - `--local` reads the copy `wrangler dev` keeps instead: `npm run build`,
   then `wrangler dev` serves the built game with the log at
   http://localhost:8787
+- Players can tell us about a bug or an idea from Settings ("Tell us",
+  `src/ui/Feedback.tsx`), with their game and a picture of the view if they
+  let it: `./stats.sh feedback` lists them, `./stats.sh feedback-game 12`
+  writes report 12's game to `.debug/` to load into the open dev game (as
+  above), `./stats.sh feedback-mark 12 done "a note"` marks it; the stats
+  page's Feedback tab does all three and shows the picture
 - `tests/play-log.test.ts` checks the game sends what the server takes; a
   new column goes in a new migration, `server/api/`, `src/log/` and there
 

@@ -206,6 +206,49 @@
       tr.pick:hover td {
         background: rgba(127, 127, 127, 0.08);
       }
+      .said {
+        white-space: pre-wrap;
+        font-size: 14px;
+        margin: 6px 0 10px;
+      }
+      .report.done,
+      .report.wontfix {
+        opacity: 0.6;
+      }
+      .report.new {
+        border-color: var(--sea);
+      }
+      input.note {
+        flex: 1;
+        min-width: 160px;
+        font: 12px var(--mono);
+        padding: 5px 9px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        color: var(--ink);
+      }
+      a.plain {
+        text-decoration: none;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        font: 13px var(--mono);
+        padding: 5px 11px;
+        border-radius: 8px;
+      }
+      img.shot {
+        display: block;
+        max-width: 100%;
+        border-radius: 8px;
+        margin: 8px 0;
+      }
+      pre.ctx {
+        font: 11px var(--mono);
+        background: var(--bg);
+        padding: 10px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
       tr.sel td {
         background: rgba(33, 122, 158, 0.12);
       }
@@ -289,7 +332,8 @@
     <header>
       <h1>HARBOURMASTER <span>·</span> play log</h1>
       <div class="seg" id="tabSeg">
-        <button data-tab="play">games</button><button data-tab="visitors">visitors</button>
+        <button data-tab="play">games</button><button data-tab="visitors">visitors</button
+        ><button data-tab="feedback">feedback</button>
       </div>
       <div class="seg" id="dbSeg">
         <button data-db="live">live</button><button data-db="local">local</button>
@@ -321,7 +365,7 @@
       const st = {
         db: saved.db || '__FIRST_DB__',
         win: saved.win ?? 7,
-        tab: saved.tab === 'visitors' ? 'visitors' : 'play',
+        tab: ['visitors', 'feedback'].includes(saved.tab) ? saved.tab : 'play',
         data: null,
         vdata: null,
         game: null,
@@ -617,6 +661,7 @@
       function render() {
         measure();
         if (st.tab === 'visitors') return renderVisitors();
+        if (st.tab === 'feedback') return renderFeedback();
         const a = st.data.answers,
           C = colors();
         // the headline numbers
@@ -1451,6 +1496,174 @@
         $('#grid').replaceChildren(...cards);
       }
 
+      // ---- what players have told us: the Feedback tab ----
+      // Every report, the new ones first (the time span and version do not
+      // apply): what they wrote, where and on what, and its picture, context
+      // and game on asking; marked seen, done or won't fix, with a note.
+      const opened = new Map(); // report id -> its picture and context, once asked for
+      const STATUS = ['new', 'seen', 'done', 'wontfix'];
+      const KIND = { bug: 'Bug', idea: 'Idea', other: 'Other' };
+      async function mark(id, status, note) {
+        const r = st.fdata.rows.find((x) => x.id === id);
+        try {
+          const res = await fetch(`/api/feedback/mark?db=${st.db}`, {
+            method: 'POST',
+            body: JSON.stringify({ id, status, note }),
+          });
+          const out = await res.json();
+          if (out.error) throw new Error(out.error);
+          r.status = status;
+          if (note != null) r.note = note || null;
+        } catch (e) {
+          alert('Could not mark it: ' + e.message);
+        }
+        render();
+      }
+      async function open(id) {
+        if (opened.has(id)) {
+          opened.delete(id);
+          return render();
+        }
+        opened.set(id, null);
+        render();
+        try {
+          const res = await fetch(`/api/feedback/item?db=${st.db}&id=${id}`);
+          opened.set(id, await res.json());
+        } catch (e) {
+          opened.set(id, { error: e.message });
+        }
+        render();
+      }
+      function renderFeedback() {
+        const rows = (st.fdata && st.fdata.rows) || [];
+        const n = (f) => rows.filter(f).length;
+        $('#kpis').replaceChildren(
+          kpi(fmt(n((r) => r.status === 'new')), 'new', 'not read yet'),
+          kpi(
+            fmt(n((r) => r.kind === 'bug')),
+            'bugs',
+            `${fmt(n((r) => r.kind === 'bug' && r.status !== 'done' && r.status !== 'wontfix'))} still open`,
+          ),
+          kpi(fmt(n((r) => r.kind === 'idea')), 'ideas'),
+          kpi(fmt(n((r) => r.kind === 'other')), 'other'),
+          kpi(fmt(n((r) => r.status === 'done')), 'done'),
+          kpi(fmt(n((r) => r.contact)), 'left a contact', 'to answer'),
+        );
+        const cards = rows.map((r) => {
+          const more = opened.get(r.id);
+          const ctx =
+            more && more.context
+              ? (() => {
+                  try {
+                    return JSON.parse(more.context);
+                  } catch {
+                    return null;
+                  }
+                })()
+              : null;
+          const note = el('input', {
+            class: 'note',
+            placeholder: 'a note of ours',
+            value: r.note || '',
+          });
+          note.onchange = () => mark(r.id, r.status, note.value);
+          const c = card(
+            `#${r.id} · ${KIND[r.kind] || r.kind}`,
+            [
+              when(r.created_at),
+              r.version ? 'version ' + r.version : null,
+              r.day ? 'day ' + r.day : null,
+              r.device,
+              place(r.city, r.country),
+              r.contact ? 'contact: ' + r.contact : null,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+            el('div', { class: 'said' }, r.text),
+            el(
+              'div',
+              { class: 'row' },
+              el(
+                'div',
+                { class: 'seg' },
+                STATUS.map((s) =>
+                  el(
+                    'button',
+                    { class: s === r.status ? 'on' : '', onclick: () => mark(r.id, s) },
+                    s === 'wontfix' ? "won't fix" : s,
+                  ),
+                ),
+              ),
+              el(
+                'button',
+                { class: 'plain', onclick: () => open(r.id) },
+                opened.has(r.id) ? 'less' : r.has_picture ? 'picture and context' : 'context',
+              ),
+              r.has_game
+                ? el(
+                    'a',
+                    { class: 'plain', href: `/api/feedback/game?db=${st.db}&id=${r.id}` },
+                    `game (${fmt(Math.round((r.save_bytes || 0) / 1024))} kB)`,
+                  )
+                : null,
+              r.game
+                ? el(
+                    'button',
+                    {
+                      class: 'plain',
+                      onclick: () => {
+                        st.tab = 'play';
+                        keep();
+                        openGame(r.game);
+                      },
+                    },
+                    'its game’s days ›',
+                  )
+                : null,
+              note,
+            ),
+            r.has_game
+              ? el(
+                  'p',
+                  { class: 'hint' },
+                  `to carry on from it in the open dev game: ./stats.sh${st.db === 'local' ? ' --local' : ''} feedback-game ${r.id}, then the curl it prints`,
+                )
+              : null,
+            opened.has(r.id)
+              ? !more
+                ? el('div', { class: 'empty' }, 'loading…')
+                : more.error
+                  ? el('div', { class: 'err' }, more.error)
+                  : [
+                      more.picture
+                        ? el('img', {
+                            class: 'shot',
+                            src: more.picture,
+                            alt: 'the view as it was sent',
+                          })
+                        : null,
+                      ctx ? el('pre', { class: 'ctx' }, JSON.stringify(ctx, null, 2)) : null,
+                      more.ua ? el('p', { class: 'hint' }, more.ua) : null,
+                    ]
+              : null,
+          );
+          c.classList.add('wide', 'report', r.status);
+          return c;
+        });
+        $('#grid').replaceChildren(
+          ...(cards.length
+            ? cards
+            : [
+                wide(
+                  card(
+                    'Nothing yet',
+                    'what players send from the game’s Settings: Report a bug or share an idea',
+                  ),
+                ),
+              ]),
+        );
+      }
+
       // ---- your own question ----
       let sqlOut = null;
       function sqlCard() {
@@ -1503,7 +1716,8 @@
 
       // ---- loading ----
       // the tab's answers: the play log's (st.data) or the visitors' (st.vdata); a tab left before its answer came lets it go
-      const current = () => (st.tab === 'visitors' ? st.vdata : st.data);
+      const current = () =>
+        st.tab === 'visitors' ? st.vdata : st.tab === 'feedback' ? st.fdata : st.data;
       async function load(fresh) {
         const tab = st.tab;
         $('#status').textContent = 'asking the ' + st.db + ' database…';
@@ -1515,7 +1729,9 @@
           b.classList.toggle('on', +b.dataset.win === st.win);
         try {
           const res = await fetch(
-            `/api/all?db=${st.db}&${scope()}&tab=${tab}${fresh ? '&fresh' : ''}`,
+            tab === 'feedback'
+              ? `/api/feedback?db=${st.db}`
+              : `/api/all?db=${st.db}&${scope()}&tab=${tab}${fresh ? '&fresh' : ''}`,
           );
           const r = await res
             .json()
@@ -1523,11 +1739,13 @@
           if (r.error) throw new Error(r.error);
           if (tab !== st.tab) return;
           if (tab === 'visitors') st.vdata = r;
+          else if (tab === 'feedback') st.fdata = r;
           else st.data = r;
           $('#banner').replaceChildren();
-          versions(r.answers.versionlist || []);
+          if (r.answers) versions(r.answers.versionlist || []);
           $('#status').textContent =
-            `${st.db} · updated ${new Date(r.at).toTimeString().slice(0, 8)} · ${(r.took / 1000).toFixed(1)} s`;
+            `${st.db} · updated ${new Date(r.at).toTimeString().slice(0, 8)}` +
+            (r.took != null ? ` · ${(r.took / 1000).toFixed(1)} s` : '');
           render();
         } catch (e) {
           if (tab !== st.tab) return;
@@ -1563,7 +1781,7 @@
         st.db = b.dataset.db;
         st.game = null;
         gameAsk++;
-        st.data = st.vdata = null;
+        st.data = st.vdata = st.fdata = null;
         keep();
         load();
       };

@@ -3,6 +3,7 @@ import { Soundscape } from './audio/sound';
 import { Input } from './input';
 import { logCommand, logFrame, logInit, logPanel } from './log/days';
 import { gpu, report, watchErrors } from './log/errors';
+import { setReportHooks } from './log/feedback';
 import { visitOpen } from './log/visit';
 import type { Command, WorkerMessage } from './protocol';
 import type { SaveData } from './sim/world';
@@ -237,6 +238,17 @@ worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
   inbox = inbox.then(() => assetsReady).then(() => handle(e.data));
 };
 
+/** Bug reports waiting for the game as it is, to send with them. */
+const wantSave: ((s: SaveData) => void)[] = [];
+setReportHooks({
+  save: () =>
+    new Promise((resolve) => {
+      wantSave.push(resolve);
+      send({ type: 'exportSave', forReport: true });
+    }),
+  picture: () => renderer.picture(),
+});
+
 /** Hand the player the game as a file to keep, named for the port and the day. */
 function download(save: SaveData): void {
   const s = snapshot.peek();
@@ -253,7 +265,11 @@ function download(save: SaveData): void {
 
 function handle(msg: WorkerMessage): void {
   if (msg.type === 'dump') return;
-  if (msg.type === 'exported') return download(msg.save);
+  if (msg.type === 'exported') {
+    if (!msg.forReport) return download(msg.save);
+    for (const take of wantSave.splice(0)) take(msg.save);
+    return;
+  }
   if (msg.type === 'fault') return report(msg.kind, msg.message, msg.stack);
   if (msg.type === 'init') {
     map = GameMap.fromData(msg.map);

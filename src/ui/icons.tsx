@@ -339,6 +339,12 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M17 9l2 2 2-2" />
     </>
   ),
+  chat: (
+    <>
+      <path d="M4 5.5A1.5 1.5 0 015.5 4h13A1.5 1.5 0 0120 5.5v9a1.5 1.5 0 01-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 014 14.5z" />
+      <path d="M8 8.5h8M8 12h5" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />

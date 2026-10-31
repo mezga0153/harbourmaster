@@ -105,6 +105,21 @@ export class Renderer {
     return this.gl.domElement;
   }
 
+  /**
+   * The view as a JPEG data: URL, at most `width` pixels across: drawn afresh
+   * so the canvas still holds it, for a bug report (src/log/feedback.ts).
+   */
+  picture(width = 1280): string {
+    this.gl.render(this.scene, this.cam.camera);
+    const c = this.canvas;
+    const scale = Math.min(1, width / c.width);
+    const out = document.createElement('canvas');
+    out.width = Math.round(c.width * scale);
+    out.height = Math.round(c.height * scale);
+    out.getContext('2d')?.drawImage(c, 0, 0, out.width, out.height);
+    return out.toDataURL('image/jpeg', 0.75);
+  }
+
   setMap(map: GameMap): void {
     if (this.layers) {
       this.scene.remove(this.layers.root);

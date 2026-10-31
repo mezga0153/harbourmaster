@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SECTIONS, gameSections } from './queries.mjs';
 import { ask, ctes, d1, within } from './db.mjs';
+import * as feedback from './feedback.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -110,6 +111,32 @@ const server = http.createServer(async (req, res) => {
         raw: true,
       });
       return send(res, 200, { ...answers, missing });
+    }
+    // what players have told us: the list, a report's picture and context, its game, and marking it
+    const local = db === 'local';
+    if (req.method === 'GET' && url.pathname === '/api/feedback') {
+      return send(res, 200, { rows: await feedback.list(local), at: Date.now() });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/feedback/item') {
+      return send(res, 200, (await feedback.item(local, url.searchParams.get('id'))) ?? {});
+    }
+    if (req.method === 'GET' && url.pathname === '/api/feedback/game') {
+      const id = url.searchParams.get('id');
+      const save = await feedback.game(local, id);
+      if (!save) return send(res, 404, { error: 'that report came without its game' });
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-disposition': `attachment; filename="feedback-${Number(id)}.json"`,
+      });
+      return res.end(save);
+    }
+    if (req.method === 'POST' && url.pathname === '/api/feedback/mark') {
+      let b = {};
+      try {
+        b = JSON.parse(await body(req));
+      } catch {}
+      await feedback.mark(local, b.id, b.status, b.note);
+      return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/sql') {
       let sql = '';

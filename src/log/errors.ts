@@ -14,6 +14,9 @@ export type ErrorKind = 'error' | 'rejection' | 'worker' | 'sim' | 'save' | 'aut
 
 /** Which game and day are being played, from days.ts. */
 let where: () => { game: string | null; day: number | null } = () => ({ game: null, day: null });
+/** What this page has reported, as kind and message, for a bug report (feedback.ts). */
+export const recentErrors = (): string[] => [...sent];
+
 export function setWhere(f: typeof where): void {
   where = f;
 }

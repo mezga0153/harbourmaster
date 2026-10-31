@@ -1,13 +1,19 @@
 // The game's Worker (wrangler.jsonc): the built game in dist/ is served as it
 // is, straight from the assets, and what is not one of them comes here: the
 // play log's addresses, which take what the game sends about how players get
-// on (src/log/, migrations/0001_log.sql), and anything else, which the assets
-// answer (a 404).
+// on (src/log/, migrations/), and what players tell us (/api/feedback); and
+// anything else, which the assets answer (a 404).
 import * as days from './api/days.js';
 import * as errors from './api/errors.js';
+import * as feedback from './api/feedback.js';
 import * as visits from './api/visits.js';
 
-const ROUTES = { '/api/visits': visits.take, '/api/days': days.take, '/api/errors': errors.take };
+const ROUTES = {
+  '/api/visits': visits.take,
+  '/api/days': days.take,
+  '/api/errors': errors.take,
+  '/api/feedback': feedback.take,
+};
 
 export default {
   async fetch(request, env) {

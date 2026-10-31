@@ -59,7 +59,7 @@ function handle(cmd: Command): void {
   } else if (cmd.type === 'save') {
     save(true);
   } else if (cmd.type === 'exportSave') {
-    ctx.postMessage({ type: 'exported', save: world.toSave() });
+    ctx.postMessage({ type: 'exported', save: world.toSave(), forReport: cmd.forReport });
   } else if (cmd.type === 'importSave') {
     // Only a save this version can read; the game goes on as it was if not.
     let ok = false;
@@ -122,7 +122,11 @@ function loop(): void {
     fault('sim', err);
     world.speed = 0;
     postFrame([
-      { kind: 'message', text: 'Something went wrong and the game was paused.', tone: 'bad' },
+      {
+        kind: 'message',
+        text: 'Something went wrong and the game was paused. Tell us how in Settings: Report a bug.',
+        tone: 'bad',
+      },
     ]);
     return;
   }

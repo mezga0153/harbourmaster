@@ -10,6 +10,9 @@
 #   ./stats.sh visits       the visitors: where they come from, where they are, on what,
 #                           and whether they play
 #   ./stats.sh sql "..."    a question of your own
+#   ./stats.sh feedback     what players have told us from the game, the new first;
+#                           feedback-game 12 writes report 12's game to .debug/ to load,
+#                           feedback-mark 12 done "a note" marks it (new seen done wontfix)
 #   ./stats.sh gui          the stats page, at http://127.0.0.1:8798
 set -e
 cd "$(dirname "$0")"

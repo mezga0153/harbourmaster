@@ -93,7 +93,15 @@ export const newGameOpen = signal(false);
 export const openCategory = signal<string | null>(null);
 /** Which management panel is open on the right. */
 export type PanelName =
-  'contracts' | 'staff' | 'finance' | 'stats' | 'port' | 'handbook' | 'settings';
+  | 'contracts'
+  | 'staff'
+  | 'finance'
+  | 'stats'
+  | 'port'
+  | 'handbook'
+  | 'settings'
+  /** Telling us about a bug or an idea: see Feedback.tsx. */
+  | 'feedback';
 export const panel = signal<PanelName | null>(null);
 /** The Contracts panel tab last open, kept for next time, in this browser too. */
 export type ContractsTab = 'overview' | 'active' | 'offers' | 'rules';

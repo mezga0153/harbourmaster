@@ -48,8 +48,11 @@ export type Command =
   | { type: 'learnt'; tip: string }
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
-  /** The game as a save, for the player to keep in a file; answered with `exported`. */
-  | { type: 'exportSave' }
+  /**
+   * The game as a save, for the player to keep in a file, or (forReport) to
+   * send with a bug report; answered with `exported`.
+   */
+  | { type: 'exportSave'; forReport?: boolean }
   /** Carry on from a save the player picked from a file, if it is one this version can read. */
   | { type: 'importSave'; save: unknown; name: string }
   /** Dev server only: jump ahead for testing. */
@@ -641,6 +644,6 @@ export type WorkerMessage =
   /** Dev server only: the game as a save, for the debug bridge. */
   | { type: 'dump'; save: SaveData }
   /** The game as a save, to keep in a file; see exportSave. */
-  | { type: 'exported'; save: SaveData }
+  | { type: 'exported'; save: SaveData; forReport?: boolean }
   /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */
   | { type: 'fault'; kind: 'sim' | 'save' | 'autosave'; message: string; stack?: string };

@@ -2746,3 +2746,38 @@ input[type='range']::-moz-range-thumb {
   border: 2px solid var(--panel-solid);
   box-shadow: 0 0 0 1px var(--accent);
 }
+
+/* Telling us about a bug or an idea (Feedback.tsx): the kind across the top,
+   then room to write, filling the panel's width. */
+.feedback .segmented {
+  align-self: flex-start;
+  margin: 4px 0 10px;
+}
+
+.feedback textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font: inherit;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.feedback textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.feedback input[type='text'] {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+}

@@ -9,6 +9,7 @@ import { ContractsPanel } from './Contracts';
 import { FinancePanel } from './Finance';
 import { StatsPanel } from './Stats';
 import { Advisor } from './Advisor';
+import { FeedbackPanel } from './Feedback';
 import { HandbookPanel } from './Handbook';
 import { PortPanel } from './Port';
 import { SettingsPanel } from './Settings';
@@ -96,6 +97,8 @@ export function App({ actions }: { actions: Actions }) {
         <HandbookPanel />
       ) : panel.value === 'settings' ? (
         <SettingsPanel actions={actions} />
+      ) : panel.value === 'feedback' ? (
+        <FeedbackPanel />
       ) : (
         <InfoPanel actions={actions} />
       )}

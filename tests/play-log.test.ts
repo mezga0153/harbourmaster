@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { gist } from '../src/log/common';
+import { zip } from '../src/log/feedback';
 import { dayRow, fresh } from '../src/log/days';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { COLUMNS, row as dayIn } from '../server/api/days.js';
 import { row as errorIn } from '../server/api/errors.js';
+import { row as feedbackIn } from '../server/api/feedback.js';
 import { row as visitIn } from '../server/api/visits.js';
 import { playDay } from './bot';
 
@@ -91,5 +93,37 @@ describe('The play log', () => {
     expect(visitIn({ ...first, version: 'x; DROP TABLE' }, 1, NOWHERE)).toBeNull();
     expect(errorIn({ kind: 'sim', message: 'boom', stack: 'at step', day: 4 }, 1)).not.toBeNull();
     expect(errorIn({ kind: 'nonsense', message: 'boom' }, 1)).toBeNull();
+  });
+
+  it('takes what players tell us, with their game zipped as the stats tools unzip it', async () => {
+    const save = JSON.stringify({ seed: 5, tick: 1234, note: 'x'.repeat(5000) });
+    const zipped = await zip(save);
+    const report = {
+      kind: 'bug',
+      text: '  The boat sank\ninto the quay.  ',
+      contact: 'me@example.com',
+      visit: 'abcdefgh1234',
+      game: 'abcdefgh5678',
+      day: 3,
+      version: '2026-10-31 00:51 3b839e2',
+      context: { seed: 5, messages: ['Not enough money'] },
+      save: zipped,
+      saveBytes: save.length,
+      picture: 'data:image/jpeg;base64,/9j/4AAQ',
+    };
+    const r = feedbackIn(report, 1, NOWHERE);
+    expect(r).not.toBeNull();
+    expect(r!.slice(0, 3)).toEqual(['bug', 'The boat sank\ninto the quay.', 'me@example.com']);
+    // Zipped small, and back to the same game.
+    expect(zipped.length).toBeLessThan(save.length / 10);
+    const bytes = Uint8Array.from(atob(zipped), (c) => c.charCodeAt(0));
+    const back = await new Response(
+      new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')),
+    ).text();
+    expect(back).toBe(save);
+    // Turned away: no words, a kind not known, a picture that is not one.
+    expect(feedbackIn({ ...report, text: '   ' }, 1, NOWHERE)).toBeNull();
+    expect(feedbackIn({ ...report, kind: 'rant' }, 1, NOWHERE)).toBeNull();
+    expect(feedbackIn({ ...report, picture: 'javascript:alert(1)' }, 1, NOWHERE)).toBeNull();
   });
 });
