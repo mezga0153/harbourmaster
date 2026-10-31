@@ -5,27 +5,17 @@ import type { GameMap } from '../sim/map';
 import { DEPOT_BACK, DEPOT_HALF, isMachineKind, MACHINE_SIZE } from '../sim/machines';
 import { frontOf } from '../sim/rules';
 import { Build, TICKS_PER_SECOND, type MachineKind } from '../sim/types';
+import { disposeOwned, KeyedObjects } from './keyed';
 import {
-  alertMarker,
-  boat,
+  CARRY_LOW,
   FORKS_EMPTY,
   FORKS_LOADED,
-  CARRY_LOW,
-  forklift,
-  person,
-  paintLoad,
   reachTo,
-  setCrateIcon,
-  showDeck,
-  showLoad,
-  stacker,
   STACKER_REACH,
-  tractor,
   TRAILER_AT,
-  truck,
-  type Model,
-} from './models';
-import { disposeOwned, KeyedObjects } from './keyed';
+} from './machines';
+import { modelFor, type Model } from './model';
+import { alertMarker, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
 import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import { clamp01, ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
@@ -411,18 +401,7 @@ export class Entities {
 
   /** A model for an entity just come into view, in the scene. */
   private enter(v: EntityView): Entry {
-    const model =
-      v.kind === 'dockhand'
-        ? person(v.id)
-        : v.kind === 'forklift'
-          ? forklift()
-          : v.kind === 'stacker'
-            ? stacker()
-            : v.kind === 'tractor'
-              ? tractor()
-              : v.kind === 'boat'
-                ? boat(v.variant, v.vessel, v.id, v.catch === 'lobster')
-                : truck(v.variant, v.capacity, v.boxes, v.id);
+    const model = modelFor(v);
     this.group.add(model.root);
     // Only machines show a warning marker; boats at anchor are normal.
     const alert = isMachineKind(v.kind) ? alertMarker() : null;

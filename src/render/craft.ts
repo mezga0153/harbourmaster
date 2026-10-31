@@ -4,19 +4,13 @@ import { Rng } from '../sim/rng';
 import { BOX_WIDTH } from './assets';
 import { C } from './palette';
 import { box, cyl } from './parts';
+import type { Model } from './model';
 import { mesh } from './util/mesh';
 
 // Procedural boats and ships. Every one is built from a seed, so each boat
 // that sails in looks a little different: hull shape, paint, wheelhouse,
-// masts and gear. All face +X with the waterline at y=0.
-
-export interface Craft {
-  root: Group;
-  /** Cargo slots, shown one per unit of load. */
-  slots: Object3D[];
-  /** The hull's lofted geometry, made for this boat alone: freed when it goes. */
-  owned: BufferGeometry[];
-}
+// masts and gear. All face +X with the waterline at y=0. The hull's lofted
+// geometry is each boat's own (Model.owned) and is freed when it goes.
 
 type Ring = [number, number][];
 
@@ -225,7 +219,7 @@ type Box = (seed: number, x: number, y: number, z: number) => Object3D;
  * gantry and net drum, a crabber with its wheelhouse forward and an open
  * deck aft, and a drifter with the wheelhouse aft and a mast forward.
  */
-export function fishingBoat(seed: number, company: number, crate: Crate): Craft {
+export function fishingBoat(seed: number, company: number, crate: Crate): Model {
   const rng = new Rng(seed * 7919 + 13);
   const root = new Group();
   const kind = rng.pick(['trawler', 'crabber', 'drifter'] as const);
@@ -295,7 +289,7 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Craft 
     2,
     0.16,
   );
-  return { root, slots, owned };
+  return { root, crates: slots, owned };
 }
 
 /** Lobster boats: white or pale hulls, a band of bright colour. */
@@ -310,7 +304,7 @@ const BUOYS = [0xd6453d, 0xf2c230, 0x3fa34d, 0x2f6fd0, 0xf4f4f0];
  * pots stacked on the open deck aft, and its painted buoys hung along the
  * wheelhouse; the catch in crates amidships.
  */
-export function lobsterBoat(seed: number, company: number, crate: Crate): Craft {
+export function lobsterBoat(seed: number, company: number, crate: Crate): Model {
   const rng = new Rng(seed * 6007 + 29);
   const root = new Group();
   const paint = rng.pick(LOBSTER_HULLS);
@@ -375,14 +369,14 @@ export function lobsterBoat(seed: number, company: number, crate: Crate): Craft 
     2,
     0.14,
   );
-  return { root, slots, owned };
+  return { root, crates: slots, owned };
 }
 
 /**
  * A coaster about 2.7 tiles long with crates on pallets in its hold. The
  * bridge is aft; some carry one or two deck cranes, some a derrick mast.
  */
-export function coasterShip(seed: number, company: number, crate: Crate): Craft {
+export function coasterShip(seed: number, company: number, crate: Crate): Model {
   const rng = new Rng(seed * 104729 + 7);
   const root = new Group();
   const paint = rng.pick(HULLS);
@@ -465,14 +459,14 @@ export function coasterShip(seed: number, company: number, crate: Crate): Craft 
     2,
     0.205,
   );
-  return { root, slots, owned };
+  return { root, crates: slots, owned };
 }
 
 /**
  * A harbour tug about 1.1 tiles long: a beamy hull in fenders all round, a
  * wheelhouse forward with a raised bridge, a funnel and a towing winch aft.
  */
-export function tugBoat(seed: number): Craft {
+export function tugBoat(seed: number): Model {
   const rng = new Rng(seed * 4973 + 29);
   const root = new Group();
   const paint = rng.pick([0xb33a32, 0x24324a, 0x2e7d4f, 0xd9822b]);
@@ -513,14 +507,14 @@ export function tugBoat(seed: number): Craft {
   const winch = cyl(0.05, beam * 0.4, C.chassis, -0.34, deck + 0.06, 0, 8);
   winch.rotation.x = Math.PI / 2;
   root.add(winch);
-  return { root, slots: [], owned };
+  return { root, crates: [], owned };
 }
 
 /**
  * A container feeder, a big ship about 5.6 tiles long. Most have the bridge
  * aft; some have it further forward with containers either side.
  */
-export function feederShip(seed: number, company: number, container: Box): Craft {
+export function feederShip(seed: number, company: number, container: Box): Model {
   const rng = new Rng(seed * 15485863 + 3);
   const root = new Group();
   const paint = rng.pick([0x24324a, 0xb33a32, 0x2f6fd0, 0x2e7d4f, 0x3a3f47, 0x1f6f78, 0xd9822b]);
@@ -587,5 +581,5 @@ export function feederShip(seed: number, company: number, container: Box): Craft
     FEEDER_TIERS,
     0.24,
   );
-  return { root, slots, owned };
+  return { root, crates: slots, owned };
 }

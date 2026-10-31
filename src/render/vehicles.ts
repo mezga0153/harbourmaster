@@ -2,19 +2,12 @@ import { Group, type Object3D } from 'three';
 import { Rng } from '../sim/rng';
 import { BOX_LENGTH } from './assets';
 import { C } from './palette';
+import type { Model } from './model';
 import { box, cyl } from './parts';
 
 // Procedural trucks. Each is built from its id, in its haulier's colours:
 // small rigid flatbeds for crates, articulated rigs for the big loads, and
 // tractors with skeletal trailers for containers. Faces +X, wheels on y=0.
-
-export interface Vehicle {
-  root: Group;
-  /** Cargo slots, shown one per unit of load. */
-  slots: Object3D[];
-  /** Articulated trucks: the trailer, with the slots on it. */
-  trailer?: Trailer;
-}
 
 /**
  * An articulated truck's trailer: a group of its own, turning about the
@@ -134,7 +127,7 @@ function style(rng: Rng, company: number): CabStyle {
 }
 
 /** A rigid flatbed with dropsides, for up to six crates. */
-function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Vehicle {
+function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Model {
   const root = new Group();
   const s = style(rng, company);
   const cols = Math.ceil(capacity / 2);
@@ -162,7 +155,7 @@ function rigid(rng: Rng, company: number, capacity: number, crate: Crate): Vehic
       slots.push(c);
     }
   }
-  return { root, slots: slots.slice(0, capacity) };
+  return { root, crates: slots.slice(0, capacity) };
 }
 
 /**
@@ -178,7 +171,7 @@ function articulated(
   boxes: boolean,
   crate: Crate,
   container: Box,
-): Vehicle {
+): Model {
   const root = new Group();
   const s = style(rng, company);
   // Containers go one to a trailer, the second on a trailer of its own
@@ -249,7 +242,7 @@ function articulated(
   for (const x of axles) axle(trailer, x, 0.065, 0.3, true);
   tailLights(trailer, tail, deckY - 0.04);
   const length = -axles.reduce((n, x) => n + x, 0) / axles.length;
-  return { root, slots: slots.slice(0, capacity), trailer: { root: trailer, hitch, length } };
+  return { root, crates: slots.slice(0, capacity), trailer: { root: trailer, hitch, length } };
 }
 
 /** Gap between one container trailer's tail and the next one's front, over the coupling. */
@@ -265,7 +258,7 @@ function roadTrain(
   seed: number,
   capacity: number,
   container: Box,
-): Vehicle {
+): Model {
   const one = BOX_LENGTH + 0.07;
   const total = capacity * one + (capacity - 1) * COUPLING;
   const front = 0.27 + total / 2;
@@ -317,7 +310,7 @@ function roadTrain(
     parent = g;
     at = tail - COUPLING + 0.025;
   }
-  return { root, slots, trailer: first };
+  return { root, crates: slots, trailer: first };
 }
 
 /** A haulier's truck, in company colours, unique to its id. */
@@ -328,7 +321,7 @@ export function truckModel(
   boxes: boolean,
   crate: Crate,
   container: Box,
-): Vehicle {
+): Model {
   const rng = new Rng(seed * 48271 + 101);
   if (boxes || capacity > 6) {
     return articulated(rng, company, seed, capacity, boxes, crate, container);

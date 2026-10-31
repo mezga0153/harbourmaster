@@ -8,7 +8,7 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three';
-import type { BayView, CraneView, HandAt, PileView, TileChange } from '../protocol';
+import type { BayView, CraneView, HandAt, PileView, TileChange, YardView } from '../protocol';
 import type { Cargo } from '../sim/cargo';
 import type { GameMap } from '../sim/map';
 import {
@@ -1239,26 +1239,7 @@ export class Structures {
     this.speed = speed;
   }
 
-  setYards(
-    yards: {
-      boxes: number;
-      exports: number;
-      tiles: number[];
-      looks: number[];
-      working?: 'load' | 'unload';
-      workLook?: number;
-      workAt?: number;
-      workTruck?: number;
-      workSlot?: number;
-      workPhase?: number;
-      lifted?: number;
-      slots?: number[];
-      workYard?: number;
-      workLegs?: number[];
-      workTicks?: number;
-      workStart?: number;
-    }[],
-  ): void {
+  setYards(yards: YardView[]): void {
     for (const y of yards) {
       if (y.slots) this.stackYard(y.tiles, y.slots, y.looks);
       else this.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true, y.looks);

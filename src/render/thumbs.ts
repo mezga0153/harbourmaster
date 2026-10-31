@@ -14,11 +14,12 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { BayView } from '../protocol';
+import type { BayView, YardView } from '../protocol';
 import { GameMap } from '../sim/map';
 import { bestFacing, BUILDABLES, footprint, FORKLIFT_ONLY, partOrient } from '../sim/rules';
 import { Build, Store, Terrain, type BuildKind } from '../sim/types';
-import { boat, forklift, stacker, tractor } from './models';
+import { forklift, stacker, tractor } from './machines';
+import { boat } from './model';
 import { Structures } from './structures';
 import { buildLand, surfaceY } from './terrain';
 
@@ -263,7 +264,8 @@ function picture(tool: string): string | null {
   if (p.stock) {
     const { tiles, boxes } = p.stock;
     const n = tiles.length * (boxes ? 4 : 10);
-    if (boxes) structures.setYards([{ tiles, boxes: n, exports: 0, looks: [] }]);
+    if (boxes)
+      structures.setYards([{ tiles, boxes: n, exports: 0, looks: [] } as unknown as YardView]);
     else structures.setBays([{ tiles, stock: n, exports: 0 } as unknown as BayView]);
   }
   const land = buildLand(p.map);
