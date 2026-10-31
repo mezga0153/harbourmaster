@@ -260,6 +260,11 @@ function TopBar({ actions }: { actions: Actions }) {
             <Stat icon="town" label={s.town.name} title="">
               {s.town.population.toLocaleString('en-US')}
             </Stat>
+            {s.town.next && (
+              <span class="task-bar" title={`Next: ${s.town.next.name.toLowerCase()}`}>
+                <span style={{ width: `${Math.round(landmarkProgress(s.town.next) * 100)}%` }} />
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -294,6 +299,12 @@ function TopBar({ actions }: { actions: Actions }) {
       </div>
     </header>
   );
+}
+
+/** How far the port is towards the town's next landmark, 0 to 1. */
+function landmarkProgress(n: NonNullable<NonNullable<Snapshot['town']>['next']>): number {
+  const part = n.need > 0 ? Math.min(1, n.have / n.need) : 1;
+  return n.days ? Math.min(1, (n.days.done + part) / n.days.need) : part;
 }
 
 /** Show the town, or put it away again: the view flies over to it and back (see main.ts). */

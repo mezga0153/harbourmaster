@@ -2782,6 +2782,28 @@ input[type='range']::-moz-range-thumb {
   border-radius: var(--radius-sm);
 }
 
+/* Under the town's size in the top bar: how far the port is towards its next landmark. */
+.stat-button.town {
+  position: relative;
+}
+
+.task-bar {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  overflow: hidden;
+}
+
+.task-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
 /* What plots of land cost, pinned over them with the Land tool */
 
 .map-label {
