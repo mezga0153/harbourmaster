@@ -223,6 +223,11 @@ export class World {
   machineCache: Set<number> | null = null;
   /** The parking lots, and whether each works; see parkingLots. */
   lotsCache: ParkingLot[] | null = null;
+  /**
+   * Parking lots, by their first tile, no truck could drive into the way
+   * their arrows show, till when they are tried again; see noWayIn. Not saved.
+   */
+  noWayIn = new Map<number, number>();
   /** Each parking tile's lot's designation, for the lots to keep theirs when redrawn; see nameLots. */
   lotNames = new Map<number, string>();
   /** The town up the coast, which grows with the port. */

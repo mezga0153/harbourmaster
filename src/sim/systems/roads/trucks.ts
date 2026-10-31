@@ -13,6 +13,7 @@ import {
   freeDock,
   goDeeper,
   intoSpace,
+  noWayIn,
   parkUp,
   queuedAt,
   spaceAt,
@@ -150,6 +151,11 @@ export function spawnTrucks(w: World): void {
     // A bay beside it may have just sent a truck to the spot they share.
     if (spot < 0 && !space) continue;
     const into = space ? intoSpace(w, from.tile, space, bay.idx) : null;
+    // The parking is at fault, not the bay: no way into it the way it runs.
+    if (space && !into) {
+      noWayIn(w, space);
+      continue;
+    }
     const path = space ? (into?.path ?? null) : (to?.path ?? null);
     const dock = path && path.length > 0 ? path[path.length - 1] : spot;
     if (!path) {

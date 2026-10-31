@@ -3,7 +3,7 @@
 
 import type { World } from '../../world';
 import { behind, departure, lengthOf } from './traffic';
-import { Build } from '../../types';
+import { Build, TICKS_PER_DAY } from '../../types';
 import type { Bay, Truck } from '../../state';
 import * as B from '../../balance';
 import { laneRuns, loadingSpots, truckCost, truckReach } from '../../rules/truckNav';
@@ -669,12 +669,34 @@ export function lotOf(w: World, i: number): ParkingLot | undefined {
  */
 export function lotTrouble(w: World, lot: ParkingLot): string | null {
   if (lot.why) return lot.why;
+  if ((w.noWayIn.get(lot.tiles[0]) ?? -1) > w.tick) return NO_WAY_IN;
   const reach = truckReaches(w);
   return lot.spaces.some((s) => reach[s.ends[0]] >= 0 && reach[s.ends[1]] >= 0)
     ? null
     : lot.outside
       ? 'Trucks cannot get to the roads beside it from the highway'
       : 'Trucks cannot get to the port roads beside it: they come in through a port gate';
+}
+
+/** How long a lot no truck could drive into is left out before trucks try it again: a day. */
+const NO_WAY_IN_TICKS = TICKS_PER_DAY;
+
+const NO_WAY_IN =
+  'Trucks cannot drive into it the way its arrows show: they never turn about on a road one tile wide. Turn it round with the one-way tool, or carry the road on so they can come at it from the other end';
+
+/**
+ * No truck could find its way into the lot `space` is in the way it runs:
+ * say so once, and leave it out of the parking trucks are sent to a while.
+ */
+export function noWayIn(w: World, space: ParkingSpace): void {
+  const lot = lots(w).find((l) => l.spaces.includes(space));
+  if (!lot) return;
+  const was = w.noWayIn.get(lot.tiles[0]);
+  w.noWayIn.set(lot.tiles[0], w.tick + NO_WAY_IN_TICKS);
+  if (was === undefined) {
+    const name = lot.name ? `Parking ${lot.name}` : 'This parking';
+    message(w, `${name} is no use: ${NO_WAY_IN[0].toLowerCase()}${NO_WAY_IN.slice(1)}.`, 'bad');
+  }
 }
 
 /**
@@ -694,6 +716,7 @@ export function freeParking(
   let bestD = Infinity;
   for (const lot of lots(w)) {
     if (lot.why || (outside && !lot.outside) || (wide && !lot.wide)) continue;
+    if ((w.noWayIn.get(lot.tiles[0]) ?? -1) > w.tick) continue;
     for (const space of lot.spaces) {
       const [a, b] = space.ends;
       // In from one road and out onto the other: both must lead somewhere.
