@@ -269,10 +269,13 @@ export interface BayView {
   /** Crates waiting here to go out on a ship. */
   exports: number;
   /**
-   * Crate storage: the place each pallet is in, four to a tile, tile by
-   * tile, holding the next four of its crates then its exports.
+   * Crate storage and truck bays: the slot each crate shown stands in, its
+   * crates then its exports, -1 for one with no room to show. In storage
+   * four pallet places to a tile, tile by tile, four crates to each (two
+   * side by side, two high); at a truck bay its stack's, in the order it
+   * builds it.
    */
-  places?: number[];
+  slots?: number[];
   /** Storage for cargo going out; by a crane, either way, one at a time. */
   outgoing: boolean;
   /** Storage taking no more cargo, emptying out. */

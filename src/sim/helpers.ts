@@ -336,6 +336,7 @@ export const FORKLIFT_ACTIVITY: Partial<Record<DockhandState, string>> = {
 /** What a worker is up to; `landing` when setting a load down on the quay, as in an older game. */
 export function activity(p: Dockhand, landing: boolean): string {
   if (p.state === 'idle' && p.stuck) return p.stuck;
+  if (p.state === 'toDrop' && p.waitingWhy) return p.waitingWhy;
   if (p.truckId !== undefined && !isBoxy(p)) {
     if (p.state === 'toPickup') return 'Heading to load a truck';
     if (p.state === 'picking') return 'Picking up crates for a truck';

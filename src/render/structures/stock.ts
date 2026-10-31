@@ -20,7 +20,7 @@ import { QUAY_Y } from '../terrain';
 export interface BayStack {
   crates: Object3D[];
   boxes: Object3D[];
-  /** Crate storage: the pallets' places, each holding the next four of `crates`. */
+  /** Crate storage: the pallets' places, each holding four of `crates` and its pallet (`userData.pallet`). */
   places?: Object3D[];
 }
 
@@ -55,16 +55,27 @@ export class Stock {
     for (const b of bays) {
       if (b.tiles) {
         this.areas.set(b.idx, b.tiles);
-        if (b.places) {
-          this.palletise(b.tiles, b.stock + b.exports, b.places, b.cargo, b.waiting);
-        } else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo, b.waiting);
+        if (b.slots) this.palletise(b.tiles, b.slots, b.cargo, b.waiting);
+        else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo, b.waiting);
         continue;
       }
       const stack = this.stackAt(b.idx);
       if (!stack) continue;
-      // Its crates, and on top any ice waiting for the fishing boats.
-      stack.crates.forEach((c, k) => (c.visible = k < b.stock + b.exports));
-      paintCargo(stack.crates, b.cargo);
+      // Its crates, and on top any ice waiting for the fishing boats, each
+      // in the slot it was set down in.
+      if (b.slots) {
+        const at = new Map<number, number>();
+        b.slots.forEach((s, j) => s >= 0 && at.set(s, j));
+        stack.crates.forEach((c, s) => {
+          const j = at.get(s);
+          c.visible = j !== undefined;
+          const kind = j === undefined ? undefined : b.cargo?.[j];
+          if (kind) setCrateIcon(c, kind);
+        });
+      } else {
+        stack.crates.forEach((c, k) => (c.visible = k < b.stock + b.exports));
+        paintCargo(stack.crates, b.cargo);
+      }
       stack.boxes.forEach((c, k) => (c.visible = k < b.boxes));
     }
   }
@@ -148,27 +159,29 @@ export class Stock {
     }
   }
 
-  /** Crate storage's crates, `count` of them, four to each pallet, the pallets in `places`. */
-  palletise(
-    tiles: number[],
-    count: number,
-    places: number[],
-    cargo?: Cargo[],
-    waiting?: boolean[],
-  ): void {
-    const per = CRATES_PER_STORE_TILE / PALLET;
-    const on = new Map<number, number>();
-    places.forEach((k, j) => on.set(k, Math.min(PALLET, Math.max(0, count - j * PALLET))));
+  /**
+   * Crate storage's crates, each in the slot it was set down in (`slots[j]`
+   * the crate `j`'s, as the game has them): four pallet places to a tile,
+   * four crates to each, a pallet under those with any.
+   */
+  palletise(tiles: number[], slots: number[], cargo?: Cargo[], waiting?: boolean[]): void {
+    const at = new Map<number, number>();
+    slots.forEach((s, j) => s >= 0 && at.set(s, j));
     tiles.forEach((t, n) => {
-      this.stackAt(t)?.crates.forEach((o, k) => {
-        const place = n * per + Math.floor(k / PALLET);
-        o.visible = k % PALLET < (on.get(place) ?? 0);
-        // The crates of the pallet in this place, in the order they went on it.
-        const j = places.indexOf(place);
-        const c = j >= 0 ? cargo?.[j * PALLET + (k % PALLET)] : undefined;
+      const stack = this.stackAt(t);
+      stack?.crates.forEach((o, k) => {
+        const j = at.get(n * CRATES_PER_STORE_TILE + k);
+        o.visible = j !== undefined;
+        const c = j === undefined ? undefined : cargo?.[j];
         if (c) setCrateIcon(o, c);
         // Still in customs, or waiting on its export papers: sealed.
-        setCrateSeal(o, j >= 0 && !!waiting?.[j * PALLET + (k % PALLET)]);
+        setCrateSeal(o, j !== undefined && !!waiting?.[j]);
+      });
+      stack?.places?.forEach((place, p) => {
+        const pallet = place.userData.pallet as Object3D | undefined;
+        if (!pallet) return;
+        const first = p * PALLET;
+        pallet.visible = stack.crates.slice(first, first + PALLET).some((o) => o.visible);
       });
     });
   }

@@ -15,7 +15,6 @@ import {
   breachPenalty,
   cancelFee,
   craneStack,
-  heldIn,
   isBoxy,
 } from '../helpers';
 import { Build } from '../types';
@@ -66,7 +65,8 @@ import {
   near,
   wideQuay,
 } from './boats/berthing';
-import { gantries, gantryLifts, handView, liftedLoad, palletPlaces, yardLooks } from './yardGantry';
+import { gantries, gantryLifts, handView, liftedLoad, yardLooks } from './yardGantry';
+import { shownSlots } from './cargo/places';
 import { byHand, unloadWaiting } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
@@ -800,7 +800,7 @@ export function buildSnapshot(w: World): Snapshot {
     large: b.large,
     warehouse: !!b.warehouse,
     exports: (b.exports?.length ?? 0) - moved(b).taken,
-    places: b.tiles && palletPlaces(w, b, heldIn(b) + moved(b).set),
+    slots: shownSlots(w, b, moved(b)),
     outgoing: !!b.outgoing,
     shut: !!b.shut,
     byCrane: byCrane(w, b),

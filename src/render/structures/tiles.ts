@@ -11,7 +11,14 @@ import type { GameMap } from '../../sim/map';
 import { DEPOT_BACK } from '../../sim/machines';
 import { hash01 } from '../../sim/noise';
 import { hasHighway, hasLights, HIGHWAY_COLUMNS, isExit, oneWay } from '../../sim/roads';
-import { EXTENSION, FACING, machinesOnly, ON_QUAY, type ParkingFlow } from '../../sim/rules';
+import {
+  drivable,
+  EXTENSION,
+  FACING,
+  machinesOnly,
+  ON_QUAY,
+  type ParkingFlow,
+} from '../../sim/rules';
 import { railColumn } from '../../sim/railway';
 import { TOWN } from '../../sim/town';
 import { Build, isDock, storesBoxes, storesOutgoing } from '../../sim/types';
@@ -615,20 +622,34 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
       }
     }
   } else {
-    // Pallets of crates, each a forklift's load as it carries them, set
-    // down four to a tile with their forks' ends to the area's long sides.
+    // One stack to a tile, in the middle of it with room all round for
+    // the forklifts, as a truck bay stacks its crates: two rows, each two
+    // pallets high, each pallet a forklift's load as it carries them, two
+    // crates wide and two high. The forks go in to the front row from one
+    // side, to the back row from the other: the way there is ground to
+    // drive on at both, across the area's length where either will do.
     const area = storeArea(m, i);
     const xs = area.map((t) => m.xOf(t));
     const ys = area.map((t) => m.yOf(t));
-    const alongX = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
-    for (const a of [0.25, 0.75]) {
-      for (const b of [0.29, 0.71]) {
+    const ground = (dx: number, dy: number) => {
+      const n = offset(m, i, dx, dy);
+      return n >= 0 && drivable(m.build[n]) ? 1 : 0;
+    };
+    const acrossX = ground(-1, 0) + ground(1, 0);
+    const acrossZ = ground(0, -1) + ground(0, 1);
+    const alongX =
+      acrossZ !== acrossX
+        ? acrossZ > acrossX
+        : Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys);
+    for (const a of STORE_ROWS) {
+      for (let level = 0; level < 2; level++) {
         const place = new Group();
-        // Its forks' way runs along local x; across the area's length.
+        const up = y + level * STORE_PALLET;
+        // Its forks' way runs along local x.
         if (alongX) {
-          place.position.set(b, y, a);
+          place.position.set(0.5, up, a);
           place.rotation.y = -Math.PI / 2;
-        } else place.position.set(a, y, b);
+        } else place.position.set(a, up, 0.5);
         for (let layer = 0; layer < 2; layer++) {
           for (const z of [-0.08, 0.08]) {
             const c = crate(CRATE, 0, 0.025 + layer * CRATE, z);
@@ -637,9 +658,11 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
             stack.crates.push(c);
           }
         }
-        // The pallet shows with the first crate on it.
-        const first = stack.crates[stack.crates.length - 4];
-        first.add(box(0.2, 0.025, 0.34, C.wood, 0, -0.025, 0.08));
+        // The pallet, showing while any crate is on it.
+        const pallet = box(0.2, 0.025, 0.34, C.wood, 0, 0, 0);
+        pallet.visible = false;
+        place.add(pallet);
+        place.userData.pallet = pallet;
         g.add(place);
         stack.places!.push(place);
       }
@@ -647,6 +670,11 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
   }
   parts.stack = stack;
 }
+
+/** Crate storage's stack: where its two rows are across the tile, along the forks' way. */
+export const STORE_ROWS = [0.4, 0.6];
+/** How high a pallet of crates in storage stands, board and two crates, for the next on top. */
+export const STORE_PALLET = 0.025 + 2 * CRATE;
 
 /** A red line round the edge of an area kept for port machines, if `i` is in one. */
 export function machinesOutline(m: GameMap, g: Group, i: number, y: number): void {

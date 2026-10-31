@@ -19,7 +19,16 @@ import {
   workersAt,
   yardSlots,
 } from './cargo/stores';
-import { cancelJob, dest, readyIn, startHolds, takeReady, waitMask } from './cargo/customs';
+import {
+  cancelJob,
+  dest,
+  noPlaceWhy,
+  readyIn,
+  startHolds,
+  takeReady,
+  waitMask,
+} from './cargo/customs';
+import { claimDrop, setDown } from './cargo/places';
 import type { Bay, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
@@ -375,9 +384,16 @@ export function unloadTruckJob(
       p.cargoLooks = Array.from({ length: n }, (_, k) => boxLookOf(t!.id, t!.cargo + k));
       // On to the place in storage they go, unless it is right here; a
       // truck bay's stack is right beside the truck.
-      const tile = bay?.tiles ? palletTile(w, bay, false, false) : -1;
+      const tile = bay?.tiles ? palletTile(w, bay, false, false, true, p) : -1;
       if (tile >= 0 && tile !== w.tileOf(p) && headTo(w, p, tile)) {
         p.state = 'toDrop';
+        return true;
+      }
+      // Where they go kept for them; a forklift waits for a level place.
+      if (bay && !claimDrop(w, p, bay)) {
+        p.state = 'toDrop';
+        p.path = [];
+        p.waitingWhy = noPlaceWhy(p, bay);
         return true;
       }
       p.state = 'dropping';
@@ -388,6 +404,11 @@ export function unloadTruckJob(
       // Set down where it is if it cannot get there.
       const r = walk(w, p);
       if (r !== 'arrived' && r !== 'blocked') return true;
+      if (bay && !claimDrop(w, p, bay)) {
+        p.waitingWhy = noPlaceWhy(p, bay);
+        return true;
+      }
+      p.waitingWhy = undefined;
       p.state = 'dropping';
       p.timer = handlingTicks(w, p, B.DROP_TICKS);
       return true;
@@ -443,6 +464,7 @@ export function landUnloaded(w: World, p: Dockhand, bay: Bay | undefined): void 
   if (p.carrying <= 0 || !bay) return;
   exportLooks(w, bay).push(...carriedLooks(w, p));
   (bay.exports ??= []).push(...p.cargoFees);
+  setDown(w, bay, true, p.cargoFees.length, p);
   startHolds(w, bay, p.cargoFees, true);
   bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
   tip(w, 'exports');
@@ -450,7 +472,7 @@ export function landUnloaded(w: World, p: Dockhand, bay: Bay | undefined): void 
 
 /** Crates a dockhand or forklift has for a truck: on it if it is still loading, else back where they came from. */
 export function landCrates(
-  _w: World,
+  w: World,
   p: Dockhand,
   t: Truck | undefined,
   bay: Bay | undefined,
@@ -463,7 +485,10 @@ export function landCrates(
     t.value += p.cargoFees.reduce((n, f) => n + f, 0);
     (t.fees ??= []).push(...p.cargoFees);
     t.idle = 0;
-  } else if (bay) bay.crates.push(...p.cargoFees);
+  } else if (bay) {
+    bay.crates.push(...p.cargoFees);
+    setDown(w, bay, false, p.cargoFees.length, p);
+  }
 }
 
 /** Trucks waiting at yards with no gantry, for reach stackers to load or unload. */

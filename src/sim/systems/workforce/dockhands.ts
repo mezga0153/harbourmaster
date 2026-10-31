@@ -31,6 +31,7 @@ import {
   dest,
   dropOutbound,
   dropValid,
+  noPlace,
   readyIn,
   releaseTarget,
   retargetCrate,
@@ -99,6 +100,7 @@ import {
   toPallet,
 } from '../yardGantry';
 import { cargoOf } from '../../cargo';
+import { claimDrop, setDown } from '../cargo/places';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
 
@@ -562,6 +564,12 @@ export function updateDockhand(w: World, p: Dockhand): void {
         // One at a time at a truck bay: it waits its turn.
         const bay = w.bays.get(p.bayIdx);
         if (bay && bayTaken(w, p, bay)) return;
+        // Its place there kept for it: a forklift's load on empty ground or
+        // a level layer, else on to other storage, or it waits.
+        if (bay && !isBoxy(p) && !straightOnto(w, p, bay) && !claimDrop(w, p, bay)) {
+          return noPlace(w, p, bay);
+        }
+        p.waitingWhy = undefined;
         p.state = 'dropping';
         p.timer = handlingTicks(w, p, B.DROP_TICKS);
       }
@@ -633,7 +641,11 @@ export function updateDockhand(w: World, p: Dockhand): void {
         onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
         (onto.fees ??= []).push(...p.cargoFees);
         onto.idle = 0;
-      } else (boxy ? bay.boxes : bay.crates).push(...p.cargoFees);
+      } else if (boxy) bay.boxes.push(...p.cargoFees);
+      else {
+        bay.crates.push(...p.cargoFees);
+        setDown(w, bay, false, p.cargoFees.length, p);
+      }
       // Timber and goods wait in crate storage for customs.
       if (!onto && !boxy && !p.cleared) startHolds(w, bay, p.cargoFees, false);
       p.cleared = undefined;

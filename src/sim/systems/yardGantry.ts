@@ -21,11 +21,23 @@ import {
   yardSlots,
   yardTop,
 } from './cargo/stores';
-import { heldMask } from './cargo/customs';
+import { waitMask } from './cargo/customs';
+import {
+  PLACE,
+  clearOnTop,
+  crateSlots,
+  dropSlot,
+  freeSlot,
+  inPlace,
+  placeOf,
+  reserved,
+  takeOrder,
+  usedSlots,
+} from './cargo/places';
 import type { Bay, Boat, Crane, Dockhand, GantryHeld, GantryWork, Truck } from '../state';
 import { Build, isCrane } from '../types';
 import { footprint, gantryRails, gantryYard, liftMarks } from '../rules/footprint';
-import { bayIncoming, boxLookOf, clamp, craneStacks, heldIn, isTruck, liftTicks } from '../helpers';
+import { bayIncoming, boxLookOf, clamp, craneStacks, isTruck, liftTicks } from '../helpers';
 import type { Vehicle } from '../helpers';
 import { cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
 import * as B from '../balance';
@@ -350,91 +362,92 @@ export function handView(
 }
 
 /**
- * The places crate storage's pallets are in, four to a tile, kept beside
- * its crates: each stays where it was set down as forklifts take full
- * ones from under the one being filled, and a new one goes in the lowest
- * free place. With `n` more than it holds, as many more as `n` would fill,
- * where they would go.
+ * The places in crate storage with crates in them, as its crates then its
+ * exports first come to each; each crate keeps the slot it was set down
+ * in (see crateSlots).
  */
-export function palletPlaces(_w: World, b: Bay, n = 0): number[] {
-  const per = B.FORKLIFT_CAPACITY;
-  const room = (b.tiles?.length ?? 1) * (B.CRATES_PER_STORE_TILE / per);
-  const places = (b.places ??= []);
-  const pallets = Math.ceil(heldIn(b) / per);
-  if (places.length > pallets) places.length = pallets;
-  const used = new Set<number>();
-  places.forEach((k, j) => {
-    if (k < 0 || k >= room || used.has(k)) places[j] = -1;
-    else used.add(k);
-  });
-  const free = () => {
-    let k = 0;
-    while (used.has(k)) k++;
-    used.add(k);
-    return k;
-  };
-  places.forEach((k, j) => k < 0 && (places[j] = free()));
-  while (places.length < pallets) places.push(free());
-  if (n <= pallets * per) return places;
-  const more = [...places];
-  while (more.length < Math.ceil(n / per)) more.push(free());
-  return more;
-}
-
-/** Where crate `k` of crate storage is, counting `n` there: its pallet's place, four to each. */
-export function crateSlot(w: World, b: Bay, k: number, n = k + 1): number {
-  const per = B.FORKLIFT_CAPACITY;
-  return (palletPlaces(w, b, n)[Math.floor(k / per)] ?? 0) * per + (k % per);
+export function palletPlaces(w: World, b: Bay): number[] {
+  const { crates, exports } = crateSlots(w, b);
+  const out: number[] = [];
+  for (const s of [...crates, ...exports]) {
+    const k = s >= 0 ? placeOf(b, s) : -1;
+    if (k >= 0 && !out.includes(k)) out.push(k);
+  }
+  return out;
 }
 
 /**
- * Which of crate storage's pallets a forklift takes, of its exports when
- * `out`: the one it pulled up to, else the last full one no other is
- * lifting, so it leaves alone the one being filled, by a jib crane say;
- * with none full, or when it is taking less than a pallet's worth, the
- * last. -1 if there are none.
+ * Which of crate storage's pallets (by its index in palletPlaces) a
+ * forklift takes, of its exports when `out`: the one it pulled up to,
+ * else the last full one, with none on it waiting on customs or papers,
+ * that no other is lifting, so it leaves alone one being filled, by a jib
+ * crane say; with none full, or when it is taking less than a pallet's
+ * worth, the place of the newest. -1 if there are none.
  */
 export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number {
-  const per = B.FORKLIFT_CAPACITY;
   const places = palletPlaces(w, b);
-  const last = places.length - 1;
+  const list = out ? (b.exports ?? []) : b.crates;
+  const mine = (k: number) => inPlace(w, b, k, out);
   const at = p?.state === 'picking' && p.takeAt !== undefined ? places.indexOf(p.takeAt) : -1;
-  if (at >= 0) return at;
-  if (p && (p.state === 'toPickup' || p.state === 'picking') && p.planned < per) return last;
-  const [from, to] = out ? [b.crates.length, heldIn(b)] : [0, b.crates.length];
+  if (at >= 0 && mine(p!.takeAt!).length > 0) return at;
+  const { crates, exports } = crateSlots(w, b);
+  const slots = out ? exports : crates;
+  const newest = () => {
+    for (let i = slots.length - 1; i >= 0; i--) {
+      if (slots[i] >= 0) return places.indexOf(placeOf(b, slots[i]));
+    }
+    return -1;
+  };
+  if (list.length === 0) return -1;
+  // Fewer than a pallet's worth: off one not whole, clear on top, if
+  // there is one, so whole ones stay whole; else off the top of a stack.
+  if (p && (p.state === 'toPickup' || p.state === 'picking') && p.planned < PLACE) {
+    let best = -1;
+    let least = Infinity;
+    places.forEach((k, j) => {
+      const on = mine(k).length;
+      if (on === 0 || !clearOnTop(w, b, k)) return;
+      const v = (on < PLACE ? 0 : 100) + (on >= p.planned ? 0 : 10) - (k % 2);
+      if (v < least) [best, least] = [j, v];
+    });
+    return best >= 0 ? best : newest();
+  }
   const taken = new Set(
     w.people
       .filter((q) => q !== p && q.kind === 'forklift' && q.state === 'picking')
       .filter((q) => q.stockIdx === b.idx)
       .map((q) => q.takeAt),
   );
-  // Never a pallet with crates on it still waiting on customs or papers.
-  const wait = heldMask(w, b);
-  const cleared = (j: number) => !wait.slice(j * per, (j + 1) * per).includes(true);
-  for (let j = last; j >= 0; j--) {
-    if (j * per >= from && (j + 1) * per <= to && !taken.has(places[j]) && cleared(j)) return j;
+  const wait = waitMask(w, b, out);
+  for (let j = places.length - 1; j >= 0; j--) {
+    const on = mine(places[j]);
+    const all = inPlace(w, b, places[j], !out).length === 0;
+    if (on.length !== PLACE || !all || taken.has(places[j]) || on.some((i) => wait[i])) continue;
+    if (clearOnTop(w, b, places[j])) return j;
   }
-  return last;
+  return newest();
 }
 
 /**
  * The tile of crate storage the pallet a forklift takes is on (`pick`),
- * or the place the next goes: four pallets to a tile.
+ * or where the load `p` carries goes down (else the next crate would).
  */
 export function palletTile(
   w: World,
   b: Bay,
   pick: boolean,
-  coming = !pick,
+  _coming = !pick,
   out = false,
   p?: Dockhand,
 ): number {
   const tiles = b.tiles ?? [b.idx];
-  const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
-  const next = heldIn(b) + (coming ? b.incoming : 0);
-  const place = pick
-    ? (palletPlaces(w, b)[pickPallet(w, b, out, p)] ?? 0)
-    : Math.floor(crateSlot(w, b, next) / B.FORKLIFT_CAPACITY);
+  const per = B.CRATES_PER_STORE_TILE / PLACE;
+  let place = 0;
+  if (pick) place = palletPlaces(w, b)[pickPallet(w, b, out, p)] ?? 0;
+  else {
+    const s = p ? dropSlot(w, p, b) : freeSlot(b, usedSlots(w, b), reserved(w, b));
+    place = s >= 0 ? placeOf(b, s) : 0;
+  }
   return tiles[Math.min(tiles.length - 1, Math.floor(place / per))];
 }
 
@@ -445,28 +458,22 @@ export function palletTile(
  */
 export function onPallet(w: World, p: Dockhand, b: Bay): number {
   if (p.kind !== 'forklift' || !b.tiles || b.yard) return Infinity;
-  const j = pickPallet(w, b, !!p.outbound, p);
-  return Math.min(B.FORKLIFT_CAPACITY, heldIn(b) - j * B.FORKLIFT_CAPACITY);
+  const k = palletPlaces(w, b)[pickPallet(w, b, !!p.outbound, p)];
+  return k === undefined ? 0 : Math.min(PLACE, inPlace(w, b, k, !!p.outbound).length);
 }
 
 /**
  * Where in crate storage's crates, or its exports, `n` taken off it come
- * from: a forklift's whole pallet from wherever it is, its place left
- * free; else the last.
+ * from: a forklift's whole pallet, wherever it is, the top of it first;
+ * else the newest. Those about it stay where they are (see takeOrder).
  */
 export function takenFrom(w: World, p: Dockhand, b: Bay, n: number): number {
-  const per = B.FORKLIFT_CAPACITY;
   const list = p.outbound ? (b.exports ?? []) : b.crates;
-  const skip = p.outbound ? b.crates.length : 0;
-  const j = p.kind === 'forklift' && b.tiles && !b.yard ? pickPallet(w, b, !!p.outbound, p) : -1;
+  const forks = p.kind === 'forklift' && b.tiles && !b.yard;
+  const k = forks ? palletPlaces(w, b)[pickPallet(w, b, !!p.outbound, p)] : undefined;
   p.takeAt = undefined;
-  const places = palletPlaces(w, b);
-  const at = j * per - skip;
-  if (j < 0 || j === places.length - 1 || n !== per || at < 0 || at + n > list.length) {
-    return Math.max(0, list.length - n);
-  }
-  places.splice(j, 1);
-  return at;
+  const on = k === undefined ? [] : inPlace(w, b, k, !!p.outbound);
+  return on.length > 0 ? on[on.length - 1] : Math.max(0, list.length - n);
 }
 
 /**
@@ -487,13 +494,34 @@ export function toPallet(w: World, p: Dockhand, b: Bay | undefined, pick: boolea
 export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefined {
   const last = (n: number) => (pick ? n - 1 : n);
   const store = (b: Bay): HandAt | undefined => {
-    const held = heldIn(b);
-    if (last(held) < 0) return undefined;
-    if (p.kind !== 'forklift') return { store: b.idx, slot: crateSlot(w, b, last(held)) };
-    const place = pick
-      ? palletPlaces(w, b)[pickPallet(w, b, !!p.outbound, p)]
-      : Math.floor(crateSlot(w, b, held) / B.FORKLIFT_CAPACITY);
-    return { store: b.idx, place };
+    if (!pick) {
+      const s = dropSlot(w, p, b);
+      if (s < 0) return undefined;
+      if (p.kind !== 'forklift') return { store: b.idx, slot: s };
+      return { store: b.idx, place: placeOf(b, s), slot: s };
+    }
+    if (p.kind !== 'forklift') {
+      const s = topSlots(b, !!p.outbound, 1);
+      return s.length > 0 ? { store: b.idx, slot: s[0] } : undefined;
+    }
+    const place = palletPlaces(w, b)[pickPallet(w, b, !!p.outbound, p)];
+    return place === undefined ? undefined : { store: b.idx, place };
+  };
+  // The slots of the crates `n` taken off a bay would be, top first.
+  const topSlots = (b: Bay, out: boolean, n: number): number[] => {
+    const list = out ? (b.exports ?? []) : b.crates;
+    const wait = waitMask(w, b, out);
+    const at = b.tiles ? takenAt(b, n) : list.length - n;
+    const slots = (out ? crateSlots(w, b).exports : crateSlots(w, b).crates).slice();
+    return takeOrder(w, b, out, at, n, (i) => !wait[i])
+      .map((i) => slots[i])
+      .sort((a, c) => c - a);
+  };
+  const takenAt = (b: Bay, n: number): number => {
+    const keep = p.takeAt;
+    const at = takenFrom(w, p, b, n);
+    p.takeAt = keep;
+    return at;
   };
   const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
   // Off the top of a shipper's truck's bed, under any others are taking
@@ -503,7 +531,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     const bay = w.bays.get(p.bayIdx);
     if (pick) return { truck: off.id, slot: off.cargo - 1 - takingFirst(w, p) };
     if (!bay) return undefined;
-    return bay.tiles ? store(bay) : { bay: bay.idx, slot: heldIn(bay) };
+    return bay.tiles ? store(bay) : { bay: bay.idx, slot: dropSlot(w, p, bay) };
   }
   if (pick) {
     const crane = w.cranes.get(p.craneIdx);
@@ -516,7 +544,8 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     if (!bay) return undefined;
     // Off a truck bay's stack, as onto a truck there; its ice, on top, for a boat.
     if (bay.tiles) return store(bay);
-    return { bay: bay.idx, slot: last(p.outbound ? heldIn(bay) : bay.crates.length) };
+    const top = topSlots(bay, !!p.outbound, Math.max(1, p.planned));
+    return top.length > 0 ? { bay: bay.idx, slot: top[0] } : undefined;
   }
   // Onto a truck it is loading.
   const truck = p.truckId !== undefined && w.trucks.find((q) => q.id === p.truckId);
@@ -529,7 +558,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   if (!bay) return undefined;
   const onto = straightOnto(w, p, bay);
   if (onto) return { truck: onto.id, slot: onto.cargo };
-  return bay.tiles ? store(bay) : { bay: bay.idx, slot: bay.crates.length };
+  return bay.tiles ? store(bay) : { bay: bay.idx, slot: dropSlot(w, p, bay) };
 }
 
 /**

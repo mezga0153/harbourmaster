@@ -605,6 +605,10 @@ export function rebuildStores(w: World): void {
   const held = new Map<number, number[]>();
   const ready = new Map<number, number[]>();
   const lost = { crates: 0, boxes: 0 };
+  // Crate storage marked out just as it was keeps each crate in its slot;
+  // any other is stacked afresh.
+  const same = new Map<string, Bay>();
+  for (const a of old) if (!a.yard) same.set(a.tiles!.join(), a);
   for (const a of old) {
     const goods = a.yard ? a.boxes : a.crates;
     const clear = a.yard ? readyList(w, a) : [];
@@ -656,8 +660,12 @@ export function rebuildStores(w: World): void {
       nextTruckTick: 0,
       noAccess: false,
     };
-    const goods = tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area));
+    const was = yard ? undefined : same.get(tiles.join());
+    const goods = was
+      ? was.crates.slice(0, bayCap(area))
+      : tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area));
     (yard ? area.boxes : area.crates).push(...goods);
+    if (was?.crateSlots) area.crateSlots = was.crateSlots.slice(0, goods.length);
     if (yard) {
       area.boxReady = tiles.flatMap((t) => ready.get(t) ?? []).slice(0, goods.length);
       // Joined up from areas stacked at different times: oldest first.
@@ -709,7 +717,17 @@ export function rebuildStores(w: World): void {
     const goods = a.exports ?? [];
     const area = dest(w, remap.get(a.idx) ?? -1);
     const room = area ? Math.max(0, bayRoom(area, !!a.yard)) : 0;
-    if (area) (area.exports ??= []).push(...goods.slice(0, room));
+    if (area) {
+      if (
+        area.tiles?.join() === a.tiles?.join() &&
+        !a.yard &&
+        a.outSlots &&
+        !area.exports?.length
+      ) {
+        area.outSlots = a.outSlots.slice(0, Math.min(goods.length, room));
+      }
+      (area.exports ??= []).push(...goods.slice(0, room));
+    }
     lost[a.yard ? 'boxes' : 'crates'] += Math.max(0, goods.length - room);
     // Crates waiting on customs or papers wait on where they went.
     if (area && !area.yard) {

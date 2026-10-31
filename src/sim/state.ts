@@ -95,6 +95,14 @@ export interface Dockhand extends Agent {
    * storage of the pallet a forklift is taking, chosen as it pulls up.
    */
   takeAt?: number;
+  /**
+   * The slot at crate storage or a truck bay (`dropIn`) kept for the load
+   * it is setting down, its first crate's; see claimDrop.
+   */
+  dropAt?: number;
+  dropIn?: number;
+  /** Why it is waiting where it is to set its load down, if it is. */
+  waitingWhy?: string;
   /** A tractor under a gantry crane: what the crane set straight on it off the ship. */
   handed?: { fees: number[]; looks: number[]; from: number[] };
   /** Exports: the ship they are going on board, or the crane they go to; else -1. */
@@ -532,10 +540,16 @@ export interface Bay {
   boxSlots?: number[];
   exportSlots?: number[];
   /**
-   * Crate storage: the place each pallet is in, holding the next four of
-   * its crates then its exports; see palletPlaces.
+   * Crate storage, before each crate kept a slot of its own: the place each
+   * pallet was in, holding the next four of its crates then its exports.
    */
   places?: number[];
+  /**
+   * Crate storage and truck bays: the slot each crate, and each export,
+   * was set down in, which it keeps until it is taken; see crateSlots.
+   */
+  crateSlots?: number[];
+  outSlots?: number[];
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.

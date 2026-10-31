@@ -923,7 +923,17 @@ describe('Coastal Wharf tier', () => {
     let kept = 0;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       const before = held();
-      const places = [...(bay().places ?? [])];
+      // The slots of the crates on the pallet being filled, if one is.
+      const slots = [...(bay().crateSlots ?? []), ...(bay().outSlots ?? [])];
+      const on = (k: number) => slots.filter((s) => Math.floor(s / per) === k);
+      const filling = [...new Set(slots.map((s) => Math.floor(s / per)))]
+        .map(on)
+        .find((c) => c.length < per);
+      // A whole pallet with none on top of it, the lower of a row's two
+      // pallets under the upper.
+      const whole = [...new Set(slots.map((s) => Math.floor(s / per)))].some(
+        (k) => on(k).length === per && (k % 2 === 1 || on(k + 1).length === 0),
+      );
       const was = forklifts.map((p) => p.carrying);
       const from = forklifts.map((p) => p.state === 'picking' && p.stockIdx === store);
       const planned = forklifts.map((p) => p.planned);
@@ -931,12 +941,13 @@ describe('Coastal Wharf tier', () => {
       forklifts.forEach((p, k) => {
         if (!from[k] || p.carrying <= was[k]) return;
         lifts++;
-        if (before < per || planned[k] < per) return;
+        if (before < per || planned[k] < per || !whole) return;
         // A full pallet, not the few on the one being filled.
         expect(p.carrying).toBe(per);
-        if (before % per === 0 || places.length !== Math.ceil(before / per)) return;
+        if (!filling) return;
         // Which stays where it is.
-        expect(bay().places).toContain(places[places.length - 1]);
+        const now = [...(bay().crateSlots ?? []), ...(bay().outSlots ?? [])];
+        for (const s of filling) expect(now).toContain(s);
         kept++;
       });
     }

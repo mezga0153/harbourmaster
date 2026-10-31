@@ -32,7 +32,7 @@ import {
 import { disposeOwned, KeyedObjects } from './keyed';
 import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from './machines';
 import { modelFor } from './model';
-import { alertMarker, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
+import { alertMarker, CRATE, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
 import {
   aboutAt,
   driveTo,
@@ -100,14 +100,15 @@ const SLIP_TIME = 0.3;
 const FORK_SETTLE = 0.8;
 /**
  * Forklifts kept off a truck or crates: how far right of their way, and
- * ahead along it, they may be drawn instead, the likeliest first; at the
- * last, held back short of the crates on a tile they drive into to work.
+ * ahead along it, they may be drawn instead, the likeliest first, out to
+ * the aisles round the stacks in crate storage at the tiles' edges; at
+ * the last, held back short of the crates on a tile they drive into to
+ * work.
  */
 const SPOTS: [number, number][] = [0, -0.1, 0.1, -0.2, 0.2, -0.3, -0.4, -0.5, -0.6].flatMap((a) =>
-  [0.16, 0.1, 0.05, 0, -0.05, -0.1, -0.16, 0.22, -0.22, 0.28, -0.28].map((k): [number, number] => [
-    k,
-    a,
-  ]),
+  [0.16, 0.1, 0.05, 0, -0.05, -0.1, -0.16, 0.22, -0.22, 0.28, -0.28, 0.36, -0.36, 0.42, -0.42].map(
+    (k): [number, number] => [k, a],
+  ),
 );
 /** How quickly a forklift edges over to keep clear, tiles per game second; and holds back or catches up. */
 const KEEP_RATE = 3;
@@ -713,9 +714,13 @@ export class Entities {
     if (at.store !== undefined && at.place !== undefined) {
       heading = this.containerAt?.(at, p) ?? null;
       if (heading === null) return null;
-      crates.push({ x: p.x, y: p.y + ON_PALLET, z: p.z });
+      // Set down on a half pallet there, a layer up.
+      const up = at.slot !== undefined && at.slot % 4 >= 2 ? CRATE : 0;
+      crates.push({ x: p.x, y: p.y + ON_PALLET + up, z: p.z });
+      // The forks go in only the way the pallets lie, from either end of
+      // the stack: from its sides they would be under the other row.
       const along = heading;
-      prefer = (face) => (Math.abs(Math.cos(face - along)) > 0.5 ? 0 : 0.6);
+      prefer = (face) => (Math.abs(Math.cos(face - along)) > 0.5 ? 0 : Infinity);
     } else {
       const k = at.slot ?? 0;
       const pick = v.handStage === 'pick';

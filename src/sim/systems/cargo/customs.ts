@@ -12,6 +12,7 @@ import {
   carriedLooks,
   dropAt,
   exportLooks,
+  nearestWithRoom,
   outLooks,
   reachable,
   servesYard,
@@ -24,6 +25,7 @@ import { exportTarget, loadSpot } from './exports';
 import { headTo } from '../workforce/dockhands';
 import { craneSpot } from '../yardGantry';
 import { releaseTruckJob } from '../truckLoading';
+import { loadFits, setDown, slotted, takeOrder, takeSlots } from './places';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -115,13 +117,18 @@ export function takeReady(
   const wait = waitMask(w, b, out);
   const ok = (i: number) => !wait[i] && fits(list[i]);
   let pick: number[] = [];
-  if (at >= 0 && at + n <= list.length) {
+  // In crate storage and at a truck bay each crate keeps its slot: only
+  // ones with none on top, from the place `at` is in first.
+  if (slotted(b)) {
+    pick = takeOrder(w, b, out, at, n, ok);
+    takeSlots(w, b, out, pick);
+  } else if (at >= 0 && at + n <= list.length) {
     pick = Array.from({ length: n }, (_, k) => at + k);
     if (!pick.every(ok)) pick = [];
   }
   // Else the top ones that may go, so none is taken from under another
   // that need not be.
-  if (pick.length === 0) {
+  if (pick.length === 0 && !slotted(b)) {
     for (let i = list.length - 1; i >= 0 && pick.length < n; i--) if (ok(i)) pick.unshift(i);
   }
   const fees: number[] = [];
@@ -228,6 +235,7 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
     store.exportIncoming = Math.max(0, (store.exportIncoming ?? 0) - p.planned);
     exportLooks(w, store).push(...carriedLooks(w, p));
     (store.exports ??= []).push(...p.cargoFees);
+    setDown(w, store, true, p.cargoFees.length, p);
   } else return false;
   p.carrying = 0;
   p.cargoFees = [];
@@ -240,6 +248,7 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
 }
 
 export function retargetCrate(w: World, p: Dockhand): void {
+  p.waitingWhy = undefined;
   if (p.outbound) return retargetExports(w, p);
   const boxy = isBoxy(p);
   const old = dest(w, p.bayIdx);
@@ -262,6 +271,44 @@ export function retargetCrate(w: World, p: Dockhand): void {
   p.bayIdx = -1;
   p.path = [];
   p.state = 'idle';
+}
+
+/**
+ * A forklift come to set its load down where there is no place for it
+ * level, nor empty ground, as those there now stand: to other storage
+ * with one, or it waits there, saying why.
+ */
+export function noPlace(w: World, p: Dockhand, bay: Bay): void {
+  const here = w.tileOf(p);
+  const held = !p.cleared && !p.outbound && p.cargoFees.some(needsCustoms);
+  const other = p.outbound
+    ? null
+    : nearestWithRoom(
+        w,
+        p,
+        here,
+        w.bays,
+        false,
+        false,
+        (b) => b !== bay && (!held || !!b.tiles) && loadFits(w, b, p.carrying, p),
+      );
+  const goal = other ? dropAt(w, p, other, here) : -1;
+  if (other && goal >= 0 && headTo(w, p, goal)) {
+    bayIncoming(bay, false, -p.planned);
+    bayIncoming(other, false, p.planned);
+    p.bayIdx = other.idx;
+    p.waitingWhy = undefined;
+    return;
+  }
+  p.waitingWhy = noPlaceWhy(p, bay);
+}
+
+/** Why a forklift waits to set its load down at a bay with no level place for it. */
+export function noPlaceWhy(p: Dockhand, bay: Bay): string {
+  const what = p.carrying === 1 ? 'its crate' : `its ${p.carrying} crates`;
+  return bay.tiles
+    ? `Waiting to set ${what} down in ${bay.name || 'the storage'}: no pallet place there is empty, or has a level layer for them to go on, till some are taken away`
+    : `Waiting to set ${what} down at ${bay.name || 'the truck bay'}: its stack has a crate missing from the top, so they would not sit level, till that is filled or taken`;
 }
 
 /** Exports in hand whose ship or crane is gone: to another, or back into storage. */

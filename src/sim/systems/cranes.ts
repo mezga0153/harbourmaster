@@ -8,7 +8,8 @@ import type { Bay, Boat, Crane, Dockhand, JibLift } from '../state';
 import * as B from '../balance';
 import { aligned, boxLookOf, craneStack, craneStacks, craneTicks, deckPlace } from '../helpers';
 import type { CraneView } from '../../protocol/views';
-import { besideStack, crateSlot } from './yardGantry';
+import { besideStack } from './yardGantry';
+import { exportTaken, nextSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
 import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
 import { startHolds } from './cargo/customs';
@@ -442,8 +443,13 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     const key = store ?? pile ?? c;
     const k = load ? there - 1 - nth(key) : there + nth(key);
     if (slot < 0 || k < 0) continue;
-    // In crate storage, on its pallet, wherever that is.
-    const place = store ? crateSlot(w, store, k, Math.max(k + 1, there)) : k;
+    // In crate storage, the slot it is set down in or taken from.
+    const n = k - there;
+    const place = !store
+      ? k
+      : load
+        ? exportTaken(w, store, there - 1 - k)
+        : nextSlots(w, store, n + 1, waitsIn(store, false, [b.fee]))[n];
     const pallet = load ? !!pile?.pallets : b.vessel === 'coaster';
     lifts.set(c, { ...job, slot, place, phase: c.timer / craneTicks(c), pallet });
   }
