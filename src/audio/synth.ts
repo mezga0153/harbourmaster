@@ -417,8 +417,8 @@ export class Synth {
       while (nextSlap < limit) {
         const t0 = nextSlap;
         const size = rnd(0.25, 1);
-        burst(t0, size * 3, rnd(500, 1100), rnd(150, 300), 1.5, rnd(0.25, 0.6));
-        if (Math.random() < 0.5) burst(t0 + rnd(0.1, 0.3), size * 1.5, 420, 110, 5, rnd(0.5, 0.9));
+        burst(t0, size * 1.6, rnd(500, 1100), rnd(150, 300), 1.5, rnd(0.25, 0.6));
+        if (Math.random() < 0.5) burst(t0 + rnd(0.1, 0.3), size * 0.9, 420, 110, 5, rnd(0.5, 0.9));
         nextSlap = t0 + rnd(0.3, 2.5) * (1.6 - size * 0.6);
       }
     };
