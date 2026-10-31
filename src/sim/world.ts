@@ -89,6 +89,7 @@ import { makeCandidate, paceFactor, thought, traitDef, type Candidate, type Trai
 import { findDrivePath, findPath, type CostFn } from './path';
 import { Rng } from './rng';
 import {
+  FACING,
   anchorOf,
   bestFacing,
   buoyGates,
@@ -8300,9 +8301,14 @@ export class World {
   /** Spread people resting at a hut along its front. */
   private seatAtHut(p: Dockhand): void {
     const seat = this.people.filter((q) => q.hutIdx === p.hutIdx && q !== p).length;
-    p.x = this.map.xOf(p.hutIdx) + 0.25 + (seat % B.HUT_SLOTS) * 0.25;
-    p.y = this.map.yOf(p.hutIdx) + 0.82;
-    p.dir = Math.PI / 2;
+    // Along the bench in front, as the hut stands turned on its tile:
+    // drawn facing +y, turned to face its way (see turn in structures.ts).
+    const lx = -0.25 + (seat % B.HUT_SLOTS) * 0.25;
+    const ly = 0.32;
+    const [fx, fy] = FACING[this.map.orient[p.hutIdx] & 3];
+    p.x = this.map.xOf(p.hutIdx) + 0.5 + lx * fy + ly * fx;
+    p.y = this.map.yOf(p.hutIdx) + 0.5 - lx * fx + ly * fy;
+    p.dir = Math.atan2(fy, fx);
   }
 
   private pathFor(p: Dockhand, from: number, goal: number): number[] | null {
