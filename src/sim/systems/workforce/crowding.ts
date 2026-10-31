@@ -1,4 +1,10 @@
-// Workers and machines in each other's way: the lanes through each tile, standing room, jams and how they clear, breaks at the hut, and the ways they take.
+// Workers and machines in each other's way: the lanes through each tile,
+// standing room, jams and how they clear, breaks at the hut, and the ways
+// they take.
+//
+// Each tile has a lane per direction of travel. Workers keep to the right,
+// so people going opposite ways pass each other, but nobody overtakes
+// someone heading the same way: queues form behind whoever is in front.
 
 import type { World } from '../../world';
 import { costFor, headTo } from './dockhands';

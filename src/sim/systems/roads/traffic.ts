@@ -1,4 +1,19 @@
-// The rules of the road for trucks: keeping right, crossings and rings, junctions and who goes first, one-way roads and gates, backing into a bay, and leaving.
+// The rules of the road for trucks: keeping right, crossings and rings,
+// junctions and who goes first, one-way roads and gates, backing into a
+// bay, and leaving.
+//
+// Trucks keep to the right (see snapshot), so those going opposite ways
+// pass each other, and never hold each other up, even turning across
+// one another. Going the same way, each keeps its distance behind the
+// one ahead. A junction is where the rules come in: a truck goes onto one
+// only with room to get off it again, waits while another is driving
+// across it, and gives way to traffic on a bigger road and to traffic
+// coming from its right. Out of parking, it gives way to everything. Only
+// moving traffic is given way to; between two trucks both standing at the
+// line, one goes and the other waits, by an order that takes turns, so two
+// never wait for each other. A truck held up for long enough waives the
+// rules, then its room, and at the very last its distance, so the roads
+// never lock up for good.
 
 import type { World } from '../../world';
 import { drive } from './trucks';

@@ -135,6 +135,13 @@ export const SPEEDS = [0, 1, 2, 4, 8];
 
 export type { SaveData, Tug } from './state';
 
+/**
+ * The game: everything in the port and the town (see state.ts), made new or
+ * from a save, stepped a tick at a time and told what the player does. The
+ * rules that move it are functions over it in systems/, one file a subject
+ * (boats, cranes, trucks, workers, cargo, money, the town); what the view
+ * sees of it is built in systems/snapshot.ts. Its members are open to them.
+ */
 export class World {
   tick = 0;
   cash = B.START_CASH;
@@ -681,8 +688,6 @@ export class World {
     }
   }
 
-  // ── Roads: the highway's exits, one-way roads, lights, gates ────
-
   /** Testing shortcuts. The worker only forwards these on the dev server. */
   debug(cmd: Extract<Command, { type: 'debug' }>): void {
     if (cmd.cash) {
@@ -730,10 +735,9 @@ export class World {
     }
   }
 
-  // ── Contracts ─────────────────────────────────────────────
-
   // ── Tick ──────────────────────────────────────────────────
 
+  /** One tick of the game: each system takes its turn; see systems/. */
   step(): void {
     if (this.bankrupt) return;
     if (!Number.isFinite(this.cash)) {
@@ -763,21 +767,14 @@ export class World {
     if (this.town && this.tick % B.TOWN_BUILD_TICKS === 0) buildTown(this, this.town);
   }
 
-  // ── The town ──────────────────────────────────────────────
-
-  // ── Boats ─────────────────────────────────────────────────
+  // ── Ways through the port ─────────────────────────────────
+  //
+  // What each kind of agent may cross, as the path searches cost it, and
+  // the odds and ends the systems keep between ticks.
 
   boatCosts = new Map<number, CostFn>();
 
   boatCost: CostFn = (i) => boatCostFor(this, B.BOAT_DRAFT)(i);
-
-  // ── Seamanship ────────────────────────────────────────────
-
-  // ── Trucks at container yards ─────────────────────────
-
-  // ── Tugs ──────────────────────────────────────────────
-
-  // ── Dockhands and forklifts ───────────────────────────────
 
   /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
   walkCost: CostFn = (i, from) =>
@@ -803,21 +800,6 @@ export class World {
 
   walkSpeed = () => B.WALK_SPEED;
 
-  // ── Crowding ──────────────────────────────────────────────
-  //
-  // Each tile has a lane per direction of travel. Workers keep to the right,
-  // so people going opposite ways pass each other, but nobody overtakes
-  // someone heading the same way: queues form behind whoever is in front.
-
-  // ── Exports ───────────────────────────────────────────────
-
-  // ── Customs and export papers on crates ───────────────────
-
-  // ── Jib cranes ────────────────────────────────────────────
-
-  // ── Trucks and bays ───────────────────────────────────────
-
-  /** A dock at this bay no truck is using or heading for, or -1. */
   /** Whether the last dockFor found a way to any free spot, through a truck or not. */
   dockRouted = false;
   /** Whether it found one it could get to but not turn round from to leave. */
@@ -828,21 +810,6 @@ export class World {
     this.map.build[i] !== Build.Crossing ||
     // As the barriers will be by the end of this tick: the train moves after the trucks.
     !crossingClosed(this.rail.train, this.map.yOf(i), 1);
-
-  // ── Rules of the road ─────────────────────────────────────
-  //
-  // Trucks keep to the right (see snapshot), so those going opposite ways
-  // pass each other, and never hold each other up, even turning across
-  // one another. Going the same way, each keeps its distance behind the
-  // one ahead. A junction is where the rules come in: a truck goes onto one
-  // only with room to get off it again, waits while another is driving
-  // across it, and gives way to traffic on a bigger road and to traffic
-  // coming from its right. Out of parking,
-  // it gives way to everything. Only moving traffic is given way to; between
-  // two trucks both standing at the line, one goes and the other waits, by
-  // an order that takes turns, so two never wait for each other. A truck
-  // held up for long enough waives the rules, then its room, and at the
-  // very last its distance, so the roads never lock up for good.
 
   /** Each vehicle's tile, and the one it came onto it from, by id; see noteTiles. Not saved. */
   cameFrom = new Map<number, { tile: number; from: number }>();
@@ -920,6 +887,13 @@ export class World {
     return Math.abs(m.xOf(a) - m.xOf(b)) + Math.abs(m.yOf(a) - m.yOf(b));
   }
 
+  // ── Queries the systems answer ────────────────────────────
+  //
+  // Readings of the port the systems make through the world rather than
+  // call directly, so a test can stand in for one (`world.pathFor = () =>
+  // ...`) and try a system on a port it has only sketched. Each is answered
+  // by the system named in its import.
+
   /** Whether a gantry crane works this berth. */
   gantryReaches(berth: number): boolean {
     for (const c of this.cranes.values()) {
@@ -932,8 +906,6 @@ export class World {
   townSize(): number {
     return this.town ? population(this.town, this.map) : 0;
   }
-
-  // ── Queries the tests stand in for; see the systems that answer them ──
 
   loadingDocks(bay: Bay): number[] {
     return loadingDocksOf(this, bay);
@@ -966,8 +938,6 @@ export class World {
   exportsFor(b: Boat): number {
     return exportsForOf(this, b);
   }
-
-  // ── Queries the tests stand in for; see the systems that answer them ──
 
   gantryLane(a: Bay): Map<number, number> | null {
     return gantryLaneOf(this, a);
@@ -1009,13 +979,9 @@ export class World {
     return handlerFreeOf(this, bay, except);
   }
 
-  // ── Queries the tests stand in for; see the systems that answer them ──
-
   exportStore(t: Truck): { store: Bay; dock: number; path: number[] } | null {
     return exportStoreOf(this, t);
   }
-
-  // ── Queries the tests stand in for; see the systems that answer them ──
 
   truckLeave(t: Truck): void {
     return truckLeaveOf(this, t);
@@ -1044,9 +1010,4 @@ export class World {
   drainPlotChanges(): { plots: number[]; bought: number } | undefined {
     return plotsOut(this);
   }
-
-  // ── Explanations ──────────────────────────────────────────
-  //
-  // Why something is held up, in words, for the info panels: the same
-  // checks the sim makes, said out loud.
 }
