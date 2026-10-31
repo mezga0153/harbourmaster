@@ -9,6 +9,7 @@ import { box, cyl, mat } from '../parts';
 import { pavements } from '../town';
 import { LAMP_GREEN, LAMP_RED, LIGHT, STEEL } from './paints';
 import { QUAY_Y } from '../terrain';
+import { gateFence } from './fences';
 import { paving, roadArrow, type TileBuild, type TileParts } from './tiles';
 
 // The port's furniture that moves on its own: gates lifting their barrier
@@ -91,6 +92,7 @@ export function gate(t: TileBuild): Object3D {
   // across the lane, the public road in front (+z).
   paving(t);
   const y = QUAY_Y;
+  gateFence(g, y, parts.owned);
   g.add(box(0.6, 0.006, 0.04, C.marking, 0.42, y, 0.8));
   g.add(box(0.2, 0.26, 0.3, C.cabin, 0.88, y, 0.42));
   g.add(box(0.205, 0.08, 0.305, C.window, 0.88, y + 0.13, 0.42));

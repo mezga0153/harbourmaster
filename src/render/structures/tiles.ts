@@ -37,6 +37,7 @@ import {
   type GateParts,
   type LightParts,
 } from './furniture';
+import { fences } from './fences';
 import { builtUp, is, joins, landAt, leadsTo, offset, openWater, storeArea, streetAt } from './map';
 import { BALLAST, BARRIER, STEEL } from './paints';
 import type { BayStack } from './stock';
@@ -251,8 +252,10 @@ function office(t: TileBuild): Object3D {
 
 function portRoad(t: TileBuild): Object3D {
   const { m, i, g, parts } = t;
-  // Same paving as the quays and flush with them, with a dashed white centre line.
+  // Same paving as the quays and flush with them, with a dashed white centre
+  // line, and the port's fence along any side facing the public road.
   paving(t);
+  fences(m, g, i, QUAY_Y, parts.owned);
   const along = is(m, i, 1, 0, Build.PortRoad) || is(m, i, -1, 0, Build.PortRoad);
   if (m.store[i]) {
     storage(m, g, i, QUAY_Y, parts);
