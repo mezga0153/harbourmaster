@@ -483,6 +483,30 @@ export class Structures {
     return false;
   }
 
+  /**
+   * The crates showing on the ground of tile `i`, in a truck bay's stack or
+   * crate storage, piled on the quay or on a jib crane's landing stack:
+   * each one's middle and half its width, for the staff's grid (see
+   * entities/grid.ts) to keep dockhands and forklifts out of.
+   */
+  cratesOn(i: number): { x: number; z: number; half: number }[] {
+    const out: { x: number; z: number; half: number }[] = [];
+    const at = new Vector3();
+    const crane = this.craneAt(i);
+    for (const list of [
+      this.stackAt(i)?.crates,
+      this.stock.piles.get(i)?.crates,
+      crane?.jib ? crane.stack : undefined,
+    ]) {
+      for (const c of list ?? []) {
+        if (!c.visible) continue;
+        c.getWorldPosition(at);
+        out.push({ x: at.x, z: at.z, half: (c.userData.size ?? CRATE) / 2 });
+      }
+    }
+    return out;
+  }
+
   /** How many containers a truck or tractor shows. */
   private shownOn(id: number | undefined): number {
     let n = 0;

@@ -169,5 +169,9 @@ export function finePlan(r: Renderer, id: number): FinePlan | null {
     if (goal) legs.push({ name: 'walk', points: [h.from, ...(h.via ?? []), goal] });
   }
   if (e.round) legs.push({ name: `round truck ${e.round.truck}`, points: [] });
+  // The way the staff's grid has it going otherwise: its lane ahead as it
+  // drives or walks, or round crates in the way (Entities.plannedPath).
+  const route = e.route;
+  if (route && route.length > 1 && !h?.plan && !h?.goal) legs.push({ name: 'grid', points: route });
   return { at, legs };
 }

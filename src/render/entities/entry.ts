@@ -5,6 +5,7 @@ import { reachTo } from '../machines';
 import type { Model } from '../model';
 import type { About, Pose } from '../motion';
 import type { ForkPlan } from './forks';
+import type { Point } from './grid';
 import { surfaceY } from '../terrain';
 import type { Wash } from '../wakes';
 
@@ -25,7 +26,10 @@ export interface Entry extends Wash {
   links?: { axle?: [number, number]; hitch?: [number, number] }[];
   /** A dockhand's hands: how far down to the ground, 0 to 1. */
   down?: number;
-  /** Forklifts: how far right of the middle of their way, and ahead, they are drawn, clear of trucks and crates. */
+  /**
+   * How far right of the middle of their way, and ahead, they are drawn,
+   * clear of trucks and crates: forklifts, both; dockhands, how far right.
+   */
   keep?: [number, number];
   /** Forklifts turning about: where from, which way to, see turnAbout. */
   about?: About;
@@ -44,6 +48,14 @@ export interface Entry extends Wash {
   orderAt?: 'bay' | 'quay';
   /** Dockhands: walking up to a load they handle, or back onto their way. */
   stepping?: boolean;
+  /**
+   * Dockhands and forklifts: the way the view has them going, from where
+   * they are drawn by the corners they go by, as last worked out (see
+   * Entities.plannedPath), for a debug overlay.
+   */
+  route?: Point[];
+  /** Dockhands: corners they go by round crates to where they make for, where that was, and the grid's stamp then. */
+  detour?: { to: Point; via: Point[]; stamp: number };
 }
 
 /** A reach stacker or tractor taking a container off where it is, or setting one down. */

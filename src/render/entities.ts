@@ -1,6 +1,7 @@
 import { Group, Vector3, type Object3D } from 'three';
 import { VESSELS, WALK_SPEED } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
+import { AHEAD_TILES } from '../protocol/views';
 import type { GameMap } from '../sim/map';
 import { isMachineKind } from '../sim/machines';
 import { Build, TICKS_PER_SECOND } from '../sim/types';
@@ -12,10 +13,21 @@ import {
   forkOut,
   forkPlan,
   forkRoute,
+  onGrid,
   type Crate,
   type ForkPlan,
   type ForkSite,
 } from './entities/forks';
+import {
+  CELL,
+  CELL_CRATE,
+  CELL_NO_WALK,
+  CELL_TRUCK,
+  HALF,
+  StaffGrid,
+  type CrateBox,
+  type Point,
+} from './entities/grid';
 import { keepInside, parkIn, parkOut } from './entities/parking';
 import {
   aroundTrucks,
@@ -27,6 +39,7 @@ import {
   inTruck,
   LEAN_MOST,
   offTrucks,
+  stillTrucks,
   type TruckSite,
 } from './entities/trucks';
 import { disposeOwned, KeyedObjects } from './keyed';
@@ -120,6 +133,49 @@ const HOLD_RATE = 20;
 const HOLD_NEAR = 1.2;
 /** How far a crate in crate storage stands on its pallet. */
 const ON_PALLET = 0.025;
+/**
+ * How far ahead along their way, in tiles, dockhands and forklifts look
+ * for crates and trucks to keep clear of, and how much each look counts:
+ * so they edge over to a clear lane well before they get to them.
+ */
+const LOOKS: [number, number][] = [
+  [0.2, 1],
+  [0.4, 0.7],
+  [0.6, 0.45],
+  [0.8, 0.25],
+];
+/** The lanes across their way a forklift picks between as it drives, right of the middle; the usual first. */
+const FORK_LANES = [
+  FORK_KEEP,
+  0.1,
+  0.22,
+  0.05,
+  0.28,
+  0,
+  0.36,
+  -0.05,
+  0.42,
+  -0.1,
+  -0.16,
+  -0.22,
+  -0.28,
+  -0.36,
+  -0.42,
+];
+/** How far right of the middle of their way people walk, so those going opposite ways pass. */
+const WALK_KEEP = 0.2;
+/** The lanes people pick between as they walk, the usual first: out to the gaps between stacks of crates. */
+const WALK_LANES = [WALK_KEEP, 0.3, 0.375, 0.1, 0.45, 0, -0.1, -0.2, -0.3, -0.375, -0.45];
+/**
+ * What a forklift looks ahead for on the staff's grid: crates and trucks;
+ * the edge of the ground it keeps off where it is (see bodyBlocked), as
+ * its way out of its depot runs through ground it does not drive on.
+ */
+const AHEAD_OFF = CELL_CRATE | CELL_TRUCK;
+/** What a dockhand's way keeps out of, of the staff's grid: crates, and the water. */
+const WALK_OFF = CELL_CRATE | CELL_NO_WALK;
+/** How far inside the edge of a cell a dockhand stands to work a crate, keeping out of the cell beside. */
+const CELL_INSET = 0.06;
 
 /** How high a forklift's forks ride as it drives about: low, a load just off the ground. */
 function ride(v: EntityView): number {
@@ -153,6 +209,14 @@ export class Entities {
   containerAt?: (at: HandAt, out: Vector3) => number | null;
   /** Whether a crate shows on the ground at x, z, `pad` round it; set by the renderer. */
   crateIn?: (x: number, z: number, pad: number) => boolean;
+  /** The crates showing on the ground of a tile; set by the renderer (see Structures.cratesOn). */
+  cratesOn?: (i: number) => CrateBox[];
+  /**
+   * The ground the staff find their way across, four by four cells a tile,
+   * and what keeps dockhands and forklifts out of each; see grid.ts. For a
+   * debug overlay: `staffGrid.free('dockhand' | 'forklift', cx, cz)`.
+   */
+  readonly staffGrid: StaffGrid;
   /** Which way the camera is from what it looks at, as a heading on the ground: who dockhands wave to. */
   viewer?: number;
   private slotAt = new Vector3();
@@ -170,14 +234,46 @@ export class Entities {
       containerAt: (at, out) => this.containerAt?.(at, out) ?? null,
       handSlot: (at, out) => this.handSlot(at, out),
     };
+    this.staffGrid = new StaffGrid({
+      map,
+      crates: (i) => this.cratesOn?.(i) ?? this.cratesFelt(i),
+      trucks: () => stillTrucks(this.trucks),
+    });
     this.forkSite = {
       map,
+      grid: this.staffGrid,
       inTruck: (x, z) => inTruck(this.trucks, x, z, undefined, 0.02),
-      crateIn: (x, z, pad) => this.crateIn?.(x, z, pad) ?? false,
+      crateIn: (x, z, pad) =>
+        this.cratesOn ? this.staffGrid.crateAt(x, z, pad) : (this.crateIn?.(x, z, pad) ?? false),
     };
   }
 
+  /**
+   * The crates on tile `i` as the cells of it they are in, felt for with
+   * crateIn, where the renderer gives no list of them (as in some tests).
+   */
+  private cratesFelt(i: number): CrateBox[] {
+    const out: CrateBox[] = [];
+    const m = this.map;
+    const half = 0.125 - 0.002;
+    for (let k = 0; k < 16; k++) {
+      const x = m.xOf(i) + ((k % 4) + 0.5) / 4;
+      const z = m.yOf(i) + (Math.floor(k / 4) + 0.5) / 4;
+      if (this.crateIn?.(x, z, half)) out.push({ x, z, half });
+    }
+    return out;
+  }
+
+  /**
+   * The way the view has `id` going, for a debug overlay: from where it is
+   * drawn by the corners it goes by, as last worked out; null if none.
+   */
+  plannedPath(id: number): Point[] | null {
+    return this.entries.get(id)?.route ?? null;
+  }
+
   push(views: EntityView[], now: number, tick: number): void {
+    this.staffGrid.invalidate();
     this.prev = new Map([...this.entries].map(([id, e]) => [id, e.view]));
     this.snapTime = now;
     this.snapTicks = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
@@ -293,11 +389,14 @@ export class Entities {
         const about = cur.kind === 'forklift' ? this.turningAbout(e, prev, x, y) : null;
         // Once round, it faces the way it is going, not part way between.
         const way = about ? about.dir : dir;
-        const keep = seated ? 0 : 0.2;
         let [rx, ry] =
           cur.kind === 'forklift'
             ? this.forkSpot(e, x, y, way, dt)
-            : [x - Math.sin(way) * keep, y + Math.cos(way) * keep];
+            : seated
+              ? [x, y]
+              : cur.kind === 'dockhand'
+                ? this.walkSpot(e, x, y, way)
+                : [x - Math.sin(way) * WALK_KEEP, y + Math.cos(way) * WALK_KEEP];
         let yaw = way;
         if (about && !about.done) {
           [rx, ry, yaw] = aboutAt(about, x, y);
@@ -318,8 +417,13 @@ export class Entities {
         if (cur.kind === 'dockhand') {
           // Across a truck bay along its back, out of the truck's way.
           if (!seated) [rx, ry] = byBack(this.trucks, rx, ry);
-          // Standing about, they keep a step apart rather than stand in each other.
-          if (!cur.moving && !seated) [rx, ry] = this.spread(e, rx, ry);
+          // Standing about, they keep a step apart rather than stand in each other,
+          // nor among crates.
+          if (!cur.moving && !seated) {
+            [rx, ry] = this.spread(e, rx, ry);
+            const free = this.staffGrid.nearestFree('dockhand', rx, ry, 0.75, WALK_OFF);
+            if (free) [rx, ry] = [free.x, free.z];
+          }
           // Onto the other side of the way as they turn about, at a walk.
           const to = this.catchUp(e, rx, ry, yaw, dt);
           [rx, ry, yaw] = [to.x, to.z, Math.hypot(to.x - rx, to.z - ry) > 0.03 ? to.dir : yaw];
@@ -507,7 +611,9 @@ export class Entities {
     const [dx, dz] =
       v.kind === 'forklift'
         ? this.forkSpot(e, x, y, dir, dt)
-        : [x - Math.sin(dir) * 0.2, y + Math.cos(dir) * 0.2];
+        : v.kind === 'dockhand'
+          ? this.walkSpot(e, x, y, dir)
+          : [x - Math.sin(dir) * 0.2, y + Math.cos(dir) * 0.2];
     const drive: Pose = {
       x: dx,
       z: dz,
@@ -545,13 +651,16 @@ export class Entities {
       if (w.goal && far && v.kind === 'dockhand') {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
+      // Nowhere known to work it: where they are, but out of any crates there.
+      w.goal ??= v.kind === 'dockhand' ? this.outOfCrates({ ...drive, h: 0 }) : undefined;
       const goal = w.goal ?? { ...drive, h: 0 };
       if (v.kind === 'dockhand') {
         // Walked up to at their own pace, in what is left of it, before they
         // bend to it.
         const left = Math.max(1, (v.handTicks ?? 1) * (1 - w.start));
-        // Round a truck in the way, not through it.
-        w.via ??= aroundTrucks(this.trucks, w.from, goal);
+        // Round a truck in the way, not through it, nor through crates.
+        w.via ??= this.walkWay(w.from, goal);
+        e.route = [w.from, ...w.via, goal];
         const d = length([w.from, ...w.via, goal]);
         // Never faster than they walk, though it leaves them less time to
         // bend to it, or none: a truck backed in where they stood, say.
@@ -581,7 +690,13 @@ export class Entities {
         w.from = e.pose ?? drive;
       }
       const s = (this.sim - w.done) / HAND_SETTLE;
-      if (v.kind === 'dockhand' && !v.moving && s < 4 && e.pose) {
+      if (
+        v.kind === 'dockhand' &&
+        !v.moving &&
+        s < 4 &&
+        e.pose &&
+        this.staffGrid.blockedAt('dockhand', e.pose.x, e.pose.z, HALF.dockhand, WALK_OFF) === 0
+      ) {
         // Done, but not off anywhere yet: they stay where they worked, ready
         // for the next crate there, rather than step back and in again.
         pose = { ...e.pose, h: 0 };
@@ -590,7 +705,8 @@ export class Entities {
         // Walks back onto their way, catching up with it, or a step clear of
         // the others there if they stand about.
         const [bx, bz] = byBack(this.trucks, drive.x, drive.z);
-        const [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
+        let [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
+        if (!v.moving) ({ x: gx, z: gz } = this.outOfCrates({ ...drive, x: gx, z: gz }));
         pose = { ...this.catchUp(e, gx, gz, drive.dir, dt, v.moving), h: 0 };
         e.stepping = true;
         const there = Math.hypot(pose.x - gx, pose.z - gz) < 0.02;
@@ -624,6 +740,32 @@ export class Entities {
     const blocked = (o: [number, number]) => bodyBlocked(this.forkSite, ...at(o), way);
     let want: [number, number] = [FORK_KEEP, 0];
     const [k0, a0] = e.keep ?? want;
+    // Crates or a truck on its way ahead: it picks the lane past them as
+    // it comes up to them, the clearest nearest the one it is in.
+    const looks = this.lookAhead(e.view, x, y);
+    const grid = this.staffGrid;
+    const ahead = (k: number) =>
+      looks.reduce(
+        (n, p) =>
+          n +
+          p.w *
+            onGrid(grid, p.x - Math.sin(p.dir) * k, p.z + Math.cos(p.dir) * k, p.dir, AHEAD_OFF),
+        0,
+      );
+    if (looks.length > 0 && ahead(FORK_KEEP) > 0) {
+      const score = (k: number) =>
+        ahead(k) + 0.4 * Math.abs(k - k0) + 0.2 * Math.abs(k - FORK_KEEP);
+      const lanes = FORK_LANES.map((k) => [k, score(k)] as const).sort((p, q) => p[1] - q[1]);
+      const lane = lanes.find(([k]) => blocked([k, 0]) === 0);
+      if (lane) want = [lane[0], 0];
+    }
+    e.route = [
+      { x: e.pose?.x ?? x, z: e.pose?.z ?? y },
+      ...looks.map((p) => ({
+        x: p.x - Math.sin(p.dir) * want[0],
+        z: p.z + Math.cos(p.dir) * want[0],
+      })),
+    ];
     if (blocked(want) > 0) {
       // The clear spot nearest where it is drawn, so it never cuts across
       // crates to get to another: held back as it drives in, it stays back.
@@ -681,6 +823,8 @@ export class Entities {
         if (w.plan && w.last) w.plan.out = w.last.line;
         // Round crates in the way to line up, not through them.
         if (w.plan) w.plan.via = forkRoute(this.forkSite, w.plan.out ?? w.from, w.plan.line);
+        const p = w.plan;
+        e.route = p && [w.from, ...(p.out ? [p.out] : []), ...(p.via ?? []), p.line, p.goal];
       }
       place(this.map, e, w.plan ? forkIn(w.plan, w.from, phase, w.stage === 'pick') : low);
       return;
@@ -699,6 +843,7 @@ export class Entities {
         w.done = this.sim - BACKED_OUT * FORK_SETTLE;
         s = BACKED_OUT;
       } else w.plan.away ??= forkRoute(this.forkSite, w.plan.line, low);
+      e.route = [w.plan.goal, w.plan.line, ...(w.plan.away ?? []), low];
     }
     if (s >= 1 || !w.plan) {
       e.hand = undefined;
@@ -772,6 +917,143 @@ export class Entities {
       }
     }
     return forkPlan(this.forkSite, crates, heading, prefer, from);
+  }
+
+  /**
+   * Points ahead of x, y on a dockhand's or forklift's way, as the game
+   * has it go from the middle of one tile to the next, at LOOKS along it:
+   * where each is and which way the way runs there. Only up to the edge
+   * of the tile it is going to, as there it works out its own way in.
+   */
+  private lookAhead(
+    v: EntityView,
+    x: number,
+    y: number,
+  ): { x: number; z: number; dir: number; w: number }[] {
+    const tiles = v.moving ? v.ahead : undefined;
+    if (!tiles || tiles.length === 0) return [];
+    const m = this.map;
+    const pts: Point[] = [
+      { x, z: y },
+      ...tiles.map((t) => ({ x: m.xOf(t) + 0.5, z: m.yOf(t) + 0.5 })),
+    ];
+    if (tiles.length < AHEAD_TILES) {
+      const [a, b] = pts.slice(-2);
+      const d = Math.hypot(b.x - a.x, b.z - a.z);
+      if (d > 0.5)
+        pts[pts.length - 1] = {
+          x: b.x - ((b.x - a.x) / d) * 0.5,
+          z: b.z - ((b.z - a.z) / d) * 0.5,
+        };
+      else pts.pop();
+    }
+    const out: { x: number; z: number; dir: number; w: number }[] = [];
+    let k = 0;
+    let along = 0;
+    const len = (i: number) => Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z);
+    for (const [s, w] of LOOKS) {
+      while (k < pts.length - 1 && along + len(k) < s) along += len(k++);
+      if (k >= pts.length - 1) break;
+      const [a, b] = [pts[k], pts[k + 1]];
+      const t = (s - along) / len(k);
+      out.push({
+        x: a.x + (b.x - a.x) * t,
+        z: a.z + (b.z - a.z) * t,
+        dir: Math.atan2(b.z - a.z, b.x - a.x),
+        w,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Where a dockhand walking at x, y along `way` is drawn: to the right of
+   * the middle of their way, so people going opposite ways pass, unless
+   * crates are there or just ahead, as through crate storage; then the
+   * lane nearest that clear of them, out to the gaps between the stacks.
+   */
+  private walkSpot(e: Entry, x: number, y: number, way: number): [number, number] {
+    const grid = this.staffGrid;
+    const looks = this.lookAhead(e.view, x, y);
+    const off = (px: number, pz: number, dir: number, k: number) =>
+      grid.blockedAt(
+        'dockhand',
+        px - Math.sin(dir) * k,
+        pz + Math.cos(dir) * k,
+        HALF.dockhand,
+        WALK_OFF,
+      );
+    const ahead = (k: number) => looks.reduce((n, p) => n + p.w * off(p.x, p.z, p.dir, k), 0);
+    const k0 = e.keep?.[0] ?? WALK_KEEP;
+    let keep = WALK_KEEP;
+    if (off(x, y, way, WALK_KEEP) > 0 || ahead(WALK_KEEP) > 0) {
+      let least = Infinity;
+      for (const k of WALK_LANES) {
+        const n =
+          off(x, y, way, k) * 10 +
+          ahead(k) +
+          0.4 * Math.abs(k - k0) +
+          0.2 * Math.abs(k - WALK_KEEP);
+        if (n < least) [keep, least] = [k, n];
+      }
+    }
+    e.keep = [keep, 0];
+    const at: [number, number] = [x - Math.sin(way) * keep, y + Math.cos(way) * keep];
+    e.route = [
+      { x: e.pose?.x ?? at[0], z: e.pose?.z ?? at[1] },
+      ...looks.map((p) => ({ x: p.x - Math.sin(p.dir) * keep, z: p.z + Math.cos(p.dir) * keep })),
+    ];
+    return at;
+  }
+
+  /** Where a dockhand at `pose` stands instead, clear of crates: the nearest clear spot of the staff's grid. */
+  private outOfCrates(pose: Pose): Pose {
+    const free = this.staffGrid.nearestFree('dockhand', pose.x, pose.z, 0.75, WALK_OFF);
+    return free ? { ...pose, x: free.x, z: free.z } : pose;
+  }
+
+  /**
+   * The corners a dockhand walks by from one point to another: round a
+   * truck standing in the way, by its back (see aroundTrucks), and where
+   * that way runs through crates, round them across the staff's grid.
+   */
+  private walkWay(from: Point, to: Point): Point[] {
+    const via = aroundTrucks(this.trucks, from, to);
+    const grid = this.staffGrid;
+    // Only to somewhere clear of crates: at a truck bay's stack they stand where they always have.
+    if (grid.blockedAt('dockhand', to.x, to.z, HALF.dockhand, WALK_OFF) > 0) return via;
+    const legs = [from, ...via, to];
+    const through = legs.some(
+      (p, k) => k > 0 && !grid.clearLine('dockhand', legs[k - 1], p, WALK_OFF),
+    );
+    return through ? grid.route('dockhand', from, to) : via;
+  }
+
+  /**
+   * Where a dockhand stands to work a crate at `p` on the ground, as in
+   * crate storage: in the gap beside the stack, never in it, the nearest
+   * clear cell of the staff's grid it can reach the crate from, by how
+   * far they lean and how far they walk from `from`; null if none is.
+   */
+  private standBy(p: Point, from: Point): Point | null {
+    const grid = this.staffGrid;
+    const [cx, cz] = grid.cellOf(p.x, p.z);
+    let best: Point | null = null;
+    let least = Infinity;
+    const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const [nx, nz] = [cx + dx, cz + dz];
+        if (!grid.free('dockhand', nx, nz)) continue;
+        const x = lie(p.x, nx * CELL + CELL_INSET, (nx + 1) * CELL - CELL_INSET);
+        const z = lie(p.z, nz * CELL + CELL_INSET, (nz + 1) * CELL - CELL_INSET);
+        const reach = Math.hypot(x - p.x, z - p.z);
+        if (reach > HAND_REACH + LEAN_MOST) continue;
+        const cost = 2 * reach + 0.3 * Math.hypot(x - from.x, z - from.z);
+        if (cost < least) [best, least] = [{ x, z }, cost];
+      }
+    }
+    return best;
   }
 
   /**
@@ -863,6 +1145,21 @@ export class Entities {
     const via = e.pose && aroundTrucks(this.trucks, e.pose, { x, z })[0];
     if (via) [x, z] = [via.x, via.z];
     const at = e.pose;
+    // Round crates in the way, across the staff's grid, rather than through them.
+    if (!this.staffGrid.clearLine('dockhand', at, { x, z }, WALK_OFF)) {
+      let d = e.detour;
+      const stamp = this.staffGrid.stamp;
+      if (!d || d.stamp !== stamp || Math.hypot(d.to.x - x, d.to.z - z) > 0.15) {
+        d = e.detour = { to: { x, z }, via: this.staffGrid.route('dockhand', at, { x, z }), stamp };
+      }
+      while (d.via.length > 0 && Math.hypot(d.via[0].x - at.x, d.via[0].z - at.z) < 0.04) {
+        d.via.shift();
+      }
+      if (d.via.length > 0) {
+        e.route = [{ x: at.x, z: at.z }, ...d.via, { x, z }];
+        [x, z] = [d.via[0].x, d.via[0].z];
+      }
+    } else e.detour = undefined;
     const d = Math.hypot(x - at.x, z - at.z);
     const step = Math.min(d, CATCH_UP * dt);
     const nx = d > 0 ? at.x + ((x - at.x) / d) * step : x;
@@ -901,6 +1198,18 @@ export class Entities {
           ? Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - hold))
           : undefined;
       return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
+    }
+    // A dockhand works a crate in crate storage from the gap beside its stack.
+    const gap = v.kind === 'dockhand' && at.store !== undefined ? this.standBy(p, drive) : null;
+    if (gap) {
+      const reach = Math.hypot(p.x - gap.x, p.z - gap.z);
+      return {
+        x: gap.x,
+        z: gap.z,
+        dir: Math.atan2(p.z - gap.z, p.x - gap.x),
+        h: p.y - surfaceY(this.map, gap.x, gap.z),
+        over: Math.min(LEAN_MOST, Math.max(0, reach - hold)),
+      };
     }
     // A stacker takes a container side on; a tractor's trailer lies along
     // it; a dockhand comes straight up to the crate.

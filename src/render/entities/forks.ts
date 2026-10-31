@@ -4,6 +4,7 @@ import { Build } from '../../sim/types';
 import { driveTo, type Pose } from '../motion';
 import { surfaceY } from '../terrain';
 import { ease, lerpAngle } from '../util/math';
+import { KEEPS_OUT, type Point, type StaffGrid } from './grid';
 
 // A forklift taking a load or setting one down: where it lines up, square
 // on to it a little back, and how it gets there, drives in, lifts or lowers
@@ -39,6 +40,8 @@ const BODY: [number, number][] = [
 /** What a forklift keeps clear of. */
 export interface ForkSite {
   map: GameMap;
+  /** The staff's grid, which it finds its way across; see grid.ts. */
+  grid: StaffGrid;
   /** A truck standing still at x, z, with room round it. */
   inTruck(x: number, z: number): boolean;
   /** A crate showing at x, z, `pad` round it. */
@@ -100,11 +103,7 @@ export interface ForkPlan {
   away?: Point[];
 }
 
-/** A point on the ground. */
-export interface Point {
-  x: number;
-  z: number;
-}
+export type { Point };
 
 /**
  * Which way a forklift comes up to a load, square on to it, and where it
@@ -165,127 +164,38 @@ export function forkPlan(
   return best;
 }
 
-/** How fine the grid a forklift finds its way round crates on is, in tiles. */
-const GRID = 0.25;
-/** How far round the straight way it looks for one, in tiles. */
-const ROOM = 1;
-/** The eight ways across the grid. */
-const STEPS: [number, number][] = [
-  [1, 0],
-  [1, 1],
-  [0, 1],
-  [-1, 1],
-  [-1, 0],
-  [-1, -1],
-  [0, -1],
-  [1, -1],
-];
-
-/** How badly a forklift at x, z along `dir` is in the way of things, driving forwards or backing. */
-function alongBlocked(site: ForkSite, x: number, z: number, dir: number): number {
-  return Math.max(bodyBlocked(site, x, z, dir), bodyBlocked(site, x, z, dir + Math.PI));
-}
-
-/** How badly a forklift driving straight from `a` to `b` is in the way of things all along. */
-function wayBlocked(site: ForkSite, a: Point, b: Point): number {
-  const d = Math.hypot(b.x - a.x, b.z - a.z);
-  const dir = Math.atan2(b.z - a.z, b.x - a.x);
-  const n = Math.max(1, Math.ceil(d / 0.1));
-  let blocked = 0;
-  for (let k = 1; k <= n; k++) {
-    blocked += alongBlocked(site, a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n, dir);
+/**
+ * How badly a forklift stood at x, z facing `dir` is in the way of things
+ * as the staff's grid has them (see grid.ts): how many points of its body
+ * are in cells kept from forklifts. Coarser than bodyBlocked, a cell at a
+ * time, so it keeps further off; for picking its way ahead as it drives.
+ */
+export function onGrid(
+  grid: StaffGrid,
+  x: number,
+  z: number,
+  dir: number,
+  mask = KEEPS_OUT.forklift,
+): number {
+  const c = Math.cos(dir);
+  const s = Math.sin(dir);
+  let n = 0;
+  for (const [f, r] of BODY) {
+    const [cx, cz] = grid.cellOf(x + c * f - s * r, z + s * f + c * r);
+    if (grid.flags(cx, cz) & mask) n++;
   }
-  return blocked;
+  return n;
 }
 
 /**
  * Corners a forklift drives by from `from` to `to` to keep its body off
  * crates, trucks and the ground beside the port, where driving straight
- * there would not: the shortest way across a fine grid round them,
- * pulled straight wherever that is no worse. None when the straight way
- * is clear, or no way round is better.
+ * there would not: the shortest way across the staff's grid, two by two
+ * cells of it, pulled straight wherever that is clear (see
+ * StaffGrid.route). None when the straight way is clear.
  */
 export function forkRoute(site: ForkSite, from: Point, to: Point): Point[] {
-  const direct = wayBlocked(site, from, to);
-  if (direct === 0) return [];
-  // The grid, from where it starts, over the ground round the straight way.
-  const lo = (a: number, b: number) => Math.floor((Math.min(a, b) - ROOM - a) / GRID);
-  const hi = (a: number, b: number) => Math.ceil((Math.max(a, b) + ROOM - a) / GRID);
-  const [ix0, ix1] = [lo(from.x, to.x), hi(from.x, to.x)];
-  const [iz0, iz1] = [lo(from.z, to.z), hi(from.z, to.z)];
-  const nx = ix1 - ix0 + 1;
-  const at = (n: number): Point => ({
-    x: from.x + ((n % nx) + ix0) * GRID,
-    z: from.z + (Math.floor(n / nx) + iz0) * GRID,
-  });
-  const node = (ix: number, iz: number) => ix - ix0 + (iz - iz0) * nx;
-  const start = node(0, 0);
-  const goal = node(Math.round((to.x - from.x) / GRID), Math.round((to.z - from.z) / GRID));
-  // Each spot's body checked facing each way only once it is looked at.
-  const seen = new Map<number, number>();
-  const blockedAt = (n: number, k: number) => {
-    let b = seen.get(n * 8 + k);
-    if (b === undefined) {
-      const p = at(n);
-      b = alongBlocked(site, p.x, p.z, Math.atan2(STEPS[k][1], STEPS[k][0]));
-      seen.set(n * 8 + k, b);
-    }
-    return b;
-  };
-  const g = new Map<number, number>([[start, 0]]);
-  const came = new Map<number, number>();
-  const done = new Set<number>();
-  const open: number[] = [start];
-  const guess = (n: number) => {
-    const p = at(n);
-    return Math.hypot(p.x - to.x, p.z - to.z);
-  };
-  while (open.length > 0) {
-    let best = 0;
-    for (let i = 1; i < open.length; i++) {
-      if (g.get(open[i])! + guess(open[i]) < g.get(open[best])! + guess(open[best])) best = i;
-    }
-    const cur = open.splice(best, 1)[0];
-    if (cur === goal) break;
-    if (done.has(cur)) continue;
-    done.add(cur);
-    const cx = (cur % nx) + ix0;
-    const cz = Math.floor(cur / nx) + iz0;
-    STEPS.forEach(([dx, dz], k) => {
-      const [x, z] = [cx + dx, cz + dz];
-      if (x < ix0 || x > ix1 || z < iz0 || z > iz1) return;
-      const n = node(x, z);
-      if (done.has(n)) return;
-      const cost = g.get(cur)! + GRID * Math.hypot(dx, dz) * (1 + blockedAt(n, k));
-      if (cost >= (g.get(n) ?? Infinity)) return;
-      g.set(n, cost);
-      came.set(n, cur);
-      open.push(n);
-    });
-  }
-  if (!came.has(goal)) return [];
-  const points: Point[] = [];
-  for (let n = goal; n !== start; n = came.get(n)!) points.push(at(n));
-  points.push(from);
-  points.reverse();
-  points[points.length - 1] = to;
-  // Pulled straight between corners wherever that is no worse.
-  const way: Point[] = [from];
-  for (let i = 0; i < points.length - 1;) {
-    let j = points.length - 1;
-    while (j > i + 1) {
-      let steps = 0;
-      for (let k = i; k < j; k++) steps += wayBlocked(site, points[k], points[k + 1]);
-      if (wayBlocked(site, points[i], points[j]) <= steps) break;
-      j--;
-    }
-    way.push(points[j]);
-    i = j;
-  }
-  const corners = way.slice(1, -1);
-  let total = 0;
-  for (let k = 0; k < way.length - 1; k++) total += wayBlocked(site, way[k], way[k + 1]);
-  return total < direct ? corners : [];
+  return site.grid.route('forklift', from, to);
 }
 
 /**

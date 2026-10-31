@@ -78,7 +78,16 @@ export interface EntityView {
   handAt?: HandAt;
   /** A forklift or dockhand taking crates: how many, the top ones of those where `handAt` is the top. */
   handCount?: number;
+  /**
+   * Dockhands and forklifts on the move: the next tiles on their way, the
+   * middle of the first the one they make for now, up to AHEAD_TILES of
+   * them; fewer, and the last is where they are going.
+   */
+  ahead?: number[];
 }
+
+/** How many of the tiles ahead of a dockhand or forklift on its way the game tells; see EntityView.ahead. */
+export const AHEAD_TILES = 4;
 
 /** A ship's visit so far, for its panel; times in ticks, -1 for not known or not begun. */
 export interface BoatVisit {

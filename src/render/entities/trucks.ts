@@ -5,6 +5,7 @@ import { Build } from '../../sim/types';
 import { length, type Pose } from '../motion';
 import { surfaceY } from '../terrain';
 import type { Entry } from './entry';
+import type { StillTruck } from './grid';
 
 // Dockhands and forklifts keeping clear of the trucks standing still: where
 // they stand to load one at a truck bay, and how they walk round one in
@@ -346,6 +347,27 @@ export function aroundTrucks(
     });
   }
   return [];
+}
+
+/** The trucks standing still, as the staff's grid keeps people and forklifts off them; see grid.ts. */
+export function stillTrucks(site: TruckSite): StillTruck[] {
+  const out: StillTruck[] = [];
+  for (const truck of site.entries()) {
+    if (truck.view.kind !== 'truck' || truck.view.moving) continue;
+    const root = truck.model.root;
+    const box = (truck.size ??= sizeOf(root));
+    out.push({
+      x: root.position.x,
+      z: root.position.z,
+      dir: -root.rotation.y,
+      back: box.min.x,
+      front: box.max.x,
+      left: box.min.z,
+      right: box.max.z,
+      pickup: !!truck.view.pickup,
+    });
+  }
+  return out;
 }
 
 /** How far a model reaches each way from its middle, unturned. */

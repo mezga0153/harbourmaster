@@ -143,6 +143,7 @@ export class Renderer {
     entities.containerAt = (at, out) => structures.containerAt(at, out);
     // Forklifts keep their bodies off the crates.
     entities.crateIn = (x, z, pad) => structures.crateIn(x, z, pad);
+    entities.cratesOn = (i) => structures.cratesOn(i);
     structures.slotTurn = (id, k) => entities.slotTurn(id, k);
     const trains = new Trains(map);
     const scenery = new Group();

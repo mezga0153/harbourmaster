@@ -95,6 +95,7 @@ import {
 import { bedCap, bedSlots } from './cargo/beds';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
+import { AHEAD_TILES } from '../../protocol/views';
 import {
   docked,
   inQueue,
@@ -641,6 +642,10 @@ export function buildSnapshot(w: World): Snapshot {
         liftedLoad(w, p.carrying, isBoxy(p) ? [...carriedLooks(w, p)] : undefined, lifts.get(p.id)),
       ),
       moving: p.path.length > 0,
+      ahead:
+        (p.kind === 'dockhand' || p.kind === 'forklift') && p.path.length > 0
+          ? p.path.slice(0, AHEAD_TILES)
+          : undefined,
       cargo: isBoxy(p)
         ? undefined
         : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),
