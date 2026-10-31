@@ -1,3 +1,12 @@
+import {
+  EXTENSION,
+  FORKLIFT_ONLY,
+  ON_PORT_ROAD,
+  PARK_FLIP,
+  PARK_MIRROR,
+  PART_SHIFT,
+} from './orient';
+export { EXTENSION, FORKLIFT_ONLY, ON_PORT_ROAD, ON_QUAY, PARK_FLIP, PARK_MIRROR } from './orient';
 import * as B from './balance';
 import { landError, OUTSIDE } from './land';
 import type { GameMap } from './map';
@@ -199,18 +208,6 @@ export const ROTATABLE: ReadonlySet<BuildKind> = new Set([
   'gantryCrane',
 ]);
 
-/** Marks the other tiles of a multi-tile building in `GameMap.orient`. */
-export const EXTENSION = 4;
-/** Which part of a multi-tile building a tile is, in `GameMap.orient` bits 4–5. */
-const PART_SHIFT = 4;
-/**
- * Marks a port road or quay tile for port machines only: people on foot and
- * the hauliers' trucks keep off.
- */
-export const FORKLIFT_ONLY = 8;
-/** Marks a building tile standing on a quay, which it leaves behind. */
-export const ON_QUAY = 64;
-
 export function forkliftOnly(map: GameMap, i: number): boolean {
   return (map.orient[i] & FORKLIFT_ONLY) !== 0;
 }
@@ -303,9 +300,6 @@ export function unmarkable(
     parking: map.build[i] === Build.Parking,
   };
 }
-
-/** On a parking tile, in `GameMap.orient`: it is marked out on port road, not public road. */
-export const ON_PORT_ROAD = 16;
 
 /**
  * The road a parking tile is marked out on, which it is again once
@@ -1282,15 +1276,6 @@ export interface ParkingFlow {
   along: [number, number];
   across: [number, number];
 }
-
-/** On a parking tile, in `GameMap.orient`: its lot runs the other way round from the usual. */
-export const PARK_FLIP = 32;
-/**
- * On a parking tile, in `GameMap.orient`: its spaces lean the other way,
- * so trucks turn in off the road with the lot on their left, across the
- * traffic coming the other way, rather than on their right.
- */
-export const PARK_MIRROR = 1;
 
 /** A run of truck parking, and why it is no use, if it is not. */
 export interface ParkingLot {

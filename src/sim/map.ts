@@ -1,5 +1,5 @@
 import { PLOT_SIZE } from './balance';
-import { FORKLIFT_ONLY } from './rules';
+import { FORKLIFT_ONLY } from './orient';
 import { Build, Terrain } from './types';
 
 export interface MapData {

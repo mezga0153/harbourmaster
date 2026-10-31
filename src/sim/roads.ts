@@ -1,3 +1,5 @@
+import { EXIT, GATE_IN, GATE_OUT, LIGHTS, NORTH, ONE_WAY, SOUTH } from './orient';
+export { EXIT, GATE_IN, GATE_OUT, LIGHTS, NORTH, ONE_WAY, SOUTH } from './orient';
 import { landError } from './land';
 import type { GameMap } from './map';
 import { Build, Deco, Terrain } from './types';
@@ -9,21 +11,6 @@ import { Build, Deco, Terrain } from './types';
 
 /** The highway's two carriageways: southbound down x = 0, northbound up x = 1. */
 export const HIGHWAY_COLUMNS = 2;
-/** Facings, as in `GameMap.orient`: 0 +x, 1 +y (south), 2 -x, 3 -y (north). */
-export const SOUTH = 1;
-export const NORTH = 3;
-
-/** On a highway tile: an exit, where the barrier down the middle is open to the road beside it. */
-export const EXIT = 16;
-/** On a public or port road: one way only, the way its `orient & 3` faces. */
-export const ONE_WAY = 16;
-/** On a road junction: traffic lights. */
-export const LIGHTS = 32;
-/** On a port gate: trucks only drive in through it. */
-export const GATE_IN = 16;
-/** On a port gate: trucks only drive out through it. */
-export const GATE_OUT = 32;
-
 /** How far apart exits are, at the least, in rows: room to slow down and pull in. */
 export const EXIT_SPACING = 6;
 
