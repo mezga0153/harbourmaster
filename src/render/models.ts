@@ -18,11 +18,12 @@ import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { worker, type Limbs } from './people';
 import { headingOf } from './util/math';
+import type { Owns } from './keyed';
 import { truckModel, type Trailer } from './vehicles';
 
 // Procedural low-poly models. All face +X; the root sits on the ground at y=0.
 
-export interface Model {
+export interface Model extends Owns {
   root: Group;
   /** Crate meshes, shown one per unit of load. */
   crates: Object3D[];
@@ -539,7 +540,7 @@ export function boat(variant: number, vessel = 'smack', id = 0, lobster = false)
           : lobster
             ? lobsterBoat(id, variant, crate)
             : fishingBoat(id, variant, crate);
-  return { root: c.root, crates: c.slots };
+  return { root: c.root, crates: c.slots, owned: c.owned };
 }
 
 /** A haulier's truck in company colours, unique to its id. */

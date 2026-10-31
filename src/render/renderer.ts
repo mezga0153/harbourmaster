@@ -18,6 +18,7 @@ import type { EntityView, ProblemView, Snapshot, TileChange } from '../protocol'
 import type { GameMap } from '../sim/map';
 import { IsoCamera } from './camera';
 import { Entities } from './entities';
+import { KeyedObjects } from './keyed';
 import { alertMarker } from './models';
 import { Overlay } from './overlay';
 import { C } from './palette';
@@ -233,21 +234,21 @@ export class Renderer {
   /** Red marks over what cannot work as it is built: see ProblemView. */
   private marks = new Group();
   private problems: ProblemView[] = [];
+  /** One mark for each problem in the list, by its place in it. */
+  private markOf = new KeyedObjects<number, Object3D>((mark) => this.marks.remove(mark));
 
   private setProblems(list: ProblemView[]): void {
     this.problems = list;
-    while (this.marks.children.length < list.length) {
+    this.markOf.sync(list.keys(), () => {
       const mark = alertMarker();
       mark.scale.setScalar(3.4);
       this.marks.add(mark);
-    }
-    this.marks.children.forEach((mark, k) => {
-      const p = list[k];
-      mark.visible = !!p;
-      if (p) {
-        mark.position.set(p.x, p.h, p.y);
-        mark.userData.h = p.h;
-      }
+      return mark;
+    });
+    list.forEach((p, k) => {
+      const mark = this.markOf.get(k)!;
+      mark.position.set(p.x, p.h, p.y);
+      mark.userData.h = p.h;
     });
   }
 
@@ -257,7 +258,7 @@ export class Renderer {
     let best: ProblemView | null = null;
     let bestD = 30;
     this.problems.forEach((p, k) => {
-      const mark = this.marks.children[k];
+      const mark = this.markOf.get(k);
       if (!mark) return;
       const s = toClient(
         this.tmp.copy(mark.position).setY(mark.position.y + 0.25),

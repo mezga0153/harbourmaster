@@ -541,8 +541,10 @@ function factory(g: Group, y: number, v: number) {
 /**
  * Merge a model's parts into one mesh per colour. A city is thousands of
  * little boxes; drawn one by one they would bring the frame rate down.
+ * The merged geometry is new and must be disposed of when the model goes:
+ * it is pushed onto `owned` for whoever keeps it.
  */
-export function bake(g: Group): Group {
+export function bake(g: Group, owned?: BufferGeometry[]): Group {
   g.updateMatrixWorld(true);
   const parts = new Map<Material, BufferGeometry[]>();
   g.traverse((o) => {
@@ -556,6 +558,7 @@ export function bake(g: Group): Group {
   for (const [m, geos] of parts) {
     const merged = mergeGeometries(geos);
     if (!merged) continue;
+    owned?.push(merged);
     const mesh = new Mesh(merged, m);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -565,7 +568,12 @@ export function bake(g: Group): Group {
 }
 
 /** A town building, facing +z; null for codes that are not one. */
-export function townBuilding(code: number, top: number, v: number): Group | null {
+export function townBuilding(
+  code: number,
+  top: number,
+  v: number,
+  owned?: BufferGeometry[],
+): Group | null {
   const g = new Group();
   switch (code) {
     case Build.Cottage:
@@ -622,7 +630,7 @@ export function townBuilding(code: number, top: number, v: number): Group | null
     default:
       return null;
   }
-  return bake(g);
+  return bake(g, owned);
 }
 
 /**

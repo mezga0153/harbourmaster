@@ -14,6 +14,8 @@ export interface Craft {
   root: Group;
   /** Cargo slots, shown one per unit of load. */
   slots: Object3D[];
+  /** The hull's lofted geometry, made for this boat alone: freed when it goes. */
+  owned: BufferGeometry[];
 }
 
 type Ring = [number, number][];
@@ -126,7 +128,7 @@ interface HullSpec {
  * paint above it, and a stripe of company colour under the rail. The deck
  * sits on top. Returns the deck height.
  */
-function hull(root: Group, h: HullSpec): number {
+function hull(root: Group, h: HullSpec, owned: BufferGeometry[]): number {
   const top = outline(h.length, h.beam, h.bow, h.stern);
   // The keel is narrower and shorter: a raked bow and a tucked-in stern.
   const keel = scaleRing(top, 0.88, 0.45, -h.length * 0.03);
@@ -136,14 +138,17 @@ function hull(root: Group, h: HullSpec): number {
   const y0 = -h.draft;
   const yw = 0.04 * h.height;
   const yr = y0 + h.height * 0.86;
-  root.add(mesh(loft(keel, y0, water, yw), h.bottom));
-  root.add(mesh(loft(water, yw, rail, yr), h.paint));
-  root.add(mesh(loft(rail, yr, top, deckY, true), h.stripe));
-  const deck = mesh(
+  const band = (geo: BufferGeometry, color: number) => {
+    owned.push(geo);
+    root.add(mesh(geo, color));
+  };
+  band(loft(keel, y0, water, yw), h.bottom);
+  band(loft(water, yw, rail, yr), h.paint);
+  band(loft(rail, yr, top, deckY, true), h.stripe);
+  band(
     loft(scaleRing(top, 0.97, 0.9), deckY, scaleRing(top, 0.97, 0.9), deckY + 0.012, true),
     h.deck,
   );
-  root.add(deck);
   return deckY + 0.012;
 }
 
@@ -228,18 +233,23 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Craft 
   const accent = COMPANY[company % COMPANY.length];
   const length = 1.9;
   const beam = rng.range(0.54, 0.62);
-  const deck = hull(root, {
-    length,
-    beam,
-    height: rng.range(0.34, 0.4),
-    draft: 0.16,
-    bow: rng.range(0.24, 0.32),
-    stern: rng.range(0.7, 0.85),
-    paint,
-    bottom: rng.pick(ANTIFOUL),
-    stripe: accent === paint ? C.cabin : accent,
-    deck: rng.pick(DECK),
-  });
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length,
+      beam,
+      height: rng.range(0.34, 0.4),
+      draft: 0.16,
+      bow: rng.range(0.24, 0.32),
+      stern: rng.range(0.7, 0.85),
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: accent === paint ? C.cabin : accent,
+      deck: rng.pick(DECK),
+    },
+    owned,
+  );
   const white = rng.pick(SUPERSTRUCTURE);
   // Bulwark at the bow.
   root.add(box(0.3, 0.06, beam * 0.7, paint, 0.62, deck, 0));
@@ -285,7 +295,7 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Craft 
     2,
     0.16,
   );
-  return { root, slots };
+  return { root, slots, owned };
 }
 
 /** Lobster boats: white or pale hulls, a band of bright colour. */
@@ -307,18 +317,23 @@ export function lobsterBoat(seed: number, company: number, crate: Crate): Craft 
   const accent = COMPANY[company % COMPANY.length];
   const length = 1.9;
   const beam = rng.range(0.56, 0.62);
-  const deck = hull(root, {
-    length,
-    beam,
-    height: rng.range(0.28, 0.32),
-    draft: 0.14,
-    bow: rng.range(0.3, 0.36),
-    stern: rng.range(0.82, 0.9),
-    paint,
-    bottom: rng.pick(ANTIFOUL),
-    stripe: accent === paint ? C.funnel : accent,
-    deck: rng.pick(DECK),
-  });
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length,
+      beam,
+      height: rng.range(0.28, 0.32),
+      draft: 0.14,
+      bow: rng.range(0.3, 0.36),
+      stern: rng.range(0.82, 0.9),
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: accent === paint ? C.funnel : accent,
+      deck: rng.pick(DECK),
+    },
+    owned,
+  );
   // Wheelhouse forward, with an open back.
   const white = rng.pick(SUPERSTRUCTURE);
   cabin(root, 0.42, deck, 0.3, beam * 0.7, 0.26, white, accent);
@@ -360,7 +375,7 @@ export function lobsterBoat(seed: number, company: number, crate: Crate): Craft 
     2,
     0.14,
   );
-  return { root, slots };
+  return { root, slots, owned };
 }
 
 /**
@@ -373,18 +388,23 @@ export function coasterShip(seed: number, company: number, crate: Crate): Craft 
   const paint = rng.pick(HULLS);
   const accent = COMPANY[company % COMPANY.length];
   const beam = rng.range(0.78, 0.86);
-  const deck = hull(root, {
-    length: 2.7,
-    beam,
-    height: rng.range(0.5, 0.58),
-    draft: 0.24,
-    bow: rng.range(0.16, 0.22),
-    stern: rng.range(0.72, 0.85),
-    paint,
-    bottom: rng.pick(ANTIFOUL),
-    stripe: rng.next() < 0.5 ? accent : C.cabin,
-    deck: rng.pick(DECK),
-  });
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length: 2.7,
+      beam,
+      height: rng.range(0.5, 0.58),
+      draft: 0.24,
+      bow: rng.range(0.16, 0.22),
+      stern: rng.range(0.72, 0.85),
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: rng.next() < 0.5 ? accent : C.cabin,
+      deck: rng.pick(DECK),
+    },
+    owned,
+  );
   const white = rng.pick(SUPERSTRUCTURE);
   // Forecastle and the bridge block aft, two or three decks high.
   root.add(box(0.36, 0.1, beam * 0.86, paint, 1.0, deck, 0));
@@ -445,7 +465,7 @@ export function coasterShip(seed: number, company: number, crate: Crate): Craft 
     2,
     0.205,
   );
-  return { root, slots };
+  return { root, slots, owned };
 }
 
 /**
@@ -458,18 +478,23 @@ export function tugBoat(seed: number): Craft {
   const paint = rng.pick([0xb33a32, 0x24324a, 0x2e7d4f, 0xd9822b]);
   const length = 1.1;
   const beam = 0.48;
-  const deck = hull(root, {
-    length,
-    beam,
-    height: 0.3,
-    draft: 0.12,
-    bow: 0.32,
-    stern: 0.88,
-    paint,
-    bottom: rng.pick(ANTIFOUL),
-    stripe: C.cabin,
-    deck: rng.pick(DECK),
-  });
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length,
+      beam,
+      height: 0.3,
+      draft: 0.12,
+      bow: 0.32,
+      stern: 0.88,
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: C.cabin,
+      deck: rng.pick(DECK),
+    },
+    owned,
+  );
   // Rubber fenders all round, heaviest at the bow, where it pushes.
   const fender = 0x1d1f22;
   for (const s of [-1, 1])
@@ -488,7 +513,7 @@ export function tugBoat(seed: number): Craft {
   const winch = cyl(0.05, beam * 0.4, C.chassis, -0.34, deck + 0.06, 0, 8);
   winch.rotation.x = Math.PI / 2;
   root.add(winch);
-  return { root, slots: [] };
+  return { root, slots: [], owned };
 }
 
 /**
@@ -501,18 +526,23 @@ export function feederShip(seed: number, company: number, container: Box): Craft
   const paint = rng.pick([0x24324a, 0xb33a32, 0x2f6fd0, 0x2e7d4f, 0x3a3f47, 0x1f6f78, 0xd9822b]);
   const accent = COMPANY[company % COMPANY.length];
   const beam = 0.96;
-  const deck = hull(root, {
-    length: 5.6,
-    beam,
-    height: 0.7,
-    draft: 0.3,
-    bow: rng.range(0.1, 0.14),
-    stern: 0.86,
-    paint,
-    bottom: rng.pick(ANTIFOUL),
-    stripe: C.cabin,
-    deck: 0x8e959c,
-  });
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length: 5.6,
+      beam,
+      height: 0.7,
+      draft: 0.3,
+      bow: rng.range(0.1, 0.14),
+      stern: 0.86,
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: C.cabin,
+      deck: 0x8e959c,
+    },
+    owned,
+  );
   const white = rng.pick(SUPERSTRUCTURE);
   // Forecastle with a breakwater.
   root.add(box(0.5, 0.14, beam * 0.9, paint, 2.42, deck, 0));
@@ -557,5 +587,5 @@ export function feederShip(seed: number, company: number, container: Box): Craft
     FEEDER_TIERS,
     0.24,
   );
-  return { root, slots };
+  return { root, slots, owned };
 }

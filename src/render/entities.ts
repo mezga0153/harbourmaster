@@ -25,6 +25,7 @@ import {
   truck,
   type Model,
 } from './models';
+import { disposeOwned, KeyedObjects } from './keyed';
 import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import { clamp01, ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
@@ -353,7 +354,12 @@ export function turnAbout(face: number): TurnAbout {
 /** Ships, trucks and people, interpolated between sim snapshots. */
 export class Entities {
   readonly group = new Group();
-  private entries = new Map<number, Entry>();
+  private entries = new KeyedObjects<number, Entry>((e) => {
+    this.group.remove(e.model.root);
+    if (e.alert) this.group.remove(e.alert);
+    if (e.track) this.wash.letGo(e.track);
+    disposeOwned(e.model);
+  });
   private prev = new Map<number, EntityView>();
   private snapTime = 0;
   /** Sim ticks between the last two snapshots, more at higher game speeds. */
@@ -382,38 +388,10 @@ export class Entities {
     this.snapTicks = this.lastTick < 0 ? 1 : Math.max(1, tick - this.lastTick);
     this.prevTick = this.lastTick < 0 ? tick : this.lastTick;
     this.lastTick = tick;
-    const seen = new Set<number>();
+    const byId = new Map(views.map((v) => [v.id, v]));
+    this.entries.sync(byId.keys(), (id) => this.enter(byId.get(id)!));
     for (const v of views) {
-      seen.add(v.id);
-      let e = this.entries.get(v.id);
-      if (!e) {
-        const model =
-          v.kind === 'dockhand'
-            ? person(v.id)
-            : v.kind === 'forklift'
-              ? forklift()
-              : v.kind === 'stacker'
-                ? stacker()
-                : v.kind === 'tractor'
-                  ? tractor()
-                  : v.kind === 'boat'
-                    ? boat(v.variant, v.vessel, v.id, v.catch === 'lobster')
-                    : truck(v.variant, v.capacity, v.boxes, v.id);
-        this.group.add(model.root);
-        // Only machines show a warning marker; boats at anchor are normal.
-        const alert = isMachineKind(v.kind) ? alertMarker() : null;
-        if (alert) {
-          alert.visible = false;
-          this.group.add(alert);
-        }
-        e = { view: v, model, alert };
-        if (v.kind === 'boat') {
-          e.way = 0;
-          e.heel = 0;
-          model.root.rotation.order = 'YXZ';
-        }
-        this.entries.set(v.id, e);
-      }
+      const e = this.entries.get(v.id)!;
       // Out of where it was parked: from where the game has it, not the garage.
       if (this.prev.get(v.id)?.parked && !v.parked) this.prev.set(v.id, v);
       e.view = v;
@@ -429,14 +407,36 @@ export class Entities {
         v.cargo?.forEach((c, k) => setCrateIcon(e.model.crates[e.order?.[k] ?? k], c));
       }
     }
-    for (const [id, e] of this.entries) {
-      if (!seen.has(id)) {
-        this.group.remove(e.model.root);
-        if (e.alert) this.group.remove(e.alert);
-        if (e.track) this.wash.letGo(e.track);
-        this.entries.delete(id);
-      }
+  }
+
+  /** A model for an entity just come into view, in the scene. */
+  private enter(v: EntityView): Entry {
+    const model =
+      v.kind === 'dockhand'
+        ? person(v.id)
+        : v.kind === 'forklift'
+          ? forklift()
+          : v.kind === 'stacker'
+            ? stacker()
+            : v.kind === 'tractor'
+              ? tractor()
+              : v.kind === 'boat'
+                ? boat(v.variant, v.vessel, v.id, v.catch === 'lobster')
+                : truck(v.variant, v.capacity, v.boxes, v.id);
+    this.group.add(model.root);
+    // Only machines show a warning marker; boats at anchor are normal.
+    const alert = isMachineKind(v.kind) ? alertMarker() : null;
+    if (alert) {
+      alert.visible = false;
+      this.group.add(alert);
     }
+    const e: Entry = { view: v, model, alert };
+    if (v.kind === 'boat') {
+      e.way = 0;
+      e.heel = 0;
+      model.root.rotation.order = 'YXZ';
+    }
+    return e;
   }
 
   update(now: number, time: number): void {

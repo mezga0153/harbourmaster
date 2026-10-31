@@ -70,6 +70,7 @@ import {
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
 import { bake, pavements, townBuilding } from './town';
+import { disposeOwned, KeyedObjects, type Owns } from './keyed';
 import { clamp01, headingOf, lerpAngle, syncPhase, turnOf, wrapAngle } from './util/math';
 import { unitBox } from './util/mesh';
 
@@ -407,27 +408,40 @@ interface ShipGantryParts {
   offAt?: { x: number; z: number; drop: number };
 }
 
+/** The moving and worked parts on a tile, set as it is made; see Tile. */
+interface TileParts extends Owns {
+  stack?: BayStack;
+  crane?: CraneParts;
+  gate?: GateParts;
+  /** A buoy, bobbing on the swell. */
+  buoy?: Object3D;
+  crossing?: CrossingParts;
+  lights?: LightParts;
+  /** A yard gantry, for its trolley to run as it loads trucks. */
+  yardGantry?: YardGantryParts;
+}
+
+/** What is drawn on a tile, with its parts: made whole and let go of whole, see rebuild. */
+interface Tile extends TileParts {
+  obj: Object3D;
+}
+
 /** Roads, paths, jetties and truck bays, rebuilt per tile when they change. */
 export class Structures {
   readonly group = new Group();
-  private tiles = new Map<number, Object3D>();
-  private stacks = new Map<number, BayStack>();
+  private tiles = new KeyedObjects<number, Tile>((t) => {
+    this.group.remove(t.obj);
+    disposeOwned(t);
+    this.byPart.clear();
+  });
   /** Gantry cranes' stacks: each container's look and place, as the game has them. */
   private cranePlaces = new Map<number, { looks: number[]; places: number[] }>();
   /** Which container is in which slot, by yard (its first tile) or crane; see settle. */
   private slots = new Map<number, number[]>();
   /** Each container yard's tiles, by its first. */
   private yardTiles = new Map<number, number[]>();
-  private cranes = new Map<number, CraneParts>();
-  private gates = new Map<number, GateParts>();
-  /** Buoys, bobbing on the swell. */
-  private buoys = new Map<number, Object3D>();
-  private crossings = new Map<number, CrossingParts>();
-  private lights = new Map<number, LightParts>();
   /** The game's tick, for the traffic lights' phases. */
   private tick = 0;
-  /** Yard gantries, by tile, for their trolley to run as they load trucks. */
-  private yardGantries = new Map<number, YardGantryParts>();
   /** Where a truck's container slot is in the world; set by the renderer. */
   truckSlot?: (id: number, k: number, out: Vector3) => Vector3 | null;
   /** Whether a truck's, tractor's or ship's container slot `k` shows a container. */
@@ -457,7 +471,40 @@ export class Structures {
 
   /** What is drawn on tile `i`, if anything. */
   tileObject(i: number): Object3D | undefined {
-    return this.tiles.get(i);
+    return this.tiles.get(i)?.obj;
+  }
+
+  /** The tiles with each kind of part, worked out once per rebuild; see each. */
+  private byPart = new Map<keyof TileParts, Map<number, unknown>>();
+
+  /** Each tile's `part`, with the tile, for those tiles that have one. */
+  private each<P extends Exclude<keyof TileParts, 'owned'>>(
+    part: P,
+  ): Map<number, NonNullable<TileParts[P]>> {
+    let m = this.byPart.get(part);
+    if (!m) {
+      m = new Map();
+      for (const [i, t] of this.tiles) if (t[part] !== undefined) m.set(i, t[part]);
+      this.byPart.set(part, m);
+    }
+    return m as Map<number, NonNullable<TileParts[P]>>;
+  }
+
+  private stackAt(i: number): BayStack | undefined {
+    return this.tiles.get(i)?.stack;
+  }
+
+  /** The cranes and yard gantries by tile, as the tests look at them. */
+  get cranes(): Map<number, CraneParts> {
+    return new Map(this.each('crane'));
+  }
+
+  get yardGantries(): Map<number, YardGantryParts> {
+    return new Map(this.each('yardGantry'));
+  }
+
+  private craneAt(i: number): CraneParts | undefined {
+    return this.tiles.get(i)?.crane;
   }
 
   apply(changes: TileChange[]): void {
@@ -484,7 +531,7 @@ export class Structures {
     }
     // A yard gantry's rails run the length of its yard, so it is laid again
     // whatever changes.
-    if (changes.length > 0) for (const i of this.yardGantries.keys()) touched.add(i);
+    if (changes.length > 0) for (const [i] of this.each('yardGantry')) touched.add(i);
     for (const i of touched) this.rebuild(i);
   }
 
@@ -526,7 +573,7 @@ export class Structures {
 
   setCranes(views: CraneView[]): void {
     for (const v of views) {
-      const c = this.cranes.get(v.idx);
+      const c = this.craneAt(v.idx);
       if (!c) continue;
       // Exports set down for a container crane wait on its stack too: on a
       // gantry crane's each in the place the game has it.
@@ -577,7 +624,7 @@ export class Structures {
 
   /** Port gates lift their barrier while a truck is passing through. */
   setGates(trucks: { x: number; y: number }[]): void {
-    for (const [i, g] of this.gates) {
+    for (const [i, g] of this.each('gate')) {
       const cx = this.map.xOf(i) + 0.5;
       const cy = this.map.yOf(i) + 0.5;
       g.open = trucks.some((t) => Math.hypot(t.x - cx, t.y - cy) < 1.6);
@@ -596,7 +643,7 @@ export class Structures {
 
   /** Per-frame animation: slew cranes towards their boats, bob the hooks, lift barriers. */
   update(dt: number, time: number): void {
-    for (const [i, l] of this.lights) {
+    for (const [i, l] of this.each('lights')) {
       const green = greenAt(i, this.tick);
       for (const way of ['ns', 'ew'] as const) {
         for (const lamp of l[way]) {
@@ -605,24 +652,24 @@ export class Structures {
         }
       }
     }
-    for (const c of this.crossings.values()) {
+    for (const [, c] of this.each('crossing')) {
       const closed = crossingClosed(this.train, c.y);
       c.angle += ((closed ? 0 : 1.45) - c.angle) * Math.min(1, dt * 3);
       for (const { arm, sign } of c.arms) arm.rotation.x = sign * c.angle;
       const blink = Math.floor(time * 3) % 2;
       c.lamps.forEach((l, k) => (l.visible = closed && k % 2 === blink));
     }
-    for (const [i, buoy] of this.buoys) {
+    for (const [i, buoy] of this.each('buoy')) {
       buoy.position.y = Math.sin(time * 1.7 + i * 0.37) * 0.025;
       buoy.rotation.z = Math.sin(time * 1.3 + i) * 0.08;
       buoy.rotation.x = Math.cos(time * 1.1 + i * 0.7) * 0.08;
     }
-    for (const g of this.gates.values()) {
+    for (const [, g] of this.each('gate')) {
       g.angle += ((g.open ? 1.4 : 0) - g.angle) * Math.min(1, dt * 5);
       g.boom.rotation.z = -g.angle;
     }
-    for (const g of this.yardGantries.values()) this.runYardGantry(g, dt);
-    for (const c of this.cranes.values()) {
+    for (const [, g] of this.each('yardGantry')) this.runYardGantry(g, dt);
+    for (const [, c] of this.each('crane')) {
       if (c.sts) {
         this.runShipGantry(c, c.sts, dt);
         continue;
@@ -830,7 +877,7 @@ export class Structures {
     if (j.store === undefined) return c.stack[j.place];
     let k = j.place;
     for (const t of this.areas.get(j.store) ?? []) {
-      const items = this.stacks.get(t)?.crates ?? [];
+      const items = this.stackAt(t)?.crates ?? [];
       if (k < items.length) return items[k];
       k -= items.length;
     }
@@ -1219,7 +1266,7 @@ export class Structures {
       // Its gantry, at work or not, and where in the yard the container
       // it is moving lies, or for one coming off a truck, where it goes.
       const tiles = new Set(y.tiles);
-      for (const g of this.yardGantries.values()) {
+      for (const [, g] of this.each('yardGantry')) {
         // Only the yard it works, though it may stand beside another too.
         if (!tiles.has(g.works)) continue;
         const was = g.work;
@@ -1302,7 +1349,7 @@ export class Structures {
   private yardSlot(tiles: number[], k: number): Object3D | undefined {
     if (k < 0) return undefined;
     for (const t of tiles) {
-      const items = this.stacks.get(t)?.boxes ?? [];
+      const items = this.stackAt(t)?.boxes ?? [];
       if (k < items.length) return items[k];
       k -= items.length;
     }
@@ -1326,13 +1373,13 @@ export class Structures {
     const placed = at.crane !== undefined ? this.cranePlaces.get(at.crane) : undefined;
     if (at.crane !== undefined && placed) {
       // A gantry crane's stack, each in its place.
-      const stack = this.cranes.get(at.crane)?.stack ?? [];
+      const stack = this.craneAt(at.crane)?.stack ?? [];
       const j = at.look === undefined ? -1 : placed.looks.indexOf(at.look);
       const k = j >= 0 ? placed.places[j] : at.place;
       slot = k === undefined ? undefined : stack[k];
       if (at.look !== undefined && !slot?.visible) slot = undefined;
     } else if (at.crane !== undefined) {
-      const stack = this.cranes.get(at.crane)?.stack ?? [];
+      const stack = this.craneAt(at.crane)?.stack ?? [];
       const order = this.slots.get(-1 - at.crane) ?? [];
       const k = at.look === undefined ? order.length : order.indexOf(at.look);
       slot = k < 0 ? undefined : stack[Math.min(k, stack.length - 1)];
@@ -1340,14 +1387,14 @@ export class Structures {
       // A pallet's place in crate storage, the way its forks go in.
       const tiles = this.areas.get(at.store) ?? [at.store];
       const per = CRATES_PER_STORE_TILE / PALLET;
-      const place = this.stacks.get(tiles[Math.floor(at.place / per)])?.places?.[at.place % per];
+      const place = this.stackAt(tiles[Math.floor(at.place / per)])?.places?.[at.place % per];
       if (!place) return null;
       place.getWorldPosition(out);
       return headingOf(place);
     } else if (at.yard !== undefined && at.place !== undefined) {
       const tiles = this.yardTiles.get(at.yard) ?? [];
       const per = BOXES_PER_STORE_TILE;
-      slot = this.stacks.get(tiles[Math.floor(at.place / per)])?.boxes[at.place % per];
+      slot = this.stackAt(tiles[Math.floor(at.place / per)])?.boxes[at.place % per];
       // A given container is there only while it shows.
       if (at.look !== undefined && !slot?.visible) slot = undefined;
     } else if (at.yard !== undefined) {
@@ -1369,14 +1416,14 @@ export class Structures {
     if (at.slot === undefined || at.look !== undefined) return undefined;
     const k = at.slot;
     if (at.pile !== undefined) return this.piles.get(at.pile)?.crates[k] ?? null;
-    if (at.bay !== undefined) return this.stacks.get(at.bay)?.crates[k] ?? null;
+    if (at.bay !== undefined) return this.stackAt(at.bay)?.crates[k] ?? null;
     if (at.store !== undefined) {
       const tiles = this.areas.get(at.store) ?? [at.store];
       const tile = tiles[Math.floor(k / CRATES_PER_STORE_TILE)];
-      return this.stacks.get(tile)?.crates[k % CRATES_PER_STORE_TILE] ?? null;
+      return this.stackAt(tile)?.crates[k % CRATES_PER_STORE_TILE] ?? null;
     }
-    if (at.crane !== undefined && this.cranes.get(at.crane)?.jib) {
-      return this.cranes.get(at.crane)?.stack[k] ?? null;
+    if (at.crane !== undefined && this.craneAt(at.crane)?.jib) {
+      return this.craneAt(at.crane)?.stack[k] ?? null;
     }
     return undefined;
   }
@@ -1497,7 +1544,7 @@ export class Structures {
         } else this.fill(b.tiles, b.stock + b.exports, false, undefined, b.cargo, b.waiting);
         continue;
       }
-      const stack = this.stacks.get(b.idx);
+      const stack = this.stackAt(b.idx);
       if (!stack) continue;
       // Its crates, and on top any ice waiting for the fishing boats.
       stack.crates.forEach((c, k) => (c.visible = k < b.stock + b.exports));
@@ -1574,7 +1621,7 @@ export class Structures {
     // Each container as it looks, staying in its slot as others come and go.
     const order = looks && tiles.length > 0 ? this.settled(tiles[0], looks) : undefined;
     for (const t of tiles) {
-      const stack = this.stacks.get(t);
+      const stack = this.stackAt(t);
       if (!stack) continue;
       const items = boxes ? stack.boxes : stack.crates;
       items.forEach((o, k) => {
@@ -1600,7 +1647,7 @@ export class Structures {
     const on = new Map<number, number>();
     places.forEach((k, j) => on.set(k, Math.min(PALLET, Math.max(0, count - j * PALLET))));
     tiles.forEach((t, n) => {
-      this.stacks.get(t)?.crates.forEach((o, k) => {
+      this.stackAt(t)?.crates.forEach((o, k) => {
         const place = n * per + Math.floor(k / PALLET);
         o.visible = k % PALLET < (on.get(place) ?? 0);
         // The crates of the pallet in this place, in the order they went on it.
@@ -1622,7 +1669,7 @@ export class Structures {
     const shown = new Map<number, number>();
     slots.forEach((k, j) => shown.set(k, looks[j]));
     tiles.forEach((t, n) => {
-      this.stacks.get(t)?.boxes.forEach((o, r) => {
+      this.stackAt(t)?.boxes.forEach((o, r) => {
         const look = shown.get(n * per + r);
         o.visible = look !== undefined;
         if (look !== undefined) paintContainer(o, look);
@@ -1635,7 +1682,7 @@ export class Structures {
   /** Where a yard gantry reaches for yard slot `k`; see slotFor. */
   private yardSlotAt(g: YardGantryParts, tiles: number[], k: number): YardGantryParts['pick'] {
     const per = BOXES_PER_STORE_TILE;
-    const slot = this.stacks.get(tiles[Math.floor(k / per)])?.boxes[k % per];
+    const slot = this.stackAt(tiles[Math.floor(k / per)])?.boxes[k % per];
     if (!slot) return null;
     g.frame.updateWorldMatrix(true, false);
     slot.updateWorldMatrix(true, false);
@@ -1654,21 +1701,13 @@ export class Structures {
   private rebuild(i: number): void {
     const old = this.tiles.get(i);
     // A yard gantry or jib crane laid again carries on where it was.
-    const was = this.yardGantries.get(i);
-    const jibWas = this.cranes.get(i);
-    if (old) {
-      this.group.remove(old);
-      this.tiles.delete(i);
-      this.stacks.delete(i);
-      this.cranes.delete(i);
-      this.gates.delete(i);
-      this.buoys.delete(i);
-      this.crossings.delete(i);
-      this.lights.delete(i);
-      this.yardGantries.delete(i);
-    }
-    let obj = this.make(i);
-    const now = this.yardGantries.get(i);
+    const was = old?.yardGantry;
+    const jibWas = old?.crane;
+    // Out of the scene, and its own geometry (baked roads and buildings) freed.
+    this.tiles.delete(i);
+    const parts: TileParts = { owned: [] };
+    let obj = this.make(i, parts);
+    const now = parts.yardGantry;
     if (was && now) {
       // On its rails as they are now, the yard made shorter or split.
       now.carriage.position.x = Math.min(
@@ -1679,7 +1718,7 @@ export class Structures {
       const { pick, work, look, phase, base, held, legs, ticks, startX, startZ } = was;
       Object.assign(now, { pick, work, look, phase, base, held, legs, ticks, startX, startZ });
     }
-    const jibNow = this.cranes.get(i);
+    const jibNow = parts.crane;
     if (jibWas?.jib && jibNow?.jib) {
       jibNow.angle = jibWas.angle;
       jibNow.slew.rotation.y = jibWas.angle;
@@ -1704,7 +1743,8 @@ export class Structures {
     if (!obj) return;
     obj.position.set(this.map.xOf(i), 0, this.map.yOf(i));
     this.group.add(obj);
-    this.tiles.set(i, obj);
+    this.tiles.set(i, { ...parts, obj });
+    this.byPart.clear();
   }
 
   /**
@@ -1735,7 +1775,11 @@ export class Structures {
     return codes.includes(this.map.build[this.map.idx(x, y)]);
   }
 
-  private make(i: number): Object3D | null {
+  /**
+   * The model for tile `i`, or null for nothing; the moving parts on it go
+   * in `parts`, and any geometry made for it alone onto `parts.owned`.
+   */
+  private make(i: number, parts: TileParts): Object3D | null {
     const code = this.map.build[i];
     if (code === Build.None) return null;
     // The second tile of a large bay is drawn with its first.
@@ -1755,7 +1799,7 @@ export class Structures {
           // A town street: pavements, and a lamp now and then.
           const open = DIRS.map(([dx, dy]) => this.streetAt(i, dx, dy));
           pavements(g, top, open, hash01(i, 5, 5) < 0.3);
-          return bake(g);
+          return bake(g, parts.owned);
         }
         const road = [Build.Road, Build.Crossing];
         // Off a highway exit, it runs on from the slip road.
@@ -1770,12 +1814,12 @@ export class Structures {
             g.add(box(w, 0.01, d, C.marking, x, top + 0.05, z));
           }
         }
-        if (hasLights(this.map, i)) this.trafficLights(g, i, top + 0.05);
+        if (hasLights(this.map, i)) this.trafficLights(g, top + 0.05, parts);
         return g;
       }
       case Build.Highway:
         this.highwayTile(g, i, top);
-        return bake(g);
+        return bake(g, parts.owned);
       case Build.Rail:
         this.track(
           g,
@@ -1785,7 +1829,7 @@ export class Structures {
         );
         return g;
       case Build.Crossing:
-        this.crossing(g, i, top);
+        this.crossing(g, i, top, parts);
         return g;
       case Build.Office: {
         // Harbour office: two storeys, a control room on top, radio mast and
@@ -1822,7 +1866,7 @@ export class Structures {
         paving();
         const along = this.is(i, 1, 0, Build.PortRoad) || this.is(i, -1, 0, Build.PortRoad);
         if (this.map.store[i]) {
-          this.storage(g, i, QUAY_Y);
+          this.storage(g, i, QUAY_Y, parts);
           this.machinesOutline(g, i, QUAY_Y);
           return g;
         }
@@ -1840,7 +1884,7 @@ export class Structures {
             g.add(box(w, 0.006, d, C.marking, x, QUAY_Y, z));
           }
         }
-        if (hasLights(this.map, i)) this.trafficLights(g, i, QUAY_Y);
+        if (hasLights(this.map, i)) this.trafficLights(g, QUAY_Y, parts);
         return g;
       }
       case Build.Parking: {
@@ -1908,7 +1952,7 @@ export class Structures {
           );
         }
         g.add(boom);
-        this.gates.set(i, { boom, open: false, angle: 0 });
+        parts.gate = { boom, open: false, angle: 0 };
         // A one-way gate: an arrow in through it from the road (-z), or out to it.
         const o = this.map.orient[i];
         if (o & (GATE_IN | GATE_OUT)) roadArrow(g, y, o & GATE_IN ? 3 : 1);
@@ -1956,7 +2000,7 @@ export class Structures {
         } else buoy.add(cyl(0.085, 0.1, paint, 0, 0.26, 0, 8));
         buoy.add(cyl(0.025, 0.05, LIGHT, 0, green ? 0.4 : 0.36, 0, 6));
         g.add(buoy);
-        this.buoys.set(i, buoy);
+        parts.buoy = buoy;
         return g;
       }
       case Build.Footpath:
@@ -1990,7 +2034,7 @@ export class Structures {
       case Build.Quay: {
         this.quay(g, i);
         if (this.map.store[i]) {
-          this.storage(g, i, QUAY_Y);
+          this.storage(g, i, QUAY_Y, parts);
           this.machinesOutline(g, i, QUAY_Y);
         } else if (machinesOnly(this.map, i)) this.machinesOutline(g, i, QUAY_Y);
         return g;
@@ -2089,7 +2133,7 @@ export class Structures {
         }
         // Waiting with its boom out over the water.
         const sea = back.alongX ? (back.side * Math.PI) / 2 : back.side > 0 ? Math.PI : 0;
-        this.cranes.set(i, {
+        const crane: CraneParts = {
           slew,
           rope,
           hook,
@@ -2126,8 +2170,9 @@ export class Structures {
             landing: null,
             leaving: null,
           },
-        });
-        this.poseHarbourCrane(this.cranes.get(i)!, this.cranes.get(i)!.mhc!);
+        };
+        parts.crane = crane;
+        this.poseHarbourCrane(crane, crane.mhc!);
         return g;
       }
       case Build.YardGantry: {
@@ -2199,7 +2244,7 @@ export class Structures {
         trolley.add(rope, spreader);
         carriage.add(trolley);
         frame.add(carriage);
-        this.yardGantries.set(i, {
+        parts.yardGantry = {
           frame,
           carriage,
           trolley,
@@ -2224,7 +2269,7 @@ export class Structures {
           works: yard ?? -1,
           startX: 0,
           startZ: Math.max(0.6, far / 2),
-        });
+        };
         // Laid out along +z, then turned to face the yard.
         frame.position.set(0.5, 0, 0.5);
         frame.rotation.y = Math.atan2(dx, dy);
@@ -2315,7 +2360,7 @@ export class Structures {
             }
           }
         }
-        this.cranes.set(i, {
+        parts.crane = {
           slew: trolley,
           rope,
           hook,
@@ -2342,7 +2387,7 @@ export class Structures {
             stacked: 0,
             base: 0,
           },
-        });
+        };
         return g;
       }
       case Build.JibCrane: {
@@ -2396,7 +2441,7 @@ export class Structures {
             stack.push(c);
           }
         }
-        const parts: CraneParts = {
+        const crane: CraneParts = {
           slew,
           rope,
           hook,
@@ -2424,8 +2469,8 @@ export class Structures {
             start: { angle: 0, out: 1.2 },
           },
         };
-        this.reachOut(parts.jib!, 1.2);
-        this.cranes.set(i, parts);
+        this.reachOut(crane.jib!, 1.2);
+        parts.crane = crane;
         return g;
       }
       case Build.Depot: {
@@ -2572,7 +2617,7 @@ export class Structures {
         }
         g.add(cyl(0.02, 0.5, C.chassis, 0.92, y, 0.08));
         g.add(box(0.04, 0.16, 0.22, C.sign, 0.92, y + 0.45, 0.08));
-        this.stacks.set(i, { crates, boxes: [] });
+        parts.stack = { crates, boxes: [] };
         return g;
       }
       case Build.LargeBay: {
@@ -2602,11 +2647,11 @@ export class Structures {
         g.add(box(1, 0.04, 1, C.depotRoof, 1.5, y + 0.8, 0.5));
         g.add(cyl(0.02, 0.5, C.chassis, 0.08, y, 0.08));
         g.add(box(0.04, 0.16, 0.22, C.sign, 0.08, y + 0.45, 0.08));
-        this.stacks.set(i, { crates, boxes: [] });
+        parts.stack = { crates, boxes: [] };
         return g;
       }
     }
-    return townBuilding(code, top, hash01(i, 11, 3));
+    return townBuilding(code, top, hash01(i, 11, 3), parts.owned);
   }
 
   /** Whether the town has built anything next to `i`; out in the country its road has no pavements. */
@@ -2641,7 +2686,7 @@ export class Structures {
    * A road over the line on the level: the road runs along x and the rails
    * along z, with a barrier and flashing lamps on each side of the line.
    */
-  private crossing(g: Group, i: number, top: number): void {
+  private crossing(g: Group, i: number, top: number, parts: TileParts): void {
     g.add(box(1, 0.05, 1, C.asphalt, 0.5, top, 0.5));
     g.add(box(0.44, 0.012, 1, C.quayWall, 0.5, top + 0.05, 0.5));
     for (const x of [0.35, 0.65]) g.add(box(0.03, 0.02, 1, STEEL, x, top + 0.05, 0.5));
@@ -2694,7 +2739,7 @@ export class Structures {
       g.add(arm);
       arms.push({ arm, sign });
     }
-    this.crossings.set(i, { arms, lamps, y: this.map.yOf(i), angle: 1.45 });
+    parts.crossing = { arms, lamps, y: this.map.yOf(i), angle: 1.45 };
   }
 
   /**
@@ -2702,7 +2747,7 @@ export class Structures {
    * and the goods stacked on it, crates four high in four piles or containers
    * two abreast and three high, lying along the area.
    */
-  private storage(g: Group, i: number, y: number): void {
+  private storage(g: Group, i: number, y: number, parts: TileParts): void {
     const code = this.map.store[i];
     const boxes = storesBoxes(code);
     // Storage for cargo going out is outlined in blue.
@@ -2764,7 +2809,7 @@ export class Structures {
         }
       }
     }
-    this.stacks.set(i, stack);
+    parts.stack = stack;
   }
 
   /** A red line round the edge of an area kept for port machines, if `i` is in one. */
@@ -2997,8 +3042,8 @@ export class Structures {
    * Traffic lights on a junction: a post at each corner, by the lane
    * coming in on its right, its lamps red or green as the game has them.
    */
-  private trafficLights(g: Group, i: number, top: number): void {
-    const parts: LightParts = { ns: [], ew: [] };
+  private trafficLights(g: Group, top: number, parts: TileParts): void {
+    const lights: LightParts = { ns: [], ew: [] };
     // Corner, and which traffic it faces: in on the right-hand side of the road.
     for (const [px, pz, way] of [
       [0.08, 0.92, 'ew'],
@@ -3012,9 +3057,9 @@ export class Structures {
       const green = box(0.065, 0.04, 0.065, LAMP_GREEN, px, top + 0.31, pz);
       green.visible = false;
       g.add(red, green);
-      parts[way].push({ red, green });
+      lights[way].push({ red, green });
     }
-    this.lights.set(i, parts);
+    parts.lights = lights;
   }
 
   /** Stakes and a painted line where the port's land ends and the country begins. */
