@@ -406,6 +406,35 @@ export function makeIceOffer(
   return { id, terms, signingFee, expires };
 }
 
+/**
+ * A lobsterman's offer, put on the board as the town opens its ice house:
+ * a small catch at a fine price, as the lobstermen among the fishery offers.
+ */
+export function makeLobsterOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+): Offer | null {
+  const free = LOBSTERMEN.filter((n) => !takenNames.has(n));
+  if (free.length === 0) return null;
+  const cratesMin = rng.int(3, 5);
+  const terms: FisheryTerms = {
+    kind: 'fishery',
+    vessel: 'smack',
+    name: rng.pick(free),
+    color: rng.int(0, 3),
+    boatEvery: Math.round(rng.range(1, 2) * 20) / 20,
+    cratesMin,
+    cratesMax: cratesMin + rng.int(1, 3),
+    fee: rng.int(40, 60),
+    catch: 'lobster',
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * 600);
+  const signingFee = Math.round((fisheryDailyValue(terms) * 1.5) / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
 /** An ice works, rather than a shipper of goods. */
 export function isIce(t: Terms): boolean {
   return t.kind === 'shipper' && t.goods === 'ice';

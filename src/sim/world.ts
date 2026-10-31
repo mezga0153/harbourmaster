@@ -26,6 +26,7 @@ import {
   fisheryDailyCrates,
   isIce,
   makeIceOffer,
+  makeLobsterOffer,
   makeOffer,
   paysPerContainer,
   STARTER_FISHERY,
@@ -2525,6 +2526,22 @@ export class World {
     const others = this.offers.filter((o) => !isIce(o.terms));
     // Once the town has its fish market, which wants ice for its fish.
     const market = (this.town?.landmarks ?? 0) >= 1;
+    // Once it has its ice house, a lobsterman too, while none has a contract.
+    const lobster = (t: Terms) => t.kind === 'fishery' && t.catch === 'lobster';
+    if (
+      (this.town?.landmarks ?? 0) >= 2 &&
+      !this.offers.some((o) => lobster(o.terms)) &&
+      !this.contracts.some((c) => lobster(c.terms))
+    ) {
+      const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
+      const offer = makeLobsterOffer(
+        new Rng(this.tick * 6151 + 29),
+        -2 - this.tick,
+        this.tick,
+        taken,
+      );
+      if (offer) this.offers.push(offer);
+    }
     if (
       market &&
       !this.offers.some((o) => isIce(o.terms)) &&
