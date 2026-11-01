@@ -129,9 +129,16 @@ export function takeExportJob(w: World, p: Dockhand, src: Source, cost: CostFn):
   const target =
     exportTarget(w, p, src.tile, heap0) ??
     (heap0.pile && stranded(w, heap0) ? exportHome(w, p, src.tile) : null);
-  if (!target || !headTo(w, p, src.tile)) return false;
-  const heap = src.pile!;
+  if (!target) return false;
   const planned = Math.min(p.capacity, src.avail, target.room);
+  // A forklift brings a whole load to storage by a jib crane, or what the
+  // ship still takes: not a crate or two into the last gaps there, while
+  // the crane makes room for the rest.
+  if (target.want !== undefined && planned < Math.min(p.capacity, src.avail, target.want)) {
+    return false;
+  }
+  if (!headTo(w, p, src.tile)) return false;
+  const heap = src.pile!;
   if (heap.pile) heap.reserved = (heap.reserved ?? 0) + planned;
   else heap.outReserved = (heap.outReserved ?? 0) + planned;
   p.toBoat = -1;
@@ -167,7 +174,7 @@ export function exportTarget(
   p: Dockhand,
   from: number,
   source?: Bay,
-): { boat?: Boat; crane?: Crane; store?: Bay; room: number } | null {
+): { boat?: Boat; crane?: Crane; store?: Bay; room: number; want?: number } | null {
   if (isBoxy(p)) {
     for (const c of w.cranes.values()) {
       if (c.kind === 'jib') continue;
@@ -213,7 +220,7 @@ export function exportTarget(
         const takes = ice ? takesIce(w, store) : takesExports(w, store);
         if (store === source || space <= 0 || !takes) continue;
         const at = dropAt(w, p, store, from);
-        if (at >= 0) return { store, room: space };
+        if (at >= 0) return { store, room: space, want: room };
       }
     }
   }
@@ -305,7 +312,7 @@ export function exportHome(
   w: World,
   p: Dockhand,
   from: number,
-): { boat?: Boat; crane?: Crane; store?: Bay; room: number } | null {
+): { boat?: Boat; crane?: Crane; store?: Bay; room: number; want?: number } | null {
   // Ice goes back into a truck bay.
   const ice = p.load.some((c) => cargoOf(c.fee, 'goods') === 'ice');
   const stores = [...w.bays.values()]
