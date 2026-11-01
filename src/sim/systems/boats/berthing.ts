@@ -33,6 +33,7 @@ import { landingReach, muster } from '../workforce/dockhands';
 import { exportsComing, stillLoading } from '../cargo/exports';
 import { jibStore } from '../cargo/stores';
 import { jibStores } from '../cranes';
+import { outAboard } from '../../helpers';
 
 export function spawnBoats(w: World): void {
   for (const c of fisheries(w)) {
@@ -1120,18 +1121,18 @@ export function updateBoat(w: World, b: Boat): void {
       if (b.crates > 0 || b.reserved > 0 || loading) b.mooredTicks++;
       if (loading) {
         // Kept loading long past its time, it sails with what it has.
-        if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = b.out ?? 0;
+        if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = outAboard(b);
         // Lying in the way of a ship coming in, it takes on what is on its
         // way to it, and no more.
         if (waitingFor(w, b)) {
-          b.loadQuota = Math.min(b.loadQuota ?? Infinity, (b.out ?? 0) + exportsComing(w, b));
+          b.loadQuota = Math.min(b.loadQuota ?? Infinity, outAboard(b) + exportsComing(w, b));
         }
         b.timer = 0;
         return;
       }
       if (b.crates === 0 && b.reserved === 0) {
         // Done loading for this visit: it takes on nothing more while it waits to sail.
-        b.loadQuota = b.out ?? 0;
+        b.loadQuota = outAboard(b);
         b.loadedAt ??= w.tick;
         if (++b.timer <= 30) return;
         b.holdUp = boxedIn(w, b)

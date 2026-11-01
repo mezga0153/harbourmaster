@@ -193,6 +193,17 @@ interface OldYard {
   crates?: number[];
 }
 
+/** What a gantry holds as saved; an older save's as fees with how each looks and the ship it came off beside them. */
+function oldHeld(h: {
+  load?: Crate[];
+  fees?: number[];
+  looks?: number[];
+  from?: number[];
+}): Crate[] {
+  if (h.load) return h.load.map((c) => ({ ...c }));
+  return (h.fees ?? []).map((fee, k) => ({ fee, at: 0, look: h.looks?.[k], from: h.from?.[k] }));
+}
+
 /**
  * A container yard as saved, copied for the game to keep, or from an
  * older save's lists into its cells: each container in the slot it had,
@@ -213,6 +224,7 @@ function loadYard(w: World, d: Bay & OldYard): Bay {
   } = d;
   void crates;
   y.yard = true;
+  y.gantryHeld = y.gantryHeld && { ...y.gantryHeld, load: oldHeld(y.gantryHeld) };
   if (Array.isArray(y.cells) && !boxes) {
     y.cells = y.cells.map((c) => c && { ...c });
     return y;
@@ -258,6 +270,8 @@ interface OldCrane {
  */
 function loadCrane(w: World, d: Crane & OldCrane): Crane {
   const { stack, stackFrom, stackLooks, outStack, outLooks, places, outPlaces, ...c } = d;
+  const held = c.serving?.held;
+  if (c.serving && held) c.serving = { ...c.serving, held: { ...held, load: oldHeld(held) } };
   if (Array.isArray(c.cells)) {
     c.cells = c.cells.map((q) => q && { ...q });
     return c;
@@ -282,14 +296,44 @@ function loadCrane(w: World, d: Crane & OldCrane): Crane {
 }
 
 /**
+ * A boat as saved, its exports on board copied for the game to keep; or
+ * an older save's, kept as a count with their fees, looks and deck slots
+ * beside it, each into its slot.
+ */
+function loadBoat(
+  d: Boat & { out?: number; outFees?: number[]; outLooks?: number[]; outSlots?: number[] },
+): Boat {
+  const { out, outFees, outLooks, outSlots, ...b } = d;
+  if (b.loaded) b.loaded = b.loaded.map((c) => c && { ...c });
+  else if (out) {
+    const cells: Cells = [];
+    for (let i = 0; i < out; i++) {
+      let k = outSlots?.[i] ?? -1;
+      if (k < 0 || cells[k]) k = cells.findIndex((c) => !c);
+      if (k < 0) k = cells.length;
+      while (cells.length <= k) cells.push(null);
+      cells[k] = { fee: outFees?.[i] ?? 0, at: i - out, out: true, look: outLooks?.[i] };
+    }
+    b.loaded = cells;
+  }
+  return b;
+}
+
+/**
  * A crate truck's bed as saved, copied for the game to keep; or an older
  * save's crates on it, kept as fees with their places on its bed beside
  * them, each into its place, any without one into the next free.
  */
-function loadBed(t: Truck & { fees?: number[]; bed?: number[] }): Truck {
-  const { fees, bed, ...truck } = t;
+function loadBed(t: Truck & { fees?: number[]; bed?: number[]; looks?: number[] }): Truck {
+  const { fees, bed, looks, ...truck } = t;
   if (truck.load) truck.load = truck.load.map((c) => c && { ...c });
-  else if (fees) {
+  else if (truck.boxes && looks) {
+    // A haulier's containers, each its share of what they pay.
+    const fee = truck.cargo > 0 ? truck.value / truck.cargo : 0;
+    truck.load = looks
+      .slice(0, truck.cargo)
+      .map((look, k) => ({ fee, at: k - looks.length, look }));
+  } else if (fees) {
     const cells: Cells = [];
     fees.forEach((fee, i) => {
       let s = bed?.[i] ?? -1;
@@ -627,7 +671,7 @@ export class World {
         path: [...p.path],
       }),
     );
-    world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
+    world.boats = s.boats.map((b) => loadBoat({ ...b, path: [...b.path] }));
     world.tugs = (s.tugs ?? []).map((t) => ({ ...t, path: [...t.path] }));
     world.trucks = s.trucks.map((t) => loadBed({ ...t, path: [...t.path] }));
     // Older saves had warehouses and container yards as buildings: now they
@@ -1197,8 +1241,8 @@ export class World {
     return truckLeaveOf(this, t);
   }
 
-  shipOut(b: Boat, fees: number[]): void {
-    return shipOutOf(this, b, fees);
+  shipOut(b: Boat, load: (Crate | number)[], slot?: number): void {
+    return shipOutOf(this, b, load, slot);
   }
 
   // ── Output ────────────────────────────────────────────────

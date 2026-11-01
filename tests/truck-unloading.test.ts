@@ -111,9 +111,9 @@ describe("A shipper's truck at outgoing crate storage", () => {
     const world = wharf(4, 2);
     let canned = 0;
     const shipOut = shipOutOf.bind(null, world);
-    world.shipOut = (b: Any, fees: number[]) => {
-      canned += fees.filter((f) => cargoOf(f, 'goods') === 'canned').length;
-      return shipOut(b, fees);
+    world.shipOut = (b: Any, load: Any[], slot?: number) => {
+      canned += load.filter((c) => cargoOf(c.fee ?? c, 'goods') === 'canned').length;
+      return shipOut(b, load, slot);
     };
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) world.step();
     expect(canned).toBeGreaterThan(0);

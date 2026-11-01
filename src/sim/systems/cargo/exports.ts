@@ -21,7 +21,7 @@ import { holds, readyIn, takeReady, waitMask } from './customs';
 import { crateSlots, stackOf, takeFirst } from './places';
 import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
-import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
+import type { Bay, Boat, Crane, Crate, Dockhand, Truck } from '../../state';
 import {
   bayRoom,
   clamp,
@@ -29,6 +29,7 @@ import {
   cratesAt,
   exportsAt,
   isBoxy,
+  outAboard,
   outCap,
   truckBay,
 } from '../../helpers';
@@ -61,6 +62,7 @@ import type { Contract, ShipperTerms } from '../../contracts';
 import { needsWideSpace } from '../../rules/parking';
 import { TICKS_PER_DAY } from '../../types';
 import { feesOn } from './beds';
+import { feesOf, put, stamp } from './hold';
 
 /**
  * Exports waiting to go on a ship being loaded: dockhands carry crates on
@@ -165,7 +167,7 @@ export function exportTarget(
         0,
         ...w.boats
           .filter((b) => wantsLoad(w, b) && craneReaches(w, c, b))
-          .map((b) => (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - exportsComing(w, b)),
+          .map((b) => (b.loadQuota ?? outCap(b)) - outAboard(b) - exportsComing(w, b)),
       );
       const room = Math.min(exportRoom(w, c), want);
       if (room <= 0) continue;
@@ -177,14 +179,14 @@ export function exportTarget(
   if (source && truckBay(source)) {
     for (const b of w.boats) {
       if (b.vessel !== 'smack' || !wantsLoad(w, b) || p.kind !== 'dockhand') continue;
-      const room = (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - (b.outIncoming ?? 0);
+      const room = (b.loadQuota ?? outCap(b)) - outAboard(b) - (b.outIncoming ?? 0);
       if (room > 0 && loadSpot(w, p, b, from) >= 0) return { boat: b, room };
     }
     return null;
   }
   for (const b of w.boats) {
     if (b.vessel !== 'coaster' || !wantsLoad(w, b)) continue;
-    const room = outCap(b) - (b.out ?? 0) - (b.outIncoming ?? 0);
+    const room = outCap(b) - outAboard(b) - (b.outIncoming ?? 0);
     if (p.kind === 'dockhand') {
       if (loadSpot(w, p, b, from) >= 0) return { boat: b, room };
       continue;
@@ -305,7 +307,7 @@ export function wantsLoad(_w: World, b: Boat): boolean {
     b.state === 'moored' &&
     b.crates === 0 &&
     b.reserved === 0 &&
-    (b.loadQuota ?? outCap(b)) - (b.out ?? 0) - (b.outIncoming ?? 0) > 0
+    (b.loadQuota ?? outCap(b)) - outAboard(b) - (b.outIncoming ?? 0) > 0
   );
 }
 
@@ -367,7 +369,7 @@ export function exportsComing(w: World, b: Boat): number {
 export function stillLoading(w: World, b: Boat): boolean {
   if (outCap(b) === 0) return false;
   if ((b.outIncoming ?? 0) > 0) return true;
-  if ((b.out ?? 0) >= outCap(b)) return false;
+  if (outAboard(b) >= outCap(b)) return false;
   // Those already at its cranes, or on their way there, it takes anyway.
   const coming = exportsComing(w, b) - (b.outIncoming ?? 0);
   // It takes what is in the port when it is ready to go, never waiting for
@@ -375,18 +377,18 @@ export function stillLoading(w: World, b: Boat): boolean {
   if (b.loadQuota === undefined) {
     const claimed = w.boats
       .filter((o) => o !== b && o.state === 'moored' && o.vessel === b.vessel)
-      .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0)), 0);
-    const room = outCap(b) - (b.out ?? 0);
+      .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - outAboard(o)), 0);
+    const room = outCap(b) - outAboard(b);
     const take = clamp(Math.max(coming, w.exportsFor(b) - claimed), 0, room);
-    b.loadQuota = (b.out ?? 0) + take;
+    b.loadQuota = outAboard(b) + take;
     // The line allows time to load as well as to unload.
     b.grace += take * B.MOORED_TICKS_PER_CRATE;
   }
-  if ((b.out ?? 0) >= b.loadQuota) return false;
+  if (outAboard(b) >= b.loadQuota) return false;
   // Nothing left in the port that other ships alongside are not taking.
   const theirs = w.boats
     .filter((o) => o !== b && o.state === 'moored' && o.vessel === b.vessel)
-    .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - (o.out ?? 0) - (o.outIncoming ?? 0)), 0);
+    .reduce((n, o) => n + Math.max(0, (o.loadQuota ?? 0) - outAboard(o) - (o.outIncoming ?? 0)), 0);
   if (Math.max(coming, w.exportsFor(b) - theirs) <= 0) return false;
   // Its own cargo still being cleared off the crane comes first; and those
   // at its cranes, or on their way there, are coming.
@@ -398,7 +400,7 @@ export function stillLoading(w: World, b: Boat): boolean {
 
 /** What an unloaded ship alongside is doing: taking exports on, or waiting to sail. */
 export function readyWords(w: World, b: Boat): string {
-  const out = b.out ?? 0;
+  const out = outAboard(b);
   if (b.loadQuota === undefined || out < b.loadQuota || (b.outIncoming ?? 0) > 0) {
     return `Taking exports on board, ${out}${b.loadQuota ? ` of ${b.loadQuota}` : ''}`;
   }
@@ -423,12 +425,25 @@ export function truckCargo(w: World, t: Truck): Cargo[] {
   return Array.from({ length: t.cargo }, (_, k) => (k < fees.length ? cargoOf(fees[k]) : 'fish'));
 }
 
-/** Exports go on board: the shipper pays for each as it does. */
-export function shipOut(w: World, b: Boat, fees: number[]): void {
-  if (fees.length === 0) return;
+/**
+ * Exports go on board, into deck slot `slot` on a feeder if given, else
+ * after those already there: the shipper pays for each as it does.
+ */
+export function shipOut(w: World, b: Boat, load: (Crate | number)[], slot?: number): void {
+  if (load.length === 0) return;
+  const crates = load.map((c) => (typeof c === 'number' ? { fee: c, at: 0 } : c));
+  const fees = feesOf(crates);
   const total = fees.reduce((n, f) => n + f, 0);
-  b.out = (b.out ?? 0) + fees.length;
-  (b.outFees ??= []).push(...fees);
+  const cells = (b.loaded ??= []);
+  for (const c of crates) {
+    c.at = stamp(w.tick);
+    c.out = true;
+    let k = slot !== undefined && slot >= 0 && !cells[slot] ? slot : cells.length;
+    if (cells[k]) k = cells.length;
+    while (cells.length <= k) cells.push(null);
+    put(cells, k, c);
+    slot = undefined;
+  }
   b.loadIdle = 0;
   book(w, 'exports', total);
   w.stats.earned += total;
@@ -454,7 +469,7 @@ export function loadShip(w: World, c: Crane): void {
     (b) => (b.vessel === 'feeder') === boxes && wantsLoad(w, b) && craneReaches(w, c, b),
   );
   if (!ship) return;
-  let take: (() => number) | null = null;
+  let take: (() => { box?: Crate; slot?: number }) | null = null;
   let from: { store?: Bay; pile?: Bay } = {};
   if (boxes) {
     if (craneHeld(c, true)) {
@@ -469,10 +484,9 @@ export function loadShip(w: World, c: Crane): void {
         const i = Math.max(0, craneTop(w, c, true));
         outLooks(w, c);
         const box = takeOffCrane(w, c, i, true);
-        (ship.outLooks ??= []).push(box.look!);
-        outSlots(w, ship).push(c.liftSlot!);
+        const slot = c.liftSlot!;
         c.liftSlot = undefined;
-        return box.fee;
+        return { box, slot };
       };
     }
   } else {
@@ -485,14 +499,22 @@ export function loadShip(w: World, c: Crane): void {
     );
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
-      take = () =>
-        takeReady(w, store, true, cratesAt(store, true) - 1, 1, undefined, jibReach(w, c, store))[0]
-          ?.fee;
+      take = () => ({
+        box: takeReady(
+          w,
+          store,
+          true,
+          cratesAt(store, true) - 1,
+          1,
+          undefined,
+          jibReach(w, c, store),
+        )[0],
+      });
     } else if (pile) {
       take = () => {
-        const fee = takeFirst(pile, 1)[0]?.fee;
+        const box = takeFirst(pile, 1)[0];
         tidyPile(w, pile.idx);
-        return fee;
+        return { box };
       };
     }
   }
@@ -503,8 +525,8 @@ export function loadShip(w: World, c: Crane): void {
   c.angle = Math.atan2(ship.y - (m.yOf(c.idx) + 0.5), ship.x - (m.xOf(c.idx) + 0.5));
   if (++c.timer < craneTicks(c)) return;
   c.timer = 0;
-  const fee = take();
-  if (fee !== undefined) w.shipOut(ship, [fee]);
+  const { box, slot } = take();
+  if (box) w.shipOut(ship, [box], slot);
 }
 
 /**

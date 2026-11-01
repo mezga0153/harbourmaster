@@ -20,7 +20,7 @@ import {
 } from './cargo/stores';
 import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
-import { bedRoom, keepSlots, onBed, roundTicks, slotsFor } from './cargo/beds';
+import { bedRoom, keepSlots, onBed, onTrailer, roundTicks, slotsFor } from './cargo/beds';
 import type { Bay, Crate, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
@@ -576,9 +576,8 @@ export function landTruckLoad(
   if (p.truckLoad) {
     if (t) t.coming = Math.max(0, (t.coming ?? 0) - 1);
     if (live && t) {
-      t.cargo++;
-      t.value += fee;
-      (t.looks ??= []).push(...carriedLooks(w, p));
+      carriedLooks(w, p);
+      onTrailer(w, t, p.load[0]);
       t.idle = 0;
     } else if (yard) {
       carriedLooks(w, p);

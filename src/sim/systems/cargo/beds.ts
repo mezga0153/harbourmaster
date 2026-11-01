@@ -18,7 +18,7 @@ import type { World } from '../../world';
 import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
 import { filled, put, sized, stamp, take, usedIn } from './hold';
 import * as B from '../../balance';
-import { isMachine } from '../../helpers';
+import { boxLookOf, isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { dest } from './customs';
 
@@ -234,6 +234,24 @@ export function onBed(w: World, t: Truck, crates: Crate[], p?: Dockhand): void {
   });
   t.cargo += crates.length;
   t.value += crates.reduce((n, c) => n + c.fee, 0);
+}
+
+/** A container put on a haulier's container truck, after any on it; its cargo and value go up by it. */
+export function onTrailer(w: World, t: Truck, box: Crate): void {
+  box.at = stamp(w.tick);
+  (t.load ??= []).push(box);
+  t.cargo++;
+  t.value += box.fee;
+}
+
+/** How the containers on a haulier's container truck look, in load order. */
+export function trailerLooks(t: Truck): number[] {
+  const looks = (t.load ?? []).flatMap((c, k) =>
+    c ? [(c.look ??= boxLookOf(t.id, 1000 + k))] : [],
+  );
+  // An older save's with no looks kept.
+  while (looks.length < t.cargo) looks.push(boxLookOf(t.id, 1000 + looks.length));
+  return looks.slice(0, t.cargo);
 }
 
 /**

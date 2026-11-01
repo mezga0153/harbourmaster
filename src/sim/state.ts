@@ -189,7 +189,7 @@ export interface Crane {
      * Taken off the tractor, which has gone on its way: on the spreader
      * until set down on the stack or on board.
      */
-    held?: { fees: number[]; looks: number[]; planned: number };
+    held?: { load: Crate[]; planned: number };
   };
 }
 
@@ -264,15 +264,14 @@ export interface Boat extends Agent {
    * It waits meanwhile, as they set nothing down on the quay.
    */
   noRoom?: 'room' | 'customs';
-  /** Exports taken on board, on their way to it, and ticks since one last came. */
-  out?: number;
+  /**
+   * Exports taken on board, each where it stands: on a feeder's deck by
+   * deck slot (see deckPlace), on any other in the order they came.
+   */
+  loaded?: Cells;
+  /** Exports on their way to it, and ticks since one last came. */
   outIncoming?: number;
   loadIdle?: number;
-  /** Crates taken on board to go out, each as its fee; see cargo.ts. */
-  outFees?: number[];
-  /** Feeders: how each export taken on board looks, and the deck slot it is in. */
-  outLooks?: number[];
-  outSlots?: number[];
   /** Feeders: deck slots the cranes have lifted their containers from. */
   lifted?: number[];
   /**
@@ -446,9 +445,10 @@ export interface Truck extends Agent {
   staged?: number;
   /** Containers reach stackers are bringing it, or taking off it. */
   coming?: number;
-  /** Container trucks: how each container on board looks, in load order. */
-  looks?: number[];
-  /** Crate trucks: the crates on its bed, where each stands; see beds.ts. */
+  /**
+   * Crate trucks: the crates on its bed, where each stands; see beds.ts. A
+   * haulier's container truck: the containers on it, in load order.
+   */
   load?: Cells;
   /** Crate trucks: the side of it loaded first, away from those who load it; see farSide. */
   far?: 0 | 1;
@@ -616,10 +616,8 @@ export interface GantryHeld {
   at: number;
   /** Its container slot on that, for the view. */
   slot: number;
-  fees: number[];
-  looks: number[];
-  /** The ship each came off, for customs; for a tractor's imports. */
-  from?: number[];
+  /** What it holds, each with how it looks and, for a tractor's imports, the ship it came off. */
+  load: Crate[];
   /** A shipper's export, or one a tractor brought back, rather than one in from a ship. */
   exports: boolean;
   /** How many were planned to come here, held as incoming until set down. */

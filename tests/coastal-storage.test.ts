@@ -35,9 +35,9 @@ function run(world: Any, days: number) {
     return leave(t);
   };
   const shipOut = shipOutOf.bind(null, world);
-  world.shipOut = (b: Any, fees: number[]) => {
-    tally.canned += fees.filter((f) => cargoOf(f, 'goods') === 'canned').length;
-    return shipOut(b, fees);
+  world.shipOut = (b: Any, load: Any[], slot?: number) => {
+    tally.canned += load.filter((c) => cargoOf(c.fee ?? c, 'goods') === 'canned').length;
+    return shipOut(b, load, slot);
   };
   const stores = () => [...world.bays.values()].filter((b: Any) => b.tiles && !b.outgoing);
   const seen = new Map<number, number>();

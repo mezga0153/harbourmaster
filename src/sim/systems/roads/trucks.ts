@@ -51,7 +51,7 @@ import { needsWideSpace } from '../../rules/parking';
 import { Build } from '../../types';
 import { outgoingFull } from '../cargo/exports';
 import { byHand, byStacker, cratesFor, cratesOff, truckTicks } from '../truckLoading';
-import { bedCap, bedCells, bottomFull, offBed, onBed, topFirst } from '../cargo/beds';
+import { bedCap, bedCells, bottomFull, offBed, onBed, onTrailer, topFirst } from '../cargo/beds';
 import { BUSINESSES, HIGHWAY_X } from '../../town';
 import { cargoOf } from '../../cargo';
 
@@ -339,8 +339,7 @@ export function updateTruck(w: World, t: Truck): void {
           by: t.id,
           at: w.gantryLane(bay)?.get(t.goal) ?? 0,
           slot: t.cargo - 1,
-          fees: [t.value],
-          looks: [boxLookOf(t.id, t.cargo - 1)],
+          load: [{ fee: t.value, at: w.tick, look: boxLookOf(t.id, t.cargo - 1) }],
           exports: true,
           planned: 1,
         });
@@ -415,10 +414,7 @@ export function updateTruck(w: World, t: Truck): void {
       if (spare > 0 && at >= 0 && t.cargo + coming < t.capacity) {
         if (t.boxes && bay.yard) {
           boxLooks(w, bay);
-          const box = takeBox(w, bay, at);
-          (t.looks ??= []).push(box.look!);
-          t.value += box.fee;
-          t.cargo++;
+          onTrailer(w, t, takeBox(w, bay, at));
         } else if (t.boxes) {
           // From a large bay in an older save.
           t.value += bay.boxes!.splice(at, 1)[0];
@@ -498,6 +494,7 @@ export function updateTruck(w: World, t: Truck): void {
       if (t.boxes) {
         t.value -= Math.round(worth);
         t.cargo -= got;
+        t.load?.splice(Math.max(0, t.load.length - got));
       }
       // On to the next business that takes some of the rest, else away.
       if (t.cargo > 0 && nextStop(w, t)) return;

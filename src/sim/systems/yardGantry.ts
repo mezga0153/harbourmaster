@@ -50,6 +50,7 @@ import {
   cratesAt,
   isTruck,
   liftTicks,
+  outAboard,
 } from '../helpers';
 import type { Vehicle } from '../helpers';
 import { craneHeld, cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
@@ -172,7 +173,7 @@ export function gantryWork(w: World, y: Bay): GantryWork {
   if (!on && h && y.gantryLift) {
     return {
       working: 'unload',
-      workLook: h.looks[0],
+      workLook: h.load[0]?.look,
       workAt: h.at,
       workTruck: h.by,
       workSlot: h.slot,
@@ -314,18 +315,18 @@ export function settleGantry(w: World, y: Bay): void {
   const h = y.gantryHeld;
   if (!h) return;
   const to = y.gantryTo;
-  const at = h.fees.length === 1 ? to : undefined;
+  const at = h.load.length === 1 ? to : undefined;
   if (h.exports) {
-    h.fees.forEach((fee, k) => putBox(w, y, { fee, at: w.tick, look: h.looks[k] }, true, at));
+    for (const box of h.load) putBox(w, y, box, true, at);
     y.exportIncoming = Math.max(0, (y.exportIncoming ?? 0) - h.planned);
   } else {
     // Customs clear it a while after it is stacked, as any other.
-    h.fees.forEach((fee, k) => {
-      const box = { fee, at: w.tick, look: h.looks[k], ready: customsFor(w, h.from?.[k]) };
+    for (const box of h.load) {
+      box.ready ??= customsFor(w, box.from);
       putBox(w, y, box, false, at);
-    });
+    }
     bayIncoming(y, true, -h.planned);
-    w.stats.containers += h.fees.length;
+    w.stats.containers += h.load.length;
     tip(w, 'customs');
   }
   y.gantryHeld = y.gantryTo = undefined;
@@ -578,7 +579,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     p.takeAt = keep;
     return at;
   };
-  const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + (b.out ?? 0)) });
+  const onBoat = (b: Boat): HandAt => ({ truck: b.id, slot: last(b.crates + outAboard(b)) });
   // Off the top of a shipper's truck's bed, under any others are taking
   // off it first, into its storage; ice onto the bay's stack.
   const off = p.truckId !== undefined && !p.truckLoad && w.trucks.find((q) => q.id === p.truckId);

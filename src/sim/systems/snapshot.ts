@@ -8,16 +8,16 @@ import * as B from '../balance';
 import { depotDoorTrouble, walkableAt } from '../rules/placement';
 import {
   activity,
-  aligned,
   bayCap,
   bayRoom,
+  boxesAt,
   boxLookOf,
   breachPenalty,
   cancelFee,
-  boxesAt,
   craneStack,
   cratesAt,
   isBoxy,
+  outAboard,
 } from '../helpers';
 import { Build } from '../types';
 import { cargoOf } from '../cargo';
@@ -95,7 +95,7 @@ import {
   takesFrom,
   takesImports,
 } from './cargo/stores';
-import { bedCap, bedSlots } from './cargo/beds';
+import { bedCap, bedSlots, trailerLooks } from './cargo/beds';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
 import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
@@ -583,7 +583,7 @@ export function cargoStats(w: World): CargoStats {
     const f = boxes ? c.containers : c.crates;
     if (b.state === 'moored') {
       f.onShips += b.crates;
-      (boxes ? c.containerExports : c.crateExports).aboard += b.out ?? 0;
+      (boxes ? c.containerExports : c.crateExports).aboard += outAboard(b);
     } else f.atSea += b.crates;
   }
   for (const k of w.cranes.values()) {
@@ -710,12 +710,12 @@ export function buildSnapshot(w: World): Snapshot {
       ...(b.vessel === 'feeder'
         ? deckView(w, b)
         : {
-            load: b.crates + (b.out ?? 0) + moved(b).set - moved(b).taken,
+            load: b.crates + outAboard(b) + moved(b).set - moved(b).taken,
             catch: cargoOf(b.fee),
             // Its catch, then what it has taken on board to go out.
             cargo: [
               ...Array<Cargo>(b.crates).fill(cargoOf(b.fee)),
-              ...(b.outFees ?? []).map((f) => cargoOf(f, 'goods')),
+              ...(b.loaded ?? []).flatMap((c) => (c ? [cargoOf(c.fee, 'goods')] : [])),
             ],
           }),
       moving: b.path.length > 0,
@@ -795,7 +795,7 @@ export function buildSnapshot(w: World): Snapshot {
         t.boxes
           ? t.exports
             ? Array.from({ length: t.cargo }, (_, k) => boxLookOf(t.id, k))
-            : [...aligned(Array(t.cargo).fill(0), t.looks, t.id)]
+            : trailerLooks(t)
           : undefined,
         lifts.get(t.id),
       ),

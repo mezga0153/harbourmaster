@@ -2968,7 +2968,7 @@ describe('Container Port tier', () => {
       for (const t of world.trucks) {
         if (!t.boxes || t.cargo === 0) continue;
         carried.truck++;
-        for (const l of t.looks ?? []) after.add(l);
+        for (const c of t.load ?? []) if (c?.look !== undefined) after.add(c.look);
       }
       if (k % 5) continue;
       const s = world.snapshot();
@@ -4235,7 +4235,7 @@ describe('Container Port tier', () => {
       state: 'moored' as const,
       crates: 0,
       reserved: 0,
-      out: 1,
+      loaded: [{ fee: 10, at: 0, out: true }],
       loadQuota: undefined,
       timer: 0,
       anchorTicks: 0,

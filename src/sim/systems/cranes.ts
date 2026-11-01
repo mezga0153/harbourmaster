@@ -7,7 +7,6 @@ import { boatHalf, craneFront, mooredTiles, near } from './boats/berthing';
 import type { Bay, Boat, Cells, Crane, Crate, Dockhand, JibLift } from '../state';
 import * as B from '../balance';
 import {
-  aligned,
   boxLookOf,
   craneStack,
   craneStacks,
@@ -15,6 +14,7 @@ import {
   cratesAt,
   deckPlace,
   heldIn,
+  outAboard,
 } from '../helpers';
 import type { CraneView } from '../../protocol/views';
 import { besideStack } from './yardGantry';
@@ -499,7 +499,7 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     if (!job) continue;
     const { boat: b, load, store, pile } = job;
     const reach = store && jibReach(w, c, store);
-    const aboard = b.crates + (b.out ?? 0);
+    const aboard = b.crates + outAboard(b);
     const slot = load ? aboard + nth(b) : aboard - 1 - nth(b);
     const there = store ? heldIn(store) : pile ? cratesAt(pile) : craneHeld(c);
     const key = store ?? pile ?? c;
@@ -566,9 +566,11 @@ export function deckView(w: World, b: Boat): { load: number; looks: number[]; de
     deck.push(k);
     looks.push(boxLookOf(b.id, k));
   }
-  b.outLooks = aligned(Array(b.out ?? 0).fill(0), b.outLooks, b.id);
-  deck.push(...outSlots(w, b).slice(0, b.out ?? 0));
-  looks.push(...b.outLooks);
+  (b.loaded ?? []).forEach((q, k) => {
+    if (!q) return;
+    deck.push(k);
+    looks.push((q.look ??= boxLookOf(b.id, 1000 + k)));
+  });
   for (const c of lifting) {
     const late = c.timer / craneTicks(c);
     const tractor =
@@ -663,8 +665,8 @@ export function serveTractor(w: World, c: Crane): boolean {
   // free to go on its way, and the crane carries it on by itself.
   const serving = c.serving!;
   if (p && !serving.give && !serving.held && c.timer >= craneTakenIn(w, c)) {
-    const looks = carriedLooks(w, p);
-    serving.held = { fees: feesOf(p.load), looks, planned: p.planned };
+    carriedLooks(w, p);
+    serving.held = { load: p.load, planned: p.planned };
     p.carrying = 0;
     p.load = [];
     p.planned = 0;
@@ -683,14 +685,10 @@ export function serveTractor(w: World, c: Crane): boolean {
     c.outReserved = Math.max(0, (c.outReserved ?? 0) - held.planned);
     if (on && c.liftSlot !== undefined && c.liftSlot >= 0) {
       // Set down on board the ship it is loading.
-      (on.outLooks ??= []).push(...held.looks);
-      outSlots(w, on).push(c.liftSlot);
-      w.shipOut(on, held.fees);
+      w.shipOut(on, held.load, c.liftSlot);
       c.liftSlot = undefined;
     } else {
-      held.fees.forEach((fee, k) =>
-        putOnCrane(w, c, { fee, at: w.tick, look: held.looks[k] }, true),
-      );
+      for (const box of held.load) putOnCrane(w, c, box, true);
     }
     return true;
   }
@@ -713,15 +711,15 @@ export function craneTakenIn(_w: World, c: Crane): number {
 
 /** How the containers a crane is lifting for a tractor look: on its spreader, or still on the tractor. */
 export function servedLooks(w: World, c: Crane, p: Dockhand | undefined): number[] {
-  return c.serving?.held?.looks ?? (p ? carriedLooks(w, p) : []);
+  const held = c.serving?.held;
+  return held ? held.load.map((q) => q.look ?? 0) : p ? carriedLooks(w, p) : [];
 }
 
 /** A crane has lifted a tractor's export straight on board a ship, into deck slot `slot`. */
 export function onBoardFrom(w: World, c: Crane, p: Dockhand, ship: Boat, slot: number): void {
   c.outReserved = Math.max(0, (c.outReserved ?? 0) - p.planned);
-  (ship.outLooks ??= []).push(...carriedLooks(w, p));
-  outSlots(w, ship).push(slot);
-  w.shipOut(ship, feesOf(p.load));
+  carriedLooks(w, p);
+  w.shipOut(ship, p.load, slot);
   p.carrying = 0;
   p.load = [];
   p.planned = 0;
@@ -881,11 +879,9 @@ export function deckSlot(w: World, c: Crane, b: Boat, load: boolean): number {
   return best;
 }
 
-/** The deck slot each export on board a feeder is in, filling the lowest free for older saves. */
+/** The deck slots of the exports on board a feeder. */
 export function outSlots(_w: World, b: Boat): number[] {
-  const slots = (b.outSlots ??= []);
-  for (let k = 0; slots.length < (b.out ?? 0); k++) if (!slots.includes(k)) slots.push(k);
-  return slots;
+  return filled(b.loaded ?? []);
 }
 
 /**

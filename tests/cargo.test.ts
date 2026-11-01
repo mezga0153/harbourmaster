@@ -117,7 +117,10 @@ describe('Cargo', () => {
         }
       }
       for (const b of world.boats) {
-        if (b.vessel === 'smack' && (b.outFees ?? []).some((f: number) => cargoOf(f) === 'ice')) {
+        if (
+          b.vessel === 'smack' &&
+          (b.loaded ?? []).some((c: Any) => c && cargoOf(c.fee) === 'ice')
+        ) {
           iced.add(b.id);
         }
       }

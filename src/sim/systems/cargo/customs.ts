@@ -36,7 +36,7 @@ import {
   takeAt,
   takeOrder,
 } from './places';
-import { feesOf, waits } from './hold';
+import { waits } from './hold';
 import { putOnCrane } from '../cranes';
 
 /**
@@ -188,7 +188,7 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
       return true;
     }
     ship.outIncoming = Math.max(0, (ship.outIncoming ?? 0) - p.planned);
-    w.shipOut(ship, feesOf(p.load));
+    w.shipOut(ship, p.load);
   } else if (p.toCrane !== undefined && p.toCrane >= 0) {
     const crane = w.cranes.get(p.toCrane);
     if (!crane) {

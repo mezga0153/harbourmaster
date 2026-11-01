@@ -107,7 +107,6 @@ import {
   toPallet,
 } from '../yardGantry';
 import { claimDrop, feesIn, setDown } from '../cargo/places';
-import { feesOf } from '../cargo/hold';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
 
@@ -595,13 +594,12 @@ export function updateDockhand(w: World, p: Dockhand): void {
       // goes on its way, and the gantry sets it down.
       const gy = w.yards.get(p.bayIdx);
       if (p.kind === 'tractor' && gy && gy.gantryOn === p.id && gy.gantryLift) {
+        carriedLooks(w, p);
         offToGantry(w, gy, {
           by: p.id,
           at: w.gantryLane(gy)?.get(p.goal) ?? 0,
           slot: 0,
-          looks: carriedLooks(w, p),
-          fees: feesOf(p.load),
-          from: p.load.map((c) => c.from ?? -1),
+          load: p.load,
           exports: !!p.outbound,
           planned: p.planned,
         });

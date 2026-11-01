@@ -198,6 +198,11 @@ export function exportsAt(b: Bay): number {
   return b.yard ? boxesAt(b, true) : cratesAt(b, true);
 }
 
+/** Exports a ship has taken on board. */
+export function outAboard(b: Boat): number {
+  return count(b.loaded ?? []);
+}
+
 /**
  * Containers waiting at a yard (or `out`, to go out on a ship), or at a
  * large truck bay from an older save.

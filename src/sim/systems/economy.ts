@@ -12,13 +12,14 @@ import { LANDMARKS, landmarkDue, townCap, townDay } from '../town';
 import { TIERS } from '../tiers';
 import { makeCandidate, paceFactor, traitDef } from '../staff';
 import {
-  FINANCE_DAYS,
   breachPenalty,
   cancelFee,
   craneTicks,
   emptyLedger,
+  FINANCE_DAYS,
   isMachine,
   loadTicks,
+  outAboard,
   outCap,
 } from '../helpers';
 import { MACHINES } from '../machines';
@@ -442,7 +443,7 @@ export function canSail(_w: World, b: Boat): boolean {
 export function sailNow(w: World, id: number): void {
   const b = w.boats.find((q) => q.id === id);
   if (!b || !canSail(w, b)) return;
-  b.loadQuota = b.out ?? 0;
+  b.loadQuota = outAboard(b);
 }
 
 /** How a ship's visit is going, for its panel. */
@@ -457,7 +458,7 @@ export function visitView(w: World, b: Boat): BoatVisit {
     loading: b.unloadedAt !== undefined ? (b.loadedAt ?? t) - b.unloadedAt : -1,
     loaded: b.loadedAt !== undefined,
     loads: outCap(b) > 0,
-    out: b.out ?? 0,
+    out: outAboard(b),
     quota: b.loadQuota,
     allowed: Math.round(b.grace),
     worked: b.mooredTicks,
