@@ -4,13 +4,15 @@
 import { bedCap } from './beds';
 import type { World } from '../../world';
 import type { Bay, Crate, Dockhand, Truck } from '../../state';
-import { bayIncoming, bayRoom, boxesAt, isBoxy, needsCustoms } from '../../helpers';
+import { bayIncoming, bayRoom, boxesAt, isBoxy, needsCustoms, truckBay } from '../../helpers';
 import { nag } from '../output';
 import type { BayView } from '../../../protocol/views';
 import {
   bayWithRoom,
   carriedLooks,
+  carriesIce,
   dropAt,
+  iceBay,
   jibTiles,
   nearestWithRoom,
   offJibRoom,
@@ -19,6 +21,7 @@ import {
   servesYard,
   stock,
   takesExports,
+  takesIce,
   tidyPile,
   yardWithRoom,
 } from './stores';
@@ -327,10 +330,14 @@ export function retargetExports(w: World, p: Dockhand): void {
       return;
     }
   }
-  // Back to wait in storage for the next ship.
+  // Back to wait in storage for the next ship: ice into storage of its
+  // own or a truck bay, for the next fishing boat.
   const boxy = isBoxy(p);
+  const ice = !boxy && carriesIce(w, p);
+  const takes = (b: Bay) =>
+    ice ? takesIce(w, b) || (truckBay(b) && iceBay(w, b)) : takesExports(w, b);
   const store = [...(boxy ? w.yards : w.bays).values()]
-    .filter((b) => takesExports(w, b) && bayRoom(b, boxy) >= p.carrying && servesYard(w, p, b))
+    .filter((b) => takes(b) && bayRoom(b, boxy) >= p.carrying && servesYard(w, p, b))
     .sort((a, b) => w.distTo(here, a) - w.distTo(here, b))[0];
   if (store?.yard) {
     carriedLooks(w, p);

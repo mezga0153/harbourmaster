@@ -3,9 +3,12 @@
 
 import type { World } from '../../world';
 import {
+  carriesIce,
   dropAt,
   jibRoom,
   holdsIce,
+  iceStore,
+  isIceCrate,
   iceBay,
   iceTruck,
   outLooks,
@@ -14,6 +17,7 @@ import {
   stackSide,
   takesExports,
   takesFrom,
+  takesIce,
   tidyPile,
   workersAt,
 } from './stores';
@@ -60,6 +64,7 @@ import { openLandmark } from '../townBusiness';
 import { isIce } from '../../contracts';
 import type { Contract, ShipperTerms } from '../../contracts';
 import { needsWideSpace } from '../../rules/parking';
+import { walkableAt } from '../../rules/placement';
 import { TICKS_PER_DAY } from '../../types';
 import { feesOn } from './beds';
 import { feesOf, put, stamp } from './hold';
@@ -82,8 +87,11 @@ export function exportSources(w: World, p: Dockhand, here: number, sources: Sour
     }
   }
   const boxy = isBoxy(p);
-  // Ice in the truck bays, for dockhands to carry on board the fishing boats.
-  if (p.kind === 'dockhand' && w.boats.some((b) => b.vessel === 'smack' && wantsLoad(w, b))) {
+  // Ice in the truck bays, for dockhands to carry on board the fishing
+  // boats, or forklifts to take to storage by a jib crane over one.
+  const smacks = !boxy && w.boats.some((b) => b.vessel === 'smack' && wantsLoad(w, b));
+  const coasters = !boxy && w.boats.some((b) => b.vessel === 'coaster' && wantsLoad(w, b));
+  if (smacks) {
     for (const bay of w.bays.values()) {
       const avail = cratesAt(bay, true) - (bay.outReserved ?? 0);
       const tile = avail > 0 && truckBay(bay) ? dropAt(w, p, bay, here) : -1;
@@ -96,6 +104,8 @@ export function exportSources(w: World, p: Dockhand, here: number, sources: Sour
     // Canned fish waits for its export papers.
     const avail = readyIn(w, store, true) - (store.outReserved ?? 0);
     if (!store.tiles || avail <= 0 || !servesYard(w, p, store)) continue;
+    // Ice in storage for the fishing boats, the rest for the coasters.
+    if (!boxy && !(iceStore(w, store) ? smacks : coasters)) continue;
     const tile =
       p.kind === 'stacker' && store.yard
         ? stackSide(w, p, store, here, 'pick', true)
@@ -175,20 +185,14 @@ export function exportTarget(
     }
     return null;
   }
-  // Ice from a truck bay goes on board a fishing boat.
-  if (source && truckBay(source)) {
-    for (const b of w.boats) {
-      if (b.vessel !== 'smack' || !wantsLoad(w, b) || p.kind !== 'dockhand') continue;
-      const room = (b.loadQuota ?? outCap(b)) - outAboard(b) - (b.outIncoming ?? 0);
-      if (room > 0 && loadSpot(w, p, b, from) >= 0) return { boat: b, room };
-    }
-    return null;
-  }
+  // Ice, from a truck bay or storage, goes on board a fishing boat; the
+  // rest on board a coaster.
+  const ice = source ? truckBay(source) || iceStore(w, source) : carriesIce(w, p);
   for (const b of w.boats) {
-    if (b.vessel !== 'coaster' || !wantsLoad(w, b)) continue;
-    const room = outCap(b) - outAboard(b) - (b.outIncoming ?? 0);
+    if (b.vessel !== (ice ? 'smack' : 'coaster') || !wantsLoad(w, b)) continue;
+    let room = (ice ? (b.loadQuota ?? outCap(b)) : outCap(b)) - outAboard(b) - (b.outIncoming ?? 0);
     if (p.kind === 'dockhand') {
-      if (loadSpot(w, p, b, from) >= 0) return { boat: b, room };
+      if (room > 0 && loadSpot(w, p, b, from) >= 0) return { boat: b, room };
       continue;
     }
     // Forklifts cannot put cargo on board: they take it to storage by the
@@ -199,17 +203,31 @@ export function exportTarget(
     const cranes = [...w.cranes.values()].filter(
       (c) => c.kind === 'jib' && near(w, c.idx, b.berth),
     );
+    // A fishing boat takes only a few: no more than it has room for, less
+    // the ice already by its cranes or on its way there.
+    if (ice) room -= iceByCranes(w, cranes);
     for (const c of cranes) {
       for (const store of jibStores(w, c)) {
         // Only as many as fit on the tiles of it the crane reaches.
         const space = Math.min(room, bayRoom(store, false), jibRoom(w, c, store));
-        if (store === source || space <= 0 || !takesExports(w, store)) continue;
+        const takes = ice ? takesIce(w, store) : takesExports(w, store);
+        if (store === source || space <= 0 || !takes) continue;
         const at = dropAt(w, p, store, from);
         if (at >= 0) return { store, room: space };
       }
     }
   }
   return null;
+}
+
+/** Ice in storage beside these jib cranes, where they reach it, or on its way there. */
+function iceByCranes(w: World, cranes: Crane[]): number {
+  const stores = new Set(cranes.flatMap((c) => jibStores(w, c)).filter((s) => iceStore(w, s)));
+  let n = 0;
+  for (const s of stores) {
+    n += Math.max(...cranes.map((c) => jibReady(w, c, s))) + (s.exportIncoming ?? 0);
+  }
+  return n;
 }
 
 /**
@@ -222,13 +240,18 @@ function jibLoadsFrom(w: World, store: Bay, t: number): boolean {
   return jibsLoading(w, store).some((c) => jibGround(w, c).includes(t));
 }
 
-/** The jib cranes beside crate storage `store` with a ship under them waiting to be loaded. */
+/**
+ * The jib cranes beside crate storage `store` with a ship under them
+ * waiting to be loaded from it: a fishing boat from storage holding ice,
+ * a coaster from the rest.
+ */
 export function jibsLoading(w: World, store: Bay): Crane[] {
+  const vessel = iceStore(w, store) ? 'smack' : 'coaster';
   return [...w.cranes.values()].filter(
     (c) =>
       c.kind === 'jib' &&
       jibStores(w, c).includes(store) &&
-      w.boats.some((b) => b.vessel === 'coaster' && wantsLoad(w, b) && near(w, c.idx, b.berth)),
+      w.boats.some((b) => b.vessel === vessel && wantsLoad(w, b) && near(w, c.idx, b.berth)),
   );
 }
 
@@ -329,10 +352,12 @@ export function exportsWaiting(w: World, boxes: boolean): number {
 export function exportsFor(w: World, b: Boat): number {
   const boxes = b.vessel === 'feeder';
   let n = 0;
-  // Fishing boats take the ice in the truck bays, coasters what is in storage.
+  // Fishing boats take the ice in the truck bays and storage, coasters
+  // the rest in storage.
   for (const s of boxes ? w.yards.values() : w.bays.values()) {
     // Not canned fish still waiting on its export papers.
-    if (boxes || truckBay(s) === (b.vessel === 'smack')) n += readyIn(w, s, true);
+    const ice = !boxes && (truckBay(s) || iceStore(w, s));
+    if (boxes || ice === (b.vessel === 'smack')) n += readyIn(w, s, true);
   }
   if (b.vessel === 'smack') return n;
   if (boxes) {
@@ -349,11 +374,28 @@ export function exportsFor(w: World, b: Boat): number {
 
 /**
  * Exports on their way on board a ship: carried to it, or set down at a
- * container crane over it, or on their way there.
+ * container crane over it, or on their way there; or in storage beside a
+ * jib crane over it, where it reaches them, or on their way there.
  */
 export function exportsComing(w: World, b: Boat): number {
   let n = b.outIncoming ?? 0;
-  if (b.vessel !== 'feeder') return n;
+  if (b.vessel !== 'feeder') {
+    // Ice for a fishing boat, the rest for a coaster.
+    const ice = b.vessel === 'smack';
+    const cranes = [...w.cranes.values()].filter(
+      (c) => c.kind === 'jib' && near(w, c.idx, b.berth),
+    );
+    const stores = new Set(cranes.flatMap((c) => jibStores(w, c)));
+    if (stores.size === 0) return n;
+    for (const s of stores) {
+      if (iceStore(w, s) === ice) n += Math.max(...cranes.map((c) => jibReady(w, c, s)));
+    }
+    for (const p of w.people) {
+      const to = p.outbound && p.bayIdx >= 0 ? w.bays.get(p.bayIdx) : undefined;
+      if (to && stores.has(to) && carriesIce(w, p) === ice) n += p.planned;
+    }
+    return n;
+  }
   for (const c of w.cranes.values()) {
     if (c.kind !== 'jib' && craneReaches(w, c, b)) {
       n += craneHeld(c, true) + (c.outReserved ?? 0);
@@ -398,11 +440,43 @@ export function stillLoading(w: World, b: Boat): boolean {
   return b.loadIdle < B.LOAD_WAIT;
 }
 
+/**
+ * Why nothing puts the ice waiting in the port on board fishing boat `b`
+ * alongside, if nothing can: dockhands carry it on from the quay beside
+ * it, but never by a crane; under a jib crane, forklifts bring it to
+ * crate storage for cargo going out beside the crane for it to lift on.
+ */
+export function iceTrouble(w: World, b: Boat): string | undefined {
+  if (b.vessel !== 'smack' || b.state !== 'moored' || b.crates > 0 || outCap(b) === 0) return;
+  if (outAboard(b) >= (b.loadQuota ?? outCap(b)) || (b.outIncoming ?? 0) > 0) return;
+  if (w.exportsFor(b) === 0) return;
+  const hands = w.people.some((q) => q.kind === 'dockhand');
+  if (hands && pickupSpots(w, b).some((t) => walkableAt(w.map, t))) return;
+  const cranes = [...w.cranes.values()].filter((c) => c.kind === 'jib' && near(w, c.idx, b.berth));
+  if (cranes.length === 0) {
+    return hands
+      ? 'Nobody can put ice on board it: dockhands may not walk on the quay beside it, by a crane, and no jib crane stands over it to lift the ice on.'
+      : 'Nobody can put ice on board it: dockhands carry it on, and there are none. Hire dockhands, or berth fishing boats under a jib crane.';
+  }
+  const stores = cranes.flatMap((c) => jibStores(w, c)).filter((s) => s.outgoing && !s.shut);
+  if (stores.length === 0) {
+    return 'The ice cannot reach it: dockhands may not walk by the jib crane over it, and the crane has no crate storage for cargo going out beside it for forklifts to bring the ice to. Mark some out next to the crane.';
+  }
+  if (!w.people.some((q) => q.kind === 'forklift')) {
+    return 'The ice cannot reach it: dockhands may not walk by the jib crane over it, and only forklifts bring ice to the storage beside the crane for it to lift on board. Buy a forklift.';
+  }
+  if (!stores.some((s) => iceStore(w, s) || takesIce(w, s))) {
+    return 'The crate storage for cargo going out beside the jib crane over it holds other exports, and ice and other exports keep to storage of their own: it waits for that storage to empty.';
+  }
+  return undefined;
+}
+
 /** What an unloaded ship alongside is doing: taking exports on, or waiting to sail. */
 export function readyWords(w: World, b: Boat): string {
   const out = outAboard(b);
   if (b.loadQuota === undefined || out < b.loadQuota || (b.outIncoming ?? 0) > 0) {
-    return `Taking exports on board, ${out}${b.loadQuota ? ` of ${b.loadQuota}` : ''}`;
+    const why = iceTrouble(w, b);
+    return `Taking exports on board, ${out}${b.loadQuota ? ` of ${b.loadQuota}` : ''}${why ? ', but nothing can bring it the ice' : ''}`;
   }
   const why = {
     fairway: ', waiting for the way out to clear',
@@ -490,13 +564,20 @@ export function loadShip(w: World, c: Crane): void {
       };
     }
   } else {
-    // Off the tiles of storage beside it only.
+    // Off the tiles of storage beside it only: ice on board a fishing
+    // boat, the rest on board a coaster.
+    const ice = ship.vessel === 'smack';
     const store = jibStores(w, c).find(
-      (a) => jibReady(w, c, a) > 0 && readyIn(w, a, true) - (a.outReserved ?? 0) > 0,
+      (a) =>
+        iceStore(w, a) === ice &&
+        jibReady(w, c, a) > 0 &&
+        readyIn(w, a, true) - (a.outReserved ?? 0) > 0,
     );
-    const pile = [...w.piles.values()].find(
-      (q) => q.out && cratesAt(q) - (q.reserved ?? 0) > 0 && inJibReach(w, c, q.idx),
-    );
+    const pile = ice
+      ? undefined
+      : [...w.piles.values()].find(
+          (q) => q.out && cratesAt(q) - (q.reserved ?? 0) > 0 && inJibReach(w, c, q.idx),
+        );
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
       take = () => ({
@@ -506,7 +587,7 @@ export function loadShip(w: World, c: Crane): void {
           true,
           cratesAt(store, true) - 1,
           1,
-          undefined,
+          (f) => isIceCrate(f) === ice,
           jibReach(w, c, store),
         )[0],
       });

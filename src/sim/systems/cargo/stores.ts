@@ -36,7 +36,16 @@ import {
   takeOffCrane,
 } from '../cranes';
 import { onPallet, palletPlaces, palletTile, takenFrom } from '../yardGantry';
-import { crateSlots, loadSlot, reserved, slotCount, stackOf, takeTop, usedSlots } from './places';
+import {
+  crateSlots,
+  cratesIn,
+  loadSlot,
+  reserved,
+  slotCount,
+  stackOf,
+  takeTop,
+  usedSlots,
+} from './places';
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
 import { cargoOf } from '../../cargo';
@@ -294,9 +303,51 @@ export function takesImports(w: World, b: Bay): boolean {
   return !b.outgoing && !b.shut;
 }
 
-/** Whether exports may go here: only storage marked out for cargo going out, and not shut. */
-export function takesExports(_w: World, b: Bay): boolean {
-  return !!b.tiles && !!b.outgoing && !b.shut;
+/**
+ * Whether exports may go here: only storage marked out for cargo going
+ * out, and not shut; not storage holding ice for the fishing boats.
+ */
+export function takesExports(w: World, b: Bay): boolean {
+  return !!b.tiles && !!b.outgoing && !b.shut && !iceStore(w, b);
+}
+
+/** A crate of ice, for the fishing boats. */
+export function isIceCrate(fee: number): boolean {
+  return cargoOf(fee, 'goods') === 'ice';
+}
+
+/**
+ * Whether a worker taking exports carries ice: in hand, or on its way to
+ * pick it up out of a truck bay or storage holding ice.
+ */
+export function carriesIce(w: World, p: Dockhand): boolean {
+  if (p.load.length > 0) return p.load.some((c) => isIceCrate(c.fee));
+  const src = w.bays.get(p.stockIdx);
+  return (
+    !!src && !src.yard && (truckBay(src) || cratesIn(src, true).some((c) => isIceCrate(c.fee)))
+  );
+}
+
+/**
+ * Crate storage holding ice for a jib crane to lift on board the fishing
+ * boats, or with some on its way: ice and other exports keep to storage of
+ * their own, as ice and the catch do to truck bays.
+ */
+export function iceStore(w: World, b: Bay): boolean {
+  if (!b.tiles || b.yard) return false;
+  if (cratesIn(b, true).some((c) => isIceCrate(c.fee))) return true;
+  return w.people.some((p) => p.outbound && p.bayIdx === b.idx && carriesIce(w, p));
+}
+
+/**
+ * Whether ice may go into crate storage: marked out for cargo going out,
+ * not shut, holding no other exports and with none on its way.
+ */
+export function takesIce(w: World, b: Bay): boolean {
+  if (!b.tiles || b.yard || !b.outgoing || b.shut) return false;
+  if (cratesIn(b, true).some((c) => !isIceCrate(c.fee))) return false;
+  if (w.trucks.some((t) => t.bayIdx === b.idx && t.exports && !iceTruck(w, t))) return false;
+  return !w.people.some((p) => p.outbound && p.bayIdx === b.idx && !carriesIce(w, p));
 }
 
 /**

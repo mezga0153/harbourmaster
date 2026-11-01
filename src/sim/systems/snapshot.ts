@@ -76,7 +76,7 @@ import { pileCells, shownCells } from './cargo/places';
 import { byHand, unloadWaiting } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
-import { exportsWaiting, readyWords, truckCargo } from './cargo/exports';
+import { exportsWaiting, iceTrouble, readyWords, truckCargo } from './cargo/exports';
 import { shipperChecks, shipperTrouble } from './cargo/shipperTrouble';
 import {
   buriedCount,
@@ -153,7 +153,8 @@ export function boatWhy(w: World, b: Boat): string | undefined {
   if (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS) {
     return 'A ship moored across its way in must sail first. One still taking exports on board takes those already on their way, then sails.';
   }
-  if (b.state !== 'moored' || b.crates === 0) return undefined;
+  if (b.state === 'moored' && b.crates === 0) return iceTrouble(w, b);
+  if (b.state !== 'moored') return undefined;
   if (b.vessel === 'feeder') {
     const cranes = [...w.cranes.values()].filter((c) => c.kind !== 'jib');
     if (cranes.length > 0 && cranes.every((c) => stackFull(w, c))) {
@@ -455,8 +456,11 @@ export function problems(w: World): ProblemView[] {
     const why = depotDoorTrouble(m, i, m.orient[i] & 3);
     if (why) out.push({ ...middle([i]), h: 1, text: why, type: 'depot', idx: i });
   }
-  // Boats the dockhands have nowhere to unload into.
+  // Boats the dockhands have nowhere to unload into, and fishing boats
+  // nothing can bring the ice to.
   for (const b of w.boats) {
+    const ice = iceTrouble(w, b);
+    if (ice) out.push({ x: b.x, y: b.y, h: 1.6, text: ice, type: 'boat', idx: b.id });
     if (b.state !== 'moored' || !b.noRoom || b.crates === 0) continue;
     out.push({ x: b.x, y: b.y, h: 1.6, text: noRoomWords(w, b.noRoom), type: 'boat', idx: b.id });
   }
