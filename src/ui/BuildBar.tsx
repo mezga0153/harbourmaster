@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { keyHint, panelKey } from '../input/keys';
 import { thumbnail } from '../render/thumbs';
 import { isMachineKind, MACHINES } from '../sim/machines';
@@ -196,10 +196,69 @@ export function BuildBar() {
   // Menus with nothing in them yet are not shown at all.
   const categories = CATEGORIES.filter((c) => toolsAt(c, at).length > 0);
   const open = categories.find((c) => c.id === openCategory.value);
+  // The tools at the right end of the bar: under a More button that opens
+  // them over the map where the bar is too narrow for them all.
+  const rest = (
+    <>
+      <ToolButton t={BULLDOZE_TOOL} active={current === 'bulldoze'} />
+      <ToolButton t={UNMARK_TOOL} active={current === 'unmark'} />
+      <ToolButton
+        t={{ ...LAND_TOOL, note: land.value ? money(land.value.next) : LAND_TOOL.note }}
+        active={current === 'land'}
+      />
+      <button
+        class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
+        onClick={() => togglePanel('staff')}
+        title={`Hire and manage dockhands${keyHint('staff')}`}
+      >
+        {staffKey && <kbd>{staffKey}</kbd>}
+        <Icon name="hire" />
+        <span class="tool-label">Staff</span>
+        <span class="tool-cost">Hire</span>
+      </button>
+      {import.meta.env.DEV && (
+        // src/debug/: paths, passability, slots and more drawn over the map.
+        <button
+          class="tool"
+          onClick={() => window.dispatchEvent(new Event('hm-debug'))}
+          title="Debug overlays (`)"
+        >
+          <kbd>`</kbd>
+          <Icon name="map" />
+          <span class="tool-label">Debug</span>
+          <span class="tool-cost">Overlays</span>
+        </button>
+      )}
+    </>
+  );
+  const bar = useRef<HTMLElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [more, setMore] = useState(false);
+  // How wide the bar needs to be for every tool, measured while they were all on it.
+  const needs = useRef(0);
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const fit = () => {
+      if (!compact && el.scrollWidth > el.clientWidth + 1) {
+        needs.current = el.scrollWidth;
+        setCompact(true);
+      } else if (compact && el.clientWidth >= needs.current) setCompact(false);
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [compact, categories.length]);
+  // Picking a tool or a panel from it puts it away again.
+  useEffect(() => setMore(false), [current, panel.value]);
+  const moreOn =
+    current === 'bulldoze' || current === 'unmark' || current === 'land' || panel.value === 'staff';
   return (
     <>
       {open && <CategoryTray key={open.id} cat={open} />}
-      <footer class="dock panel">
+      {compact && more && <div class="dock-more panel">{rest}</div>}
+      <footer class="dock panel" ref={bar}>
         <div class="dock-group">
           <ToolButton t={SELECT_TOOL} active={current === 'select'} />
         </div>
@@ -225,37 +284,21 @@ export function BuildBar() {
             );
           })}
         </div>
-        <div class="dock-group">
-          <ToolButton t={BULLDOZE_TOOL} active={current === 'bulldoze'} />
-          <ToolButton t={UNMARK_TOOL} active={current === 'unmark'} />
-          <ToolButton
-            t={{ ...LAND_TOOL, note: land.value ? money(land.value.next) : LAND_TOOL.note }}
-            active={current === 'land'}
-          />
-          <button
-            class={`tool ${panel.value === 'staff' ? 'on' : ''}`}
-            onClick={() => togglePanel('staff')}
-            title={`Hire and manage dockhands${keyHint('staff')}`}
-          >
-            {staffKey && <kbd>{staffKey}</kbd>}
-            <Icon name="hire" />
-            <span class="tool-label">Staff</span>
-            <span class="tool-cost">Hire</span>
-          </button>
-          {import.meta.env.DEV && (
-            // src/debug/: paths, passability, slots and more drawn over the map.
+        {compact ? (
+          <div class="dock-group">
             <button
-              class="tool"
-              onClick={() => window.dispatchEvent(new Event('hm-debug'))}
-              title="Debug overlays (`)"
+              class={`tool ${more || moreOn ? 'on' : ''}`}
+              onClick={() => setMore(!more)}
+              aria-expanded={more}
+              title="Bulldoze, unmark, land, staff and more"
             >
-              <kbd>`</kbd>
-              <Icon name="map" />
-              <span class="tool-label">Debug</span>
-              <span class="tool-cost">Overlays</span>
+              <Icon name="menu" />
+              <span class="tool-label">More</span>
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div class="dock-group">{rest}</div>
+        )}
       </footer>
     </>
   );

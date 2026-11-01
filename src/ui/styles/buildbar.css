@@ -49,6 +49,36 @@
   gap: 2px;
 }
 
+/* Where the bar is too narrow for them all: the tools from its right end,
+   opened from its More button over the map above it. */
+.dock-more {
+  position: absolute;
+  bottom: calc(var(--bar) + 6px + env(safe-area-inset-bottom));
+  right: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 72px);
+  gap: 4px;
+  padding: 6px;
+  z-index: 5;
+  animation: tray-in 0.14s ease-out;
+}
+
+.dock-more .tool {
+  height: 56px;
+  width: 72px;
+  gap: 1px;
+}
+
+.dock-more .tool .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.dock-more .tool kbd {
+  top: 2px;
+  right: 2px;
+}
+
 .dock-group + .dock-group {
   margin-left: 6px;
   padding-left: 6px;
