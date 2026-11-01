@@ -4,7 +4,7 @@ import type { Actions } from './actions';
 import { Advisor } from './Advisor';
 import { BuildBar } from './BuildBar';
 import { ContractsPanel } from './Contracts';
-import { BankruptDialog, NewGameDialog } from './Dialogs';
+import { BankruptDialog, NewGameDialog, PhoneNotice } from './Dialogs';
 import { FeedbackPanel, ReportButton } from './Feedback';
 import { FinancePanel } from './Finance';
 import { HandbookPanel } from './Handbook';
@@ -63,6 +63,7 @@ export function App({ actions }: { actions: Actions }) {
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
       <LandDialog send={actions.send} />
+      <PhoneNotice />
     </>
   );
 }

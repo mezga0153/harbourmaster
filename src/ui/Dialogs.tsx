@@ -79,3 +79,60 @@ export function BankruptDialog() {
     </div>
   );
 }
+
+/** Whether the player has been told, on this device, that the game plays best on a computer. */
+const PHONE_KEY = 'hm-phone-notice';
+
+/** A phone or tablet: a touch screen with no fine pointer, or a narrow window. */
+function onPhone(): boolean {
+  if (typeof matchMedia !== 'function') return false;
+  return matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 760px)').matches;
+}
+
+function told(): boolean {
+  try {
+    return localStorage.getItem(PHONE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Opened on a phone or tablet, once: it plays there, but best on a
+ * computer, with a mouse and a big screen.
+ */
+export function PhoneNotice() {
+  const [open, setOpen] = useState(() => onPhone() && !told());
+  if (!open) return null;
+  const close = () => {
+    try {
+      localStorage.setItem(PHONE_KEY, '1');
+    } catch {
+      // Private browsing: it shows again next time, no harm done.
+    }
+    setOpen(false);
+  };
+  return (
+    <div class="backdrop" onClick={close}>
+      <div
+        class="dialog panel"
+        role="dialog"
+        aria-labelledby="phone-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <InfoHeader kicker="Welcome" title="Best on a computer" onClose={close} />
+        <p id="phone-title">
+          We have tried to make Harbourmaster playable on phones and tablets, but there is a lot to
+          see and build, and it is at its best on a computer, with a mouse and a big screen.
+        </p>
+        <p class="muted">
+          Here, pinch to zoom, drag with two fingers to move about, and use the buttons on the right
+          to turn the view.
+        </p>
+        <button class="btn primary block" onClick={close}>
+          Play here anyway
+        </button>
+      </div>
+    </div>
+  );
+}
