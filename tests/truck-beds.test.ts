@@ -125,11 +125,18 @@ describe('A truck’s bed', () => {
     expect(after).toEqual(kept);
   });
 
-  it('is one layer on a pickup, never a forklift’s', () => {
+  it('is one layer on a pickup, a forklift’s only in a truck bay', () => {
     const { world, t, hand, lift } = atBay();
     t.pickup = true;
     expect(bedCap(world, t)).toBe(t.capacity);
+    // In the bay, a forklift sets its load on the one layer.
+    const slots = slotsFor(world, t, lift, 4);
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots.every((s: number) => layer(t, s) === 0)).toBe(true);
+    // On the road beside it, by hand only.
+    t.y += 1;
     expect(slotsFor(world, t, lift, 4)).toEqual([]);
+    t.y -= 1;
     for (let k = 0; k < 10; k++) load(world, t, hand, 1);
     expect(bedSlots(world, t).every((s) => layer(t, s) === 0)).toBe(true);
   });

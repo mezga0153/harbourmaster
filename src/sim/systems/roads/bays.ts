@@ -112,12 +112,13 @@ export function addBay(w: World, i: number): void {
 
 /**
  * Where trucks stand to load: in a truck bay, or beside a storage area. A
- * pickup never backs into a truck bay: it pulls up on the road beside it.
+ * pickup backs into a truck bay too, or pulls up on the road beside it.
  */
 export function loadingDocks(w: World, bay: Bay, pickup = false): number[] {
   if (bay.tiles) return w.storeSpots(bay);
   // The heap at the road's end: pickups only, beside it.
-  return pickup || bay.kerb ? roadside(w, bay) : [bay.idx];
+  if (bay.kerb) return roadside(w, bay);
+  return pickup ? [bay.idx, ...roadside(w, bay)] : [bay.idx];
 }
 
 /**
@@ -523,7 +524,12 @@ export function freeDockSet(w: World, bay: Bay, len = 1, pickup = false): Set<nu
     const o = pickup ? frontFor(w, d, bay) : undefined;
     return (
       !!o &&
-      w.trucks.some((t) => t.bayIdx === o.idx && !t.pickup && (t.state === 'toBay' || docked(w, t)))
+      w.trucks.some(
+        (t) =>
+          t.bayIdx === o.idx &&
+          (t.pickup ? t.goal === o.idx : true) &&
+          (t.state === 'toBay' || docked(w, t)),
+      )
     );
   };
   return new Set(

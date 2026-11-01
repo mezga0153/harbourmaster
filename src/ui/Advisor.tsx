@@ -114,12 +114,12 @@ const TIPS: Record<string, Tip> = {
   },
   customsOffice: {
     title: 'A customs office',
-    text: `A line on the contracts board brings cargo customs must clear: timber or goods off the coasters, containers off the feeders, or the cannery's canned fish going out on export papers. It cannot be signed till the port has a customs office: build one from Port buildings, on open ground or a port path in the port's land, its door facing a port path or road. One does for the whole port, for $${B.CUSTOMS_OFFICE_COST.toLocaleString('en-US')}.`,
+    text: `A line on the contracts board brings cargo customs must clear: timber or goods off the coasters, containers off the feeders, or crates of goods or the cannery's canned fish going out, inspected for export. It cannot be signed till the port has a customs office: build one from Port buildings, on open ground or a port path in the port's land, its door facing a port path or road. One does for the whole port, for $${B.CUSTOMS_OFFICE_COST.toLocaleString('en-US')}.`,
     topic: 'storage',
   },
   papers: {
     title: 'Export papers',
-    text: `The cannery's canned fish waits in the outgoing crate storage about ${hours(B.EXPORT_PAPERS_TICKS)} hours for its export papers before it may go on board, so a coaster takes only what is ready. Give the outgoing storage room for half a day of it, or the cannery's trucks wait outside with their loads.`,
+    text: `Crates of goods and canned fish wait in the outgoing crate storage about ${hours(B.EXPORT_PAPERS_TICKS)} hours to be inspected before they may go on board, so a coaster takes only what is ready. Give the outgoing storage room for half a day of them, or the shippers' trucks wait outside with their loads.`,
     topic: 'exports',
   },
   noHands: {

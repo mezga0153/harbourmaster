@@ -9,6 +9,7 @@ import { isExit } from '../src/sim/roads';
 import { findDrivePath, findPath } from '../src/sim/path';
 import {
   anchorOf,
+  bayTrouble,
   bestFacing,
   drivable,
   EXTENSION,
@@ -99,6 +100,7 @@ import {
   gantryRailWays,
   goDeeper,
   intoSpace,
+  roadside as besideBay,
   routeFrom,
   storeSpots,
   throughCost,
@@ -689,7 +691,11 @@ describe('Coastal Wharf tier', () => {
     if (h.terms.kind === 'haulier') h.terms.capacity = B.BIG_TRUCK_CAPACITY;
     for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
     expect(world.stats.trucks).toBe(0);
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'largeBay', i));
+    const spot = m.build.findIndex(
+      (_, i) =>
+        !placementError(m, 'largeBay', i) &&
+        !bayTrouble(m, i, bestFacing(m, 'largeBay', i))?.startsWith('No road'),
+    );
     world.command({ type: 'build', kind: 'largeBay', tiles: [spot] });
     // Give the large bay something to collect: a big truck comes for it.
     stockUp(world, world.bays.get(spot)!, [...Array(B.BIG_TRUCK_CAPACITY).fill(20)]);
@@ -1157,10 +1163,15 @@ describe('Buildings', () => {
   it('face the way they are placed, entrance to the road', () => {
     const world = World.create(7, 96);
     const m = world.map;
-    const spot = m.build.findIndex((_, i) => !placementError(m, 'truckBay', i));
+    const spot = m.build.findIndex(
+      (_, i) =>
+        !placementError(m, 'truckBay', i) &&
+        !bayTrouble(m, i, bestFacing(m, 'truckBay', i))?.startsWith('No road'),
+    );
     const f = bestFacing(m, 'truckBay', spot);
     expect(m.build[frontOf(m, spot, f)]).toBe(Build.Road);
-    expect(placementError(m, 'truckBay', spot, undefined, (f + 2) % 4)).not.toBeNull();
+    // Turned the other way it may go up, but has a red mark saying why it cannot work.
+    expect(bayTrouble(m, spot, (f + 2) % 4)).toMatch(/No road in front/);
     world.command({ type: 'build', kind: 'truckBay', tiles: [spot], facing: f });
     expect(m.build[spot]).toBe(Build.TruckBay);
     expect(m.orient[spot]).toBe(f);
@@ -1444,9 +1455,11 @@ describe('Buildings', () => {
     expect(info.why).toBeNull();
     expect(info.outside).toBe(true);
     expect(info.spaces).toHaveLength(2);
-    // One bay, more trucks than it can load at once: the rest park and wait.
+    // One bay, more trucks than it can load at once, in it and on the road
+    // beside it: the rest park and wait.
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
-    if (h.terms.kind === 'haulier') h.terms.fleet = 3;
+    if (h.terms.kind === 'haulier')
+      h.terms.fleet = 3 + besideBay(world, [...world.bays.values()][0]).length;
     const bay = [...world.bays.values()][0];
     stockUp(world, bay, [...Array(B.BAY_CAPACITY).fill(20)]);
     let parked = 0;
@@ -1454,7 +1467,9 @@ describe('Buildings', () => {
     let backwards = 0;
     let forwards = 0;
     const from = new Map<number, number>();
-    for (let k = 0; k < TICKS_PER_DAY && cratesAt(bay) > 0; k++) {
+    for (let k = 0; k < TICKS_PER_DAY && (cratesAt(bay) > 0 || forwards === 0); k++) {
+      // Crates enough for those that wait to be called in.
+      if (cratesAt(bay) < 6) stockUp(world, bay, [...Array(6).fill(20)]);
       world.step();
       parked = Math.max(parked, world.trucks.filter((t) => t.state === 'parked').length);
       for (const t of world.trucks) {
@@ -1469,7 +1484,6 @@ describe('Buildings', () => {
     expect(parked).toBeGreaterThan(0);
     expect(forwards).toBeGreaterThan(0);
     expect(backwards).toBe(0);
-    expect(cratesAt(bay)).toBeLessThan(B.BAY_CAPACITY);
   });
 
   it('keeps the big trucks to parking two tiles wide', () => {

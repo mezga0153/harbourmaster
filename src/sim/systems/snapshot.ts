@@ -5,7 +5,7 @@
 import type { World } from '../world';
 import type { Boat, CargoStats, Crane, Dockhand, Truck } from '../state';
 import * as B from '../balance';
-import { depotDoorTrouble, walkableAt } from '../rules/placement';
+import { bayTrouble, depotDoorTrouble, walkableAt } from '../rules/placement';
 import {
   activity,
   bayCap,
@@ -20,7 +20,7 @@ import {
   outAboard,
 } from '../helpers';
 import { Build } from '../types';
-import { cargoOf } from '../cargo';
+import { cargoName, cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
 import { isIce, needsCustomsOffice, type Contract } from '../contracts';
 import { thought, traitDef } from '../staff';
@@ -81,7 +81,7 @@ import { shipperChecks, shipperTrouble } from './cargo/shipperTrouble';
 import {
   buriedCount,
   byCrane,
-  cannedTruck,
+  papersInPort,
   carriedLooks,
   cleared,
   customsHold,
@@ -210,8 +210,10 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
 function truckPlace(w: World, t: Truck, none: string): string {
   const bay = dest(w, t.bayIdx);
   if (bay?.kerb) return placeOf(bay);
-  // A pickup pulls up on the road beside a truck bay.
-  if (t.pickup && bay?.name && !bay.tiles) return `the road beside ${placeOf(bay)}`;
+  // A pickup pulls up on the road beside a truck bay, or backs into it.
+  if (t.pickup && bay?.name && !bay.tiles && t.goal !== bay.idx) {
+    return `the road beside ${placeOf(bay)}`;
+  }
   return bay?.name ? placeOf(bay) : none;
 }
 
@@ -442,6 +444,14 @@ export function problems(w: World): ProblemView[] {
     out.push({ ...middle([g]), h: 1.6, text, type: 'yardGantry', idx: g });
   }
   const marked = shipperMarks(w, out);
+  // Truck bays with no road in front or no way in behind for those who load them.
+  for (const b of w.bays.values()) {
+    if (b.tiles || b.pile || marked.has(b.idx)) continue;
+    const why = bayTrouble(m, b.idx, m.orient[b.idx] & 3);
+    if (!why) continue;
+    out.push({ ...middle([b.idx]), h: 1.2, text: `${why}.`, type: 'bay', idx: b.idx });
+    marked.add(b.idx);
+  }
   for (const b of [...w.bays.values(), ...w.yards.values()]) {
     // Crate storage the trucks cannot reach is still a buffer the forklifts empty.
     if (!b.noAccess || b.warehouse || (b.tiles && !b.yard) || marked.has(b.idx)) continue;
@@ -849,13 +859,13 @@ export function buildSnapshot(w: World): Snapshot {
         t.exports && (t.state === 'toPark' || t.state === 'parked')
           ? t.staged !== undefined && t.state === 'toPark'
             ? `Paperwork done, driving to parking nearer the outgoing storage to wait for a spot`
-            : cannedTruck(w, t) && t.state === 'toPark'
-              ? `Bringing ${t.cargo} crates of canned fish to ship: to parking outside the port, to wait for a spot in the outgoing storage`
+            : papersInPort(w, t) && t.state === 'toPark'
+              ? `Bringing ${t.cargo} crates of ${cargoName(cargoOf(t.value, 'goods'))} to ship: to parking outside the port, to wait for a spot in the outgoing storage`
               : w.tick < (t.papers ?? Infinity) || t.state === 'toPark'
                 ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ship: paperwork first, parked outside the port`
                 : w.outgoingRoom(t)
-                  ? `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
-                  : `${cannedTruck(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
+                  ? `${papersInPort(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for a free spot to unload at the outgoing storage`
+                  : `${papersInPort(w, t) ? 'Waiting' : 'Paperwork done, waiting'} for storage with room for its ${t.boxes ? 'containers' : 'crates'}`
           : t.exports && t.state === 'toBay'
             ? `Bringing ${t.cargo} ${t.boxes ? 'containers' : 'crates'} to ${truckPlace(w, t, 'storage')}, to ship`
             : unloadWaiting(w, t)

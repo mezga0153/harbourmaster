@@ -168,7 +168,7 @@ function workKept(w: World): { bits: Map<number, number>; cabs: Map<number, numb
   for (const t of w.trucks) {
     // One on its way into a truck bay close by: the half of it it backs into.
     const g = t.path.length > 0 ? t.goal : -1;
-    if (g >= 0 && m.build[g] === Build.TruckBay && !t.pickup && t.bayIdx === g) {
+    if (g >= 0 && m.build[g] === Build.TruckBay && t.bayIdx === g) {
       if (Math.hypot(m.xOf(g) + 0.5 - t.x, m.yOf(g) + 0.5 - t.y) < 2) {
         put(g, bayCells(m.orient[g], 0.25, false, false));
       }
@@ -180,8 +180,7 @@ function workKept(w: World): { bits: Map<number, number>; cabs: Map<number, numb
     // A truck standing in its truck bay: the whole half of the bay away
     // from its stack, where the view has it stand, and its body where it
     // reaches out of it.
-    if (m.build[i] === Build.TruckBay && !t.pickup)
-      put(i, bayCells(m.orient[i], 0.25, false, false));
+    if (m.build[i] === Build.TruckBay) put(i, bayCells(m.orient[i], 0.25, false, false));
     // The cells its body is over, and those just ahead of its cab, where
     // nobody walks across in front of it.
     const half = lengthOf(w, t) / 2 + 0.05;

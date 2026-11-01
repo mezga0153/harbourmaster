@@ -183,9 +183,10 @@ export function needsCustoms(fee: number): boolean {
   return c === 'timber' || c === 'goods';
 }
 
-/** Crates of canned fish wait in storage for their export papers before they may go on board. */
+/** Crates of goods and canned fish wait in storage for their export inspection before they may go on board. */
 export function needsPapers(fee: number): boolean {
-  return cargoOf(fee, 'goods') === 'canned';
+  const c = cargoOf(fee, 'goods');
+  return c === 'canned' || c === 'goods';
 }
 
 /** Crates and exports in a bay or crate storage. */

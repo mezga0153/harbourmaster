@@ -192,16 +192,12 @@ export function placementError(
   if (!ROTATABLE.has(kind)) return null;
   const front = frontOf(map, i, facing);
   const f = front >= 0 ? map.build[front] : Build.None;
-  // Trucks come in off a public road, or along port roads and quays from a
-  // port gate.
-  const truckable =
-    f === Build.Road || ((f === Build.PortRoad || f === Build.Quay) && !forkliftOnly(map, front));
   if (kind === 'portGate') {
     return f === Build.Road ? null : 'The gate must face a public road, where the trucks turn in';
   }
-  if (kind === 'truckBay' || kind === 'largeBay') {
-    return truckable ? null : 'The entrance must face a public road or a port road';
-  }
+  // A truck bay goes up anywhere: one with no road in front or way in
+  // behind for those who load it shows why, with a red mark (bayTrouble).
+  if (kind === 'truckBay' || kind === 'largeBay') return null;
   // A depot goes anywhere, but its machines are shut in till its door faces
   // a port road or quay: see depotDoorTrouble.
   if (kind === 'depot') return null;
@@ -216,6 +212,32 @@ export function placementError(
 function onPath(map: GameMap, i: number): boolean {
   const b = map.build[i];
   return (b === Build.Footpath || b === Build.PortRoad) && map.store[i] === 0 && !nearCrane(map, i);
+}
+
+/**
+ * Why a truck bay at `i`, facing `facing`, is no use as it stands: no road
+ * in front for the trucks to back in off (a public road, or a port road
+ * from a port gate), or no port road, quay or path behind it for the
+ * dockhands and forklifts that load it. Null when it has both.
+ */
+export function bayTrouble(map: GameMap, i: number, facing: number): string | null {
+  const front = frontOf(map, i, facing);
+  const f = front >= 0 ? map.build[front] : Build.None;
+  const truckable =
+    f === Build.Road || ((f === Build.PortRoad || f === Build.Quay) && !forkliftOnly(map, front));
+  const back = frontOf(map, i, (facing + 2) & 3);
+  const b = back >= 0 ? map.build[back] : Build.None;
+  const loaders = b === Build.Footpath || b === Build.PortRoad || b === Build.Quay;
+  if (!truckable && !loaders) {
+    return 'No road in front for the trucks, nor a way in behind for those who load them: it faces a public road, with a port road or path behind it';
+  }
+  if (!truckable) {
+    return 'No road in front for the trucks to back in off: turn it to face a public road, or build one up to its entrance';
+  }
+  if (!loaders) {
+    return 'No port road, quay or path behind it for the dockhands and forklifts that load it: build one up to its back';
+  }
+  return null;
 }
 
 /**

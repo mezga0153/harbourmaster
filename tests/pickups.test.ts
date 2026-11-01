@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { makeOffer } from '../src/sim/contracts';
 import { Rng } from '../src/sim/rng';
-import { Build } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { roadside } from '../src/sim/systems/roads/bays';
 import { takeCrateTruckJob } from '../src/sim/systems/truckLoading';
@@ -30,31 +29,36 @@ describe('Pickups', () => {
     }
   });
 
-  it('pull up on the road beside a truck bay, never backing in, and are loaded by hand only', () => {
+  it('back into a truck bay, or pull up on the road beside it, loaded there by hand only', () => {
     const world: Any = World.create(7, 96);
     world.tier = 0;
     const bay = [...world.bays.values()][0];
     const m = world.map;
-    stockUp(world, bay, [...Array(6).fill(withCargo(20, 'fish'))]);
-    let pickup: Any;
+    stockUp(world, bay, [...Array(12).fill(withCargo(20, 'fish'))]);
+    let beside: Any;
+    let inBay = 0;
     let loaded = 0;
     for (let t = 0; t < 1500; t++) {
       world.step();
       for (const tr of world.trucks) {
         if (!tr.pickup || tr.state !== 'loading') continue;
-        pickup = tr;
-        // On the road beside the bay, not in it.
         const at = m.idx(Math.floor(tr.x), Math.floor(tr.y));
-        expect(at).not.toBe(bay.idx);
-        expect(roadside(world, bay)).toContain(at);
-        expect(m.build[at]).not.toBe(Build.TruckBay);
-        expect(tr.backing).toBeUndefined();
+        // In the bay, or on the road beside it.
+        expect([bay.idx, ...roadside(world, bay)]).toContain(at);
+        if (at === bay.idx) inBay++;
+        else beside = tr;
         loaded = Math.max(loaded, tr.cargo);
       }
     }
-    expect(pickup).toBeDefined();
+    expect(inBay).toBeGreaterThan(0);
     expect(loaded).toBeGreaterThan(0);
-    // No forklift takes a job loading one.
+    // No forklift takes a job loading one on the road beside the bay.
+    const pickup: Any = beside ?? world.trucks.find((tr: Any) => tr.pickup);
+    expect(pickup).toBeDefined();
+    const side = roadside(world, bay)[0];
+    pickup.x = m.xOf(side) + 0.5;
+    pickup.y = m.yOf(side) + 0.5;
+    pickup.bayIdx = bay.idx;
     const forklift: Any = { ...world.people[0], kind: 'forklift', capacity: B.FORKLIFT_CAPACITY };
     pickup.state = 'loading';
     pickup.cargo = 0;

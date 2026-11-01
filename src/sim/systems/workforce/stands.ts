@@ -285,7 +285,7 @@ function bedSpot(w: World, t: Truck, at: HandAt): Spot {
   // anywhere else from the side the crates go on.
   const m = w.map;
   const tile = w.tileOf(t);
-  const inBay = !t.pickup && m.build[tile] === Build.TruckBay && t.bayIdx === tile;
+  const inBay = m.build[tile] === Build.TruckBay && t.bayIdx === tile;
   const near = farSide(w, t) === 0 ? -1 : 1;
   const left = inBay ? near : side >= 0 ? 1 : -1;
   const out: [number, number] = [lx * left, ly * left];

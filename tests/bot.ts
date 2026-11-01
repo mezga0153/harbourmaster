@@ -10,7 +10,7 @@ import {
   type Offer,
 } from '../src/sim/contracts';
 import { buyable, landError, plotPrice } from '../src/sim/land';
-import { placementError, walkable } from '../src/sim/rules';
+import { bayTrouble, bestFacing, placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -235,7 +235,10 @@ function buildBay(w: World): boolean {
   const row = m.yOf(m.entry);
   const candidates: number[] = [];
   for (let i = 0; i < m.build.length; i++) {
-    if (!placementError(m, 'truckBay', i)) candidates.push(i);
+    // Facing a road the trucks back in off; the way in behind it the bot paves.
+    if (placementError(m, 'truckBay', i)) continue;
+    if (bayTrouble(m, i, bestFacing(m, 'truckBay', i))?.startsWith('No road')) continue;
+    candidates.push(i);
   }
   const shore = [...w.bays.keys()][0] ?? m.entry;
   candidates.sort(

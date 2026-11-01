@@ -63,7 +63,9 @@ export function shipperChecks(w: World, t: ShipperTerms): ShipperCheck[] {
   const outside = lots(w).filter((l) => l.outside && !lotTrouble(w, l));
   const fits = outside.filter((l) => !wide || l.wide);
   const wait =
-    t.goods === 'canned' ? 'before they come in' : 'for a day of paperwork before they come in';
+    !boxes && t.goods !== 'ice'
+      ? 'before they come in'
+      : 'for a day of paperwork before they come in';
   out.push(
     fits.length > 0
       ? {

@@ -395,9 +395,13 @@ export function customsHold(w: World, t: Truck): string {
   return `, waiting for crates still in customs: the next clear in ${Math.ceil((nextHold(w, bay, false) / TICKS_PER_DAY) * 24)} h`;
 }
 
-/** The cannery's truck bringing canned fish: its export papers are done in the port. */
-export function cannedTruck(_w: World, t: Truck): boolean {
-  return !!t.exports && !t.boxes && cargoOf(t.value, 'goods') === 'canned';
+/**
+ * A shipper's truck bringing crates of goods or canned fish to ship: they
+ * are inspected in storage, in the port, not in parking before it comes in.
+ */
+export function papersInPort(_w: World, t: Truck): boolean {
+  const c = cargoOf(t.value, 'goods');
+  return !!t.exports && !t.boxes && (c === 'canned' || c === 'goods');
 }
 
 /** A shipper's truck bringing ice. */

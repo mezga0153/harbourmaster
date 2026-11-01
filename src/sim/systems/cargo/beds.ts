@@ -12,7 +12,7 @@
 // other), only on the bare bed or on a whole level layer, and only from the
 // truck's side. Both fill the side away from those who load it (the far
 // side, see farSide) first, then the near side. A pickup has one layer,
-// loaded by hand.
+// loaded by hand beside a truck bay, by forklift too in one.
 
 import type { World } from '../../world';
 import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
@@ -22,6 +22,12 @@ import { boxLookOf, isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { dest } from './customs';
 import { cargoOf } from '../../cargo';
+
+/** Whether a truck stands in (or backs into) the truck bay it loads at, rather than beside it. */
+export function inTruckBay(w: World, t: Truck): boolean {
+  const bay = dest(w, t.bayIdx);
+  return !!bay && !bay.tiles && !bay.kerb && w.tileOf(t) === bay.idx;
+}
 
 /** Layers of crates a truck's bed can take: one on a pickup, two on a truck forklifts load. */
 export function bedLayers(t: Truck): number {
@@ -59,7 +65,7 @@ export function farSide(w: World, t: Truck): 0 | 1 {
   const ly = -Math.cos(t.dir);
   let dx = 0;
   let dy = 0;
-  if (bay && !bay.tiles && !t.pickup && w.tileOf(t) === bay.idx) {
+  if (bay && inTruckBay(w, t)) {
     // In a truck bay: its stack is on the right of the way in from its front.
     const f = frontOf(m, bay.idx, m.orient[bay.idx] & 3);
     const fx = f >= 0 ? m.xOf(f) - m.xOf(bay.idx) : 0;
@@ -183,7 +189,8 @@ export function slotsFor(w: World, t: Truck, p: Dockhand, n: number): number[] {
   if (n <= 0) return [];
   const used = usedIn(bedCells(t));
   const kept = keptOn(w, t, p);
-  if (isMachine(p)) return t.pickup ? [] : forkSlots(w, t, n, used, kept);
+  // A pickup beside the bay is loaded by hand; in it, by forklift too.
+  if (isMachine(p)) return t.pickup && !inTruckBay(w, t) ? [] : forkSlots(w, t, n, used, kept);
   return handSlots(w, t, n, new Set([...used, ...kept]));
 }
 

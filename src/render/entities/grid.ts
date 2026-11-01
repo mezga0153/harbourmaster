@@ -331,7 +331,7 @@ export class StaffGrid {
     // A truck standing in a truck bay keeps the whole half of the bay it stands in.
     if (b === Build.TruckBay) {
       for (const tr of this.trucks()) {
-        if (tr.pickup || Math.floor(tr.x) !== tx || Math.floor(tr.z) !== tz) continue;
+        if (Math.floor(tr.x) !== tx || Math.floor(tr.z) !== tz) continue;
         const [lx] = unturned(m.orient[t], tr.x - tx, tr.z - tz);
         const half = bayCells(m.orient[t], lx, false, false);
         for (let k = 0; k < SUB * SUB; k++) if (half & (1 << k)) this.bits[base + k] |= CELL_TRUCK;

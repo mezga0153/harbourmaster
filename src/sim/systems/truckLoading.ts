@@ -28,7 +28,7 @@ import {
   waitMask,
 } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
-import { bedRoom, keepSlots, onBed, onTrailer, slotsFor } from './cargo/beds';
+import { bedRoom, inTruckBay, keepSlots, onBed, onTrailer, slotsFor } from './cargo/beds';
 import type { Bay, Crate, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
@@ -67,12 +67,12 @@ export function straightOnto(w: World, p: Dockhand, bay: Bay): Truck | undefined
     const t = w.trucks.find((q) => q.id === p.onto);
     return t && t.state === 'loading' && t.bayIdx === bay.idx ? t : undefined;
   }
-  // Only onto a truck with room for them all; a pickup only by hand.
+  // Only onto a truck with room for them all; a pickup beside the bay only by hand.
   return w.trucks.find(
     (t) =>
       t.state === 'loading' &&
       t.bayIdx === bay.idx &&
-      !(t.pickup && isMachine(p)) &&
+      !(t.pickup && isMachine(p) && !inTruckBay(w, t)) &&
       byHand(w, t, bay) &&
       slotsFor(w, t, p, p.carrying).length === p.carrying,
   );
@@ -184,8 +184,8 @@ export function takeCrateTruckJob(w: World, p: Dockhand, src: Source): boolean {
     return false;
   }
   if (isMachine(p) && nearerMachine(w, p, src.tile)) return false;
-  // A pickup is loaded by hand, over its side: no forklift loads it.
-  if (src.load && isMachine(p) && t.pickup) return false;
+  // A pickup beside the bay is loaded by hand, over its side: no forklift loads it.
+  if (src.load && isMachine(p) && t.pickup && !inTruckBay(w, t)) return false;
   // One forklift at a time unloads a truck, a pallet a trip: two would
   // stand in each other's way at it.
   if (

@@ -38,7 +38,7 @@ import {
 } from './traffic';
 import {
   boxLooks,
-  cannedTruck,
+  papersInPort,
   clearTop,
   clearedFor,
   iceTruck,
@@ -233,11 +233,11 @@ export function updateTruck(w: World, t: Truck): void {
         const space = spaceAt(w, t.park);
         if (space) t.lot = space.tiles;
         parkUp(w, t);
-        // A shipper's truck has its paperwork done while it waits; the
-        // cannery's, from the town, have their export papers done inside
-        // the port instead, crate by crate in storage.
+        // A shipper's truck of containers has its paperwork done while it
+        // waits; crates of goods or canned fish are inspected inside the
+        // port instead, crate by crate in storage.
         if (t.exports && t.papers === undefined) {
-          t.papers = w.tick + (cannedTruck(w, t) ? 0 : B.PAPERWORK_TICKS);
+          t.papers = w.tick + (papersInPort(w, t) ? 0 : B.PAPERWORK_TICKS);
         }
       }
       return;

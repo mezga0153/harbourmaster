@@ -6,7 +6,7 @@ import type { GameMap } from '../map';
 import { Build, storesBoxes, type BuildKind } from '../types';
 import { storeArea } from './marking';
 import { BUILDABLES, ROTATABLE } from './buildables';
-import { depotDoorTrouble, placementError } from './placement';
+import { bayTrouble, depotDoorTrouble, placementError } from './placement';
 
 /**
  * How far through a yard gantry's lift, as a share of it, the spreader has
@@ -165,16 +165,22 @@ export function bestFacing(
     }
   }
   // A truck bay opens onto the public road where it can, as the hauliers
-  // come in off it.
+  // come in off it, with a way in behind it for those who load it: else
+  // as nearly so as it can.
   if (kind === 'truckBay' || kind === 'largeBay') {
-    for (let f = 0; f < 4; f++) {
+    const road = (f: number) => {
       const front = frontOf(map, i, f);
-      if (
-        front >= 0 &&
-        map.build[front] === Build.Road &&
-        !placementError(map, kind, i, pending, f)
-      )
-        return f;
+      return front >= 0 && map.build[front] === Build.Road;
+    };
+    const why = (f: number) => bayTrouble(map, i, f);
+    for (const good of [
+      (f: number) => road(f) && !why(f),
+      (f: number) => !why(f),
+      road,
+      (f: number) => !why(f)?.startsWith('No road'),
+    ]) {
+      for (let f = 0; f < 4; f++)
+        if (good(f) && !placementError(map, kind, i, pending, f)) return f;
     }
   }
   for (let f = 0; f < 4; f++) if (!placementError(map, kind, i, pending, f)) return f;

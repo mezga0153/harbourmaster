@@ -624,8 +624,9 @@ export function loadShip(w: World, c: Crane): void {
  * Shippers' trucks come in on their timetable, each to a parking space
  * outside the port to have its paperwork done. With nowhere to park, they
  * do not come. An ice works' trucks need no paperwork: they drive
- * straight to a truck bay, like the hauliers'. The cannery's park only to
- * wait their turn: their crates have their export papers done in storage.
+ * straight to a truck bay, like the hauliers'. Those bringing crates of
+ * goods or canned fish park only to wait their turn: their crates are
+ * inspected in storage.
  */
 export function spawnShipments(w: World): void {
   const m = w.map;

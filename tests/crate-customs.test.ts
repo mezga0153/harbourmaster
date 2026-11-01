@@ -6,7 +6,8 @@ import { World } from '../src/sim/world';
 import { storeHint } from '../src/sim/systems/townBusiness';
 import { cratesFor, cratesOff } from '../src/sim/systems/truckLoading';
 import { exportsFor } from '../src/sim/systems/cargo/exports';
-import { bayWithRoom, cannedTruck } from '../src/sim/systems/cargo/stores';
+import { bayWithRoom, papersInPort } from '../src/sim/systems/cargo/stores';
+import { needsPapers } from '../src/sim/helpers';
 import { holds, readyIn, takeReady, unclaimed, waitMask } from '../src/sim/systems/cargo/customs';
 import { feesIn, setDown as setDownIn } from '../src/sim/systems/cargo/places';
 
@@ -90,10 +91,11 @@ describe('Customs and export papers on crates', () => {
     expect(feesIn(into, false)).toHaveLength(2);
   });
 
-  it('keep canned fish in the outgoing storage till its export papers are done', () => {
+  it('keep goods and canned fish in the outgoing storage till they are inspected', () => {
     const { world, out } = port();
-    setDown(world, out, 'canned', 6, true);
+    setDown(world, out, 'canned', 4, true);
     setDown(world, out, 'goods', 2, true);
+    setDown(world, out, 'fish', 2, true);
     expect(holds(world, out, true)).toHaveLength(6);
     expect(readyIn(world, out, true)).toBe(2);
     // A coaster alongside counts only what may go on board.
@@ -174,10 +176,17 @@ describe('Customs and export papers on crates', () => {
     expect(storeHint(world, true)).toMatch(/export papers: mark out/);
   });
 
-  it('let the cannery’s trucks in without the shippers’ day of paperwork outside', () => {
+  it('let trucks of goods or canned fish in without a day of paperwork outside: their crates are inspected in storage', () => {
     const { world } = port();
     const t = { exports: true, boxes: false, value: withCargo(20, 'canned') };
-    expect(cannedTruck(world, t as never)).toBe(true);
-    expect(cannedTruck(world, { ...t, value: withCargo(20, 'goods') } as never)).toBe(false);
+    expect(papersInPort(world, t as never)).toBe(true);
+    expect(papersInPort(world, { ...t, value: withCargo(20, 'goods') } as never)).toBe(true);
+    // Ice needs none, and containers have their paperwork done in parking.
+    expect(papersInPort(world, { ...t, value: withCargo(20, 'ice') } as never)).toBe(false);
+    expect(papersInPort(world, { ...t, boxes: true, value: withCargo(20, 'goods') } as never)).toBe(
+      false,
+    );
+    expect(needsPapers(withCargo(20, 'goods'))).toBe(true);
+    expect(needsPapers(withCargo(20, 'ice'))).toBe(false);
   });
 });

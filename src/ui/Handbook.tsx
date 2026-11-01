@@ -253,17 +253,17 @@ export const TOPICS: Record<TopicId, Topic> = {
           are full, forklifts move crates off them first, to make the crane room.
         </p>
         <p>
-          <b>Customs and export papers.</b> Lines landing timber, goods or containers, and the
-          cannery, cannot be signed till the port has a customs office (Port buildings): one does
-          for the whole port. Crates of timber and goods off the coasters go into crate storage for
-          cargo coming in, never a truck bay nor straight onto a truck, and wait there about{' '}
-          {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a truck may take them. The
-          cannery's canned fish waits in the outgoing storage about {hours(B.EXPORT_PAPERS_TICKS)}{' '}
-          hours for its export papers before it may go on board. Fish, lobster and ice are fresh and
-          go at once. Crates still waiting have a slip of paper under a red seal on the lid; select
-          storage to see how many wait and when the next clear. A busy Coastal Wharf needs room for
-          a day of the coasters' timber and goods: when the storage is full of crates in customs,
-          the coasters cannot be unloaded.
+          <b>Customs and export papers.</b> Lines landing timber, goods or containers, and shippers
+          sending crates of goods and the cannery, cannot be signed till the port has a customs
+          office (Port buildings): one does for the whole port. Crates of timber and goods off the
+          coasters go into crate storage for cargo coming in, never a truck bay nor straight onto a
+          truck, and wait there about {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a
+          truck may take them. Crates of goods and canned fish going out wait in the outgoing
+          storage about {hours(B.EXPORT_PAPERS_TICKS)} hours to be inspected before they may go on
+          board. Fish, lobster and ice are fresh and go at once. Crates still waiting have a slip of
+          paper under a red seal on the lid; select storage to see how many wait and when the next
+          clear. A busy Coastal Wharf needs room for a day of the coasters' timber and goods: when
+          the storage is full of crates in customs, the coasters cannot be unloaded.
         </p>
       </>
     ),
@@ -391,11 +391,11 @@ export const TOPICS: Record<TopicId, Topic> = {
         </p>
         <ol>
           <li>
-            A shipper's truck parks outside the port, on parking joined to a public road, for about{' '}
-            {hours(B.PAPERWORK_TICKS)} hours of paperwork. With nowhere to park, it does not come.
-            The cannery's trucks, from the town, park only to wait their turn: their canned fish has
-            its export papers done in the outgoing storage instead, about{' '}
-            {hours(B.EXPORT_PAPERS_TICKS)} hours, before it may go on board.
+            A shipper's truck of containers parks outside the port, on parking joined to a public
+            road, for about {hours(B.PAPERWORK_TICKS)} hours of paperwork. With nowhere to park, it
+            does not come. Trucks of crates, goods or the cannery's canned fish, park only to wait
+            their turn: their crates are inspected in the outgoing storage instead, about{' '}
+            {hours(B.EXPORT_PAPERS_TICKS)} hours, before they may go on board.
           </li>
           <li>
             Then it drives in and is unloaded into crate storage or a container yard: crates by
@@ -446,10 +446,10 @@ export const TOPICS: Record<TopicId, Topic> = {
       <>
         <p>
           The port builds only on land and water it owns, in plots of {B.PLOT_SIZE} by {B.PLOT_SIZE}{' '}
-          tiles. A new port owns the few plots round its first jetty and truck bay. Anything built,
-          dredged, filled in, marked out or cleared needs its plot owned; boats and trucks pass
-          through the rest, and the public roads, the highway and the railway already there are free
-          to use.
+          tiles. A new port owns only the plots under its first jetty and the end of the road in.
+          Anything built, dredged, filled in, marked out or cleared needs its plot owned; boats and
+          trucks pass through the rest, and the public roads, the highway and the railway already
+          there are free to use.
         </p>
         <ul>
           <li>

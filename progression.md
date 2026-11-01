@@ -30,17 +30,20 @@ owns, for $1,200 rising by 15% with every plot bought (about $2,400 for
 the sixth, $4,900 for the eleventh, $19,600 for the twenty-first), 60% of
 that for a plot all of sea. Saves made with plots of 16 keep the land they
 owned, in plots of 12 whose middles lay on it, and what they built on.
-A new game owns the two to six plots round its first jetty and the road's
-end, enough for a second jetty and a truck bay or two; everything built, dredged, filled in,
+A new game's first jetty stands on a point of land running out into the
+sea, and the game owns only the one to four plots under it, the path to it
+and the road's end, so a truck bay or a second jetty soon needs land
+bought; everything built, dredged, filled in,
 marked out or cleared needs its plot owned. Saves from before land was
 bought own every plot they built on, free.
 
 ## Fishing Jetty: village to town (cap 100 → 300+)
 
 The hauliers send **pickups** (`pickup` in `HaulierTerms`, `src/sim/contracts.ts`):
-an open bed of one layer of six crates that never backs into a truck bay but
-pulls up on the road beside it (`roadside` in `src/sim/systems/roads/bays.ts`),
-out of the way of the trucks of the bay beside it, and is loaded by hand.
+an open bed of one layer of six crates that backs into a truck bay, or pulls
+up on the road beside it (`roadside` in `src/sim/systems/roads/bays.ts`), out
+of the way of the trucks of the bay beside it. Beside the bay it is loaded
+by hand; in it, by forklifts too.
 
 A new game has **no truck bay**: the road from the highway ends two tiles
 wide (for the pickups to turn about) by a path to the jetty, and on the
@@ -98,9 +101,10 @@ has its cannery, 600+ its builders' yard, 700+ its school.
 crates of timber and goods off the coasters go into crate storage for cargo
 coming in (never a truck bay, nor straight onto a truck) and wait there a
 day for customs (`CRATE_CUSTOMS_TICKS`) before a truck may take them; the
-cannery's canned fish waits half a day in the outgoing storage for its
-export papers (`EXPORT_PAPERS_TICKS`) before it may go on board (its trucks,
-from the town, do no paperwork outside as other shippers' do). Fish,
+crates of goods and the cannery's canned fish going out wait half a day in
+the outgoing storage to be inspected (`EXPORT_PAPERS_TICKS`) before they may
+go on board (their trucks do no paperwork outside, as container shippers'
+do), and their lines need a customs office too. Fish,
 lobster and ice are fresh and go at once. So the Coastal Wharf's later
 steps need storage for about a day of the coasters' timber and goods: with
 both lines signed, about 35 crates a day, two tiles (32 crates) is full

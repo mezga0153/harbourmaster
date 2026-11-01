@@ -541,7 +541,8 @@ export function townTrade(t: Terms): 'canned' | 'timber' | 'goods' | null {
  * shippers do their paperwork outside the port.
  */
 export function needsCustomsOffice(t: Terms): boolean {
-  if (t.kind === 'shipper') return t.goods === 'canned';
+  // Crates of goods or canned fish going out are inspected in the port.
+  if (t.kind === 'shipper') return t.cargo !== 'container' && t.goods !== 'ice';
   if (t.kind === 'fishery')
     return t.vessel === 'feeder' || t.catch === 'timber' || t.catch === 'goods';
   return false;
