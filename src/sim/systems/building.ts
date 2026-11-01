@@ -773,6 +773,10 @@ export function rebuildStores(w: World): void {
       area.outReserved = (area.outReserved ?? 0) + p.planned;
     }
   }
+  // Setting containers down in the yards above looks at which yard each
+  // gantry works, while the yards were still being marked out: not kept.
+  w.gantryCache = null;
+  w.yardLaneCache = null;
   const what = [
     lost.crates > 0 && `${lost.crates} crate${lost.crates === 1 ? '' : 's'}`,
     lost.boxes > 0 && `${lost.boxes} container${lost.boxes === 1 ? '' : 's'}`,

@@ -371,17 +371,12 @@ export function loadSlot(
   const taken = new Set([...used, ...kept]);
   let best = -1;
   let least = Infinity;
-  for (let s = 0; s + n <= sh.cap; s += 2) {
-    if (placeIn(s) !== placeIn(s + n - 1)) continue;
+  // One crate may go beside one on its own, too.
+  for (let s = 0; s + n <= sh.cap; s += n === 1 ? 1 : 2) {
     if (only && !only.has(sh.stack(s))) continue;
-    let ok = true;
-    for (let k = s; k < s + n && ok; k++) ok = !used.has(k) && !kept.has(k);
-    // The layer it goes on whole, and none set on top of where it goes.
-    const under = [sh.below(s), sh.below(s + 1)];
-    if (!ok || !under.every((u) => u < 0 || used.has(u))) continue;
-    if (n === 1 && (used.has(s + 1) || kept.has(s + 1))) continue;
+    if (!level(sh, s, n, used, kept)) continue;
     if (w && !reachable(w, b, placeIn(s), taken)) continue;
-    const v = (w && shutsIn(w, b, placeIn(s), taken) ? 2 : 0) + (under[0] < 0 ? 0 : 1);
+    const v = (w && shutsIn(w, b, placeIn(s), taken) ? 2 : 0) + (sh.below(s) < 0 ? 0 : 1);
     if (v < least) [best, least] = [s, v];
     if (v === 0) break;
   }
@@ -398,10 +393,23 @@ function fitsAt(
   kept: Set<number>,
 ): boolean {
   const sh = shape(b);
-  if (s < 0 || s % 2 !== 0 || s + n > sh.cap || placeIn(s) !== placeIn(s + n - 1)) return false;
+  if (s < 0 || !level(sh, s, n, used, kept)) return false;
+  return reachable(w, b, placeIn(s), new Set([...used, ...kept]));
+}
+
+/**
+ * Whether `n` crates sit level from slot `s` on: in one pallet place, on
+ * a whole layer or the ground, with none set on top of where they go; one
+ * crate on its own on the left of a pair with room beside it, or beside
+ * one there, never on the right of an empty pair. Several start a pair.
+ */
+function level(sh: Shape, s: number, n: number, used: Set<number>, kept: Set<number>): boolean {
+  if (s + n > sh.cap || placeIn(s) !== placeIn(s + n - 1)) return false;
+  if (s % 2 !== 0 && (n !== 1 || !used.has(s - 1))) return false;
   for (let k = s; k < s + n; k++) if (used.has(k) || kept.has(k)) return false;
-  if (!reachable(w, b, placeIn(s), new Set([...used, ...kept]))) return false;
-  return [sh.below(s), sh.below(s + 1)].every((u) => u < 0 || used.has(u));
+  const pair = s - (s % 2);
+  if (![sh.below(pair), sh.below(pair + 1)].every((u) => u < 0 || used.has(u))) return false;
+  return !(n === 1 && s % 2 === 0 && (used.has(s + 1) || kept.has(s + 1)));
 }
 
 /**
