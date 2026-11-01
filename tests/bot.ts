@@ -16,6 +16,7 @@ import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
 import { canUpgrade, capacity, hasCustomsOffice } from '../src/sim/systems/economy';
 import { docks as docksOf } from '../src/sim/systems/boats/berthing';
+import { cratesAt } from './stock';
 
 /**
  * A simple bot that plays like a sensible beginner, once per in-game day.
@@ -322,7 +323,7 @@ export function playthrough(seed: number, days: number) {
       .map((c) => Math.round(c.satisfaction))
       .join('/');
     const anchored = w.boats.filter((b) => b.state === 'anchored').length;
-    const bays = [...w.bays.values()].map((b) => b.crates.length).join('/');
+    const bays = [...w.bays.values()].map((b) => cratesAt(b)).join('/');
     log.push(
       `d${String(d).padStart(2)} $${String(w.cash).padStart(6)} staff ${w.people.length} ` +
         `boats ${w.boats.length} (anch ${anchored}) bays ${bays} trucks ${w.trucks.length} ` +

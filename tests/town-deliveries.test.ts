@@ -7,6 +7,7 @@ import { World } from '../src/sim/world';
 import { cratesFor, cratesOff } from '../src/sim/systems/truckLoading';
 import { deliverInTown } from '../src/sim/systems/roads/traffic';
 import { updateTruck } from '../src/sim/systems/roads/trucks';
+import { stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -113,13 +114,14 @@ describe('Crate trucks', () => {
   it('load any crates ready for them, of whatever kinds, till they are full', () => {
     const world: Any = townWith([Build.FishMarket, Build.Restaurant]);
     const bay = [...world.bays.values()][0];
-    bay.crates = [
+    bay.cells = [];
+    stockUp(world, bay, [
       withCargo(30, 'fish'),
       withCargo(40, 'lobster'),
       withCargo(30, 'fish'),
       withCargo(40, 'lobster'),
       withCargo(50, 'timber'),
-    ];
+    ]);
     const t = truckWith(world, []);
     t.cargo = 0;
     expect(cratesFor(world, t, bay)).toBe(5);
@@ -173,7 +175,7 @@ describe('Crate trucks', () => {
     const bay = [...world.bays.values()][0];
     const seen = new Set<string>();
     for (let k = 0; k < TICKS_PER_DAY * 8; k++) {
-      if (k % 300 === 0) bay.crates.push(...Array(3).fill(withCargo(45, 'lobster')));
+      if (k % 300 === 0) stockUp(world, bay, [...Array(3).fill(withCargo(45, 'lobster'))]);
       world.step();
       for (const t of world.trucks) {
         if (t.state !== 'toTown' || t.boxes) continue;

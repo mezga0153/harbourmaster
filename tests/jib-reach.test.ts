@@ -9,6 +9,7 @@ import { jibRoom } from '../src/sim/systems/cargo/stores';
 import { jibReady } from '../src/sim/systems/cargo/exports';
 import { crateSlots, stackOf } from '../src/sim/systems/cargo/places';
 import { boatWhy, craneWhy, problems } from '../src/sim/systems/snapshot';
+import { cratesAt, stockUp } from './stock';
 
 // A jib crane swings crates only to the tiles right beside it: crate
 // storage reaching further than that is in its reach on those tiles alone.
@@ -106,7 +107,7 @@ describe('A jib crane and crate storage reaching beyond it', () => {
     expect(lifts).toBeGreaterThan(0);
     // Full beside it, room further off: it waits, and the boat under it too.
     expect(jibRoom(world, crane, store)).toBe(0);
-    expect(store.crates.length).toBe(B.CRATES_PER_STORE_TILE);
+    expect(cratesAt(store)).toBe(B.CRATES_PER_STORE_TILE);
     expect(bayRoom(store, false)).toBe(B.CRATES_PER_STORE_TILE);
     const boat = under()!;
     expect(boat).toBeDefined();
@@ -126,16 +127,13 @@ describe('A jib crane and crate storage reaching beyond it', () => {
     const store = world.bays.get(far)!;
     const crane = world.cranes.get(tip)!;
     // The tile beside it full, the one further off part full.
-    const slots = crateSlots(world, store).crates;
     const nearAt = store.tiles!.indexOf(near) * B.CRATES_PER_STORE_TILE;
     const farAt = store.tiles!.indexOf(far) * B.CRATES_PER_STORE_TILE;
     for (let k = 0; k < B.CRATES_PER_STORE_TILE; k++) {
-      store.crates.push(10);
-      slots.push(nearAt + k);
+      stockUp(world, store, [10], false, [nearAt + k]);
     }
     for (let k = 0; k < 8; k++) {
-      store.crates.push(10);
-      slots.push(farAt + k);
+      stockUp(world, store, [10], false, [farAt + k]);
     }
     expect(jibRoom(world, crane, store)).toBe(0);
     buyForklift(world);
@@ -152,18 +150,14 @@ describe('A jib crane and crate storage reaching beyond it', () => {
     const store = world.bays.get(far)!;
     store.outgoing = true;
     const crane = world.cranes.get(tip)!;
-    const out = (store.exports ??= []);
-    const slots = crateSlots(world, store).exports;
     const farAt = store.tiles!.indexOf(far) * B.CRATES_PER_STORE_TILE;
     const nearAt = store.tiles!.indexOf(near) * B.CRATES_PER_STORE_TILE;
     for (let k = 0; k < 4; k++) {
-      out.push(10);
-      slots.push(farAt + k);
+      stockUp(world, store, [10], true, [farAt + k]);
     }
     expect(jibReady(world, crane, store)).toBe(0);
     for (let k = 0; k < 2; k++) {
-      out.push(10);
-      slots.push(nearAt + k);
+      stockUp(world, store, [10], true, [nearAt + k]);
     }
     expect(jibReady(world, crane, store)).toBe(2);
     expect(tilesOf(world, far, true).filter((t) => t === near)).toHaveLength(2);

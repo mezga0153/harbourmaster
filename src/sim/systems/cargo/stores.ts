@@ -14,7 +14,9 @@ import {
   aligned,
   bayCap,
   bayRoom,
+  cratesAt,
   craneStacks,
+  heldIn,
   isBoxy,
   truckBay,
   yardPlace,
@@ -23,7 +25,7 @@ import { boatHalf, mooredTiles } from '../boats/berthing';
 import { Build, TICKS_PER_DAY, isDock } from '../../types';
 import { craneKinds, cranePlaces, craneTop, jibReach, jibStores } from '../cranes';
 import { onPallet, palletPlaces, palletTile, takenFrom } from '../yardGantry';
-import { crateSlots, loadSlot, reserved, slotCount, stackOf, usedSlots } from './places';
+import { crateSlots, loadSlot, reserved, slotCount, stackOf, takeTop, usedSlots } from './places';
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
 import { cargoOf } from '../../cargo';
@@ -36,15 +38,15 @@ export function stock(w: World, i: number): Bay | undefined {
 /** Forget a heap on the quay once it is gone and nobody is coming for it. */
 export function tidyPile(w: World, i: number): void {
   const pile = w.piles.get(i);
-  if (pile && pile.crates.length + pile.incoming + (pile.reserved ?? 0) === 0) {
+  if (pile && cratesAt(pile) + pile.incoming + (pile.reserved ?? 0) === 0) {
     w.piles.delete(i);
   }
 }
 
 export function removePile(w: World, i: number): void {
   const pile = w.piles.get(i);
-  if (pile && pile.crates.length > 0) {
-    message(w, `${pile.crates.length} crates waiting on the quay were lost.`, 'bad');
+  if (pile && cratesAt(pile) > 0) {
+    message(w, `${cratesAt(pile)} crates waiting on the quay were lost.`, 'bad');
   }
   w.piles.delete(i);
 }
@@ -155,15 +157,13 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
     if (!pile) return [];
     if (p.outbound && !pile.pile) {
       pile.outReserved = Math.max(0, (pile.outReserved ?? 0) - p.planned);
-      const out = (pile.exports ??= []);
-      const n = Math.min(p.planned, out.length, onPallet(w, p, pile));
       if (!pile.yard) {
         // Never canned fish still waiting on its export papers.
-        const looks = { from: exportLooks(w, pile), to: [] as number[] };
-        const fees = takeReady(w, pile, true, takenFrom(w, p, pile, n), n, undefined, looks);
-        p.cargoLooks = looks.to;
-        return fees;
+        const n = Math.min(p.planned, cratesAt(pile, true), onPallet(w, p, pile));
+        return takeReady(w, pile, true, takenFrom(w, p, pile, n), n);
       }
+      const out = (pile.outBoxes ??= []);
+      const n = Math.min(p.planned, out.length);
       // Off the top of the stacks in a yard.
       const fees: number[] = [];
       p.cargoLooks = [];
@@ -178,12 +178,12 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
       return fees;
     }
     pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
-    const n = Math.min(p.planned, pile.crates.length, onPallet(w, p, pile));
+    const n = Math.min(p.planned, cratesAt(pile), onPallet(w, p, pile));
     // Out of storage, never a crate still in customs; and those taken
     // have cleared, wherever they go.
     const fees = pile.tiles
       ? takeReady(w, pile, false, takenFrom(w, p, pile, n), n)
-      : pile.crates.splice(pile.crates.length - n, n);
+      : takeTop(pile, n);
     if (pile.tiles) p.cleared = true;
     tidyPile(w, at);
     return fees;
@@ -316,7 +316,7 @@ export function iceBay(w: World, b: Bay): boolean {
   if (
     !truckBay(b) ||
     b.large ||
-    b.crates.length > 0 ||
+    cratesAt(b) > 0 ||
     b.incoming > 0 ||
     (b.reserved ?? 0) > 0 ||
     w.trucks.some((q) => q.bayIdx === b.idx && !q.exports)
@@ -331,7 +331,7 @@ export function iceBay(w: World, b: Bay): boolean {
 
 /** A truck bay given over to ice for the boats, with some in it or on its way. */
 export function holdsIce(_w: World, b: Bay): boolean {
-  return truckBay(b) && ((b.exports?.length ?? 0) > 0 || (b.exportIncoming ?? 0) > 0);
+  return truckBay(b) && (cratesAt(b, true) > 0 || (b.exportIncoming ?? 0) > 0);
 }
 
 /** What a crate truck loading at storage waits on, when it is crates still in customs. */
@@ -544,7 +544,7 @@ export function crateTiles(w: World): Set<number> {
   if (w.crateTileCache?.tick === w.tick) return w.crateTileCache.at;
   const at = new Set<number>();
   const per = B.CRATES_PER_STORE_TILE / B.FORKLIFT_CAPACITY;
-  const held = (b: Bay) => b.crates.length + (b.exports?.length ?? 0) > 0;
+  const held = (b: Bay) => heldIn(b) > 0;
   for (const b of w.bays.values()) {
     if (b.yard || !held(b)) continue;
     if (!b.tiles) at.add(b.idx);
@@ -660,7 +660,7 @@ export function yardSlots(w: World, b: Bay): { boxes: number[]; exports: number[
   const boxes = (b.boxSlots ??= []);
   const exports = (b.exportSlots ??= []);
   if (boxes.length > b.boxes.length) boxes.length = b.boxes.length;
-  if (exports.length > (b.exports?.length ?? 0)) exports.length = b.exports?.length ?? 0;
+  if (exports.length > (b.outBoxes?.length ?? 0)) exports.length = b.outBoxes?.length ?? 0;
   const cap = bayCap(b);
   const used = new Set<number>();
   for (const list of [boxes, exports]) {
@@ -672,7 +672,7 @@ export function yardSlots(w: World, b: Bay): { boxes: number[]; exports: number[
   const ready = readyList(w, b);
   for (const [list, n, out] of [
     [boxes, b.boxes.length, false],
-    [exports, b.exports?.length ?? 0, true],
+    [exports, b.outBoxes?.length ?? 0, true],
   ] as const) {
     for (let i = 0; i < n; i++) {
       if (i < list.length && list[i] >= 0) continue;
@@ -854,9 +854,9 @@ export function reachable(w: World, b: Bay): number {
   return n;
 }
 
-/** How the exports waiting in storage look. */
+/** How the containers waiting in a yard to go out look. */
 export function exportLooks(_w: World, b: Bay): number[] {
-  return (b.exportLooks = aligned(b.exports ?? [], b.exportLooks, b.idx + 1));
+  return (b.exportLooks = aligned(b.outBoxes ?? [], b.exportLooks, b.idx + 1));
 }
 
 /** How the containers a stacker carries look. */

@@ -1,6 +1,8 @@
-// Where each crate stands in crate storage or a truck bay's stack: the slot it
-// was set down in, kept from then until it is taken, so the crates already
-// there never move as others come and go.
+// Where each crate stands in crate storage or a truck bay's stack: the cell
+// it was set down in (see hold.ts), kept from then until it is taken, so the
+// crates already there never move as others come and go. Its customs or
+// export papers go with it. A heap on the quay keeps its crates in its first
+// cells, in the order they came.
 //
 // Crate storage stacks its crates as a truck bay does, one stack to a tile
 // in the middle of it, with room all round for the forklifts: two rows, each
@@ -23,7 +25,7 @@
 // first and is emptied last.
 
 import type { World } from '../../world';
-import type { Bay, Dockhand } from '../../state';
+import type { Bay, Cells, Crate, Dockhand } from '../../state';
 import * as B from '../../balance';
 import { needsCustoms, needsPapers } from '../../helpers';
 import { drivable, forksAlongZ } from '../../rules';
@@ -31,7 +33,19 @@ import { Build } from '../../types';
 import { bayCells } from '../../rules/cells';
 import { jibLoadReach } from './exports';
 import { jibTiles } from './stores';
-import { largeShape, stackShape, type Shape } from './hold';
+import {
+  filled,
+  largeShape,
+  pileShape,
+  put,
+  sized,
+  stackShape,
+  take,
+  usedIn,
+  waits,
+  type Shape,
+} from './hold';
+import { tip } from '../output';
 
 /** Crates in a crate storage pallet place, and in a layer of one. */
 export const PLACE = B.FORKLIFT_CAPACITY;
@@ -71,6 +85,7 @@ function placeIn(s: number): number {
 }
 
 function shape(b: Bay): Shape {
+  if (b.pile) return pileShape();
   if (b.large && !b.tiles) return largeShape();
   return stackShape(b.tiles?.length ?? 0);
 }
@@ -165,93 +180,46 @@ function shutsIn(w: World, b: Bay, k: number, used: Set<number>): boolean {
   return false;
 }
 
-/**
- * The slot of each of a bay's crates, and of each of its exports, kept
- * beside them: brought up to date with the lists, any new ones at the end
- * set down one at a time (see freeSlot). A game saved before crates kept
- * their slots has a truck bay's as it showed them, one after another, and
- * crate storage's stacked afresh.
- */
-export function crateSlots(w: World, b: Bay): { crates: number[]; exports: number[] } {
-  const exports = b.exports ?? [];
-  if (!b.crateSlots) {
-    // Crate storage laid out afresh, a stack at a time.
-    const all = b.tiles ? [] : oldLayout(b);
-    b.crateSlots = all.slice(0, b.crates.length);
-    b.outSlots = all.slice(b.crates.length);
-    b.places = undefined;
-  }
-  const crates = b.crateSlots;
-  const out = (b.outSlots ??= []);
-  if (crates.length > b.crates.length) crates.length = b.crates.length;
-  if (out.length > exports.length) out.length = exports.length;
-  const cap = shape(b).cap;
-  const used = new Set<number>();
-  for (const list of [crates, out]) {
-    list.forEach((s, i) => {
-      if (s < 0 || s >= cap || used.has(s)) list[i] = -1;
-      else used.add(s);
-    });
-  }
-  const kept = reserved(w, b);
-  for (const [list, fees, isOut] of [
-    [crates, b.crates, false],
-    [out, exports, true],
-  ] as const) {
-    for (let i = 0; i < fees.length; i++) {
-      if (i < list.length && list[i] >= 0) continue;
-      const s = freeSlot(b, used, kept, waitsIn(b, isOut, [fees[i]]), waitingSlots(w, b, list), w);
-      list[i] = s;
-      if (s >= 0) used.add(s);
-    }
-  }
-  return { crates, exports: out };
+/** A bay's cells, as many as its shape has, and any crates past them; see hold.ts. */
+export function cellsOf(b: Bay): Cells {
+  if (b.yard) return (b.cells ??= []);
+  return sized((b.cells ??= []), shape(b).cap);
 }
 
-/** Where a truck bay's crates then exports stood before each kept a slot of its own. */
-function oldLayout(b: Bay): number[] {
-  const n = b.crates.length + (b.exports?.length ?? 0);
-  return Array.from({ length: n }, (_, k) => (k < shape(b).cap ? k : -1));
+/** The slots of a bay's crates coming in (or `out`, going out), oldest first. */
+export function slotsOf(b: Bay, out: boolean): number[] {
+  const cells = cellsOf(b);
+  // A heap on the quay keeps all its crates, exports too, as those coming
+  // in, in the order they came; elsewhere as they were set down.
+  if (b.pile) return out ? [] : filled(cells);
+  return filled(cells, out).sort((x, y) => cells[x]!.at - cells[y]!.at || x - y);
 }
 
-/**
- * The slots of a bay's crates still waiting on customs and its exports on
- * export papers, as customs.ts has them: the newest of the kinds that wait,
- * as many as wait. `partial` is a list being brought up to date, as far
- * as it goes.
- */
-export function waitingSlots(w: World, b: Bay, partial?: number[]): Set<number> {
-  const out = new Set<number>();
-  if (!b.tiles || b.yard) return out;
-  for (const [fees, slots, holds, waits] of [
-    [
-      b.crates,
-      partial && partial === b.crateSlots ? partial : b.crateSlots,
-      b.customs,
-      needsCustoms,
-    ],
-    [
-      b.exports ?? [],
-      partial && partial === b.outSlots ? partial : b.outSlots,
-      b.papers,
-      needsPapers,
-    ],
-  ] as const) {
-    let n = (holds ?? []).filter((t) => t > w.tick).length;
-    for (let i = fees.length - 1; i >= 0 && n > 0; i--) {
-      if (!waits(fees[i])) continue;
-      n--;
-      const s = slots?.[i];
-      if (s !== undefined && s >= 0) out.add(s);
-    }
-  }
-  return out;
+/** The crates at a bay coming in (or `out`, going out), oldest first. */
+export function cratesIn(b: Bay, out: boolean): Crate[] {
+  const cells = cellsOf(b);
+  return slotsOf(b, out).map((s) => cells[s]!);
+}
+
+/** The fees of a bay's crates coming in (or `out`, going out), oldest first. */
+export function feesIn(b: Bay, out: boolean): number[] {
+  return cratesIn(b, out).map((c) => c.fee);
+}
+
+/** The slot of each of a bay's crates, and of each of its exports, oldest first. */
+export function crateSlots(_w: World, b: Bay): { crates: number[]; exports: number[] } {
+  return { crates: slotsOf(b, false), exports: slotsOf(b, true) };
+}
+
+/** The slots of a bay's crates still waiting on customs and its exports on export papers. */
+export function waitingSlots(w: World, b: Bay): Set<number> {
+  const cells = cellsOf(b);
+  return new Set(filled(cells).filter((s) => waits(cells[s]!, w.tick)));
 }
 
 /** Every slot taken at a bay, by its crates and its exports. */
-export function usedSlots(w: World, b: Bay): Set<number> {
-  const { crates, exports } = crateSlots(w, b);
-  return new Set([...crates, ...exports].filter((s) => s >= 0));
+export function usedSlots(_w: World, b: Bay): Set<number> {
+  return usedIn(cellsOf(b));
 }
 
 /**
@@ -489,31 +457,151 @@ export function loadFits(w: World, b: Bay, n: number, p?: Dockhand): boolean {
 }
 
 /**
- * The last `n` crates (or `out`, exports) just put on a bay's list were
- * set down by `p`: into the slots kept for them, else as they would go
- * now, one at a time for any but a forklift.
+ * Crates set down at a bay, by `p` if given: into the slots kept for them
+ * (`at`, else `p`'s), else as they would go now, one at a time for any but
+ * a forklift; on a heap on the quay, in its first free cells. In crate
+ * storage those of a kind that waits start on customs, or (`out`) export
+ * papers, unless `cleared`, and go on the ground while there is room.
+ * The crates, as set down.
  */
-export function setDown(w: World, b: Bay, out: boolean, n: number, p?: Dockhand): void {
-  if (!slotted(b) || n <= 0) return;
+export function setDown(
+  w: World,
+  b: Bay,
+  fees: number[],
+  out: boolean,
+  p?: Dockhand,
+  opts: { at?: number[]; cleared?: boolean } = {},
+): Crate[] {
+  const crates: Crate[] = fees.map((fee) => (out ? { fee, out, at: w.tick } : { fee, at: w.tick }));
+  if (b.tiles && !b.yard && !opts.cleared) {
+    const holds = out ? needsPapers : needsCustoms;
+    const until = w.tick + (out ? B.EXPORT_PAPERS_TICKS : B.CRATE_CUSTOMS_TICKS);
+    for (const c of crates) if (holds(c.fee)) c.clears = until;
+    if (crates.some((c) => c.clears)) tip(w, out ? 'papers' : 'crateCustoms');
+  }
+  place(w, b, crates, p, opts.at);
+  return crates;
+}
+
+/**
+ * Crates as they are, set down at a bay by `p` if given: into the slots
+ * kept for them (`at`, else `p`'s) if they are free, else as they would
+ * go now, one at a time for any but a forklift, those that wait on the
+ * ground while there is room; on a heap on the quay, in its first free
+ * cells. Where there is no place as they should go, any empty one.
+ */
+export function place(w: World, b: Bay, crates: Crate[], p?: Dockhand, at?: number[]): void {
   const claimed = p && claiming(p, b) ? p.dropAt! : -1;
   if (p) p.dropAt = undefined;
-  const { crates, exports } = crateSlots(w, b);
-  const list = out ? exports : crates;
-  const new_ = list.slice(list.length - n);
-  const used = new Set([...crates, ...exports].filter((s) => s >= 0));
-  for (const s of new_) used.delete(s);
+  const n = crates.length;
+  if (n === 0) return;
+  const cells = cellsOf(b);
+  if (!slotted(b)) {
+    for (const c of crates) {
+      const s = cells.indexOf(null);
+      if (s >= 0) cells[s] = c;
+      else cells.push(c);
+    }
+    return;
+  }
+  const used = usedSlots(w, b);
   const kept = reserved(w, b, p);
-  const fees = (out ? (b.exports ?? []) : b.crates).slice(-n);
-  const ground = waitsIn(b, out, fees, p?.cleared);
-  let first = claimed;
-  if (first < 0 || ![...Array(n).keys()].every((k) => !used.has(first + k))) {
-    first = p?.kind === 'forklift' ? loadSlot(b, n, used, kept, w) : -1;
+  const ground = crates.some((c) => waits(c, w.tick));
+  const free = (s: number) => s >= 0 && s < cells.length && !used.has(s);
+  let slots: number[] = [];
+  if (at && at.length === n && at.every(free)) slots = at;
+  else {
+    let first = claimed;
+    if (first < 0 || ![...Array(n).keys()].every((k) => free(first + k))) {
+      first = p?.kind === 'forklift' ? loadSlot(b, n, used, kept, w) : -1;
+    }
+    for (let k = 0; k < n; k++) {
+      let s = first >= 0 ? first + k : freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
+      // With no place as it should go, any empty one; past the last if none.
+      if (s < 0) s = cells.findIndex((c, q) => !c && !used.has(q));
+      if (s < 0) s = Math.max(cells.length - 1, ...used) + 1;
+      slots.push(s);
+      used.add(s);
+    }
   }
-  for (let k = 0; k < n; k++) {
-    const s = first >= 0 ? first + k : freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
-    list[list.length - n + k] = s;
-    if (s >= 0) used.add(s);
+  slots.forEach((s, k) => {
+    while (cells.length <= s) cells.push(null);
+    put(cells, s, crates[k]);
+  });
+}
+
+/** How an older save kept a bay's crates: their fees in lists, and their slots, customs and papers beside them. */
+export interface OldCrates {
+  crates?: number[];
+  exports?: number[];
+  crateSlots?: number[];
+  outSlots?: number[];
+  customs?: number[];
+  papers?: number[];
+}
+
+/**
+ * A bay's crates from an older save, into its cells: each in the slot it
+ * kept where it had one, the rest as they would go now (a truck bay's as it
+ * showed them, one after another); those still on customs or papers the
+ * newest of the kinds that wait, the oldest of them clearing first.
+ */
+export function fromOld(w: World, b: Bay, old: OldCrates): void {
+  b.cells = [];
+  const cells = cellsOf(b);
+  const lists = [
+    { fees: old.crates ?? [], slots: old.crateSlots, holds: old.customs, out: false },
+    { fees: old.exports ?? [], slots: old.outSlots, holds: old.papers, out: true },
+  ];
+  const rest: Crate[] = [];
+  let shown = 0;
+  for (const { fees, slots, holds, out } of lists) {
+    const kind = out ? needsPapers : needsCustoms;
+    const clears = [...(holds ?? [])];
+    const crates: Crate[] = fees.map((fee, i) => ({ fee, at: w.tick - fees.length + i }));
+    for (let i = fees.length - 1; i >= 0 && clears.length > 0; i--) {
+      if (kind(fees[i])) crates[i].clears = clears.pop();
+    }
+    crates.forEach((c, i) => {
+      if (out && !b.pile) c.out = true;
+      const s = !slotted(b) ? -1 : slots ? (slots[i] ?? -1) : b.tiles ? -1 : shown++;
+      if (s >= 0 && s < cells.length && !cells[s]) cells[s] = c;
+      else rest.push(c);
+    });
   }
+  place(w, b, rest);
+}
+
+/**
+ * Take the crates (or `out`, exports) at `picks` off a bay, as indexes
+ * into those oldest first (see slotsOf); the crates, in that order.
+ */
+export function takeAt(b: Bay, out: boolean, picks: number[]): Crate[] {
+  const slots = slotsOf(b, out);
+  const cells = cellsOf(b);
+  const crates = [...picks].sort((x, y) => x - y).map((i) => take(cells, slots[i]));
+  if (b.pile) pack(cells);
+  return crates;
+}
+
+/** The fees of the last `n` crates set down on a heap on the quay, taken off it. */
+export function takeTop(b: Bay, n: number): number[] {
+  const len = slotsOf(b, false).length;
+  const picks = Array.from({ length: Math.min(n, len) }, (_, k) => len - 1 - k);
+  return takeAt(b, false, picks).map((c) => c.fee);
+}
+
+/** The fees of the first `n` crates set down on a heap on the quay, taken off it. */
+export function takeFirst(b: Bay, n: number): number[] {
+  const len = slotsOf(b, false).length;
+  return takeAt(b, false, [...Array(Math.min(n, len)).keys()]).map((c) => c.fee);
+}
+
+/** A heap on the quay's crates, moved down into its first cells, in order. */
+function pack(cells: Cells): void {
+  const all = cells.filter((c) => c);
+  cells.fill(null);
+  all.forEach((c, k) => (cells[k] = c));
 }
 
 /**
@@ -569,14 +657,6 @@ export function takeOrder(
     used.delete(list[best]);
   }
   return pick.sort((a, c) => a - c);
-}
-
-/** Drop the slots of crates (or `out`, exports) taken off a bay at `picks`, highest first. */
-export function takeSlots(w: World, b: Bay, out: boolean, picks: number[]): void {
-  if (!slotted(b)) return;
-  const { crates, exports } = crateSlots(w, b);
-  const list = out ? exports : crates;
-  for (const i of [...picks].sort((a, c) => c - a)) if (i < list.length) list.splice(i, 1);
 }
 
 /** The slots of a pallet place in storage with crates in it, and which of the list are there. */

@@ -7,6 +7,7 @@ import { World } from '../src/sim/world';
 import { roadside } from '../src/sim/systems/roads/bays';
 import { takeCrateTruckJob } from '../src/sim/systems/truckLoading';
 import { withCargo } from '../src/sim/cargo';
+import { stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -34,7 +35,7 @@ describe('Pickups', () => {
     world.tier = 0;
     const bay = [...world.bays.values()][0];
     const m = world.map;
-    bay.crates.push(...Array(6).fill(withCargo(20, 'fish')));
+    stockUp(world, bay, [...Array(6).fill(withCargo(20, 'fish'))]);
     let pickup: Any;
     let loaded = 0;
     for (let t = 0; t < 1500; t++) {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { cratesAt, stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -11,11 +12,11 @@ describe('Crate trucks', () => {
     const world: Any = World.create(7, 96);
     world.boats.length = 0;
     const bay = [...world.bays.values()][0];
-    bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    stockUp(world, bay, [...Array(B.BAY_CAPACITY).fill(20)]);
     // Crates on trucks, those gone on to town as last seen.
     const onTrucks = new Map<number, number>();
     const total = () =>
-      bay.crates.length +
+      cratesAt(bay) +
       [...onTrucks.values()].reduce((n, c) => n + c, 0) +
       world.people.reduce((n: number, p: Any) => n + p.carrying, 0) +
       world.stats.cratesHandled;
@@ -24,7 +25,7 @@ describe('Crate trucks', () => {
     let wasLoading = new Set<number>();
     for (const t of world.trucks) if (!t.boxes) onTrucks.set(t.id, t.cargo);
     const start = total();
-    for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
+    for (let k = 0; k < TICKS_PER_DAY && cratesAt(bay) > 0; k++) {
       world.step();
       for (const t of world.trucks) if (!t.boxes) onTrucks.set(t.id, t.cargo);
       // One at a time at the bay.
@@ -41,7 +42,7 @@ describe('Crate trucks', () => {
       // A truck goes full, or once there is nothing left for it here.
       for (const t of world.trucks) {
         if (wasLoading.has(t.id) && t.state !== 'loading') {
-          expect(t.cargo === t.capacity || bay.crates.length === 0).toBe(true);
+          expect(t.cargo === t.capacity || cratesAt(bay) === 0).toBe(true);
           left++;
         }
       }
@@ -63,7 +64,7 @@ describe('Crate trucks', () => {
     expect(helped).toBeGreaterThan(0);
     expect(left).toBeGreaterThan(0);
     // Every crate is still in the bay, on a truck or in someone's hands.
-    expect(bay.crates.length).toBe(0);
+    expect(cratesAt(bay)).toBe(0);
     expect(total()).toBe(start);
   });
 

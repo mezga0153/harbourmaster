@@ -2,6 +2,7 @@ import type { CostFn } from '../sim/path';
 import { forkCells } from '../sim/systems/workforce/forkCells';
 import { truckCost } from '../sim/rules';
 import type { Agent, Bay, Dockhand } from '../sim/state';
+import { cratesAt } from '../sim/helpers';
 import { reserved, slotted, usedSlots } from '../sim/systems/cargo/places';
 import { truckCostFor } from '../sim/systems/roads/bays';
 import { forkCost } from '../sim/systems/workforce/crowding';
@@ -113,8 +114,8 @@ export function roadGraph(w: World): Int32Array {
 function slotsOf(w: World, b: Bay): DebugSlots {
   const cap = b.tiles ? b.tiles.length * PER_TILE : b.large ? LARGE_SLOTS : BAY_SLOTS;
   const bits = [
-    `${b.crates.length} crates`,
-    b.exports?.length ? `${b.exports.length} out` : '',
+    `${cratesAt(b)} crates`,
+    cratesAt(b, true) ? `${cratesAt(b, true)} out` : '',
     b.incoming ? `${b.incoming} coming` : '',
     b.reserved ? `${b.reserved} kept` : '',
     b.shut ? 'shut' : '',

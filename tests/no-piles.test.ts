@@ -4,6 +4,7 @@ import { World } from '../src/sim/world';
 import { bayRoom, truckBay } from '../src/sim/helpers';
 import { boatWhy, problems } from '../src/sim/systems/snapshot';
 import { oldPile, wharf } from './wharf';
+import { cratesAt, stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -43,7 +44,7 @@ describe('Dockhands set no crates down on the quay', () => {
     expect(count()).toBeGreaterThan(30);
     expect(carried).toBeGreaterThan(0);
     // What came off is in storage or on the trucks, not on the quay.
-    const stored = [...world.bays.values()].reduce((n: number, b: Any) => n + b.crates.length, 0);
+    const stored = [...world.bays.values()].reduce((n: number, b: Any) => n + cratesAt(b), 0);
     expect(stored + world.stats.cratesHandled).toBeGreaterThan(0);
   }, 60_000);
 
@@ -52,7 +53,7 @@ describe('Dockhands set no crates down on the quay', () => {
     // No trucks to empty the bays.
     world.contracts = world.contracts.filter((c: Any) => c.terms.kind !== 'haulier');
     for (const b of world.bays.values()) {
-      if (truckBay(b)) b.crates.push(...Array(bayRoom(b, false)).fill(10));
+      if (truckBay(b)) stockUp(world, b, [...Array(bayRoom(b, false)).fill(10)]);
     }
     for (
       let t = 0;
@@ -73,7 +74,7 @@ describe('Dockhands set no crates down on the quay', () => {
     const mark = problems(world).find((p) => p.type === 'boat' && p.idx === boat.id);
     expect(mark?.text).toMatch(/full/);
     // Room again: the dockhands carry the crates in, and it says so no more.
-    for (const b of world.bays.values()) if (truckBay(b)) b.crates.length = 0;
+    for (const b of world.bays.values()) if (truckBay(b)) b.cells = [];
     for (let t = 0; t < 300 && boat.crates === load; t++) world.step();
     expect(boat.crates).toBeLessThan(load);
     expect(boat.noRoom).toBeUndefined();
@@ -95,7 +96,7 @@ describe('Dockhands set no crates down on the quay', () => {
     for (let t = 0; t < TICKS_PER_DAY && world.piles.size > 0; t++) {
       world.step();
       for (const p of world.piles.values()) {
-        largest = Math.max(largest, p.crates.length + p.incoming);
+        largest = Math.max(largest, cratesAt(p) + p.incoming);
       }
     }
     expect(world.piles.size).toBe(0);

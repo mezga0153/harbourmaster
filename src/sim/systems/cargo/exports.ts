@@ -4,7 +4,6 @@
 import type { World } from '../../world';
 import {
   dropAt,
-  exportLooks,
   jibRoom,
   holdsIce,
   iceBay,
@@ -19,11 +18,20 @@ import {
   workersAt,
 } from './stores';
 import { holds, readyIn, takeReady, waitMask } from './customs';
-import { crateSlots, stackOf } from './places';
+import { crateSlots, stackOf, takeFirst } from './places';
 import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
 import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
-import { bayRoom, clamp, craneTicks, isBoxy, outCap, truckBay } from '../../helpers';
+import {
+  bayRoom,
+  clamp,
+  craneTicks,
+  cratesAt,
+  exportsAt,
+  isBoxy,
+  outCap,
+  truckBay,
+} from '../../helpers';
 import type { Source } from '../../helpers';
 import { craneSpot, palletTile } from '../yardGantry';
 import type { CostFn } from '../../path';
@@ -63,7 +71,7 @@ export function exportSources(w: World, p: Dockhand, here: number, sources: Sour
   // take them to a ship being loaded, or back into storage.
   if (p.kind === 'forklift') {
     for (const pile of w.piles.values()) {
-      const avail = pile.crates.length - (pile.reserved ?? 0);
+      const avail = cratesAt(pile) - (pile.reserved ?? 0);
       if (avail > 0 && stranded(w, pile)) {
         sources.push({ tile: pile.idx, avail, pile, out: true, rank: 2 });
       }
@@ -73,7 +81,7 @@ export function exportSources(w: World, p: Dockhand, here: number, sources: Sour
   // Ice in the truck bays, for dockhands to carry on board the fishing boats.
   if (p.kind === 'dockhand' && w.boats.some((b) => b.vessel === 'smack' && wantsLoad(w, b))) {
     for (const bay of w.bays.values()) {
-      const avail = (bay.exports?.length ?? 0) - (bay.outReserved ?? 0);
+      const avail = cratesAt(bay, true) - (bay.outReserved ?? 0);
       const tile = avail > 0 && truckBay(bay) ? dropAt(w, p, bay, here) : -1;
       if (tile >= 0) sources.push({ tile, avail, pile: bay, out: true, rank: 1 });
     }
@@ -94,7 +102,7 @@ export function exportSources(w: World, p: Dockhand, here: number, sources: Sour
   }
   if (p.kind !== 'dockhand') return;
   for (const pile of w.piles.values()) {
-    const avail = pile.crates.length - (pile.reserved ?? 0);
+    const avail = cratesAt(pile) - (pile.reserved ?? 0);
     if (pile.out && avail > 0) sources.push({ tile: pile.idx, avail, pile, out: true, rank: 1 });
   }
 }
@@ -302,9 +310,9 @@ export function wantsLoad(_w: World, b: Boat): boolean {
 /** Exports of this kind waiting anywhere in the port, for a ship to take. */
 export function exportsWaiting(w: World, boxes: boolean): number {
   let n = 0;
-  for (const s of boxes ? w.yards.values() : w.bays.values()) n += s.exports?.length ?? 0;
+  for (const s of boxes ? w.yards.values() : w.bays.values()) n += exportsAt(s);
   if (boxes) for (const c of w.cranes.values()) n += c.outStack?.length ?? 0;
-  else for (const p of w.piles.values()) if (p.out) n += p.crates.length;
+  else for (const p of w.piles.values()) if (p.out) n += cratesAt(p);
   return n;
 }
 
@@ -329,7 +337,7 @@ export function exportsFor(w: World, b: Boat): number {
     }
   } else {
     for (const p of w.piles.values()) {
-      if (p.out && (pileFor(w, b, p.idx) || stranded(w, p))) n += p.crates.length;
+      if (p.out && (pileFor(w, b, p.idx) || stranded(w, p))) n += cratesAt(p);
     }
   }
   return n;
@@ -470,7 +478,7 @@ export function loadShip(w: World, c: Crane): void {
       (a) => jibReady(w, c, a) > 0 && readyIn(w, a, true) - (a.outReserved ?? 0) > 0,
     );
     const pile = [...w.piles.values()].find(
-      (q) => q.out && q.crates.length - (q.reserved ?? 0) > 0 && inJibReach(w, c, q.idx),
+      (q) => q.out && cratesAt(q) - (q.reserved ?? 0) > 0 && inJibReach(w, c, q.idx),
     );
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
@@ -479,15 +487,15 @@ export function loadShip(w: World, c: Crane): void {
           w,
           store,
           true,
-          (store.exports?.length ?? 1) - 1,
+          cratesAt(store, true) - 1,
           1,
           undefined,
-          { from: exportLooks(w, store), to: [] },
+          undefined,
           jibReach(w, c, store),
         )[0];
     } else if (pile) {
       take = () => {
-        const fee = pile.crates.shift()!;
+        const fee = takeFirst(pile, 1)[0];
         tidyPile(w, pile.idx);
         return fee;
       };

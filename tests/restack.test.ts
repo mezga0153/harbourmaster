@@ -121,8 +121,21 @@ describe('A reach stacker with time on its hands', () => {
 describe('Storage stopped from taking cargo', () => {
   it('takes no more coming in or going out, but its own still leaves', () => {
     const world: Any = World.create(7, 96);
-    const store: Any = { idx: 1, tiles: [1], crates: [5], boxes: [], incoming: 0, boxIncoming: 0 };
-    const out: Any = { ...store, idx: 2, tiles: [2], outgoing: true, exports: [7] };
+    const store: Any = {
+      idx: 1,
+      tiles: [1],
+      cells: [{ fee: 5, at: 0 }],
+      boxes: [],
+      incoming: 0,
+      boxIncoming: 0,
+    };
+    const out: Any = {
+      ...store,
+      idx: 2,
+      tiles: [2],
+      outgoing: true,
+      cells: [{ fee: 7, at: 0, out: true }],
+    };
     expect(takesImports(world, store)).toBe(true);
     expect(takesExports(world, out)).toBe(true);
     store.shut = true;

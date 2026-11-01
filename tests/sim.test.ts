@@ -107,6 +107,7 @@ import {
 } from '../src/sim/systems/roads/traffic';
 import { cutOff, updateTruck } from '../src/sim/systems/roads/trucks';
 import { oldPile } from './wharf';
+import { cratesAt, feesIn, stockUp, usedSlots } from './stock';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -345,7 +346,7 @@ describe('Contracts', () => {
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 1;
     const bay = [...world.bays.values()][0];
-    bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    stockUp(world, bay, [...Array(B.BAY_CAPACITY).fill(20)]);
     const ours = () => world.trucks.filter((t) => t.contractId === h.id && !t.away);
     let left = -1;
     for (let k = 0; k < TICKS_PER_DAY && left < 0; k++) {
@@ -358,7 +359,7 @@ describe('Contracts', () => {
       world.step();
       expect(ours()).toHaveLength(0);
     }
-    expect(bay.crates.length).toBeGreaterThan(0);
+    expect(cratesAt(bay)).toBeGreaterThan(0);
     expect(world.snapshot().contracts.find((c) => c.id === h.id)!.away).toBe(1);
     for (let k = 0; k < 30; k++) world.step();
     expect(ours().length).toBe(1);
@@ -682,7 +683,7 @@ describe('Coastal Wharf tier', () => {
     const spot = m.build.findIndex((_, i) => !placementError(m, 'largeBay', i));
     world.command({ type: 'build', kind: 'largeBay', tiles: [spot] });
     // Give the large bay something to collect: a big truck comes for it.
-    world.bays.get(spot)!.crates.push(...Array(B.BIG_TRUCK_CAPACITY).fill(20));
+    stockUp(world, world.bays.get(spot)!, [...Array(B.BIG_TRUCK_CAPACITY).fill(20)]);
     let came = false;
     for (let t = 0; t < TICKS_PER_DAY && !came; t++) {
       world.step();
@@ -878,7 +879,7 @@ describe('Coastal Wharf tier', () => {
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
       expect(world.cranes.get(tip)!.stack).toHaveLength(0);
-      stowed = Math.max(stowed, world.bays.get(store)?.crates.length ?? 0);
+      stowed = Math.max(stowed, cratesAt(world.bays.get(store)!));
     }
     expect(stowed).toBeGreaterThan(0);
     // No truck gets out there: a forklift takes the crates on to a truck bay.
@@ -887,7 +888,7 @@ describe('Coastal Wharf tier', () => {
     const trucked = world.stats.trucks;
     // At most the start of another load left, as boats keep landing more:
     // a day, and the trips the forklift may be part way through then.
-    const left = () => world.bays.get(store)!.crates.length;
+    const left = () => cratesAt(world.bays.get(store)!);
     for (
       let t = 0;
       t < TICKS_PER_DAY || (t < TICKS_PER_DAY * 1.5 && left() > B.FORKLIFT_CAPACITY);
@@ -917,14 +918,14 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
     const per = B.FORKLIFT_CAPACITY;
     const bay = () => world.bays.get(store)!;
-    const held = () => bay().crates.length + (bay().exports?.length ?? 0);
+    const held = () => cratesAt(bay()) + cratesAt(bay(), true);
     const forklifts = world.people.filter((p) => p.kind === 'forklift');
     let lifts = 0;
     let kept = 0;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       const before = held();
       // The slots of the crates on the pallet being filled, if one is.
-      const slots = [...(bay().crateSlots ?? []), ...(bay().outSlots ?? [])];
+      const slots = [...usedSlots(world, bay())];
       const on = (k: number) => slots.filter((s) => Math.floor(s / per) === k);
       const filling = [...new Set(slots.map((s) => Math.floor(s / per)))]
         .map(on)
@@ -946,7 +947,7 @@ describe('Coastal Wharf tier', () => {
         expect(p.carrying).toBe(per);
         if (!filling) return;
         // Which stays where it is.
-        const now = [...(bay().crateSlots ?? []), ...(bay().outSlots ?? [])];
+        const now = [...usedSlots(world, bay())];
         for (const s of filling) expect(now).toContain(s);
         kept++;
       });
@@ -1058,7 +1059,7 @@ describe('Coastal Wharf tier', () => {
     for (let t = 0; t < TICKS_PER_DAY * 3 && stowed === 0; t++) {
       world.step();
       expect(crane.stack).toHaveLength(0);
-      stowed = world.bays.get(beside)?.crates.length ?? 0;
+      stowed = world.bays.has(beside) ? cratesAt(world.bays.get(beside)!) : 0;
     }
     expect(stowed).toBeGreaterThan(0);
   });
@@ -1098,7 +1099,7 @@ describe('Coastal Wharf tier', () => {
     expect(boat).toBeDefined();
     // Filled to the top: no room for another crate.
     const store = world.bays.get(beside)!;
-    while (bayRoom(store, false) > 0) store.crates.push(10);
+    while (bayRoom(store, false) > 0) stockUp(world, store, [10]);
     const load = boat.crates;
     for (let t = 0; t < 100; t++) {
       world.step();
@@ -1108,7 +1109,7 @@ describe('Coastal Wharf tier', () => {
     expect(craneWhy(world, crane)).toMatch(/Crate storage in reach is full/);
     // Not a red mark: it works once there is room.
     expect(problems(world).some((p) => p.type === 'crane' && p.idx === tip)).toBe(false);
-    store.crates.length = 0;
+    store.cells = [];
     for (let t = 0; t < 100 && boat.crates === load; t++) world.step();
     expect(boat.crates).toBeLessThan(load);
   });
@@ -1213,15 +1214,15 @@ describe('Buildings', () => {
     expect(store.tiles).toEqual(tiles);
     expect(store.large).toBe(true);
     // Only the store has crates, and a haulier with two trucks.
-    for (const b of world.bays.values()) b.crates.length = 0;
-    store.crates.push(...Array(24).fill(20));
+    for (const b of world.bays.values()) b.cells = [];
+    stockUp(world, store, [...Array(24).fill(20)]);
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 2;
     // The public road runs right beside it, but storage is inside the port:
     // trucks never load from outside.
     for (let t = 0; t < 200; t++) world.step();
     expect(store.noAccess).toBe(true);
-    expect(store.crates).toHaveLength(24);
+    expect(feesIn(store, false)).toHaveLength(24);
     // A port gate off the road and a port road round it, inside.
     world.command({ type: 'build', kind: 'portGate', tiles: [m.idx(x, r + 1)], facing: 3 });
     expect(m.build[m.idx(x, r + 1)]).toBe(Build.Gate);
@@ -1245,7 +1246,7 @@ describe('Buildings', () => {
     lift.capacity = B.FORKLIFT_CAPACITY;
     let together = false;
     let loadTime = 0;
-    for (let t = 0; t < TICKS_PER_DAY && store.crates.length > 0; t++) {
+    for (let t = 0; t < TICKS_PER_DAY && cratesAt(store) > 0; t++) {
       world.step();
       const loading = world.trucks.filter((k) => k.bayIdx === at && k.state === 'loading');
       // Both on the port road inside.
@@ -1256,7 +1257,7 @@ describe('Buildings', () => {
       if (loading.length > 0) loadTime++;
     }
     expect(together).toBe(true);
-    expect(store.crates.length).toBe(0);
+    expect(cratesAt(store)).toBe(0);
     // 24 crates, a pallet a trip.
     expect(loadTime).toBeLessThan(24 * B.BAY_LOAD_TICKS);
   });
@@ -1273,26 +1274,26 @@ describe('Buildings', () => {
     world.command({ type: 'store', tiles: [at], kind: 'crates', on: true });
     world.command({ type: 'store', tiles: [at + 2], kind: 'crates', on: true });
     expect(world.bays.has(at) && world.bays.has(at + 2)).toBe(true);
-    world.bays.get(at)!.crates.push(...Array(10).fill(20));
-    world.bays.get(at + 2)!.crates.push(...Array(5).fill(30));
+    stockUp(world, world.bays.get(at)!, [...Array(10).fill(20)]);
+    stockUp(world, world.bays.get(at + 2)!, [...Array(5).fill(30)]);
     // The tile between joins them into one area.
     world.command({ type: 'store', tiles: [at + 1], kind: 'crates', on: true });
     expect(world.bays.has(at + 2)).toBe(false);
     const area = world.bays.get(at)!;
     expect(area.tiles).toEqual(row);
-    expect(area.crates).toHaveLength(15);
+    expect(feesIn(area, false)).toHaveLength(15);
     // Goods are stacked from the first tile on: clearing the middle splits
     // it again and loses nothing.
     world.command({ type: 'store', tiles: [at + 1], kind: 'crates', on: false });
-    expect(world.bays.get(at)!.crates).toHaveLength(15);
-    expect(world.bays.get(at + 2)!.crates).toHaveLength(0);
+    expect(feesIn(world.bays.get(at)!, false)).toHaveLength(15);
+    expect(feesIn(world.bays.get(at + 2)!, false)).toHaveLength(0);
     // Bulldozing the road under a full tile takes its crates with it.
-    world.bays.get(at)!.crates.push(...Array(B.CRATES_PER_STORE_TILE - 15).fill(20));
-    world.bays.get(at + 2)!.crates.push(40);
+    stockUp(world, world.bays.get(at)!, [...Array(B.CRATES_PER_STORE_TILE - 15).fill(20)]);
+    stockUp(world, world.bays.get(at + 2)!, [40]);
     world.command({ type: 'bulldoze', tiles: [at] });
     expect(world.bays.has(at)).toBe(false);
     expect(m.store[at]).toBe(0);
-    expect(world.bays.get(at + 2)!.crates).toEqual([40]);
+    expect(feesIn(world.bays.get(at + 2)!, false)).toEqual([40]);
   });
 
   it('keeps storage for cargo coming in apart from storage for cargo going out', () => {
@@ -1401,11 +1402,12 @@ describe('Buildings', () => {
       warehouse: true,
       boxes: [],
       boxIncoming: 0,
+      // As an older save kept them.
       crates: Array(7).fill(20),
       incoming: 0,
       nextTruckTick: 0,
       noAccess: false,
-    });
+    } as never);
     const loaded = World.fromSave(save);
     const lm = loaded.map;
     expect(tiles.every((t) => lm.build[t] === Build.PortRoad && lm.store[t] === Store.Crates)).toBe(
@@ -1413,7 +1415,7 @@ describe('Buildings', () => {
     );
     const area = loaded.bays.get(at)!;
     expect(area.tiles).toEqual(tiles);
-    expect(area.crates).toHaveLength(7);
+    expect(feesIn(area, false)).toHaveLength(7);
   });
 
   it('lets trucks queue in parking for a loading spot, outside or inside the port', () => {
@@ -1430,13 +1432,13 @@ describe('Buildings', () => {
     const h = world.contracts.find((c) => c.terms.kind === 'haulier')!;
     if (h.terms.kind === 'haulier') h.terms.fleet = 3;
     const bay = [...world.bays.values()][0];
-    bay.crates.push(...Array(B.BAY_CAPACITY).fill(20));
+    stockUp(world, bay, [...Array(B.BAY_CAPACITY).fill(20)]);
     let parked = 0;
     // Each parked truck leaves forwards, onto the road on the far side.
     let backwards = 0;
     let forwards = 0;
     const from = new Map<number, number>();
-    for (let k = 0; k < TICKS_PER_DAY && bay.crates.length > 0; k++) {
+    for (let k = 0; k < TICKS_PER_DAY && cratesAt(bay) > 0; k++) {
       world.step();
       parked = Math.max(parked, world.trucks.filter((t) => t.state === 'parked').length);
       for (const t of world.trucks) {
@@ -1451,7 +1453,7 @@ describe('Buildings', () => {
     expect(parked).toBeGreaterThan(0);
     expect(forwards).toBeGreaterThan(0);
     expect(backwards).toBe(0);
-    expect(bay.crates.length).toBeLessThan(B.BAY_CAPACITY);
+    expect(cratesAt(bay)).toBeLessThan(B.BAY_CAPACITY);
   });
 
   it('keeps the big trucks to parking two tiles wide', () => {
@@ -1590,10 +1592,10 @@ describe('Buildings', () => {
     // Not without a gate, and not by a port road straight off the highway.
     world.command({ type: 'build', kind: 'portRoad', tiles: [gate] });
     const goods = world.bays.get(bay)!;
-    goods.crates.push(20, 20, 20, 20);
+    stockUp(world, goods, [20, 20, 20, 20]);
     for (let t = 0; t < TICKS_PER_DAY; t++) world.step();
     expect(goods.noAccess).toBe(true);
-    expect(goods.crates.length).toBe(4);
+    expect(cratesAt(goods)).toBe(4);
     world.command({ type: 'bulldoze', tiles: [gate] });
     expect(placementError(m, 'portGate', gate, undefined, 3)).toBeNull();
     expect(placementError(m, 'portGate', gate, undefined, 1)).not.toBeNull();
@@ -1909,7 +1911,7 @@ describe('Rules of the road', () => {
     world.trucks.length = 0;
     const m = world.map;
     const bay = [...world.bays.values()][0];
-    bay.crates.push(10, 10, 10);
+    stockUp(world, bay, [10, 10, 10]);
     const park = m.idx(30, 30);
     m.build[park] = Build.Parking;
     const t = truck(world, 30.5, 30.5, 0);
@@ -3144,7 +3146,7 @@ describe('Container Port tier', () => {
     world['headOut'] = (() => {
       t.state = 'leaving';
     }) as never;
-    const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown; exports?: number[] };
+    const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown; outBoxes?: number[] };
     updateTruck(world, t as never);
     const taken: number = takenIn(world, yard);
     const start = y.gantryLift!.start;
@@ -3162,7 +3164,7 @@ describe('Container Port tier', () => {
     // Off as soon as the spreader had it, well before it was set down.
     expect(left).toBe(taken);
     expect(set).toBeGreaterThan(left);
-    expect(y.exports).toEqual([210]);
+    expect(y.outBoxes).toEqual([210]);
   });
 
   it('lets a tractor go as soon as a gantry crane has its export up', () => {
@@ -4193,9 +4195,9 @@ describe('Container Port tier', () => {
     const pile = oldPile(world, quay, Array(6).fill(20), true);
     expect(stranded(world, pile)).toBe(true);
     const out = world.bays.get(store[0])!;
-    for (let k = 0; k < TICKS_PER_DAY && (out.exports?.length ?? 0) < 6; k++) world.step();
-    expect(world.piles.get(quay)?.crates.length ?? 0).toBe(0);
-    expect(out.exports?.length).toBe(6);
+    for (let k = 0; k < TICKS_PER_DAY && cratesAt(out, true) < 6; k++) world.step();
+    expect(world.piles.has(quay) ? cratesAt(world.piles.get(quay)!) : 0).toBe(0);
+    expect(cratesAt(out, true)).toBe(6);
   });
 
   it('sails once nothing in the port is left for it, and says what it waits on', () => {

@@ -9,13 +9,12 @@
 // tile * 16 + row * 8 + layer * 2 + side; each row is two pallet places,
 // one on the other, of four crates each. A truck bay's stack is one such
 // tile. A large bay's yard is four by four, a layer of sixteen at a time,
-// up to 28.
+// up to 28. A heap on the quay is two layers of four.
 
-import type { Crate } from '../../state';
+import type { Cells, Crate } from '../../state';
 import * as B from '../../balance';
 
-/** A holder's cells, by slot: the crate in each, or null. */
-export type Cells = (Crate | null)[];
+export type { Cells };
 
 /** How a holder's cells stand on each other. */
 export interface Shape {
@@ -57,6 +56,18 @@ export function largeShape(): Shape {
     below: (s) => (s >= LARGE_LAYER ? s - LARGE_LAYER : -1),
     above: (s) => (s + LARGE_LAYER < LARGE_CELLS ? s + LARGE_LAYER : -1),
     height: (s) => Math.floor(s / LARGE_LAYER),
+    stack: () => 0,
+  };
+}
+
+/** A heap on the quay: two layers of four. */
+export function pileShape(): Shape {
+  const layer = 4;
+  return {
+    cap: B.PILE_CRATES,
+    below: (s) => (s >= layer ? s - layer : -1),
+    above: (s) => (s + layer < B.PILE_CRATES ? s + layer : -1),
+    height: (s) => Math.floor(s / layer),
     stack: () => 0,
   };
 }

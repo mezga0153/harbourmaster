@@ -479,11 +479,16 @@ export interface Crate {
   fee: number;
   /** Going out on a ship, not come in off one. */
   out?: boolean;
+  /** The tick it was set down where it is, to tell the older from the newer. */
+  at: number;
   /** How it looks, where that is kept. */
   look?: number;
   /** The tick its customs (or, going out, its export papers) clear, while they have not. */
   clears?: number;
 }
+
+/** A holder's cells, by slot: the crate in each, or null; see hold.ts. */
+export type Cells = (Crate | null)[];
 
 export interface Bay {
   idx: number;
@@ -502,20 +507,14 @@ export interface Bay {
    */
   boxReady?: number[];
   boxIncoming: number;
-  /** Fee of each crate waiting here. */
-  crates: number[];
+  /** Container yards: fees of containers waiting to go out on a ship. */
+  outBoxes?: number[];
   /**
-   * When customs clear each crate of timber or goods here still waiting on
-   * them, soonest first: they are the newest of those crates, as the oldest
-   * clear first. Older saves have none: all clear.
+   * Its crates where they stand, coming in and going out: a cell for each
+   * place one can be, as its view draws them; see hold.ts. A heap on the
+   * quay keeps its crates in the first cells, in the order they came.
    */
-  customs?: number[];
-  /**
-   * Outgoing crate storage: when the export papers are done for each crate
-   * of canned fish still waiting on them, soonest first, the newest of them
-   * as with customs.
-   */
-  papers?: number[];
+  cells: Cells;
   /** Crates being carried here right now. */
   incoming: number;
   nextTruckTick: number;
@@ -541,8 +540,6 @@ export interface Bay {
   reserved?: number;
   /** A heap of exports on the quay, waiting to go on board. */
   out?: boolean;
-  /** Storage areas: the fees of goods waiting to go out on a ship. */
-  exports?: number[];
   /** Exports on their way here by truck. */
   exportIncoming?: number;
   /** Container yards: the truck or tractor its gantry is part way through a lift for; see gantryFor. */
@@ -567,23 +564,12 @@ export interface Bay {
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
   truckReserved?: number;
-  /** Container yards: how each container, and each export, looks. */
+  /** Container yards: how each container, and each of `outBoxes`, looks. */
   boxLooks?: number[];
   exportLooks?: number[];
-  /** Container yards: the slot each container, and each export, is stacked in; see yardSlots. */
+  /** Container yards: the slot each container, and each of `outBoxes`, is stacked in; see yardSlots. */
   boxSlots?: number[];
   exportSlots?: number[];
-  /**
-   * Crate storage, before each crate kept a slot of its own: the place each
-   * pallet was in, holding the next four of its crates then its exports.
-   */
-  places?: number[];
-  /**
-   * Crate storage and truck bays: the slot each crate, and each export,
-   * was set down in, which it keeps until it is taken; see crateSlots.
-   */
-  crateSlots?: number[];
-  outSlots?: number[];
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.

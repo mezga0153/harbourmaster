@@ -13,6 +13,7 @@ import {
   offBed,
 } from '../src/sim/systems/cargo/beds';
 import { smallTruckHauliers } from './wharf';
+import { cratesAt, stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -150,7 +151,7 @@ describe('A truck’s bed', () => {
     const seen = new Map<number, number[]>();
     let high = 0;
     for (let k = 0; k < 3000; k++) {
-      if (bay.crates.length < 8) bay.crates.push(withCargo(20, 'fish'));
+      if (cratesAt(bay) < 8) stockUp(world, bay, [withCargo(20, 'fish')]);
       world.step();
       for (const t of world.trucks) {
         if (t.boxes || !t.fees || t.state !== 'loading') continue;

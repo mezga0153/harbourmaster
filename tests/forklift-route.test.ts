@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { crateTiles } from '../src/sim/systems/cargo/stores';
 import { wharf } from './wharf';
+import { stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -27,7 +28,14 @@ describe('A forklift’s way across the port', () => {
     // Empty, it drives straight across.
     const empty: number[] = world.pathFor(p, from, to);
     expect(empty.some((i) => store.tiles.includes(i))).toBe(true);
-    store.crates = Array.from({ length: 64 }, () => 25);
+    {
+      store.cells = [];
+      stockUp(
+        world,
+        store,
+        Array.from({ length: 64 }, () => 25),
+      );
+    }
     world.tick++;
     const full = crateTiles(world);
     for (const t of store.tiles) expect(full.has(t)).toBe(true);
@@ -40,7 +48,14 @@ describe('A forklift’s way across the port', () => {
 
   it('drives in among the crates only on the tile it works at', () => {
     const { world, store, from, p } = yard();
-    store.crates = Array.from({ length: 64 }, () => 25);
+    {
+      store.cells = [];
+      stockUp(
+        world,
+        store,
+        Array.from({ length: 64 }, () => 25),
+      );
+    }
     world.tick++;
     const goal = store.tiles[store.tiles.length - 1];
     const way: number[] = world.pathFor(p, from, goal);
@@ -50,7 +65,14 @@ describe('A forklift’s way across the port', () => {
 
   it('still crosses crates where there is no other way', () => {
     const { world, m, store, from, to, p } = yard();
-    store.crates = Array.from({ length: 64 }, () => 25);
+    {
+      store.cells = [];
+      stockUp(
+        world,
+        store,
+        Array.from({ length: 64 }, () => 25),
+      );
+    }
     // The road round it gone: only across the storage.
     const round = [...m.build.keys()].filter(
       (i: number) =>

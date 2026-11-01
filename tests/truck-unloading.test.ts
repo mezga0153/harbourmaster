@@ -4,6 +4,8 @@ import { cargoOf } from '../src/sim/cargo';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { shipOut as shipOutOf } from '../src/sim/systems/cargo/exports';
 import { wharf } from './wharf';
+import { cratesAt } from './stock';
+import { holds } from '../src/sim/systems/cargo/customs';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -32,7 +34,7 @@ function watch(world: Any, t: Any, ticks: number) {
   const offs: { n: number; inHands: boolean; by?: string }[] = [];
   const papers: number[] = [];
   let cargo = t.cargo;
-  let stored = out.exports?.length ?? 0;
+  let stored = cratesAt(out, true);
   let held = 0;
   // Till the last crate off it is set down.
   const busy = () => t.state === 'delivering' || world.people.some((q: Any) => q.truckId === t.id);
@@ -43,12 +45,12 @@ function watch(world: Any, t: Any, ticks: number) {
       offs.push({ n: cargo - t.cargo, inHands: p?.carrying === cargo - t.cargo, by: p?.kind });
       cargo = t.cargo;
     }
-    const now = out.exports?.length ?? 0;
+    const now = cratesAt(out, true);
     // Each set down starts its papers there and then.
     if (now > stored) {
-      for (let j = held; j < (out.papers?.length ?? 0); j++)
-        papers.push(out.papers[j] - world.tick);
-      held = out.papers?.length ?? 0;
+      const h = holds(world, out, true);
+      for (let j = held; j < h.length; j++) papers.push(h[j] - world.tick);
+      held = h.length;
       stored = now;
     }
   }
@@ -64,7 +66,7 @@ describe("A shipper's truck at outgoing crate storage", () => {
     for (let k = 0; k < TICKS_PER_DAY / 4; k++) world.step();
     expect(t.state).toBe('delivering');
     expect(t.cargo).toBe(n);
-    expect(world.bays.get(t.bayIdx).exports ?? []).toHaveLength(0);
+    expect(cratesAt(world.bays.get(t.bayIdx), true)).toBe(0);
     const view = world.snapshot().entities.find((e: Any) => e.id === t.id);
     expect(view.activity).toBe('Waiting for a dockhand or forklift to unload it');
     expect(view.why).toMatch(/Dockhands or forklifts unload/);

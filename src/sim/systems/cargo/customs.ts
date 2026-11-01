@@ -4,9 +4,8 @@
 import { bedCap } from './beds';
 import type { World } from '../../world';
 import type { Bay, Dockhand, Truck } from '../../state';
-import { bayIncoming, bayRoom, isBoxy, needsCustoms, needsPapers } from '../../helpers';
-import * as B from '../../balance';
-import { nag, tip } from '../output';
+import { bayIncoming, bayRoom, isBoxy, needsCustoms } from '../../helpers';
+import { nag } from '../output';
 import type { BayView } from '../../../protocol/views';
 import {
   bayWithRoom,
@@ -28,84 +27,57 @@ import { exportTarget, loadSpot } from './exports';
 import { headTo } from '../workforce/dockhands';
 import { craneSpot } from '../yardGantry';
 import { releaseTruckJob } from '../truckLoading';
-import { crateSlots, loadFits, setDown, slotted, stackOf, takeOrder, takeSlots } from './places';
+import {
+  cratesIn,
+  loadFits,
+  setDown,
+  slotsOf,
+  slotted,
+  stackOf,
+  takeAt,
+  takeOrder,
+} from './places';
+import { waits } from './hold';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
- * its exports on export papers, clears, soonest first: those cleared are
- * dropped, and never more than there are crates of the kinds that wait.
+ * its exports on export papers, clears, soonest first.
  */
 export function holds(w: World, b: Bay, out: boolean): number[] {
-  const list = out ? b.papers : b.customs;
-  if (!list) return [];
-  let gone = 0;
-  while (gone < list.length && list[gone] <= w.tick) gone++;
-  const fees = out ? (b.exports ?? []) : b.crates;
-  const waits = out ? needsPapers : needsCustoms;
-  let n = 0;
-  for (const f of fees) if (waits(f)) n++;
-  list.splice(0, Math.max(gone, list.length - n));
-  if (list.length > 0) return list;
-  if (out) b.papers = undefined;
-  else b.customs = undefined;
-  return [];
+  return cratesIn(b, out)
+    .filter((c) => waits(c, w.tick))
+    .map((c) => c.clears!)
+    .sort((x, y) => x - y);
 }
 
 /**
- * Which of a bay's crates, or (`out`) its exports, still wait: the newest
- * of the kinds that do. Shorter than the list where the rest do not.
+ * Which of a bay's crates, or (`out`) its exports, still wait, oldest
+ * first (see slotsOf); empty where none does.
  */
 export function waitMask(w: World, b: Bay, out: boolean): boolean[] {
-  let n = holds(w, b, out).length;
-  // None waits: an empty list does, as every index of it is not set.
-  if (n === 0) return [];
-  const fees = out ? (b.exports ?? []) : b.crates;
-  const mask = fees.map(() => false);
-  const waits = out ? needsPapers : needsCustoms;
-  for (let i = fees.length - 1; i >= 0 && n > 0; i--) {
-    if (waits(fees[i])) {
-      mask[i] = true;
-      n--;
-    }
-  }
-  return mask;
+  const mask = cratesIn(b, out).map((c) => waits(c, w.tick));
+  return mask.some((m) => m) ? mask : [];
 }
 
 /** Which of a bay's crates then its exports, in that order, still wait. */
 export function heldMask(w: World, b: Bay): boolean[] {
-  const into = waitMask(w, b, false);
-  const out = waitMask(w, b, true);
-  if (into.length + out.length === 0) return [];
-  return [...b.crates.map((_, i) => !!into[i]), ...out];
+  const mask = [...cratesIn(b, false), ...cratesIn(b, true)].map((c) => waits(c, w.tick));
+  return mask.some((m) => m) ? mask : [];
 }
 
-/** Crates at a bay, or (`out`) exports, free to go: none waiting on customs or papers. */
+/** Crates at a bay (or `out`, exports) free to go: none still waiting. */
 export function readyIn(w: World, b: Bay, out: boolean): number {
-  return (out ? (b.exports?.length ?? 0) : b.crates.length) - holds(w, b, out).length;
-}
-
-/**
- * Crates just set down at a bay start on customs, or as exports on their
- * papers, if they are of a kind that waits: in crate storage, as only
- * there may they wait. Those carried out of storage cleared do not.
- */
-export function startHolds(w: World, b: Bay, fees: number[], out: boolean): void {
-  if (!b.tiles || b.yard) return;
-  const waits = out ? needsPapers : needsCustoms;
-  const n = fees.filter(waits).length;
-  if (n === 0) return;
-  const until = w.tick + (out ? B.EXPORT_PAPERS_TICKS : B.CRATE_CUSTOMS_TICKS);
-  const list = out ? (b.papers ??= []) : (b.customs ??= []);
-  for (let k = 0; k < n; k++) list.push(until);
-  tip(w, out ? 'papers' : 'crateCustoms');
+  if (b.yard) return out ? (b.outBoxes?.length ?? 0) : 0;
+  return cratesIn(b, out).filter((c) => !waits(c, w.tick)).length;
 }
 
 /**
  * Up to `n` crates off a bay's crates, or (`out`) its exports, none of
  * them still waiting and all of them ones `fits` lets through: those from
- * `at` on if they all may go, else the first that may. How each looks,
- * where the bay keeps that, comes off with it into `looks`. In crate
- * storage, only off the stacks in `only` (by tile, see stackOf) if given.
+ * `at` on (an index into them oldest first, see slotsOf) if they all may
+ * go, else the first that may. How each looks, where it is kept, goes into
+ * `looks`. In crate storage, only off the stacks in `only` (by tile, see
+ * stackOf) if given.
  */
 export function takeReady(
   w: World,
@@ -114,37 +86,30 @@ export function takeReady(
   at: number,
   n: number,
   fits: (fee: number) => boolean = () => true,
-  looks?: { from: number[]; to: number[] },
+  looks?: number[],
   only?: Set<number>,
 ): number[] {
-  const list = out ? (b.exports ??= []) : b.crates;
-  if (n <= 0 || list.length === 0) return [];
-  const wait = waitMask(w, b, out);
-  const slots =
-    only && slotted(b) ? (out ? crateSlots(w, b).exports : crateSlots(w, b).crates) : [];
-  const inReach = (i: number) => !only || (slots[i] >= 0 && only.has(stackOf(b, slots[i])));
-  const ok = (i: number) => !wait[i] && fits(list[i]) && inReach(i);
+  const slots = slotsOf(b, out);
+  if (n <= 0 || slots.length === 0) return [];
+  const crates = cratesIn(b, out);
+  const inReach = (i: number) => !only || (slotted(b) && only.has(stackOf(b, slots[i])));
+  const ok = (i: number) => !waits(crates[i], w.tick) && fits(crates[i].fee) && inReach(i);
   let pick: number[] = [];
   // In crate storage and at a truck bay each crate keeps its slot: only
   // ones with none on top, from the place `at` is in first.
-  if (slotted(b)) {
-    pick = takeOrder(w, b, out, at, n, ok);
-    takeSlots(w, b, out, pick);
-  } else if (at >= 0 && at + n <= list.length) {
+  if (slotted(b)) pick = takeOrder(w, b, out, at, n, ok);
+  else if (at >= 0 && at + n <= slots.length) {
     pick = Array.from({ length: n }, (_, k) => at + k);
     if (!pick.every(ok)) pick = [];
   }
   // Else the top ones that may go, so none is taken from under another
   // that need not be.
   if (pick.length === 0 && !slotted(b)) {
-    for (let i = list.length - 1; i >= 0 && pick.length < n; i--) if (ok(i)) pick.unshift(i);
+    for (let i = slots.length - 1; i >= 0 && pick.length < n; i--) if (ok(i)) pick.unshift(i);
   }
-  const fees: number[] = [];
-  for (let k = pick.length - 1; k >= 0; k--) {
-    fees.unshift(list.splice(pick[k], 1)[0]);
-    if (looks && pick[k] < looks.from.length) looks.to.unshift(...looks.from.splice(pick[k], 1));
-  }
-  return fees;
+  const taken = takeAt(b, out, pick);
+  if (looks) for (const c of taken) if (c.look !== undefined) looks.push(c.look);
+  return taken.map((c) => c.fee);
 }
 
 /** Ticks until the next crate at a bay, or (`out`) export, clears; -1 if none waits. */
@@ -241,9 +206,7 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
     // Into storage by a jib crane, for it to lift on board.
     const store = dest(w, p.bayIdx)!;
     store.exportIncoming = Math.max(0, (store.exportIncoming ?? 0) - p.planned);
-    exportLooks(w, store).push(...carriedLooks(w, p));
-    (store.exports ??= []).push(...p.cargoFees);
-    setDown(w, store, true, p.cargoFees.length, p);
+    setDown(w, store, p.cargoFees, true, p, { cleared: true });
   } else return false;
   p.carrying = 0;
   p.cargoFees = [];
@@ -380,10 +343,11 @@ export function retargetExports(w: World, p: Dockhand): void {
   const store = [...(boxy ? w.yards : w.bays).values()]
     .filter((b) => takesExports(w, b) && bayRoom(b, boxy) >= p.carrying && servesYard(w, p, b))
     .sort((a, b) => w.distTo(here, a) - w.distTo(here, b))[0];
-  if (store) {
+  if (store?.yard) {
     exportLooks(w, store).push(...carriedLooks(w, p));
-    (store.exports ??= []).push(...p.cargoFees);
-  } else
+    (store.outBoxes ??= []).push(...p.cargoFees);
+  } else if (store) setDown(w, store, p.cargoFees, true, undefined, { cleared: true });
+  else
     nag(w, 'putDownExports', `${p.name} had nowhere to take the exports and put them down.`, 'bad');
   p.carrying = 0;
   p.cargoFees = [];

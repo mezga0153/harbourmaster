@@ -40,7 +40,6 @@ import {
   readyIn,
   releaseTarget,
   retargetCrate,
-  startHolds,
 } from '../cargo/customs';
 import { mayEnter, toStopLine } from '../roads/traffic';
 import { drive } from '../roads/trucks';
@@ -52,6 +51,7 @@ import {
   bayIncoming,
   bayRoom,
   craneStacks,
+  cratesAt,
   isBoxy,
   isMachine,
   laneOf,
@@ -104,7 +104,7 @@ import {
   stackedAt,
   toPallet,
 } from '../yardGantry';
-import { claimDrop, setDown } from '../cargo/places';
+import { claimDrop, feesIn, setDown } from '../cargo/places';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
 
@@ -649,12 +649,8 @@ export function updateDockhand(w: World, p: Dockhand): void {
         onBed(w, onto, p.cargoFees.length, p);
         onto.idle = 0;
       } else if (boxy) bay.boxes.push(...p.cargoFees);
-      else {
-        bay.crates.push(...p.cargoFees);
-        setDown(w, bay, false, p.cargoFees.length, p);
-      }
       // Timber and goods wait in crate storage for customs.
-      if (!onto && !boxy && !p.cleared) startHolds(w, bay, p.cargoFees, false);
+      else setDown(w, bay, p.cargoFees, false, p, { cleared: p.cleared });
       p.cleared = undefined;
       if (boxy) tip(w, 'customs');
       if (bay.pile) tip(w, 'landed');
@@ -696,7 +692,7 @@ export function diagnose(w: World, p: Dockhand): void {
     if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(pickTile(w, c));
   }
   // Crates an older game left on the quay, for the forklifts to take on.
-  if (!boxy) for (const pile of w.piles.values()) if (pile.crates.length) sources.push(pile.idx);
+  if (!boxy) for (const pile of w.piles.values()) if (cratesAt(pile)) sources.push(pile.idx);
   let stuck: string | null = null;
   const dests = [...(boxy ? w.yards : w.bays).values()].filter((d) => servesYard(w, p, d));
   const gantried = [...w.yards.values()].some((y) => w.yardGantry(y));
@@ -827,7 +823,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
   // the dockhands if there are none. Nothing sets any down there now.
   if (forks || (hands && !forklifts(w))) {
     for (const pile of w.piles.values()) {
-      const avail = pile.crates.length - (pile.reserved ?? 0);
+      const avail = cratesAt(pile) - (pile.reserved ?? 0);
       if (avail <= 0 || (pile.pallets && !forks) || pile.out) continue;
       sources.push({ tile: pile.idx, avail, pile, rank: forks ? 0 : 2 });
     }
@@ -897,7 +893,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
         ? needsCustoms(src.boat.fee)
         : src.crane
           ? src.crane.stack.some(needsCustoms)
-          : !src.pile?.tiles && !!src.pile?.crates.some(needsCustoms));
+          : !!src.pile && !src.pile.tiles && feesIn(src.pile, false).some(needsCustoms));
     const bay = boxy
       ? yardWithRoom(w, p, src.tile)
       : src.boat

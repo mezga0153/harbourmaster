@@ -12,6 +12,8 @@ import { boat, person, truck } from '../src/render/model';
 import { forklift } from '../src/render/machines';
 import { CRATE } from '../src/render/models';
 import { shutIn, smallTruckHauliers, wharf } from './wharf';
+import { cratesAt, stockUp } from './stock';
+import { cratesIn } from '../src/sim/systems/cargo/places';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -442,7 +444,7 @@ describe('Jib cranes', () => {
     let lifts = 0;
     let was = 0;
     let taken = '';
-    const stored = () => world.bays.get(store)?.crates.length ?? 0;
+    const stored = () => (world.bays.has(store) ? cratesAt(world.bays.get(store)!) : 0);
     for (let tick = 0; tick < 120 && stored() < 9; tick++) {
       world.step();
       const s = world.snapshot();
@@ -860,7 +862,14 @@ describe('Forklifts handling crates', () => {
    */
   function fullStorage(world: World): { frames: number; inCrates: number; places: Set<string> } {
     for (const b of world.bays.values()) {
-      if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 56 }, () => 25);
+      if (b.tiles && !b.outgoing) {
+        b.cells = [];
+        stockUp(
+          world,
+          b,
+          Array.from({ length: 56 }, () => 25),
+        );
+      }
     }
     const m = world.map;
     const structures = new Structures(m, true);
@@ -967,15 +976,17 @@ describe('Crates stacked at a truck bay or in crate storage', () => {
     for (let t = 0; t < ticks; t++) {
       world.step();
       // Each new crate one kind or another, by turns.
-      bay.crates = bay.crates.map((f, k) =>
-        (kinds as readonly string[]).includes(cargoOf(f)) ? f : withCargo(f % 1000, kinds[k % 3]),
-      );
-      painted ||= bay.crates.length > 0;
+      cratesIn(bay, false).forEach((c, k) => {
+        if (!(kinds as readonly string[]).includes(cargoOf(c.fee))) {
+          c.fee = withCargo(c.fee % 1000, kinds[k % 3]);
+        }
+      });
+      painted ||= cratesAt(bay) > 0;
       structures.setBays(world.snapshot().bays);
       if (!painted) continue;
       const now = new Map<Object3D, string>();
       for (const c of crates()) if (c.visible) now.set(c, c.userData.icon);
-      const n = bay.crates.length + (bay.exports?.length ?? 0);
+      const n = cratesAt(bay) + cratesAt(bay, true);
       if (n < held) taken++;
       // Those still shown are where they were, as they were; but for one a
       // jib crane lowers in, which shows before it is set down and painted.

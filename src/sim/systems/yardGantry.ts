@@ -29,6 +29,7 @@ import {
   clearOnTop,
   crateSlots,
   dropSlot,
+  feesIn,
   freeSlot,
   inPlace,
   placeOf,
@@ -40,7 +41,15 @@ import {
 import type { Bay, Boat, Crane, Dockhand, GantryHeld, GantryWork, Truck } from '../state';
 import { Build, isCrane } from '../types';
 import { footprint, gantryRails, gantryYard, liftMarks } from '../rules/footprint';
-import { bayIncoming, boxLookOf, clamp, craneStacks, isTruck, liftTicks } from '../helpers';
+import {
+  bayIncoming,
+  boxLookOf,
+  clamp,
+  craneStacks,
+  cratesAt,
+  isTruck,
+  liftTicks,
+} from '../helpers';
 import type { Vehicle } from '../helpers';
 import { cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
 import * as B from '../balance';
@@ -307,7 +316,7 @@ export function settleGantry(w: World, y: Bay): void {
   if (h.exports) {
     if (to !== undefined && h.fees.length === 1) yardSlots(w, y).exports.push(to);
     exportLooks(w, y).push(...h.looks);
-    (y.exports ??= []).push(...h.fees);
+    (y.outBoxes ??= []).push(...h.fees);
     y.exportIncoming = Math.max(0, (y.exportIncoming ?? 0) - h.planned);
   } else {
     // Customs clear it a while after it is stacked, as any other.
@@ -401,7 +410,7 @@ export function palletPlaces(w: World, b: Bay): number[] {
  */
 export function pickPallet(w: World, b: Bay, out: boolean, p?: Dockhand): number {
   const places = palletPlaces(w, b);
-  const list = out ? (b.exports ?? []) : b.crates;
+  const list = feesIn(b, out);
   const mine = (k: number) => inPlace(w, b, k, out);
   const at = p?.state === 'picking' && p.takeAt !== undefined ? places.indexOf(p.takeAt) : -1;
   if (at >= 0 && mine(p!.takeAt!).length > 0) return at;
@@ -515,7 +524,7 @@ export function onPallet(w: World, p: Dockhand, b: Bay): number {
  * else the newest. Those about it stay where they are (see takeOrder).
  */
 export function takenFrom(w: World, p: Dockhand, b: Bay, n: number): number {
-  const list = p.outbound ? (b.exports ?? []) : b.crates;
+  const list = feesIn(b, !!p.outbound);
   const forks = p.kind === 'forklift' && b.tiles && !b.yard;
   const k = forks ? palletPlaces(w, b)[pickPallet(w, b, !!p.outbound, p)] : undefined;
   p.takeAt = undefined;
@@ -556,7 +565,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   };
   // The slots of the crates `n` taken off a bay would be, top first.
   const topSlots = (b: Bay, out: boolean, n: number): number[] => {
-    const list = out ? (b.exports ?? []) : b.crates;
+    const list = feesIn(b, out);
     const wait = waitMask(w, b, out);
     const at = b.tiles ? takenAt(b, n) : list.length - n;
     const slots = (out ? crateSlots(w, b).exports : crateSlots(w, b).crates).slice();
@@ -586,7 +595,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     const boat = w.boats.find((b) => b.id === p.boatId);
     if (boat) return onBoat(boat);
     const pile = w.piles.get(p.stockIdx);
-    if (pile) return { pile: pile.idx, slot: pile.crates.length - 1 };
+    if (pile) return { pile: pile.idx, slot: cratesAt(pile) - 1 };
     const bay = w.bays.get(p.stockIdx);
     if (!bay) return undefined;
     // Off a truck bay's stack, as onto a truck there; its ice, on top, for a boat.
@@ -605,7 +614,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   const boat = p.toBoat !== undefined && p.toBoat >= 0 && w.boats.find((b) => b.id === p.toBoat);
   if (boat) return onBoat(boat);
   const pile = w.piles.get(p.bayIdx);
-  if (pile) return { pile: pile.idx, slot: pile.crates.length };
+  if (pile) return { pile: pile.idx, slot: cratesAt(pile) };
   const bay = w.bays.get(p.bayIdx);
   if (!bay) return undefined;
   const onto = straightOnto(w, p, bay);

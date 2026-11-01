@@ -15,7 +15,7 @@ import { message } from '../output';
 import { needsWideSpace, parkingLots } from '../../rules/parking';
 import type { ParkingLot, ParkingSpace } from '../../rules/parking';
 import { takesFrom } from '../cargo/stores';
-import { bayRoom } from '../../helpers';
+import { bayRoom, heldIn } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { handOn, nameBays, PREFIX } from '../../designations';
 
@@ -25,7 +25,7 @@ export function addBay(w: World, i: number): void {
     large: w.map.build[i] === Build.LargeBay,
     boxes: [],
     boxIncoming: 0,
-    crates: [],
+    cells: [],
     incoming: 0,
     nextTruckTick: 0,
     noAccess: false,
@@ -483,10 +483,10 @@ export function freeDock(w: World, bay: Bay, pickup = false): number {
 
 export function removeBay(w: World, i: number): void {
   const bay = w.bays.get(i);
-  if (bay && bay.crates.length + bay.boxes.length > 0) {
+  if (bay && heldIn(bay) + bay.boxes.length > 0) {
     message(
       w,
-      `${bay.crates.length} crates and ${bay.boxes.length} containers were lost with the truck bay.`,
+      `${heldIn(bay)} crates and ${bay.boxes.length} containers were lost with the truck bay.`,
       'bad',
     );
   }

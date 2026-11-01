@@ -19,21 +19,13 @@ import {
   workersAt,
   yardSlots,
 } from './cargo/stores';
-import {
-  cancelJob,
-  dest,
-  noPlaceWhy,
-  readyIn,
-  startHolds,
-  takeReady,
-  waitMask,
-} from './cargo/customs';
+import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
 import { bedRoom, keepSlots, onBed, roundTicks, slotsFor } from './cargo/beds';
 import type { Bay, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
-import { boxLookOf, isBoxy, isMachine, loadTicks } from '../helpers';
+import { boxLookOf, cratesAt, isBoxy, isMachine, loadTicks } from '../helpers';
 import type { Source } from '../helpers';
 import { tip } from './output';
 
@@ -141,10 +133,10 @@ export function cratesFor(w: World, _t: Truck, bay: Bay): number {
  * far as they may go, else the top ones that may.
  */
 export function cratesOff(w: World, _t: Truck, bay: Bay, at: number, n: number): number[] {
-  if (n <= 0 || bay.crates.length === 0) return [];
+  if (n <= 0 || cratesAt(bay) === 0) return [];
   // Never one still in customs: the top one that is not, if those are.
   const wait = waitMask(w, bay, false);
-  if (at < 0 || at >= bay.crates.length || wait[at]) at = wait.lastIndexOf(false);
+  if (at < 0 || at >= cratesAt(bay) || wait[at]) at = wait.lastIndexOf(false);
   if (at < 0) return [];
   return takeReady(w, bay, false, at, n);
 }
@@ -254,14 +246,8 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
         return true;
       }
       bay.reserved = Math.max(0, (bay.reserved ?? 0) - p.planned);
-      const n = Math.min(p.planned, bay.crates.length, onPallet(w, p, bay));
-      const fees = cratesOff(
-        w,
-        t,
-        bay,
-        bay.tiles ? takenFrom(w, p, bay, n) : bay.crates.length - n,
-        n,
-      );
+      const n = Math.min(p.planned, cratesAt(bay), onPallet(w, p, bay));
+      const fees = cratesOff(w, t, bay, bay.tiles ? takenFrom(w, p, bay, n) : cratesAt(bay) - n, n);
       // Fewer than it went for: the truck waits for none of the rest.
       t.coming = Math.max(0, (t.coming ?? 0) - (p.planned - fees.length));
       if (fees.length === 0) {
@@ -415,10 +401,7 @@ function backForMore(w: World, p: Dockhand, t: Truck, bay: Bay): void {
  */
 export function landUnloaded(w: World, p: Dockhand, bay: Bay | undefined): void {
   if (p.carrying <= 0 || !bay) return;
-  exportLooks(w, bay).push(...carriedLooks(w, p));
-  (bay.exports ??= []).push(...p.cargoFees);
-  setDown(w, bay, true, p.cargoFees.length, p);
-  startHolds(w, bay, p.cargoFees, true);
+  setDown(w, bay, p.cargoFees, true, p);
   bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
   tip(w, 'exports');
 }
@@ -440,8 +423,7 @@ export function landCrates(
     onBed(w, t, p.cargoFees.length, p);
     t.idle = 0;
   } else if (bay) {
-    bay.crates.push(...p.cargoFees);
-    setDown(w, bay, false, p.cargoFees.length, p);
+    setDown(w, bay, p.cargoFees, false, p, { cleared: true });
   }
 }
 
@@ -610,7 +592,7 @@ export function landTruckLoad(
     const at = stackedAt(w, p, yard);
     if (at >= 0) slots.exports.push(at);
     exportLooks(w, yard).push(...carriedLooks(w, p));
-    (yard.exports ??= []).push(fee);
+    (yard.outBoxes ??= []).push(fee);
     yard.exportIncoming = Math.max(0, (yard.exportIncoming ?? 0) - 1);
   }
 }

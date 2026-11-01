@@ -1,4 +1,5 @@
 import type { Agent, Bay, Boat, Crane, Dockhand, JibJob, SaveData, Truck, Tug } from './state';
+import { fromOld, type OldCrates } from './systems/cargo/places';
 import type {
   Capacity,
   CargoSample,
@@ -136,6 +137,22 @@ export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 export type { SaveData, Tug } from './state';
+
+/**
+ * A bay's crates as saved, copied for the game to keep, or from an older
+ * save's lists into its cells (see fromOld).
+ */
+function loadCrates(w: World, b: Bay & OldCrates): Bay {
+  const { crates, exports, crateSlots, outSlots, customs, papers, places, ...bay } = b as Bay &
+    OldCrates & { places?: number[] };
+  void places;
+  if (Array.isArray(bay.cells)) {
+    bay.cells = bay.cells.map((c) => c && { ...c });
+    return bay;
+  }
+  fromOld(w, bay, { crates, exports, crateSlots, outSlots, customs, papers });
+  return bay;
+}
 
 /**
  * The game: everything in the port and the town (see state.ts), made new or
@@ -395,7 +412,7 @@ export class World {
           Number.isFinite(p.wage) &&
           Number.isFinite(p.raiseAsk),
       ) &&
-      d.bays.every((b) => Array.isArray(b.crates)) &&
+      d.bays.every((b) => Array.isArray(b.cells) || Array.isArray((b as OldCrates).crates)) &&
       d.contracts.every((c) => Number.isFinite(c.signingFee))
     );
   }
@@ -469,28 +486,30 @@ export class World {
       m.plotsBought = bought;
     }
     for (const bay of s.bays) {
-      world.bays.set(bay.idx, {
-        ...bay,
-        crates: [...bay.crates],
-        customs: bay.customs && [...bay.customs],
-        papers: bay.papers && [...bay.papers],
-        places: bay.places && [...bay.places],
-        boxes: [...(bay.boxes ?? [])],
-        boxIncoming: bay.boxIncoming ?? 0,
-        large: bay.large ?? false,
-        tiles: bay.tiles ? [...bay.tiles] : bay.warehouse ? [bay.idx] : undefined,
-      });
+      world.bays.set(
+        bay.idx,
+        loadCrates(world, {
+          ...bay,
+          boxes: [...(bay.boxes ?? [])],
+          boxIncoming: bay.boxIncoming ?? 0,
+          large: bay.large ?? false,
+          tiles: bay.tiles ? [...bay.tiles] : bay.warehouse ? [bay.idx] : undefined,
+        }),
+      );
     }
     // Older saves' truck bays get their designations, lowest tile first.
     nameBays(world.bays.values());
     for (const [i, name] of s.lotNames ?? []) world.lotNames.set(i, name);
-    for (const pile of s.piles ?? [])
-      world.piles.set(pile.idx, { ...pile, crates: [...pile.crates] });
+    for (const pile of s.piles ?? []) world.piles.set(pile.idx, loadCrates(world, { ...pile }));
     for (const y of s.yards ?? []) {
+      const { exports, crates, ...rest } = y as Bay & OldCrates;
+      void crates;
       world.yards.set(y.idx, {
-        ...y,
+        ...rest,
+        cells: [],
         yard: true,
         boxes: [...y.boxes],
+        outBoxes: [...(y.outBoxes ?? exports ?? [])],
         tiles: y.tiles ? [...y.tiles] : [y.idx],
       });
     }

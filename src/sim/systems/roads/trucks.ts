@@ -4,7 +4,7 @@
 import type { World } from '../../world';
 import { book, hauliers, smallTrucks } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
-import { bayCap, boxLookOf, isMachine, wrapAngle } from '../../helpers';
+import { bayCap, boxLookOf, cratesAt, isMachine, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
 import { dest, unclaimed } from '../cargo/customs';
 import {
@@ -74,7 +74,7 @@ export function spawnTrucks(w: World): void {
   // Fullest bays get trucks first. Container trucks collect from the yards,
   // and from large bays still holding containers from older saves.
   const load = (b: Bay) =>
-    b.crates.length / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
+    cratesAt(b) / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
   const bays = [...w.bays.values(), ...w.yards.values()]
     .filter((b) => {
       // Only where there is cargo no truck is already coming for.
@@ -92,7 +92,7 @@ export function spawnTrucks(w: World): void {
     .sort((a, b) => load(b) - load(a) || a.idx - b.idx);
 
   for (const bay of w.bays.values()) {
-    if (bay.crates.length >= bayCap(bay)) w.bayFullTicks += 10;
+    if (cratesAt(bay) >= bayCap(bay)) w.bayFullTicks += 10;
   }
   for (const bay of bays) {
     const from = arrival(w, bay.idx);
@@ -348,7 +348,7 @@ export function updateTruck(w: World, t: Truck): void {
       } else {
         if (++t.timer % truckTicks(w, t, bay) !== 0) return;
         exportLooks(w, bay).push(boxLookOf(t.id, t.cargo - 1));
-        (bay.exports ??= []).push(t.value);
+        (bay.outBoxes ??= []).push(t.value);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
       }
       if (--t.cargo <= 0) {
@@ -395,7 +395,7 @@ export function updateTruck(w: World, t: Truck): void {
         if (full || bored || (hands ? empty : done)) w.truckLeave(t);
         return;
       }
-      const stock = t.boxes ? bay.boxes : bay.crates;
+      const stock = bay.boxes;
       // Containers only once customs have cleared them, whichever those
       // are: under a gantry, the one it took up.
       const lifted = t.lifting === undefined ? -1 : boxLooks(w, bay).indexOf(t.lifting);
@@ -408,7 +408,7 @@ export function updateTruck(w: World, t: Truck): void {
             : clearTop(w, bay)
           : t.boxes
             ? 0
-            : bay.crates.length - 1;
+            : cratesAt(bay) - 1;
       // Crates its crew loads besides those dockhands and forklifts bring
       // it: none they are on their way for, nor more than it has room for
       // with theirs.

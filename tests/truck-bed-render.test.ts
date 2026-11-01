@@ -6,6 +6,7 @@ import { World } from '../src/sim/world';
 import { Entities } from '../src/render/entities';
 import { Structures } from '../src/render/structures';
 import { smallTruckHauliers } from './wharf';
+import { cratesAt, stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -49,7 +50,7 @@ describe('Loading a truck’s bed', () => {
     let drops = 0;
     let upper = 0;
     for (let t = 0, now = 0; t < 3000; t++) {
-      if (bay.crates.length < 8) bay.crates.push(withCargo(20, 'fish'));
+      if (cratesAt(bay) < 8) stockUp(world, bay, [withCargo(20, 'fish')]);
       world.step();
       const s = world.snapshot();
       entities.push(s.entities, now, s.tick);

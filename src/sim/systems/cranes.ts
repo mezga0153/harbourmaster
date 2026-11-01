@@ -6,13 +6,21 @@ import type { World } from '../world';
 import { boatHalf, craneFront, mooredTiles, near } from './boats/berthing';
 import type { Bay, Boat, Crane, Dockhand, JibLift } from '../state';
 import * as B from '../balance';
-import { aligned, boxLookOf, craneStack, craneStacks, craneTicks, deckPlace } from '../helpers';
+import {
+  aligned,
+  boxLookOf,
+  craneStack,
+  craneStacks,
+  craneTicks,
+  cratesAt,
+  deckPlace,
+  heldIn,
+} from '../helpers';
 import type { CraneView } from '../../protocol/views';
 import { besideStack } from './yardGantry';
-import { crateSlots, exportTaken, nextSlots, slotBelow, usedSlots, waitsIn } from './cargo/places';
+import { exportTaken, nextSlots, setDown, slotBelow, usedSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
 import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
-import { startHolds } from './cargo/customs';
 
 export function addCrane(w: World, i: number, kind: Crane['kind']): void {
   w.cranes.set(i, { idx: i, kind, stack: [], reserved: 0, timer: 0, angle: 0, busy: false });
@@ -80,10 +88,7 @@ export function updateCrane(w: World, c: Crane): void {
     // Into the place kept for it, on a tile of it in reach.
     const s = c.setInto?.store === store.idx ? c.setInto.slot : -1;
     c.setInto = undefined;
-    const slots = crateSlots(w, store).crates;
-    store.crates.push(boat.fee);
-    slots.push(s);
-    startHolds(w, store, [boat.fee], false);
+    setDown(w, store, [boat.fee], false, undefined, { at: [s] });
     w.stats.cratesHandled++;
     return;
   }
@@ -467,11 +472,7 @@ export function jibLifts(w: World): Map<Crane, JibLift> {
     const reach = store && jibReach(w, c, store);
     const aboard = b.crates + (b.out ?? 0);
     const slot = load ? aboard + nth(b) : aboard - 1 - nth(b);
-    const there = store
-      ? store.crates.length + (store.exports?.length ?? 0)
-      : pile
-        ? pile.crates.length
-        : c.stack.length;
+    const there = store ? heldIn(store) : pile ? cratesAt(pile) : c.stack.length;
     const key = store ?? pile ?? c;
     const k = load ? there - 1 - nth(key) : there + nth(key);
     if (slot < 0 || k < 0) continue;

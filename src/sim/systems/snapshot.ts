@@ -15,6 +15,7 @@ import {
   breachPenalty,
   cancelFee,
   craneStack,
+  cratesAt,
   isBoxy,
 } from '../helpers';
 import { Build } from '../types';
@@ -69,7 +70,7 @@ import {
   wideQuay,
 } from './boats/berthing';
 import { gantries, gantryLifts, handView, liftedLoad, yardLooks } from './yardGantry';
-import { shownSlots } from './cargo/places';
+import { feesIn, shownSlots } from './cargo/places';
 import { byHand, unloadWaiting } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
@@ -545,9 +546,9 @@ export function waitingCargo(w: World): Snapshot['stock'] {
   const clearedBoxes = yards.reduce((n, y) => n + cleared(w, y), 0);
   return {
     landed:
-      [...w.piles.values()].reduce((n, p) => n + p.crates.length, 0) +
+      [...w.piles.values()].reduce((n, p) => n + cratesAt(p), 0) +
       cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + c.stack.length, 0),
-    stored: [...w.bays.values()].reduce((n, b) => n + b.crates.length, 0),
+    stored: [...w.bays.values()].reduce((n, b) => n + cratesAt(b), 0),
     crateExports: exportsWaiting(w, false),
     boxExports: exportsWaiting(w, true),
     boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + c.stack.length, 0),
@@ -588,19 +589,19 @@ export function cargoStats(w: World): CargoStats {
     (boxes ? c.containers : c.crates).landed += k.stack.length;
     (boxes ? c.containerExports : c.crateExports).atCrane += k.outStack?.length ?? 0;
   }
-  for (const p of w.piles.values()) c.crates.landed += p.crates.length;
+  for (const p of w.piles.values()) c.crates.landed += cratesAt(p);
   for (const b of w.bays.values()) {
     // Storage no truck can reach is a buffer by the cranes.
-    if (b.noAccess && b.tiles) c.crates.landed += b.crates.length;
-    else c.crates.ready += b.crates.length;
+    if (b.noAccess && b.tiles) c.crates.landed += cratesAt(b);
+    else c.crates.ready += cratesAt(b);
     c.containers.ready += b.boxes.length;
-    c.crateExports.stored += b.exports?.length ?? 0;
+    c.crateExports.stored += cratesAt(b, true);
   }
   for (const y of w.yards.values()) {
     const clear = cleared(w, y);
     c.containers.ready += clear;
     c.containers.customs += y.boxes.length - clear;
-    c.containerExports.stored += y.exports?.length ?? 0;
+    c.containerExports.stored += y.outBoxes?.length ?? 0;
   }
   for (const p of w.people) {
     if (!p.carrying) continue;
@@ -840,12 +841,12 @@ export function buildSnapshot(w: World): Snapshot {
   const bays: BayView[] = [...w.bays.values()].map((b) => ({
     idx: b.idx,
     name: b.name ?? '',
-    stock: b.crates.length + moved(b).set,
+    stock: cratesAt(b) + moved(b).set,
     boxes: b.boxes.length,
     capacity: bayCap(b),
     large: b.large,
     warehouse: !!b.warehouse,
-    exports: (b.exports?.length ?? 0) - moved(b).taken,
+    exports: cratesAt(b, true) - moved(b).taken,
     slots: shownSlots(w, b, moved(b)),
     outgoing: !!b.outgoing,
     shut: !!b.shut,
@@ -854,8 +855,8 @@ export function buildSnapshot(w: World): Snapshot {
     noAccess: b.noAccess,
     noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
     cargo: [
-      ...b.crates.map((f) => cargoOf(f)),
-      ...(b.exports ?? []).map((f) => cargoOf(f, 'goods')),
+      ...feesIn(b, false).map((f) => cargoOf(f)),
+      ...feesIn(b, true).map((f) => cargoOf(f, 'goods')),
     ],
     ...holdsView(w, b),
   }));
@@ -906,7 +907,7 @@ export function buildSnapshot(w: World): Snapshot {
       idx: y.idx,
       name: y.name ?? '',
       boxes: y.boxes.length,
-      exports: y.exports?.length ?? 0,
+      exports: y.outBoxes?.length ?? 0,
       ...yardLooks(w, y, lifts),
       outgoing: !!y.outgoing,
       shut: !!y.shut,
@@ -936,10 +937,10 @@ export function buildSnapshot(w: World): Snapshot {
     }),
     piles: [...w.piles.values()].map((p) => ({
       idx: p.idx,
-      crates: p.crates.length - moved(p).taken,
+      crates: cratesAt(p) - moved(p).taken,
       pallets: !!p.pallets,
       out: !!p.out,
-      cargo: p.crates.map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
+      cargo: feesIn(p, false).map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
     })),
     contracts,
     capacity: capacity(w),

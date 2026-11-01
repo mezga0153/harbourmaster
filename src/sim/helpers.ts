@@ -3,6 +3,7 @@ import type { Bay, Boat, Crane, Dockhand, DockhandState, GantryLift, Ledger, Tru
 import * as B from './balance';
 import { cargoOf } from './cargo';
 import type { Contract } from './contracts';
+import { count } from './systems/cargo/hold';
 // Small helpers the simulation's systems share: geometry, the arithmetic of
 // bays, decks and yards, and the words for what a worker is doing.
 
@@ -140,15 +141,15 @@ export function liftTicks(l: GantryLift): number {
 
 /** Room left at a bay for crates, or at a container yard for containers. */
 export function bayRoom(b: Bay, boxes: boolean): number {
-  if (b.pile) return boxes ? 0 : B.PILE_CRATES - b.crates.length - b.incoming;
+  if (b.pile) return boxes ? 0 : B.PILE_CRATES - cratesAt(b) - b.incoming;
   if (b.yard) return boxes ? bayCap(b) - b.boxes.length - b.boxIncoming - outHeld(b) : 0;
   if (boxes) return 0;
-  return bayCap(b) - b.crates.length - b.incoming - outHeld(b);
+  return bayCap(b) - cratesAt(b) - b.incoming - outHeld(b);
 }
 
 /** Room storage gives over to exports, there or on their way. */
 export function outHeld(b: Bay): number {
-  return (b.exports?.length ?? 0) + (b.exportIncoming ?? 0);
+  return exportsAt(b) + (b.exportIncoming ?? 0);
 }
 
 /** How many crates or containers a ship takes out. Fishing boats take ice. */
@@ -189,7 +190,22 @@ export function needsPapers(fee: number): boolean {
 
 /** Crates and exports in a bay or crate storage. */
 export function heldIn(b: Bay): number {
-  return b.crates.length + (b.exports?.length ?? 0);
+  return cratesAt(b) + cratesAt(b, true);
+}
+
+/** Exports waiting at a bay: containers in a yard, crates elsewhere. */
+export function exportsAt(b: Bay): number {
+  return b.yard ? (b.outBoxes?.length ?? 0) : cratesAt(b, true);
+}
+
+/**
+ * Crates at a bay coming in (or `out`, going out); a heap on the quay's
+ * all count as coming in, whichever way they go.
+ */
+export function cratesAt(b: Bay, out = false): number {
+  const cells = b.cells ?? [];
+  if (b.pile) return out ? 0 : count(cells);
+  return count(cells, out);
 }
 
 export function bayCap(b: Bay): number {

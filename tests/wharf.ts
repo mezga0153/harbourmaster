@@ -201,7 +201,7 @@ export function oldPile(world: World, t: number, fees: number[], out = false): B
     reserved: 0,
     boxes: [],
     boxIncoming: 0,
-    crates: [...fees],
+    cells: fees.map((fee) => ({ fee, at: 0 })),
     incoming: 0,
     nextTruckTick: 0,
     noAccess: false,

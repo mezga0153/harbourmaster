@@ -83,8 +83,9 @@ import {
   stepFacing,
 } from '../roads';
 import { nextParkWay } from '../rules/parking';
-import type { Bay } from '../state';
-import { bayCap, bayIncoming, bayRoom, isBoxy } from '../helpers';
+import type { Bay, Crate } from '../state';
+import { bayCap, bayIncoming, bayRoom, cratesAt, isBoxy } from '../helpers';
+import { cratesIn, place, slotsOf, stackOf } from './cargo/places';
 import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
@@ -610,22 +611,32 @@ export function rebuildStores(w: World): void {
   const areas: Bay[] = [];
   const held = new Map<number, number[]>();
   const ready = new Map<number, number[]>();
+  // Crates coming in, by the tile they stand on.
+  const crates = new Map<number, Crate[]>();
   const lost = { crates: 0, boxes: 0 };
   // Crate storage marked out just as it was keeps each crate in its slot;
   // any other is stacked afresh.
   const same = new Map<string, Bay>();
   for (const a of old) if (!a.yard) same.set(a.tiles!.join(), a);
   for (const a of old) {
-    const goods = a.yard ? a.boxes : a.crates;
-    const clear = a.yard ? readyList(w, a) : [];
-    const per = a.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE;
     const tiles = a.tiles!;
-    tiles.forEach((t, k) => {
-      const last = k === tiles.length - 1;
-      held.set(t, goods.slice(k * per, last ? undefined : (k + 1) * per));
-      ready.set(t, clear.slice(k * per, last ? undefined : (k + 1) * per));
-    });
-    lost[a.yard ? 'boxes' : 'crates'] += goods.length;
+    if (a.yard) {
+      const goods = a.boxes;
+      const clear = readyList(w, a);
+      const per = B.BOXES_PER_STORE_TILE;
+      tiles.forEach((t, k) => {
+        const last = k === tiles.length - 1;
+        held.set(t, goods.slice(k * per, last ? undefined : (k + 1) * per));
+        ready.set(t, clear.slice(k * per, last ? undefined : (k + 1) * per));
+      });
+      lost.boxes += goods.length;
+    } else {
+      for (const s of slotsOf(a, false)) {
+        const t = tiles[Math.min(tiles.length - 1, stackOf(a, s))];
+        crates.set(t, [...(crates.get(t) ?? []), a.cells[s]!]);
+      }
+      lost.crates += cratesAt(a);
+    }
     (a.yard ? w.yards : w.bays).delete(a.idx);
   }
   w.spotCache.clear();
@@ -661,17 +672,23 @@ export function rebuildStores(w: World): void {
       tiles,
       boxes: [],
       boxIncoming: 0,
-      crates: [],
+      cells: [],
       incoming: 0,
       nextTruckTick: 0,
       noAccess: false,
     };
     const was = yard ? undefined : same.get(tiles.join());
-    const goods = was
-      ? was.crates.slice(0, bayCap(area))
-      : tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area));
-    (yard ? area.boxes : area.crates).push(...goods);
-    if (was?.crateSlots) area.crateSlots = was.crateSlots.slice(0, goods.length);
+    if (was) {
+      // Each crate, and each export, just where it stood.
+      area.cells = was.cells.slice();
+      lost.crates -= cratesAt(area);
+    } else if (!yard) {
+      const goods = tiles.flatMap((t) => crates.get(t) ?? []).slice(0, bayCap(area));
+      place(w, area, goods);
+      lost.crates -= goods.length;
+    }
+    const goods = yard ? tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area)) : [];
+    area.boxes.push(...goods);
     if (yard) {
       area.boxReady = tiles.flatMap((t) => ready.get(t) ?? []).slice(0, goods.length);
       // Joined up from areas stacked at different times: oldest first.
@@ -679,7 +696,7 @@ export function rebuildStores(w: World): void {
       area.boxes = order.map((k) => goods[k]);
       area.boxReady = order.map((k) => area.boxReady![k]);
     }
-    lost[yard ? 'boxes' : 'crates'] -= goods.length;
+    lost.boxes -= goods.length;
     (yard ? w.yards : w.bays).set(i, area);
     areas.push(area);
   }
@@ -720,33 +737,20 @@ export function rebuildStores(w: World): void {
   for (const t of w.trucks) t.bayIdx = remap.get(t.bayIdx) ?? t.bayIdx;
   // Exports go with the area their old one became, as far as there is room.
   for (const a of old) {
-    const goods = a.exports ?? [];
     const area = dest(w, remap.get(a.idx) ?? -1);
+    // Crate storage marked out just as it was has them where they stood.
+    if (!a.yard && area && area.tiles?.join() === a.tiles?.join()) continue;
     const room = area ? Math.max(0, bayRoom(area, !!a.yard)) : 0;
-    if (area) {
-      if (
-        area.tiles?.join() === a.tiles?.join() &&
-        !a.yard &&
-        a.outSlots &&
-        !area.exports?.length
-      ) {
-        area.outSlots = a.outSlots.slice(0, Math.min(goods.length, room));
-      }
-      (area.exports ??= []).push(...goods.slice(0, room));
+    if (a.yard) {
+      const goods = a.outBoxes ?? [];
+      if (area) (area.outBoxes ??= []).push(...goods.slice(0, room));
+      lost.boxes += Math.max(0, goods.length - room);
+      continue;
     }
-    lost[a.yard ? 'boxes' : 'crates'] += Math.max(0, goods.length - room);
-    // Crates waiting on customs or papers wait on where they went.
-    if (area && !area.yard) {
-      for (const [from, out] of [
-        [a.customs, false],
-        [a.papers, true],
-      ] as const) {
-        if (!from?.length) continue;
-        const list = out ? (area.papers ??= []) : (area.customs ??= []);
-        list.push(...from);
-        list.sort((x, y) => x - y);
-      }
-    }
+    // Waiting on their papers still, where they went.
+    const goods = cratesIn(a, true);
+    if (area) place(w, area, goods.slice(0, room));
+    lost.crates += Math.max(0, goods.length - room);
   }
   for (const t of w.trucks) {
     const area = dest(w, t.bayIdx);

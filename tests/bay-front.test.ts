@@ -3,6 +3,7 @@ import { FACING } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY, Terrain } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { smallTruckHauliers } from './wharf';
+import { cratesAt, stockUp } from './stock';
 
 describe('A truck bay with road down a side as well as in front', () => {
   it('has its trucks back in from the front and stand square in it, facing the road', () => {
@@ -35,7 +36,7 @@ describe('A truck bay with road down a side as well as in front', () => {
     const out = Math.atan2(fy, fx);
     let stood = 0;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
-      if (b.crates.length < 6) b.crates.push(20, 20, 20, 20, 20, 20);
+      if (cratesAt(b) < 6) stockUp(world, b, [20, 20, 20, 20, 20, 20]);
       world.step();
       for (const k of world.trucks) {
         if (k.bayIdx !== bay || k.state !== 'loading' || k.backing) continue;

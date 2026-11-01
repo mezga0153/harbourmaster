@@ -7,6 +7,7 @@ import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { addContract } from '../src/sim/systems/economy';
 import { wantsLoad } from '../src/sim/systems/cargo/exports';
+import { cratesAt, feesIn } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -101,10 +102,7 @@ describe('Cargo', () => {
       world.step();
       if (world.people.some((p: Any) => p.truckId !== undefined && p.truckLoad === false)) byHand++;
       // How long an unloaded boat waits for ice there is in the port to take.
-      const ice = [...world.bays.values()].reduce(
-        (n: number, b: Any) => n + (b.exports?.length ?? 0),
-        0,
-      );
+      const ice = [...world.bays.values()].reduce((n: number, b: Any) => n + cratesAt(b, true), 0);
       for (const b of world.boats) {
         if (b.state === 'moored' && b.crates === 0 && ice > 0 && wantsLoad(world, b)) {
           wait.set(b.id, (wait.get(b.id) ?? 0) + 1);
@@ -112,10 +110,10 @@ describe('Cargo', () => {
         }
       }
       for (const b of world.bays.values()) {
-        if ((b.exports ?? []).some((f: number) => cargoOf(f, 'goods') === 'ice')) {
+        if (feesIn(b, true).some((f: number) => cargoOf(f, 'goods') === 'ice')) {
           inBay = true;
           // Never in a bay with the catch.
-          expect(b.crates.length).toBe(0);
+          expect(cratesAt(b)).toBe(0);
         }
       }
       for (const b of world.boats) {

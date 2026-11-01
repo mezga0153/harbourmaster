@@ -19,9 +19,9 @@ describe('a hold', () => {
   it('keeps a crate in one cell and a cell to one crate', () => {
     const cells: Cells = sized([], stackShape(2).cap);
     expect(cells.length).toBe(32);
-    put(cells, 3, { fee: 10 });
-    put(cells, 5, { fee: 20, out: true });
-    expect(() => put(cells, 3, { fee: 30 })).toThrow();
+    put(cells, 3, { at: 0, fee: 10 });
+    put(cells, 5, { at: 0, fee: 20, out: true });
+    expect(() => put(cells, 3, { at: 0, fee: 30 })).toThrow();
     expect(count(cells)).toBe(2);
     expect(count(cells, false)).toBe(1);
     expect(filled(cells, true)).toEqual([5]);
@@ -38,9 +38,9 @@ describe('a hold', () => {
     expect(sh.height(15)).toBe(3);
     expect(stackShape(3).stack(40)).toBe(2);
     const cells = sized([], sh.cap);
-    put(cells, 0, { fee: 1 });
+    put(cells, 0, { at: 0, fee: 1 });
     expect(clear(cells, sh, 0)).toBe(true);
-    put(cells, 2, { fee: 1 });
+    put(cells, 2, { at: 0, fee: 1 });
     expect(clear(cells, sh, 0)).toBe(false);
   });
 
@@ -51,8 +51,8 @@ describe('a hold', () => {
   });
 
   it('knows when a crate still waits', () => {
-    expect(waits({ fee: 1 }, 100)).toBe(false);
-    expect(waits({ fee: 1, clears: 150 }, 100)).toBe(true);
-    expect(waits({ fee: 1, clears: 150 }, 150)).toBe(false);
+    expect(waits({ at: 0, fee: 1 }, 100)).toBe(false);
+    expect(waits({ at: 0, fee: 1, clears: 150 }, 100)).toBe(true);
+    expect(waits({ at: 0, fee: 1, clears: 150 }, 150)).toBe(false);
   });
 });

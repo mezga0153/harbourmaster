@@ -6,6 +6,7 @@ import { Structures } from '../src/render/structures';
 import { CELL, CELL_CRATE, SUB, StaffGrid, type CrateBox } from '../src/render/entities/grid';
 import { forkCells, keptCells } from '../src/sim/systems/workforce/forkCells';
 import { wharf } from './wharf';
+import { stockUp } from './stock';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -53,7 +54,14 @@ describe('The staff’s grid', () => {
   it('keeps forklifts’ ways and dockhands out of the crates in crate storage, dockhands working them from the gaps', () => {
     const world = wharf(4, 2);
     for (const b of world.bays.values()) {
-      if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 40 }, () => 25);
+      if (b.tiles && !b.outgoing) {
+        b.cells = [];
+        stockUp(
+          world,
+          b,
+          Array.from({ length: 40 }, () => 25),
+        );
+      }
     }
     const m = world.map;
     const structures = new Structures(m, true);
@@ -127,7 +135,14 @@ describe('The staff’s grid', () => {
   it('has forklifts drive cell by cell round the crates in storage and at the truck bays, two by two cells under them', () => {
     const world = wharf(4, 2);
     for (const b of world.bays.values()) {
-      if (b.tiles && !b.outgoing) b.crates = Array.from({ length: 40 }, () => 25);
+      if (b.tiles && !b.outgoing) {
+        b.cells = [];
+        stockUp(
+          world,
+          b,
+          Array.from({ length: 40 }, () => 25),
+        );
+      }
     }
     const m = world.map;
     const kept = (x: number, z: number) => {

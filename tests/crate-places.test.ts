@@ -7,6 +7,7 @@ import { crateSlots, reachable, reserved, usedSlots } from '../src/sim/systems/c
 import { crateAt } from '../src/sim/systems/yardGantry';
 import { Structures } from '../src/render/structures';
 import { shutIn, wharf } from './wharf';
+import { cratesAt, stockUp } from './stock';
 
 // Each crate in crate storage or a truck bay's stack keeps the slot it was
 // set down in until it is taken (see src/sim/systems/cargo/places.ts), and
@@ -122,7 +123,7 @@ describe('Crates in storage and at truck bays', () => {
     const held = () => {
       let n = 0;
       for (const b of world.bays.values()) {
-        if (!b.yard) n += b.crates.length + (b.exports?.length ?? 0);
+        if (!b.yard) n += cratesAt(b) + cratesAt(b, true);
       }
       return n;
     };
@@ -164,7 +165,14 @@ describe('Crates in storage and at truck bays', () => {
     const world: Any = wharf(4, 2);
     const tile = shutIn(world);
     const store = [...world.bays.values()].find((b: Any) => b.tiles?.includes(tile));
-    store.crates = Array.from({ length: 56 }, () => 25);
+    {
+      store.cells = [];
+      stockUp(
+        world,
+        store,
+        Array.from({ length: 56 }, () => 25),
+      );
+    }
     const n = store.tiles.indexOf(tile);
     const row = (s: number) => Math.floor((s % 16) / 8);
     const was = new Map<number, string>();
@@ -214,8 +222,8 @@ describe('Crates in storage and at truck bays', () => {
     const back = World.fromSave(JSON.parse(JSON.stringify(world.toSave())));
     for (const [idx, s] of slots) {
       const b = back.bays.get(idx)!;
-      expect(b.crateSlots ?? []).toEqual(world.bays.get(idx).crateSlots ?? []);
-      expect(new Set([...(b.crateSlots ?? []), ...(b.outSlots ?? [])])).toEqual(s);
+      expect(b.cells).toEqual(world.bays.get(idx).cells);
+      expect(usedSlots(back, b)).toEqual(s);
     }
   });
 });
