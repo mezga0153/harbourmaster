@@ -95,6 +95,14 @@ shows the game's parts on their own, `src/dev/`:
   time, with fishing, lobster, coaster and feeder boats, a tug and the train
   sent in on a button, every boat's course drawn and a table of what each is
   doing and held up by. The build bar and panels are the game's own.
+- Mini scenarios, on the Scenes tab (`scenario.ts`, `scenarioPanel.ts`): a
+  new game's bit of shore cleared of boats and hands, built on from the
+  build bar or the lab's tools (crates set down in a bay or storage, a
+  dockhand put down, a boat with crates sent in, trucks called), each step
+  recorded at its tick; saved as JSON and replayed the same. Presets: the
+  bare patch, two dockhands with a boat and a truck bay, one forklift with
+  a storage tile and a truck, a jib crane at a quay; `tests/scenario.test.ts`
+  checks they do what they say. `window.__scenario` drives them.
 - Sounds: the sound lab (`src/audio/lab.ts`, also `sounds.html`).
 
 `window.__lab` (the gallery's stage and item) and `window.__scene` (the
