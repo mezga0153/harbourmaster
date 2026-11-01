@@ -4,6 +4,7 @@ import type {
   Boat,
   Cells,
   Crane,
+  Crate,
   Dockhand,
   JibJob,
   SaveData,
@@ -148,6 +149,36 @@ export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 export type { SaveData, Tug } from './state';
+
+/** How an older save kept what a worker carries: fees, with how each looks and so on beside them. */
+interface OldLoad {
+  cargoFees?: number[];
+  cargoLooks?: number[];
+  cargoFrom?: number[];
+  cargoReady?: number[];
+  handed?: Crate[] | { fees: number[]; looks: number[]; from: number[] };
+}
+
+/** What a worker carries as saved, copied for the game to keep, or from an older save's lists. */
+function loadCarried(d: Omit<Dockhand, 'handed'> & OldLoad): Dockhand {
+  const { cargoFees, cargoLooks, cargoFrom, cargoReady, handed, ...p } = d;
+  p.load = p.load
+    ? p.load.map((c) => ({ ...c }))
+    : (cargoFees ?? []).map((fee, k) => ({
+        fee,
+        at: 0,
+        look: cargoLooks?.[k],
+        from: cargoFrom?.[k],
+        ready: cargoReady?.[k],
+      }));
+  const was = handed;
+  const out: Dockhand = p;
+  if (Array.isArray(was)) out.handed = was.map((c) => ({ ...c }));
+  else if (was) {
+    out.handed = was.fees.map((fee, k) => ({ fee, at: 0, look: was.looks[k], from: was.from[k] }));
+  }
+  return out;
+}
 
 /**
  * A crate truck's bed as saved, copied for the game to keep; or an older
@@ -440,7 +471,7 @@ export class World {
       !!d.today &&
       d.people.every(
         (p) =>
-          Array.isArray(p.cargoFees) &&
+          (Array.isArray(p.load) || Array.isArray((p as OldLoad).cargoFees)) &&
           Number.isFinite(p.energy) &&
           Number.isFinite(p.wage) &&
           Number.isFinite(p.raiseAsk),
@@ -487,14 +518,15 @@ export class World {
     world.cargoLog = s.cargoLog ?? [];
     world.daysInRed = s.daysInRed;
     world.bankrupt = s.bankrupt;
-    world.people = s.people.map((p) => ({
-      ...p,
-      stockIdx: p.stockIdx ?? -1,
-      toBoat: p.toBoat ?? -1,
-      toCrane: p.toCrane ?? -1,
-      path: [...p.path],
-      cargoFees: [...p.cargoFees],
-    }));
+    world.people = s.people.map((p) =>
+      loadCarried({
+        ...p,
+        stockIdx: p.stockIdx ?? -1,
+        toBoat: p.toBoat ?? -1,
+        toCrane: p.toCrane ?? -1,
+        path: [...p.path],
+      }),
+    );
     world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
     world.tugs = (s.tugs ?? []).map((t) => ({ ...t, path: [...t.path] }));
     world.trucks = s.trucks.map((t) => loadBed({ ...t, path: [...t.path] }));

@@ -187,7 +187,7 @@ export function gantryWork(w: World, y: Bay): GantryWork {
     const lift = { workAt, workTruck: p.id, workSlot: 0, ...liftView(w, y, p.id) };
     if (p.state === 'dropping') {
       // Where the sim stacks it, by when customs clear it.
-      const workYard = y.gantryTo ?? stackedAt(w, p, y, customsFor(w, p.cargoFrom?.[0]));
+      const workYard = y.gantryTo ?? stackedAt(w, p, y, customsFor(w, p.load[0]?.from));
       return {
         working: 'unload',
         workLook: carriedLooks(w, p)[0],
@@ -680,7 +680,7 @@ export function handAt(w: World, p: Dockhand, pick: boolean): HandAt | undefined
   const yard = w.yards.get(p.bayIdx);
   if (!yard) return undefined;
   // Where it will be stacked, by when customs clear it.
-  const ready = p.outbound ? undefined : (p.cargoReady?.[0] ?? customsFor(w, p.cargoFrom?.[0]));
+  const ready = p.outbound ? undefined : (p.load[0]?.ready ?? customsFor(w, p.load[0]?.from));
   return { ...lane(yard), place: stackedAt(w, p, yard, ready) };
 }
 
@@ -970,7 +970,7 @@ export function gantryFor(w: World, p: Dockhand): boolean {
   // exports up, the one on top. It takes as long as its way along the rails.
   // Lifted off, the tractor need wait only until the spreader has it.
   if (p.state === 'dropping') {
-    keepGantryTo(w, y, stackedAt(w, p, y, customsFor(w, p.cargoFrom?.[0])));
+    keepGantryTo(w, y, stackedAt(w, p, y, customsFor(w, p.load[0]?.from)));
     startLift(w, y, lane, slotAlong(w, y, y.gantryTo));
     p.timer = Math.max(1, takenIn(w, y));
   } else {

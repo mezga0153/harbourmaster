@@ -60,7 +60,7 @@ describe('Customs and export papers on crates', () => {
     expect(cratesFor(world, truckAt(into), into)).toBe(3);
     const t = truckAt(into);
     const fees = cratesOff(world, t, into, 0, 8);
-    expect(fees.map((f: number) => Math.round((f % 1) * 1e6))).toEqual([1, 1, 3]);
+    expect(fees.map((c) => Math.round((c.fee % 1) * 1e6))).toEqual([1, 1, 3]);
     expect(feesIn(into, false)).toHaveLength(5);
     // The selected storage says so.
     const view = world.snapshot().bays.find((b: Any) => b.idx === into.idx);

@@ -281,7 +281,7 @@ export function exportHome(
   from: number,
 ): { boat?: Boat; crane?: Crane; store?: Bay; room: number } | null {
   // Ice goes back into a truck bay.
-  const ice = p.cargoFees.some((f) => cargoOf(f, 'goods') === 'ice');
+  const ice = p.load.some((c) => cargoOf(c.fee, 'goods') === 'ice');
   const stores = [...w.bays.values()]
     .filter((b) => (ice ? truckBay(b) : takesExports(w, b)) && bayRoom(b, false) > 0)
     .sort((a, b) => w.distTo(from, a) - w.distTo(from, b));
@@ -484,19 +484,11 @@ export function loadShip(w: World, c: Crane): void {
     from = store ? { store } : pile ? { pile } : {};
     if (store) {
       take = () =>
-        takeReady(
-          w,
-          store,
-          true,
-          cratesAt(store, true) - 1,
-          1,
-          undefined,
-          undefined,
-          jibReach(w, c, store),
-        )[0];
+        takeReady(w, store, true, cratesAt(store, true) - 1, 1, undefined, jibReach(w, c, store))[0]
+          ?.fee;
     } else if (pile) {
       take = () => {
-        const fee = takeFirst(pile, 1)[0];
+        const fee = takeFirst(pile, 1)[0]?.fee;
         tidyPile(w, pile.idx);
         return fee;
       };

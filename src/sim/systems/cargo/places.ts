@@ -34,6 +34,7 @@ import { bayCells } from '../../rules/cells';
 import { jibLoadReach } from './exports';
 import { jibTiles } from './stores';
 import {
+  feesOf,
   filled,
   largeShape,
   pileShape,
@@ -404,7 +405,7 @@ export function dropSlot(w: World, p: Dockhand, b: Bay): number {
   if (claiming(p, b)) return p.dropAt!;
   const used = usedSlots(w, b);
   const kept = reserved(w, b, p);
-  const ground = waitsIn(b, !!p.outbound, p.cargoFees, p.cleared);
+  const ground = waitsIn(b, !!p.outbound, feesOf(p.load), p.cleared);
   if (p.kind !== 'forklift') return freeSlot(b, used, kept, ground, waitingSlots(w, b), w);
   const n = Math.max(1, p.carrying);
   const only = forkliftOnly(w, p, b);
@@ -467,12 +468,19 @@ export function loadFits(w: World, b: Bay, n: number, p?: Dockhand): boolean {
 export function setDown(
   w: World,
   b: Bay,
-  fees: number[],
+  load: (Crate | number)[],
   out: boolean,
   p?: Dockhand,
   opts: { at?: number[]; cleared?: boolean } = {},
 ): Crate[] {
-  const crates: Crate[] = fees.map((fee) => (out ? { fee, out, at: w.tick } : { fee, at: w.tick }));
+  const crates = load.map((c) => {
+    const crate: Crate = typeof c === 'number' ? { fee: c, at: w.tick } : c;
+    crate.at = w.tick;
+    crate.clears = undefined;
+    if (out) crate.out = true;
+    else delete crate.out;
+    return crate;
+  });
   if (b.tiles && !b.yard && !opts.cleared) {
     const holds = out ? needsPapers : needsCustoms;
     const until = w.tick + (out ? B.EXPORT_PAPERS_TICKS : B.CRATE_CUSTOMS_TICKS);
@@ -584,17 +592,17 @@ export function takeAt(b: Bay, out: boolean, picks: number[]): Crate[] {
   return crates;
 }
 
-/** The fees of the last `n` crates set down on a heap on the quay, taken off it. */
-export function takeTop(b: Bay, n: number): number[] {
+/** The last `n` crates set down on a heap on the quay, taken off it. */
+export function takeTop(b: Bay, n: number): Crate[] {
   const len = slotsOf(b, false).length;
   const picks = Array.from({ length: Math.min(n, len) }, (_, k) => len - 1 - k);
-  return takeAt(b, false, picks).map((c) => c.fee);
+  return takeAt(b, false, picks);
 }
 
-/** The fees of the first `n` crates set down on a heap on the quay, taken off it. */
-export function takeFirst(b: Bay, n: number): number[] {
+/** The first `n` crates set down on a heap on the quay, taken off it. */
+export function takeFirst(b: Bay, n: number): Crate[] {
   const len = slotsOf(b, false).length;
-  return takeAt(b, false, [...Array(Math.min(n, len)).keys()]).map((c) => c.fee);
+  return takeAt(b, false, [...Array(Math.min(n, len)).keys()]);
 }
 
 /** A heap on the quay's crates, moved down into its first cells, in order. */

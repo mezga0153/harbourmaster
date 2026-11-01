@@ -214,25 +214,26 @@ export function keepSlots(w: World, t: Truck, p: Dockhand, n: number): number[] 
  * where those are free still, else where they would go now, else as by
  * hand. Its cargo and value go up by them.
  */
-export function onBed(w: World, t: Truck, fees: number[], p?: Dockhand): void {
+export function onBed(w: World, t: Truck, crates: Crate[], p?: Dockhand): void {
   const cells = bedCells(t);
   const used = usedIn(cells);
   let slots = p?.bedAt ?? [];
   if (p) p.bedAt = undefined;
-  if (slots.length < fees.length || slots.some((s) => used.has(s) || s >= cells.length)) {
-    slots = p ? slotsFor(w, t, p, fees.length) : [];
+  if (slots.length < crates.length || slots.some((s) => used.has(s) || s >= cells.length)) {
+    slots = p ? slotsFor(w, t, p, crates.length) : [];
   }
-  fees.forEach((fee, k) => {
+  crates.forEach((c, k) => {
     let s = slots[k] ?? handOrder(w, t).find((q) => !used.has(q)) ?? -1;
     // With no place left, any; past the last if none.
     if (s < 0) s = cells.findIndex((c) => !c);
     if (s < 0) s = cells.length;
     while (cells.length <= s) cells.push(null);
-    put(cells, s, { fee, at: w.tick });
+    c.at = w.tick;
+    put(cells, s, c);
     used.add(s);
   });
-  t.cargo += fees.length;
-  t.value += fees.reduce((n, f) => n + f, 0);
+  t.cargo += crates.length;
+  t.value += crates.reduce((n, c) => n + c.fee, 0);
 }
 
 /**

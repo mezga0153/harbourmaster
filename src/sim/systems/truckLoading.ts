@@ -22,7 +22,7 @@ import {
 import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
 import { bedRoom, keepSlots, onBed, roundTicks, slotsFor } from './cargo/beds';
-import type { Bay, Dockhand, Truck } from '../state';
+import type { Bay, Crate, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
 import { boxLookOf, cratesAt, isBoxy, isMachine, loadTicks } from '../helpers';
@@ -132,7 +132,7 @@ export function cratesFor(w: World, _t: Truck, bay: Bay): number {
  * Up to `n` crates off a bay for a crate truck: those from `at` on, as
  * far as they may go, else the top ones that may.
  */
-export function cratesOff(w: World, _t: Truck, bay: Bay, at: number, n: number): number[] {
+export function cratesOff(w: World, _t: Truck, bay: Bay, at: number, n: number): Crate[] {
   if (n <= 0 || cratesAt(bay) === 0) return [];
   // Never one still in customs: the top one that is not, if those are.
   const wait = waitMask(w, bay, false);
@@ -256,7 +256,7 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       }
       p.planned = fees.length;
       p.carrying = fees.length;
-      p.cargoFees = fees;
+      p.load = fees;
       // Fewer than it went for: only the first of the places kept for them.
       if (p.bedAt) p.bedAt = p.bedAt.slice(0, fees.length);
       // The truck is right beside it: round to its far side, though.
@@ -319,8 +319,11 @@ export function unloadTruckJob(
       }
       p.planned = n;
       p.carrying = n;
-      p.cargoFees = Array(n).fill(t!.value);
-      p.cargoLooks = Array.from({ length: n }, (_, k) => boxLookOf(t!.id, t!.cargo + k));
+      p.load = Array.from({ length: n }, (_, k) => ({
+        fee: t!.value,
+        at: w.tick,
+        look: boxLookOf(t!.id, t!.cargo + k),
+      }));
       // On to the place in storage they go, unless it is right here; a
       // truck bay's stack is right beside the truck.
       const tile = bay?.tiles ? palletTile(w, bay, false, false, true, p) : -1;
@@ -401,7 +404,7 @@ function backForMore(w: World, p: Dockhand, t: Truck, bay: Bay): void {
  */
 export function landUnloaded(w: World, p: Dockhand, bay: Bay | undefined): void {
   if (p.carrying <= 0 || !bay) return;
-  setDown(w, bay, p.cargoFees, true, p);
+  setDown(w, bay, p.load, true, p);
   bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - p.carrying);
   tip(w, 'exports');
 }
@@ -417,10 +420,10 @@ export function landCrates(
   if (p.carrying <= 0) return;
   if (t) t.coming = Math.max(0, (t.coming ?? 0) - p.carrying);
   if (live && t) {
-    onBed(w, t, p.cargoFees, p);
+    onBed(w, t, p.load, p);
     t.idle = 0;
   } else if (bay) {
-    setDown(w, bay, p.cargoFees, false, p, { cleared: true });
+    setDown(w, bay, p.load, false, p, { cleared: true });
   }
 }
 
@@ -518,6 +521,7 @@ export function truckJob(w: World, p: Dockhand): boolean {
         return true;
       }
       let fee: number | undefined;
+      let look: number | undefined;
       if (p.truckLoad) {
         yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
         // Only what customs have cleared, whichever that is.
@@ -526,7 +530,7 @@ export function truckJob(w: World, p: Dockhand): boolean {
         if (at >= 0) {
           yardSlots(w, yard).boxes.splice(at, 1);
           ready.splice(at, 1);
-          p.cargoLooks = boxLooks(w, yard).splice(at, 1);
+          look = boxLooks(w, yard).splice(at, 1)[0];
           fee = yard.boxes.splice(at, 1)[0];
         } else t.coming = Math.max(0, (t.coming ?? 0) - 1);
       } else {
@@ -534,7 +538,7 @@ export function truckJob(w: World, p: Dockhand): boolean {
         if (t.cargo > 0) {
           t.cargo--;
           fee = t.value;
-          p.cargoLooks = [boxLookOf(t.id, t.cargo)];
+          look = boxLookOf(t.id, t.cargo);
         }
       }
       if (fee === undefined) {
@@ -542,7 +546,7 @@ export function truckJob(w: World, p: Dockhand): boolean {
         return true;
       }
       p.carrying = 1;
-      p.cargoFees = [fee];
+      p.load = [{ fee, at: w.tick, look }];
       // The truck is right there: straight on, or straight down.
       p.state = 'dropping';
       p.timer = handlingTicks(w, p, B.DROP_TICKS);
@@ -569,7 +573,7 @@ export function landTruckLoad(
   yard: Bay | undefined,
   live: boolean,
 ): void {
-  const fee = p.cargoFees[0];
+  const fee = p.load[0]?.fee;
   if (fee === undefined) return;
   if (p.truckLoad) {
     if (t) t.coming = Math.max(0, (t.coming ?? 0) - 1);
@@ -628,7 +632,7 @@ export function endTruckJob(_w: World, p: Dockhand): void {
   p.bedAt = undefined;
   p.truckLoad = undefined;
   p.carrying = 0;
-  p.cargoFees = [];
+  p.load = [];
   p.planned = 0;
   p.bayIdx = -1;
   p.stockIdx = -1;

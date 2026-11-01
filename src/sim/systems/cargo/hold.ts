@@ -127,3 +127,8 @@ export function clear(cells: Cells, sh: Shape, s: number): boolean {
   const up = sh.above(s);
   return up < 0 || !cells[up];
 }
+
+/** What crates pay, each. */
+export function feesOf(crates: Crate[]): number[] {
+  return crates.map((c) => c.fee);
+}

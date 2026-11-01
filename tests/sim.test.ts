@@ -3097,7 +3097,7 @@ describe('Container Port tier', () => {
       kind: 'tractor',
       state: 'dropping',
       bayIdx: 5,
-      cargoFees: [100],
+      load: [{ fee: 100, at: 0 }],
       planned: 1,
       timer: B.YARD_GANTRY_TICKS,
     } as never;
@@ -3183,8 +3183,7 @@ describe('Container Port tier', () => {
       toCrane: at,
       craneIdx: -1,
       carrying: 1,
-      cargoFees: [210],
-      cargoLooks: [9],
+      load: [{ fee: 210, at: 0, look: 9 }],
       planned: 1,
       outbound: true,
       timer: 1000,

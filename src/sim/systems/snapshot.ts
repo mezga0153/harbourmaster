@@ -657,7 +657,7 @@ export function buildSnapshot(w: World): Snapshot {
       cells: p.kind === 'forklift' && p.path.length > 0 ? cellsAhead(p) : undefined,
       cargo: isBoxy(p)
         ? undefined
-        : p.cargoFees.map((f) => cargoOf(f, p.outbound ? 'goods' : 'fish')),
+        : p.load.map((c) => cargoOf(c.fee, p.outbound ? 'goods' : 'fish')),
       handling: handlingPhase(w, p),
       sitting: p.state === 'resting' && p.hutIdx >= 0 && w.map.build[p.hutIdx] === Build.BreakHut,
       name: p.name,

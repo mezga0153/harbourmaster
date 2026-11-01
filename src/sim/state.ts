@@ -71,8 +71,11 @@ export interface Dockhand extends Agent {
   state: DockhandState;
   timer: number;
   carrying: number;
-  /** What each carried crate pays when it leaves on a truck. */
-  cargoFees: number[];
+  /**
+   * What it carries, crates or containers, each in its place in its hands
+   * or on its forks as the view draws them, the first lowest; see hold.ts.
+   */
+  load: Crate[];
   /** Crates reserved at the source and the bay for the current trip. */
   planned: number;
   boatId: number;
@@ -91,10 +94,6 @@ export interface Dockhand extends Agent {
   shiftIn?: number;
   /** Where the load goes: a truck bay, or for containers a yard. */
   bayIdx: number;
-  /** Stackers: the ship each container carried came off, by id. */
-  cargoFrom?: number[];
-  /** Stackers: how each container carried looks; see boxLookOf. */
-  cargoLooks?: number[];
   /**
    * The place on a crane's stack of the container it is taking, or in crate
    * storage of the pallet a forklift is taking, chosen as it pulls up.
@@ -113,7 +112,7 @@ export interface Dockhand extends Agent {
   /** Why it is waiting where it is to set its load down, if it is. */
   waitingWhy?: string;
   /** A tractor under a gantry crane: what the crane set straight on it off the ship. */
-  handed?: { fees: number[]; looks: number[]; from: number[] };
+  handed?: Crate[];
   /** Exports: the ship they are going on board, or the crane they go to; else -1. */
   toBoat?: number;
   toCrane?: number;
@@ -127,8 +126,6 @@ export interface Dockhand extends Agent {
   truckLoad?: boolean;
   /** Stackers: the yard, and which of its tiles, it is restacking at; see restackJob. */
   restack?: { yard: number; tile: number };
-  /** Stackers: when customs clear each container carried, where that is known already (restacking). */
-  cargoReady?: number[];
   /** Crates carried out of storage, so cleared already: no customs again where they go. */
   cleared?: boolean;
   /** Reach stackers and tractors: what it is keeping its distance behind, if anything; see roomAhead. */
@@ -479,8 +476,12 @@ export interface Crate {
   out?: boolean;
   /** The tick it was set down where it is, to tell the older from the newer. */
   at: number;
-  /** How it looks, where that is kept. */
+  /** Containers: how it looks; see boxLookOf. */
   look?: number;
+  /** Containers: the ship it came off, by id. */
+  from?: number;
+  /** Containers: when customs clear it, as a yard's boxReady has it, where that is known already. */
+  ready?: number;
   /** The tick its customs (or, going out, its export papers) clear, while they have not. */
   clears?: number;
 }

@@ -3,7 +3,7 @@
 
 import { bedCap } from './beds';
 import type { World } from '../../world';
-import type { Bay, Dockhand, Truck } from '../../state';
+import type { Bay, Crate, Dockhand, Truck } from '../../state';
 import { bayIncoming, bayRoom, isBoxy, needsCustoms } from '../../helpers';
 import { nag } from '../output';
 import type { BayView } from '../../../protocol/views';
@@ -37,7 +37,7 @@ import {
   takeAt,
   takeOrder,
 } from './places';
-import { waits } from './hold';
+import { feesOf, waits } from './hold';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -75,9 +75,8 @@ export function readyIn(w: World, b: Bay, out: boolean): number {
  * Up to `n` crates off a bay's crates, or (`out`) its exports, none of
  * them still waiting and all of them ones `fits` lets through: those from
  * `at` on (an index into them oldest first, see slotsOf) if they all may
- * go, else the first that may. How each looks, where it is kept, goes into
- * `looks`. In crate storage, only off the stacks in `only` (by tile, see
- * stackOf) if given.
+ * go, else the first that may. In crate storage, only off the stacks in
+ * `only` (by tile, see stackOf) if given.
  */
 export function takeReady(
   w: World,
@@ -86,9 +85,8 @@ export function takeReady(
   at: number,
   n: number,
   fits: (fee: number) => boolean = () => true,
-  looks?: number[],
   only?: Set<number>,
-): number[] {
+): Crate[] {
   const slots = slotsOf(b, out);
   if (n <= 0 || slots.length === 0) return [];
   const crates = cratesIn(b, out);
@@ -107,9 +105,7 @@ export function takeReady(
   if (pick.length === 0 && !slotted(b)) {
     for (let i = slots.length - 1; i >= 0 && pick.length < n; i--) if (ok(i)) pick.unshift(i);
   }
-  const taken = takeAt(b, out, pick);
-  if (looks) for (const c of taken) if (c.look !== undefined) looks.push(c.look);
-  return taken.map((c) => c.fee);
+  return takeAt(b, out, pick);
 }
 
 /** Ticks until the next crate at a bay, or (`out`) export, clears; -1 if none waits. */
@@ -192,7 +188,7 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
       return true;
     }
     ship.outIncoming = Math.max(0, (ship.outIncoming ?? 0) - p.planned);
-    w.shipOut(ship, p.cargoFees);
+    w.shipOut(ship, feesOf(p.load));
   } else if (p.toCrane !== undefined && p.toCrane >= 0) {
     const crane = w.cranes.get(p.toCrane);
     if (!crane) {
@@ -201,15 +197,15 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
     }
     crane.outReserved = Math.max(0, (crane.outReserved ?? 0) - p.planned);
     outLooks(w, crane).push(...carriedLooks(w, p));
-    (crane.outStack ??= []).push(...p.cargoFees);
+    (crane.outStack ??= []).push(...feesOf(p.load));
   } else if (p.outbound && dest(w, p.bayIdx)?.tiles) {
     // Into storage by a jib crane, for it to lift on board.
     const store = dest(w, p.bayIdx)!;
     store.exportIncoming = Math.max(0, (store.exportIncoming ?? 0) - p.planned);
-    setDown(w, store, p.cargoFees, true, p, { cleared: true });
+    setDown(w, store, p.load, true, p, { cleared: true });
   } else return false;
   p.carrying = 0;
-  p.cargoFees = [];
+  p.load = [];
   p.planned = 0;
   p.toBoat = -1;
   p.toCrane = -1;
@@ -226,7 +222,7 @@ export function retargetCrate(w: World, p: Dockhand): void {
   if (old) bayIncoming(old, boxy, -p.planned);
   tidyPile(w, p.bayIdx);
   const here = w.tileOf(p);
-  const held = !boxy && !p.cleared && p.cargoFees.some(needsCustoms);
+  const held = !boxy && !p.cleared && p.load.some((c) => needsCustoms(c.fee));
   const bay = boxy
     ? yardWithRoom(w, p, here)
     : (onwardFor(w, p, here, (b) => !held || !!b.tiles) ?? bayWithRoom(w, p, here, false, held));
@@ -239,7 +235,7 @@ export function retargetCrate(w: World, p: Dockhand): void {
   }
   nag(w, 'putDown', `${p.name} had nowhere to take their load and put it down.`, 'bad');
   p.carrying = 0;
-  p.cargoFees = [];
+  p.load = [];
   p.planned = 0;
   p.bayIdx = -1;
   p.path = [];
@@ -276,7 +272,7 @@ export function onwardFor(
  */
 export function noPlace(w: World, p: Dockhand, bay: Bay): void {
   const here = w.tileOf(p);
-  const held = !p.cleared && !p.outbound && p.cargoFees.some(needsCustoms);
+  const held = !p.cleared && !p.outbound && p.load.some((c) => needsCustoms(c.fee));
   const ok = (b: Bay) => b !== bay && (!held || !!b.tiles);
   const other = p.outbound
     ? null
@@ -345,12 +341,12 @@ export function retargetExports(w: World, p: Dockhand): void {
     .sort((a, b) => w.distTo(here, a) - w.distTo(here, b))[0];
   if (store?.yard) {
     exportLooks(w, store).push(...carriedLooks(w, p));
-    (store.outBoxes ??= []).push(...p.cargoFees);
-  } else if (store) setDown(w, store, p.cargoFees, true, undefined, { cleared: true });
+    (store.outBoxes ??= []).push(...feesOf(p.load));
+  } else if (store) setDown(w, store, p.load, true, undefined, { cleared: true });
   else
     nag(w, 'putDownExports', `${p.name} had nowhere to take the exports and put them down.`, 'bad');
   p.carrying = 0;
-  p.cargoFees = [];
+  p.load = [];
   p.planned = 0;
   p.outbound = false;
   p.path = [];
@@ -385,8 +381,7 @@ export function cancelJob(w: World, p: Dockhand): void {
   p.outbound = false;
   p.hutIdx = -1;
   p.carrying = 0;
-  p.cargoFees = [];
-  p.cargoReady = undefined;
+  p.load = [];
   p.restack = undefined;
   p.planned = 0;
   p.path = [];

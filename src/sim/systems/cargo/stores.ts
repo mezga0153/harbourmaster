@@ -4,7 +4,7 @@
 import type { World } from '../../world';
 import { dest, holds, nextHold, readyIn, takeReady, waitMask } from './customs';
 import { roadTo } from '../roads/bays';
-import type { Bay, Boat, Crane, Dockhand, Truck } from '../../state';
+import type { Bay, Boat, Crane, Crate, Dockhand, Truck } from '../../state';
 import { message } from '../output';
 import * as B from '../../balance';
 import { laneThrough } from '../workforce/crowding';
@@ -13,6 +13,7 @@ import {
   YARD_TIERS,
   aligned,
   bayCap,
+  boxLookOf,
   bayRoom,
   cratesAt,
   craneStacks,
@@ -102,8 +103,8 @@ export function sourceValid(w: World, p: Dockhand): boolean {
   return !!boat && boat.state === 'moored';
 }
 
-/** Lift up to the planned number of crates; returns their fees. */
-export function takeFromSource(w: World, p: Dockhand): number[] {
+/** Lift up to the planned number of crates or containers; returns them. */
+export function takeFromSource(w: World, p: Dockhand): Crate[] {
   p.cleared = undefined;
   // Moving crates within one storage, off the tiles by a jib crane.
   const within = p.stockIdx >= 0 && p.stockIdx === p.bayIdx && p.truckId === undefined;
@@ -115,18 +116,14 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
     crane.reserved = Math.max(0, crane.reserved - p.planned);
     // Set straight onto it off the ship.
     if (p.handed) {
-      const { fees, looks, from } = p.handed;
+      const load = p.handed;
       p.handed = undefined;
-      p.cargoFrom = from;
-      p.cargoLooks = looks;
-      return fees;
+      return load;
     }
     const n = Math.min(p.planned, crane.stack.length);
     if (crane.kind !== 'jib') {
       // Off the top of its stacks, one at a time.
-      const fees: number[] = [];
-      p.cargoFrom = [];
-      p.cargoLooks = [];
+      const load: Crate[] = [];
       for (let k = 0; k < n; k++) {
         // The one it pulled up to, while nothing has been set on it.
         const places = cranePlaces(w, crane).stack;
@@ -137,18 +134,14 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
         const i = free ? chosen : craneTop(w, crane, false);
         if (i < 0) break;
         cranePlaces(w, crane).stack.splice(i, 1);
-        p.cargoFrom.push(...(crane.stackFrom ?? []).splice(i, 1));
-        p.cargoLooks.push(...stackLooks(w, crane).splice(i, 1));
-        fees.push(...crane.stack.splice(i, 1));
+        const from = (crane.stackFrom ?? []).splice(i, 1)[0];
+        const look = stackLooks(w, crane).splice(i, 1)[0];
+        load.push({ fee: crane.stack.splice(i, 1)[0], at: w.tick, look, from });
       }
-      return fees;
+      return load;
     }
-    p.cargoFrom = crane.kind === 'jib' ? undefined : (crane.stackFrom ?? []).splice(0, n);
-    p.cargoLooks = crane.kind === 'jib' ? undefined : stackLooks(w, crane).splice(0, n);
     // A jib crane's landing stack, off the top.
-    return crane.kind === 'jib'
-      ? crane.stack.splice(crane.stack.length - n, n)
-      : crane.stack.splice(0, n);
+    return crane.stack.splice(crane.stack.length - n, n).map((fee) => ({ fee, at: w.tick }));
   }
   if (p.stockIdx >= 0) {
     const pile = stock(w, p.stockIdx);
@@ -165,28 +158,27 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
       const out = (pile.outBoxes ??= []);
       const n = Math.min(p.planned, out.length);
       // Off the top of the stacks in a yard.
-      const fees: number[] = [];
-      p.cargoLooks = [];
+      const load: Crate[] = [];
       const reach = p.kind === 'stacker' ? reachFrom(w, pile, p.goal) : undefined;
       for (let k = 0; k < n; k++) {
         const i = yardTop(w, pile, true, undefined, reach);
         if (i < 0) break;
         yardSlots(w, pile).exports.splice(i, 1);
-        p.cargoLooks.push(...exportLooks(w, pile).splice(i, 1));
-        fees.push(...out.splice(i, 1));
+        const look = exportLooks(w, pile).splice(i, 1)[0];
+        load.push({ fee: out.splice(i, 1)[0], at: w.tick, look });
       }
-      return fees;
+      return load;
     }
     pile.reserved = Math.max(0, (pile.reserved ?? 0) - p.planned);
     const n = Math.min(p.planned, cratesAt(pile), onPallet(w, p, pile));
     // Out of storage, never a crate still in customs; and those taken
     // have cleared, wherever they go.
-    const fees = pile.tiles
+    const load = pile.tiles
       ? takeReady(w, pile, false, takenFrom(w, p, pile, n), n)
       : takeTop(pile, n);
     if (pile.tiles) p.cleared = true;
     tidyPile(w, at);
-    return fees;
+    return load;
   }
   const boat = w.boats.find((b) => b.id === p.boatId);
   p.boatId = -1;
@@ -194,7 +186,7 @@ export function takeFromSource(w: World, p: Dockhand): number[] {
   boat.reserved = Math.max(0, boat.reserved - p.planned);
   const n = Math.min(p.planned, boat.crates);
   boat.crates -= n;
-  return Array.from({ length: n }, () => boat.fee);
+  return Array.from({ length: n }, () => ({ fee: boat.fee, at: w.tick }));
 }
 
 /**
@@ -859,9 +851,10 @@ export function exportLooks(_w: World, b: Bay): number[] {
   return (b.exportLooks = aligned(b.outBoxes ?? [], b.exportLooks, b.idx + 1));
 }
 
-/** How the containers a stacker carries look. */
+/** How the containers a stacker carries look, each given one if it has none. */
 export function carriedLooks(_w: World, p: Dockhand): number[] {
-  return (p.cargoLooks = aligned(p.cargoFees, p.cargoLooks, p.id));
+  p.load.forEach((c, k) => (c.look ??= boxLookOf(p.id, 1000 + k)));
+  return p.load.map((c) => c.look!);
 }
 
 /** Containers customs have cleared. */

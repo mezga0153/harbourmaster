@@ -51,7 +51,10 @@ function carrying(world: Any, at: number, bay: Bay, cleared = true): Any {
   p.y = m.yOf(at) + 0.5;
   p.carrying = 2;
   p.planned = 2;
-  p.cargoFees = [10, 10];
+  p.load = [
+    { fee: 10, at: 0 },
+    { fee: 10, at: 0 },
+  ];
   p.cleared = cleared || undefined;
   p.bayIdx = bay.idx;
   p.state = 'toDrop';

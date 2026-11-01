@@ -128,7 +128,7 @@ describe('Crate trucks', () => {
     expect(cratesFor(world, t, bay)).toBe(5);
     const off = cratesOff(world, t, bay, 4, 4);
     expect(off).toHaveLength(4);
-    expect(new Set(off.map((f: number) => cargoOf(f))).size).toBeGreaterThan(1);
+    expect(new Set(off.map((c) => cargoOf(c.fee))).size).toBeGreaterThan(1);
     expect(cratesFor(world, t, bay)).toBe(1);
   });
 

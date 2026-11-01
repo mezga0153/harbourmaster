@@ -105,6 +105,7 @@ import {
   toPallet,
 } from '../yardGantry';
 import { claimDrop, feesIn, setDown } from '../cargo/places';
+import { feesOf } from '../cargo/hold';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
 
@@ -136,7 +137,7 @@ export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
     state: 'idle',
     timer: 0,
     carrying: 0,
-    cargoFees: [],
+    load: [],
     planned: 0,
     boatId: -1,
     craneIdx: -1,
@@ -530,17 +531,17 @@ export function updateDockhand(w: World, p: Dockhand): void {
       if (--p.timer > 0) return;
       gantryDone(w, w.yards.get(p.stockIdx), p.id);
       const offBoat = p.craneIdx < 0 && p.stockIdx < 0 && p.boatId >= 0;
-      const fees = takeFromSource(w, p);
-      if (fees.length === 0) return cancelJob(w, p);
+      const load = takeFromSource(w, p);
+      if (load.length === 0) return cancelJob(w, p);
       // Fewer than planned: hand back the spare room in the bay.
       const bay = dest(w, p.bayIdx);
       if (bay && !(p.outbound && bay.tiles)) {
-        bayIncoming(bay, isBoxy(p), -(p.planned - fees.length));
+        bayIncoming(bay, isBoxy(p), -(p.planned - load.length));
       }
-      releaseTarget(w, p, p.planned - fees.length);
-      p.planned = fees.length;
-      p.carrying = fees.length;
-      p.cargoFees = fees;
+      releaseTarget(w, p, p.planned - load.length);
+      p.planned = load.length;
+      p.carrying = load.length;
+      p.load = load;
       if (p.toBoat !== undefined && p.toBoat >= 0) {
         const ship = w.boats.find((b) => b.id === p.toBoat);
         const spot = ship ? loadSpot(w, p, ship, w.tileOf(p)) : -1;
@@ -596,16 +597,14 @@ export function updateDockhand(w: World, p: Dockhand): void {
           by: p.id,
           at: w.gantryLane(gy)?.get(p.goal) ?? 0,
           slot: 0,
-          fees: p.cargoFees,
           looks: carriedLooks(w, p),
-          from: p.cargoFrom,
+          fees: feesOf(p.load),
+          from: p.load.map((c) => c.from ?? -1),
           exports: !!p.outbound,
           planned: p.planned,
         });
         p.carrying = 0;
-        p.cargoFees = [];
-        p.cargoLooks = undefined;
-        p.cargoFrom = undefined;
+        p.load = [];
         p.planned = 0;
         p.bayIdx = -1;
         p.outbound = false;
@@ -620,34 +619,30 @@ export function updateDockhand(w: World, p: Dockhand): void {
       // Customs clear a container a while after it is stacked in the yard.
       // Their times go on first, while the list still matches the yard.
       if (boxy) {
-        const from = p.cargoFrom ?? [];
         // A stacker sets it on a stack it reaches from where it stands; a
         // gantry where it kept for it.
-        const clears = (k: number) => p.cargoReady?.[k] ?? customsFor(w, from[k]);
+        const clears = (k: number) => p.load[k].ready ?? customsFor(w, p.load[k].from);
         if (p.kind === 'stacker' && bay.yard) {
           const slots = yardSlots(w, bay);
-          p.cargoFees.forEach((_, k) => {
+          p.load.forEach((_, k) => {
             slots.boxes.push(stackedAt(w, p, bay, clears(k)));
           });
-        } else if (gantryTo !== undefined && p.cargoFees.length === 1) {
+        } else if (gantryTo !== undefined && p.load.length === 1) {
           yardSlots(w, bay).boxes.push(gantryTo);
         }
-        readyList(w, bay).push(...p.cargoFees.map((_, k) => clears(k)));
-        p.cargoFrom = undefined;
-        p.cargoReady = undefined;
+        readyList(w, bay).push(...p.load.map((_, k) => clears(k)));
         boxLooks(w, bay).push(...carriedLooks(w, p));
-        p.cargoLooks = undefined;
       }
       // A truck waiting at the bay: straight onto it.
       const onto = straightOnto(w, p, bay);
       // Brought for a truck that has gone meanwhile, they go on the stack
       // however full it is.
       if (onto) {
-        onBed(w, onto, p.cargoFees, p);
+        onBed(w, onto, p.load, p);
         onto.idle = 0;
-      } else if (boxy) bay.boxes.push(...p.cargoFees);
+      } else if (boxy) bay.boxes.push(...feesOf(p.load));
       // Timber and goods wait in crate storage for customs.
-      else setDown(w, bay, p.cargoFees, false, p, { cleared: p.cleared });
+      else setDown(w, bay, p.load, false, p, { cleared: p.cleared });
       p.cleared = undefined;
       if (boxy) tip(w, 'customs');
       if (bay.pile) tip(w, 'landed');
@@ -656,7 +651,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
       if (boxy) w.stats.containers += p.carrying;
       else if (!bay.pile) w.stats.cratesHandled += p.carrying;
       p.carrying = 0;
-      p.cargoFees = [];
+      p.load = [];
       p.planned = 0;
       p.bayIdx = -1;
       p.outbound = false;
@@ -1019,16 +1014,19 @@ export function restackJob(w: World, p: Dockhand): boolean {
       }
       const ready = readyList(w, yard);
       yardSlots(w, yard).boxes.splice(take.at, 1);
-      p.cargoReady = ready.splice(take.at, 1);
-      p.cargoLooks = boxLooks(w, yard).splice(take.at, 1);
-      p.cargoFees = yard.boxes.splice(take.at, 1);
-      p.cargoFrom = undefined;
+      const box = {
+        ready: ready.splice(take.at, 1)[0],
+        look: boxLooks(w, yard).splice(take.at, 1)[0],
+        fee: yard.boxes.splice(take.at, 1)[0],
+        at: w.tick,
+      };
+      p.load = [box];
       p.carrying = 1;
       p.restack = undefined;
       const target = dest(w, p.bayIdx);
       // Straight down where it stands if that buries nothing; else over to
       // where it does, or where it can.
-      if (target === yard && cleanSlot(w, yard, p.goal, p.cargoReady[0]) >= 0) {
+      if (target === yard && cleanSlot(w, yard, p.goal, box.ready) >= 0) {
         p.state = 'dropping';
         p.timer = handlingTicks(w, p, B.DROP_TICKS);
         return true;

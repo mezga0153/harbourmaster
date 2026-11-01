@@ -55,7 +55,8 @@ function load(world: Any, t: Any, p: Any, n: number): number[] {
   p.truckId = t.id;
   p.truckLoad = true;
   const k = slots.length;
-  onBed(world, t, Array(k).fill(withCargo(20, 'fish')), p);
+  const crates = Array.from({ length: k }, () => ({ fee: withCargo(20, 'fish'), at: 0 }));
+  onBed(world, t, crates, p);
   p.truckId = undefined;
   p.truckLoad = undefined;
   return slots;

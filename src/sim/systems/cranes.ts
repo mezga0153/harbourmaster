@@ -18,6 +18,7 @@ import {
 } from '../helpers';
 import type { CraneView } from '../../protocol/views';
 import { besideStack } from './yardGantry';
+import { feesOf } from './cargo/hold';
 import { exportTaken, nextSlots, setDown, slotBelow, usedSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
 import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
@@ -101,7 +102,7 @@ export function updateCrane(w: World, c: Crane): void {
   // Onto the one it had it for, or any other there for one now.
   const tractor = handingTo(w, c) ?? directTo(w, c);
   if (tractor) {
-    tractor.handed = { fees: [boat.fee], looks: [look], from: [boat.id] };
+    tractor.handed = [{ fee: boat.fee, at: w.tick, look, from: boat.id }];
     tractor.timer = 1;
   } else {
     stackLooks(w, c).push(look);
@@ -634,10 +635,10 @@ export function serveTractor(w: World, c: Crane): boolean {
   // free to go on its way, and the crane carries it on by itself.
   const serving = c.serving!;
   if (p && !serving.give && !serving.held && c.timer >= craneTakenIn(w, c)) {
-    serving.held = { fees: p.cargoFees, looks: carriedLooks(w, p), planned: p.planned };
+    const looks = carriedLooks(w, p);
+    serving.held = { fees: feesOf(p.load), looks, planned: p.planned };
     p.carrying = 0;
-    p.cargoFees = [];
-    p.cargoLooks = undefined;
+    p.load = [];
     p.planned = 0;
     p.toBoat = -1;
     p.toCrane = -1;
@@ -691,10 +692,9 @@ export function onBoardFrom(w: World, c: Crane, p: Dockhand, ship: Boat, slot: n
   c.outReserved = Math.max(0, (c.outReserved ?? 0) - p.planned);
   (ship.outLooks ??= []).push(...carriedLooks(w, p));
   outSlots(w, ship).push(slot);
-  w.shipOut(ship, p.cargoFees);
+  w.shipOut(ship, feesOf(p.load));
   p.carrying = 0;
-  p.cargoFees = [];
-  p.cargoLooks = undefined;
+  p.load = [];
   p.planned = 0;
   p.toBoat = -1;
   p.toCrane = -1;
@@ -760,7 +760,7 @@ export function servedLoad(
   p: Dockhand,
   view: { load: number; looks?: number[] },
 ): { load: number; looks?: number[] } {
-  if (p.handed) return { load: p.handed.fees.length, looks: [...p.handed.looks] };
+  if (p.handed) return { load: p.handed.length, looks: p.handed.map((c) => c.look ?? 0) };
   const c = underGantry(w, p);
   if (!c) return view;
   const phase = c.timer / craneTicks(c);
