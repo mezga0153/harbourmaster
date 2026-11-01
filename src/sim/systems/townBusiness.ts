@@ -12,7 +12,7 @@ const LANDMARK_TIPS: Partial<Record<number, string>> = {
   [Build.School]: 'school',
   [Build.TownHall]: 'townHall',
 };
-import { BUSINESSES, LANDMARKS, growTown, townCap, townHomes, townStageUp } from '../town';
+import { BUSINESSES, LANDMARKS, growTown, sentTo, townCap, townHomes, townStageUp } from '../town';
 import type { Landmark, Town } from '../town';
 import { message, tip } from './output';
 import type { TownView } from '../../protocol/views';
@@ -44,6 +44,7 @@ export function buildTown(w: World, t: Town): void {
 export function businessViews(w: World): TownView['businesses'] {
   const out = new Map<number, TownView['businesses'][number]>();
   const wants = w.town?.wants ?? {};
+  const sent = w.town ? sentTo(w.town, w.map) : {};
   for (const code of w.map.build) {
     const def = BUSINESSES[code];
     if (!def) continue;
@@ -54,6 +55,7 @@ export function businessViews(w: World): TownView['businesses'] {
       perDay: 0,
       takes: def.boxes ? 'containers' : def.takes.map(cargoName).join(' and '),
       left: Math.max(0, Math.floor(wants[code] ?? 0)),
+      sent: sent[code] ?? 0,
     };
     v.count++;
     v.perDay += def.perDay;

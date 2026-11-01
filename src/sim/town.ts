@@ -253,6 +253,13 @@ export interface Town {
   supplied: number;
   /** Delivered to them so far today. */
   local: number;
+  /** Crates of each kind (or `container`s) the port sent out by road so far today. */
+  sent?: Partial<Record<string, number>>;
+  /**
+   * Crates' worth a day sent out by road, lately, of what the town's
+   * businesses take, up to as much as they take: delivered or not.
+   */
+  sentFor?: number;
   /**
    * What the town's businesses will still take today, by the code of the
    * building: so crates of one kind never use up what a business of another
@@ -534,8 +541,37 @@ export function townWants(map: GameMap): Wants {
   return wants;
 }
 
+/**
+ * How much of what each kind of business in town takes (by the code of its
+ * building) the port sent out by road: crates of the kinds it takes, or
+ * containers, shared out in turn among the businesses that take the same,
+ * each up to what it takes in a day.
+ */
+export function sentTo(t: Town, map: GameMap): Partial<Record<number, number>> {
+  const left = { ...(t.sent ?? {}) };
+  const out: Partial<Record<number, number>> = {};
+  for (const [code, want] of Object.entries(townWants(map))) {
+    const def = BUSINESSES[Number(code)];
+    if (!def || !want) continue;
+    let got = 0;
+    for (const k of def.boxes ? ['container'] : def.takes) {
+      const n = Math.min(want - got, left[k] ?? 0);
+      got += n;
+      left[k] = (left[k] ?? 0) - n;
+    }
+    out[Number(code)] = got;
+  }
+  return out;
+}
+
 /** After a day's trade: how many want to live in town now. */
 export function townDay(t: Town, jobs: number, map: GameMap): void {
+  const sent = Object.entries(sentTo(t, map)).reduce(
+    (n, [code, got]) => n + (got ?? 0) * (BUSINESSES[Number(code)]?.boxes ? B.CONTAINER_GOODS : 1),
+    0,
+  );
+  t.sentFor = (t.sentFor ?? 0) * 0.7 + sent * 0.3;
+  t.sent = {};
   t.goods = t.goods * 0.7 + t.today * 0.3;
   t.supplied = t.supplied * 0.7 + t.local * 0.3;
   t.today = 0;

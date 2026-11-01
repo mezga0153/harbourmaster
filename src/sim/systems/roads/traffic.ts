@@ -789,7 +789,13 @@ export function truckLeave(w: World, t: Truck): void {
   if (haulier && !t.away) (haulier.returns ??= []).push(w.tick + B.TRUCK_ROUND_TRIP);
   t.away = true;
   if (t.cargo > 0) {
-    if (w.town) w.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
+    if (w.town) {
+      w.town.today += t.boxes ? t.cargo * B.CONTAINER_GOODS : t.cargo;
+      // By kind, towards what the town's businesses take.
+      const sent = (w.town.sent ??= {});
+      if (t.boxes) sent.container = (sent.container ?? 0) + t.cargo;
+      else for (const f of feesOn(w, t)) sent[cargoOf(f)] = (sent[cargoOf(f)] ?? 0) + 1;
+    }
     // Towards the town's next landmark, crates of what it wants sent out.
     const goal = w.town && landmarkGoal(w.town, w.tier)?.goal;
     if (goal && !goal.aboard && !t.boxes && w.town) {

@@ -1050,6 +1050,7 @@ export function buildSnapshot(w: World): Snapshot {
       jobs: w.town.jobs,
       goods: Math.round(w.town.goods),
       supplied: Math.round(w.town.supplied),
+      sentFor: Math.round(w.town.sentFor ?? 0),
       wants: wantsView(w),
       businesses: businessViews(w),
       ...landmarkView(w, w.town),

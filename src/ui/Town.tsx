@@ -44,7 +44,7 @@ function NextStep() {
   return (
     <div class="card town-next">
       <div class="card-head">
-        <strong>Next: {n.name.toLowerCase()}</strong>
+        <strong>Next landmark: {n.name.toLowerCase()}</strong>
         {t.cap !== null && (
           <span class={`badge ${t.population >= t.cap ? 'bad' : ''}`}>
             {count(t.population)} / {count(t.cap)} people
@@ -56,7 +56,7 @@ function NextStep() {
       {!n.waiting && (
         <>
           <div class="req">
-            <span>{total ? 'So far' : 'Today'}</span>
+            <span>{total ? 'So far' : 'Sent today'}</span>
             <Meter
               value={n.need > 0 ? n.have / n.need : 1}
               tone={n.have >= n.need ? 'good' : 'ok'}
@@ -91,12 +91,10 @@ export function TownPanel({ actions }: { actions: Actions }) {
   const close = () => (selection.value = null);
   const next = TOWN_STAGES[t.stage + 1];
   const from = TOWN_STAGES[t.stage].from;
-  // What the businesses take a day, in crates' worth, and how much of it the port brings.
-  const wanted = t.businesses.reduce(
-    (n, b) => n + b.count * b.perDay * (b.boxes ? B.CONTAINER_GOODS : 1),
-    0,
-  );
-  const share = wanted > 0 ? t.supplied / wanted : 0;
+  // What the businesses take a day, in crates' worth, and how much of it the
+  // port sends out by road, delivered to their door or not.
+  const wanted = t.businesses.reduce((n, b) => n + b.perDay * (b.boxes ? B.CONTAINER_GOODS : 1), 0);
+  const share = wanted > 0 ? t.sentFor / wanted : 0;
   // The next step up for the port, which waits on the town.
   const tier = TIERS[s.progress.tier + 1];
   return (
@@ -111,11 +109,15 @@ export function TownPanel({ actions }: { actions: Actions }) {
       {wanted > 0 && (
         <div class="card town-wants">
           <div class="card-head">
-            <strong>What the town wants</strong>
+            <strong>What the town's businesses take</strong>
             <span class={`badge ${share >= 0.8 ? 'good' : share >= 0.4 ? '' : 'bad'}`}>
-              {Math.round(Math.min(1, share) * 100)}% supplied
+              {Math.round(Math.min(1, share) * 100)}% sent
             </span>
           </div>
+          <p class="muted">
+            Every day, apart from the next landmark's goal. Every crate of what they take that the
+            port sends out by road counts, delivered to their door or not.
+          </p>
           <dl class="props">
             {t.businesses.map((b) => (
               <Fragment key={b.label}>
@@ -127,30 +129,29 @@ export function TownPanel({ actions }: { actions: Actions }) {
                 <dd
                   title={
                     b.left > 0
-                      ? `Takes ${b.left} more today`
-                      : `Has all it takes today: more ${b.takes} go on out by road`
+                      ? `Takes ${b.left} more at its door today`
+                      : `Has all it takes at its door today: more ${b.takes} go on out by road`
                   }
                 >
-                  {b.count * b.perDay} {b.boxes ? 'containers' : `crates of ${b.takes}`} a day
-                  {b.left === 0 ? ', all in today' : ''}
+                  {Math.min(b.sent, b.perDay)} of {b.perDay}{' '}
+                  {b.boxes ? 'containers' : `crates of ${b.takes}`} sent today
                 </dd>
               </Fragment>
             ))}
-            <dt>Delivered lately</dt>
-            <dd title="Crates' worth a day the hauliers dropped at the town's businesses lately">
-              {count(t.supplied)} of {count(wanted)} a day
+            <dt>Sent lately</dt>
+            <dd title="Crates' worth a day of what the businesses take, sent out by road lately">
+              {count(t.sentFor)} of {count(wanted)} a day
             </dd>
-            <dt>Still wanted today</dt>
-            <dd>
-              {count(t.wants.crates)} crates
-              {t.businesses.some((b) => b.boxes) ? `, ${count(t.wants.boxes)} containers` : ''}
+            <dt>Delivered to their door</dt>
+            <dd title="Crates' worth a day the hauliers dropped at the town's businesses lately">
+              {count(t.supplied)} a day
             </dd>
           </dl>
           <Meter value={share} tone={share >= 0.8 ? 'good' : 'ok'} />
           <p class="muted">
-            Hauliers drop goods at the town’s businesses on their way out, for{' '}
-            {Math.round(B.TOWN_DELIVERY_BONUS * 100)}% more than the usual fee, and goods delivered
-            in town count double towards its growth. The trucks need a public road from the port to
+            Hauliers drop them at the town’s businesses on their way out, for{' '}
+            {Math.round(B.TOWN_DELIVERY_BONUS * 100)}% more than the usual fee, and those delivered
+            count double towards the town's growth. The trucks need a public road from the port to
             the town.
           </p>
         </div>

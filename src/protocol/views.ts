@@ -444,6 +444,8 @@ export interface TownView {
   goods: number;
   /** Crates' worth delivered to the town's businesses a day, lately. */
   supplied: number;
+  /** Crates' worth a day sent out by road of what its businesses take, up to that, lately. */
+  sentFor: number;
   /** What the businesses will still take today. */
   wants: { crates: number; boxes: number };
   businesses: {
@@ -455,6 +457,8 @@ export interface TownView {
     takes: string;
     /** How many more it will take today. */
     left: number;
+    /** Of what it takes, how many the port sent out by road today, delivered or not. */
+    sent: number;
   }[];
   /** People it may grow to, as far as its landmarks let it; null for no limit. */
   cap: number | null;
