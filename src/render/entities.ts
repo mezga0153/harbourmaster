@@ -34,7 +34,7 @@ import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from 
 import { modelFor } from './model';
 import { alertMarker, CRATE, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
 import { aboutAt, driveTo, FORK_KEEP, slide, turnAbout, type About, type Pose } from './motion';
-import { fidget, fidgetAt, pose, sit } from './people';
+import { breakAt, doze, fidget, fidgetAt, pee, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import { ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
 import type { Trailer } from './vehicles';
@@ -43,6 +43,12 @@ import { Wakes, type Stir, type Track, type Wake } from './wakes';
 export { turnOf };
 export { turnAbout, type TurnAbout } from './motion';
 
+/**
+ * From the middle of a break hut's tile back to the middle of the hut on it
+ * (see breakHut in structures/tiles.ts), and out past its end to stand.
+ */
+const HUT_BACK = 0.12;
+const HUT_SIDE = 0.48;
 const SNAPSHOT_MS = 100;
 
 /** Furthest a trailer folds against its tractor, either way: 80°. */
@@ -377,6 +383,18 @@ export class Entities {
           e.slip.left -= dt / SLIP_TIME;
           if (e.slip.left <= 0) e.slip = undefined;
         }
+        // Now and then one on a break slips round the side of the hut.
+        if (seated && cur.kind === 'dockhand' && breakAt(id, time) === 'pee') {
+          const [fx, fy] = [Math.cos(way), Math.sin(way)];
+          const side = id % 2 === 0 ? 1 : -1;
+          const [sx, sy] = [-fy * side, fx * side];
+          // The middle of the hut on its tile behind the bench, and round its end from there.
+          const [cx, cy] = [Math.floor(x) + 0.5, Math.floor(y) + 0.5];
+          const [hx, hy] = [cx - fx * HUT_BACK, cy - fy * HUT_BACK];
+          rx = hx + sx * HUT_SIDE;
+          ry = hy + sy * HUT_SIDE;
+          yaw = Math.atan2(-sy, -sx);
+        }
         root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
         // Where it is, for it to drive up to a pallet from when it gets to one.
@@ -398,7 +416,12 @@ export class Entities {
         const down = this.lower(e, prev, t, dt, stepping);
         const goal = e.hand?.goal;
         const walking = cur.moving || stepping;
-        if (cur.sitting && !cur.moving) sit(e.model, time * 12 + id);
+        const rest = cur.sitting && !cur.moving ? breakAt(id, time) : null;
+        if (e.model.stream) e.model.stream.visible = false;
+        if (e.model.snore) e.model.snore.visible = false;
+        if (rest === 'doze') doze(e.model, time * 12 + id);
+        else if (rest === 'pee') pee(e.model, time * 12 + id);
+        else if (rest === 'sit') sit(e.model, time * 12 + id);
         else pose(e.model, walking, cur.load > 0, time * 12 + id, down, goal?.over, goal?.h);
         if (!walking && !e.hand && !cur.sitting && cur.load === 0 && cur.activity === IDLE) {
           this.standAbout(e, time);

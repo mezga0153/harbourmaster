@@ -65,6 +65,8 @@ export interface Dockhand extends Agent {
   morale: number;
   /** Break hut tile while heading to or resting in one, else -1. */
   hutIdx: number;
+  /** Which place on the hut's bench it sits in, resting there. */
+  seat?: number;
   lowMoraleDays: number;
   /** Wage asked for in a pending raise request, or 0. Answer by the next day. */
   raiseAsk: number;

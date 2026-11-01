@@ -20,6 +20,10 @@ export interface Model extends Owns {
   body?: Object3D;
   /** People: legs and arms that swing as they walk. */
   limbs?: Limbs;
+  /** People: what shows, now and then, round the side of the break hut. */
+  stream?: Object3D;
+  /** People: the Z over their head, dozing on the bench. */
+  snore?: Object3D;
   /** Articulated trucks: the trailer, swinging behind the tractor. */
   trailer?: Trailer;
   /** Forklifts: the carriage that runs up and down the mast, with the forks and the load. */

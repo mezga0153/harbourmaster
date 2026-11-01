@@ -6,7 +6,7 @@ import { Build } from '../sim/types';
 import { forklift, reachTo, stacker, FORKS_EMPTY } from '../render/machines';
 import { boat, person, truck, type Model } from '../render/model';
 import { showLoad } from '../render/models';
-import { fidget, pose, sit, type Fidget } from '../render/people';
+import { doze, fidget, type Fidget, pee, pose, sit } from '../render/people';
 import { Structures } from '../render/structures';
 import { stage } from '../render/thumbs';
 import { trainCar } from '../render/trains';
@@ -47,7 +47,7 @@ function model(m: Model, water = false): Staged {
 const dockhand: Item = {
   group: 'People',
   name: 'Dockhand',
-  note: 'pose(), fidget() and sit() in render/people.ts',
+  note: 'pose(), fidget(), sit(), doze() and pee() in render/people.ts',
   params: [
     { key: 'seed', label: 'Seed', kind: 'range', min: 0, max: 60, value: 1 },
     { key: 'moving', label: 'Walking', kind: 'toggle', value: true, live: true },
@@ -87,7 +87,19 @@ const dockhand: Item = {
       value: '',
       live: true,
     },
-    { key: 'sitting', label: 'Sat on the bench', kind: 'toggle', value: false, live: true },
+    {
+      key: 'sitting',
+      label: 'On a break at the hut',
+      kind: 'select',
+      options: [
+        ['', 'No'],
+        ['sit', 'Sat on the bench'],
+        ['doze', 'Dozing'],
+        ['pee', 'Round the side'],
+      ],
+      value: '',
+      live: true,
+    },
   ],
   make(p) {
     const m = person(p.seed as number);
@@ -98,7 +110,11 @@ const dockhand: Item = {
       update(t) {
         const phase = t * 12;
         showLoad(m, q.carrying ? 1 : 0);
-        if (q.sitting) return sit(m, phase);
+        if (m.stream) m.stream.visible = false;
+        if (m.snore) m.snore.visible = false;
+        if (q.sitting === 'sit') return sit(m, phase);
+        if (q.sitting === 'doze') return doze(m, phase);
+        if (q.sitting === 'pee') return pee(m, phase);
         const standing = !!q.fidget;
         pose(
           m,

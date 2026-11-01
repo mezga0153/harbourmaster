@@ -276,7 +276,16 @@ export function goOnBreak(w: World, p: Dockhand): void {
 
 /** Spread people resting at a hut along its front. */
 export function seatAtHut(w: World, p: Dockhand): void {
-  const seat = w.people.filter((q) => q.hutIdx === p.hutIdx && q !== p).length;
+  // A place on the bench no one sits in already, any of those free.
+  const taken = new Set(
+    w.people
+      .filter((q) => q !== p && q.hutIdx === p.hutIdx && q.state === 'resting')
+      .map((q) => q.seat ?? -1),
+  );
+  const free = [...Array(B.HUT_SLOTS).keys()].filter((k) => !taken.has(k));
+  // Which, each their own way, so they do not all take the same end.
+  const seat = free.length > 0 ? free[p.id % free.length] : 0;
+  p.seat = seat;
   // Along the bench in front, as the hut stands turned on its tile:
   // drawn facing +y, turned to face its way (see turn in structures.ts).
   const lx = -0.25 + (seat % B.HUT_SLOTS) * 0.25;

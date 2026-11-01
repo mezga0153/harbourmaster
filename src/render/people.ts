@@ -115,13 +115,33 @@ export function worker(seed: number, crate: (size: number) => Object3D): Model {
     body.add(box(0.09, 0.025, 0.092, hair, -0.004, 0.395, 0));
   }
 
+  // Round the side of the break hut, now and then: hidden but for that.
+  const stream = new Group();
+  const arc = box(0.1, 0.01, 0.01, 0xf2d33a, 0.05, 0, 0);
+  arc.rotation.z = -0.9;
+  stream.add(arc);
+  stream.position.set(0.05, 0.13, 0);
+  stream.visible = false;
+  body.add(stream);
+  // Nodding off on the bench: a little Z rising over their head.
+  const snore = new Group();
+  const ink = 0xf4f4f0;
+  snore.add(box(0.004, 0.008, 0.05, ink, 0, 0.04, 0));
+  snore.add(box(0.004, 0.008, 0.05, ink, 0, 0, 0));
+  const slash = box(0.004, 0.008, 0.06, ink, 0, 0.02, 0);
+  slash.rotation.x = -0.68;
+  snore.add(slash);
+  snore.position.set(0, 0.5, 0.06);
+  snore.visible = false;
+  body.add(snore);
+
   // As big as every other crate, however tall or short they are.
   const load = crate(CRATE);
   load.scale.setScalar(1 / root.scale.x);
   load.position.set(HELD.x, HELD.y, 0);
   load.visible = false;
   body.add(load);
-  return { root, crates: [load], body, limbs: { legL, legR, armL, armR } };
+  return { root, crates: [load], body, limbs: { legL, legR, armL, armR }, stream, snore };
 }
 
 /** Hips above the feet sat on the break hut's bench, and the legs out from it. */
@@ -142,6 +162,54 @@ export function sit(w: { body?: Object3D; limbs?: Limbs }, phase: number): void 
   w.body.rotation.z = -sway;
   w.body.rotation.y = 0;
   w.body.position.set(0, SEAT - HIP, 0);
+}
+
+/**
+ * What a dockhand on a break at the hut does, now and then other than sit
+ * and chat: nod off, leaning back against the hut, or slip round the side
+ * of it to relieve themselves.
+ */
+export type Break = 'sit' | 'doze' | 'pee';
+
+/** Seconds each break-time turn lasts. */
+const BREAK_TIME = 30;
+
+/** What dockhand `id` is doing on the bench at time `t` (seconds): mostly sitting. */
+export function breakAt(id: number, t: number): Break {
+  const k = Math.floor(t / BREAK_TIME + id * 0.61);
+  const roll = Math.abs((k * 2654435761 + id * 97) | 0) % 24;
+  return roll === 0 ? 'pee' : roll <= 3 ? 'doze' : 'sit';
+}
+
+/** Dozing on the bench: sat back against the hut, arms limp, breathing slow. */
+export function doze(w: { body?: Object3D; limbs?: Limbs; snore?: Object3D }, phase: number): void {
+  sit(w, 0);
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  l.armL.rotation.z = l.armR.rotation.z = 0.15;
+  w.body.rotation.z = 0.42 + Math.sin(phase * 0.05) * 0.02;
+  if (w.snore) {
+    // Rising and fading over and over, upright whatever the lean.
+    const f = (phase * 0.02) % 1;
+    w.snore.visible = true;
+    w.snore.position.set(0.02 + f * 0.04, 0.46 + f * 0.12, 0.06);
+    w.snore.rotation.z = -w.body.rotation.z;
+    w.snore.scale.setScalar(0.6 + f * 0.6);
+  }
+}
+
+/** Stood facing the side of the hut, hands in front, with the stream showing. */
+export function pee(w: { body?: Object3D; limbs?: Limbs; stream?: Object3D }, phase: number): void {
+  pose(w, false, false, phase, 0);
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  l.armL.rotation.z = l.armR.rotation.z = 0.7;
+  l.armL.rotation.x = -0.25;
+  l.armR.rotation.x = 0.25;
+  if (w.stream) {
+    w.stream.visible = true;
+    w.stream.scale.x = 0.9 + Math.sin(phase * 0.8) * 0.1;
+  }
 }
 
 /** Things a dockhand does standing about with nothing to do. */

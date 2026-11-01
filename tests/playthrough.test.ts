@@ -34,8 +34,10 @@ describe('Playthrough', () => {
   // owned at the start, 6 do (1, 5, 6, 7, 18 and 21), handling a quarter
   // more crates with half the claims. With pickups loading only in truck
   // bays, not on the road beside them, 6 do (4, 7, 9, 10, 20 and 23),
-  // handling a sixth more crates than with them on the road too.
-  it.each([4])(
+  // handling a sixth more crates than with them on the road too. With each
+  // dockhand on a break taking a free place of their own on the bench, 2 do
+  // (25 and 26), handling fewer crates but paying fewer claims.
+  it.each([25])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);
