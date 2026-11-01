@@ -71,12 +71,8 @@ function vessel(name: string, kind: string, lobster = false, extra: Param[] = []
       const live = (q: Params) => {
         const n = Math.min(m.crates.length, q.load as number);
         if (kind === 'feeder') {
-          const slots = Array.from({ length: n }, (_, k) => k);
-          showDeck(
-            m,
-            slots,
-            slots.map((k) => k * 7 + (p.seed as number)),
-          );
+          const deck = Array.from({ length: n }, (_, k) => ({ look: k * 7 + (p.seed as number) }));
+          showDeck(m, deck);
         } else showLoad(m, n);
       };
       live(p);

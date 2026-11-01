@@ -545,14 +545,17 @@ export function jibMoved(
 }
 
 /**
- * The containers on a feeder's deck, for the view: by slot, with how each
- * looks. Its line's, less those lifted off, then the exports taken on; one
- * a crane is lifting leaves the deck as its spreader takes it, and an
- * export goes on as it is set down.
+ * The containers on a feeder's deck, for the view: what stands in each
+ * slot, with how it looks. Its line's, less those lifted off, then the
+ * exports taken on; one a crane is lifting leaves the deck as its spreader
+ * takes it, and an export goes on as it is set down.
  */
-export function deckView(w: World, b: Boat): { load: number; looks: number[]; deck: number[] } {
-  const deck: number[] = [];
-  const looks: number[] = [];
+export function deckView(w: World, b: Boat): { load: number; deck: CellsView } {
+  const deck: CellsView = [];
+  const at = (k: number, look: number) => {
+    while (deck.length <= k) deck.push(null);
+    deck[k] = { look };
+  };
   const gone = new Set(b.lifted ?? []);
   const lifting = [...w.cranes.values()].filter(
     (c) => c.kind !== 'jib' && c.busy && c.liftBoat === b.id && c.liftSlot !== undefined,
@@ -562,28 +565,20 @@ export function deckView(w: World, b: Boat): { load: number; looks: number[]; de
     if (liftingFrom(w, c, b) && late >= B.CRANE_LIFT_TAKEN) gone.add(c.liftSlot!);
   }
   for (let k = 0; k < b.crates + (b.lifted?.length ?? 0); k++) {
-    if (gone.has(k)) continue;
-    deck.push(k);
-    looks.push(boxLookOf(b.id, k));
+    if (!gone.has(k)) at(k, boxLookOf(b.id, k));
   }
-  (b.loaded ?? []).forEach((q, k) => {
-    if (!q) return;
-    deck.push(k);
-    looks.push((q.look ??= boxLookOf(b.id, 1000 + k)));
-  });
+  (b.loaded ?? []).forEach((q, k) => q && at(k, (q.look ??= boxLookOf(b.id, 1000 + k))));
   for (const c of lifting) {
     const late = c.timer / craneTicks(c);
     const tractor =
       c.serving?.ship === b.id ? w.people.find((q) => q.id === c.serving!.id) : undefined;
     if ((tractor || c.serving?.held) && c.serving?.ship === b.id && late >= B.CRANE_LIFT_SET) {
-      deck.push(c.liftSlot!);
-      looks.push(servedLooks(w, c, tractor)[0]);
+      at(c.liftSlot!, servedLooks(w, c, tractor)[0]);
     } else if (!liftingFrom(w, c, b) && late >= B.CRANE_LIFT_SET && craneHeld(c, true)) {
-      deck.push(c.liftSlot!);
-      looks.push(outLooks(w, c)[Math.max(0, craneTop(w, c, true))]);
+      at(c.liftSlot!, outLooks(w, c)[Math.max(0, craneTop(w, c, true))]);
     }
   }
-  return { load: deck.length, looks, deck };
+  return { load: deck.filter((q) => q).length, deck };
 }
 
 /**

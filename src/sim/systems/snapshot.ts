@@ -95,7 +95,7 @@ import {
   takesFrom,
   takesImports,
 } from './cargo/stores';
-import { bedCap, bedSlots, trailerLooks } from './cargo/beds';
+import { bedCap, bedView, trailerLooks } from './cargo/beds';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
 import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
@@ -799,9 +799,10 @@ export function buildSnapshot(w: World): Snapshot {
           : undefined,
         lifts.get(t.id),
       ),
-      cargo: t.boxes ? undefined : truckCargo(w, t),
       // Where each of a hauliers' crate truck's crates stands on its bed.
-      bed: t.boxes || t.exports || !t.load ? undefined : [...bedSlots(w, t)],
+      ...(t.boxes || t.exports || !t.load
+        ? { cargo: t.boxes ? undefined : truckCargo(w, t) }
+        : { bed: bedView(t) }),
       moving: t.path.length > 0,
       name: t.company,
       activity:

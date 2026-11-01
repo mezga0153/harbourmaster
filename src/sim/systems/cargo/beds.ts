@@ -17,10 +17,12 @@
 import type { World } from '../../world';
 import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
 import { filled, put, sized, stamp, take, usedIn } from './hold';
+import type { CellsView } from '../../../protocol/views';
 import * as B from '../../balance';
 import { boxLookOf, isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { dest } from './customs';
+import { cargoOf } from '../../cargo';
 
 /** Layers of crates a truck's bed can take: one on a pickup, two on a truck forklifts load. */
 export function bedLayers(t: Truck): number {
@@ -234,6 +236,11 @@ export function onBed(w: World, t: Truck, crates: Crate[], p?: Dockhand): void {
   });
   t.cargo += crates.length;
   t.value += crates.reduce((n, c) => n + c.fee, 0);
+}
+
+/** What a crate truck's view shows in each place on its bed: each crate, with what it holds. */
+export function bedView(t: Truck): CellsView {
+  return (t.load ?? []).map((c) => c && { cargo: cargoOf(c.fee) });
 }
 
 /** A container put on a haulier's container truck, after any on it; its cargo and value go up by it. */

@@ -286,14 +286,13 @@ export class Entities {
       // Out of where it was parked: from where the game has it, not the garage.
       if (this.prev.get(v.id)?.parked && !v.parked) this.prev.set(v.id, v);
       e.view = v;
-      if (v.deck) showDeck(e.model, v.deck, v.looks ?? []);
+      if (v.deck) showDeck(e.model, v.deck);
       else if (v.bed) {
         // A crate truck's crates each in its place on the bed, as the game keeps it.
-        const shown = new Set(v.bed.slice(0, v.load));
-        e.model.crates.forEach((c, k) => (c.visible = shown.has(k)));
-        v.cargo?.forEach((c, k) => {
-          const slot = e.model.crates[v.bed![k]];
-          if (slot) setCrateIcon(slot, c);
+        const bed = v.bed;
+        e.model.crates.forEach((c, k) => {
+          c.visible = !!bed[k];
+          if (bed[k]?.cargo) setCrateIcon(c, bed[k]!.cargo!);
         });
       } else {
         this.reorder(e);

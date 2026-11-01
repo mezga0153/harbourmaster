@@ -49,15 +49,15 @@ export interface EntityView {
   /** Trucks: a pickup, with a low open bed. */
   pickup?: boolean;
   /**
-   * Hauliers' crate trucks: the place on the bed of each crate in `cargo`,
-   * layer by layer, two to a row from the cab back (see beds.ts); `handAt`
-   * slots on such a truck are places on its bed.
+   * Hauliers' crate trucks: what stands in each place on the bed, with what
+   * it holds, layer by layer, two to a row from the cab back (see beds.ts);
+   * `handAt` slots on such a truck are places on its bed.
    */
-  bed?: number[];
+  bed?: CellsView;
   /** Containers carried: how each looks, in load order. */
   looks?: number[];
-  /** A feeder's deck: the slot each container in `looks` is in; without it, the first `load`. */
-  deck?: number[];
+  /** A feeder's deck: what stands in each slot on it, with how it looks. */
+  deck?: CellsView;
   /** Boats under way: where it plots it will be over the next while, as x, y pairs. */
   plot?: number[];
   /** Boats: the boat it is giving way to. */

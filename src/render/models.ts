@@ -1,4 +1,5 @@
 import type { Cargo } from '../sim/cargo';
+import type { CellsView } from '../protocol';
 import {
   BoxGeometry,
   CanvasTexture,
@@ -512,12 +513,11 @@ export function alertMarker(): Object3D {
 }
 
 /** Show just the containers in these slots on a ship's deck, each looking as given. */
-export function showDeck(model: Model, slots: number[], looks: number[]): void {
-  const shown = new Set(slots);
-  model.crates.forEach((c, k) => (c.visible = shown.has(k)));
-  slots.forEach((k, j) => {
-    const c = model.crates[k];
-    if (c && j < looks.length) paintContainer(c, looks[j]);
+export function showDeck(model: Model, deck: CellsView): void {
+  model.crates.forEach((c, k) => {
+    const look = deck[k]?.look;
+    c.visible = look !== undefined;
+    if (look !== undefined) paintContainer(c, look);
   });
 }
 

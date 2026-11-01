@@ -58,7 +58,10 @@ describe('Cargo', () => {
       world.step();
       if (k % 20) continue;
       const s = world.snapshot();
-      for (const e of s.entities) for (const c of e.cargo ?? []) seen.add(`${e.kind}:${c}`);
+      for (const e of s.entities) {
+        for (const c of e.cargo ?? []) seen.add(`${e.kind}:${c}`);
+        for (const c of e.bed ?? []) if (c?.cargo) seen.add(`${e.kind}:${c.cargo}`);
+      }
       for (const b of s.bays)
         for (const c of b.cells ?? []) if (c?.cargo) seen.add(`bay:${c.cargo}`);
     }

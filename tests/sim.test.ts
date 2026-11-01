@@ -2982,6 +2982,7 @@ describe('Container Port tier', () => {
         }
       }
       for (const e of s.entities) {
+        for (const c of e.deck ?? []) if (c?.look !== undefined) deck.add(c.look);
         if (!e.looks?.length) continue;
         for (const l of e.looks) (e.kind === 'boat' ? deck : after).add(l);
         if (e.kind === 'stacker') carried.stacker++;

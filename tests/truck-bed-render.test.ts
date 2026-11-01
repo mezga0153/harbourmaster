@@ -135,16 +135,12 @@ describe('Loading a truck’s bed', () => {
           .map((c: Object3D, k: number) => (c.visible ? k : -1))
           .filter((k: number) => k >= 0)
           .sort((a: number, b: number) => a - b);
-        expect(shown).toEqual(
-          v.bed
-            .slice(0, v.load)
-            .slice()
-            .sort((a: number, b: number) => a - b),
-        );
+        const places = v.bed.flatMap((c: Any, k: number) => (c ? [k] : []));
+        expect(shown).toEqual(places);
         if (v.moving) continue;
         // Where each stands on the bed, against the truck, never changes.
         const r = e.model.root;
-        for (const k of v.bed) {
+        for (const k of places) {
           const p = r.worldToLocal((e.model.crates[k] as Object3D).getWorldPosition(new Vector3()));
           const key = `${v.id}:${k}`;
           const before = placed.get(key);
