@@ -219,50 +219,99 @@ function drawIcon(g: CanvasRenderingContext2D, name: Cargo): void {
       break;
     }
     case 'ice': {
-      // Two chunky ice cubes, one leaning on the other, with a shine and a
-      // little happy face on the front one.
+      // A little heap of ice cubes, each a real cube: a pale top, a lit
+      // side and a shaded one, sharp-edged, with a glint across its top
+      // and a shine down its side; sparkles round them, and a happy face
+      // on the front one.
       const ink = '#1d3557';
-      const cube = (x: number, y: number, w: number, turn: number) => {
-        g.save();
-        g.translate(x, y);
-        g.rotate(turn);
-        g.fillStyle = '#dff4ff';
+      const cube = (x: number, y: number, s: number) => {
+        // Corners of a cube of side `s` seen from above at a slant, its
+        // nearest bottom corner at x, y.
+        const h = s * 0.5;
+        const top = [
+          [x, y - s],
+          [x + s * 0.87, y - s - h],
+          [x, y - s - 2 * h],
+          [x - s * 0.87, y - s - h],
+        ];
+        const face = (pts: number[][], fill: string) => {
+          g.beginPath();
+          pts.forEach(([px, py], k) => (k ? g.lineTo(px, py) : g.moveTo(px, py)));
+          g.closePath();
+          g.fillStyle = fill;
+          g.fill();
+        };
+        face([[x, y], [x - s * 0.87, y - h], top[3], top[0]], '#a8dcf5');
+        face([[x, y], [x + s * 0.87, y - h], top[1], top[0]], '#6fbfe8');
+        face(top, '#effaff');
+        // Its edges, dark round the outside and pale on the inner ones.
+        g.lineWidth = 3;
         g.strokeStyle = ink;
-        g.lineWidth = 4;
         g.beginPath();
-        g.roundRect(-w / 2, -w / 2, w, w, 6);
-        g.fill();
+        g.moveTo(x, y);
+        g.lineTo(x - s * 0.87, y - h);
+        g.lineTo(...(top[3] as [number, number]));
+        g.lineTo(...(top[2] as [number, number]));
+        g.lineTo(...(top[1] as [number, number]));
+        g.lineTo(x + s * 0.87, y - h);
+        g.closePath();
         g.stroke();
-        g.fillStyle = '#9fd8f5';
+        g.lineWidth = 1.5;
+        g.strokeStyle = '#ffffff';
         g.beginPath();
-        g.roundRect(-w / 2 + 4, w / 2 - 12, w - 8, 8, 3);
-        g.fill();
-        g.fillStyle = '#fff';
+        g.moveTo(x, y - 2);
+        g.lineTo(...(top[0] as [number, number]));
+        g.lineTo(...(top[1] as [number, number]));
+        g.moveTo(...(top[0] as [number, number]));
+        g.lineTo(...(top[3] as [number, number]));
+        g.stroke();
+        // A glint on its top and a shine down its lit side.
+        g.strokeStyle = '#ffffff';
+        g.lineWidth = 2.5;
         g.beginPath();
-        g.roundRect(-w / 2 + 5, -w / 2 + 5, 6, 12, 3);
-        g.fill();
-        g.restore();
+        g.moveTo(x - s * 0.45, y - s - h * 1.2);
+        g.lineTo(x - s * 0.1, y - s - h * 1.55);
+        g.moveTo(x - s * 0.62, y - h * 1.1);
+        g.lineTo(x - s * 0.62, y - s * 0.95);
+        g.stroke();
       };
-      cube(22, 26, 24, -0.25);
-      cube(40, 38, 30, 0.12);
-      // Its face.
+      // Two behind, one in front.
+      cube(20, 42, 13);
+      cube(43, 40, 13);
+      cube(32, 58, 15);
+      // Its face, on the front one's lit side.
       g.fillStyle = ink;
-      for (const x of [35, 46]) {
+      for (const [x, y] of [
+        [24, 47],
+        [29, 49],
+      ]) {
         g.beginPath();
-        g.arc(x, 35, 2.4, 0, Math.PI * 2);
+        g.arc(x, y, 1.8, 0, Math.PI * 2);
         g.fill();
       }
       g.strokeStyle = ink;
-      g.lineWidth = 2.5;
+      g.lineWidth = 2;
       g.beginPath();
-      g.arc(40.5, 39, 4, Math.PI * 0.15, Math.PI * 0.85);
+      g.arc(26.5, 51, 3, Math.PI * 0.2, Math.PI * 0.9);
       g.stroke();
-      g.fillStyle = '#f7a1b5';
-      for (const x of [31, 50]) {
+      // Sparkles: four-pointed stars.
+      const star = (x: number, y: number, r: number) => {
+        g.fillStyle = '#ffffff';
+        g.strokeStyle = '#6fbfe8';
+        g.lineWidth = 1.2;
         g.beginPath();
-        g.arc(x, 40, 2.2, 0, Math.PI * 2);
+        for (let k = 0; k < 8; k++) {
+          const a = (k * Math.PI) / 4;
+          const d = k % 2 ? r * 0.3 : r;
+          g.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+        }
+        g.closePath();
         g.fill();
-      }
+        g.stroke();
+      };
+      star(54, 14, 6);
+      star(9, 17, 4.5);
+      star(56, 52, 4);
       break;
     }
     case 'lobster': {
