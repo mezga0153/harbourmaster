@@ -255,10 +255,8 @@ function kerbInTheWay(w: World, tiles: number[]): string | null {
 }
 
 export function boatInTheWay(w: World, kind: BuildKind, i: number): string | null {
-  if (kind === 'quay' && w.map.build[i] === Build.Jetty) {
-    const moored = w.boats.some((b) => b.jetty === i || b.berth === i);
-    return moored ? 'A boat is moored here' : null;
-  }
+  // A jetty is made a quay under a boat moored at it: the boat lies on at
+  // the quay, as at any other.
   if (kind !== 'jetty') return null;
   const blocked = w.boats.some((b) => b.berth === i || w.tileOf(b) === i);
   return blocked ? 'A boat is in the way' : null;
