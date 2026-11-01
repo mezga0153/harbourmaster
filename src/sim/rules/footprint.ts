@@ -164,6 +164,19 @@ export function bestFacing(
       if (!placementError(map, kind, i, pending, f) && !depotDoorTrouble(map, i, f)) return f;
     }
   }
+  // A truck bay opens onto the public road where it can, as the hauliers
+  // come in off it.
+  if (kind === 'truckBay' || kind === 'largeBay') {
+    for (let f = 0; f < 4; f++) {
+      const front = frontOf(map, i, f);
+      if (
+        front >= 0 &&
+        map.build[front] === Build.Road &&
+        !placementError(map, kind, i, pending, f)
+      )
+        return f;
+    }
+  }
   for (let f = 0; f < 4; f++) if (!placementError(map, kind, i, pending, f)) return f;
   return 0;
 }

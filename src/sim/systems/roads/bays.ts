@@ -66,6 +66,37 @@ export function baysShutWhy(w: World): string {
   return `Truck bays open once ${left} more crates have come ashore for the pickups at the road's end.`;
 }
 
+/**
+ * Truck bays open onto the public road where one runs past them: any
+ * facing a port road or quay with the public road at another side turns
+ * to face it, once no truck is coming to it or at it and nobody is
+ * working it, so none is caught out on the way. True if one turned.
+ */
+export function faceRoads(w: World): boolean {
+  const m = w.map;
+  let turned = false;
+  for (const b of w.bays.values()) {
+    if (b.tiles || b.pile || m.build[b.idx] !== Build.TruckBay) continue;
+    const f = m.orient[b.idx] & 3;
+    const road = (g: number) => {
+      const t = frontOf(m, b.idx, g);
+      return t >= 0 && m.build[t] === Build.Road;
+    };
+    if (road(f)) continue;
+    const to = [0, 1, 2, 3].find(road);
+    if (to === undefined) continue;
+    if (w.trucks.some((t) => t.bayIdx === b.idx)) continue;
+    if (w.people.some((p) => p.state !== 'idle' && (p.bayIdx === b.idx || p.stockIdx === b.idx))) {
+      continue;
+    }
+    m.orient[b.idx] = (m.orient[b.idx] & ~3) | to;
+    w.dirty.add(b.idx);
+    turned = true;
+  }
+  if (turned) w.forget();
+  return turned;
+}
+
 export function addBay(w: World, i: number): void {
   w.bays.set(i, {
     idx: i,

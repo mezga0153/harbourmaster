@@ -116,7 +116,7 @@ import {
 } from './systems/workforce/dockhands';
 import { spawnShipments } from './systems/cargo/exports';
 import { putBox, shutStore, yardCells } from './systems/cargo/stores';
-import { addBay, addKerb, crossesRails, lots, parkUp } from './systems/roads/bays';
+import { addBay, addKerb, crossesRails, faceRoads, lots, parkUp } from './systems/roads/bays';
 import { nameBays } from './designations';
 import { noteTiles } from './systems/roads/traffic';
 import { spawnTrucks, steerPoints, updateTruck } from './systems/roads/trucks';
@@ -867,8 +867,8 @@ export class World {
 
   // ── Commands ──────────────────────────────────────────────
 
-  command(cmd: Command): void {
-    if (this.bankrupt) return;
+  /** What was worked out from the map, to work out again once it has changed. */
+  forget(): void {
     this.capacityCache = null;
     this.dockCache = null;
     this.landingCache = null;
@@ -892,6 +892,11 @@ export class World {
     this.craneStackCache = null;
     this.crateTileCache = null;
     this.lineUpCache = null;
+  }
+
+  command(cmd: Command): void {
+    if (this.bankrupt) return;
+    this.forget();
     switch (cmd.type) {
       case 'build':
         return build(this, cmd.kind, cmd.tiles, cmd.facing);
@@ -1026,6 +1031,7 @@ export class World {
     for (const c of this.cranes.values()) updateCrane(this, c);
     countOccupancy(this);
     for (const p of this.people) updateDockhand(this, p);
+    if (this.tick % 10 === 9) faceRoads(this);
     if (this.tick % 10 === 0) spawnTrucks(this);
     if (this.tick % 10 === 5) spawnShipments(this);
     for (const t of [...this.trucks]) updateTruck(this, t);
