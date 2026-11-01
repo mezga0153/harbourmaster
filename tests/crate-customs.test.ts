@@ -66,7 +66,7 @@ describe('Customs and export papers on crates', () => {
     const view = world.snapshot().bays.find((b: Any) => b.idx === into.idx);
     expect(view.customs.n).toBe(5);
     expect(view.customs.next).toBe(B.CRATE_CUSTOMS_TICKS);
-    expect(view.waiting.filter(Boolean)).toHaveLength(5);
+    expect(view.cells.filter((c: Any) => c?.sealed)).toHaveLength(5);
     // No truck is sent for them meanwhile.
     expect(unclaimed(world, into, false)).toBe(0);
     world.tick += B.CRATE_CUSTOMS_TICKS;

@@ -72,7 +72,7 @@ import {
   wideQuay,
 } from './boats/berthing';
 import { gantries, gantryLifts, handView, liftedLoad, yardLooks } from './yardGantry';
-import { feesIn, shownSlots } from './cargo/places';
+import { pileCells, shownCells } from './cargo/places';
 import { byHand, unloadWaiting } from './truckLoading';
 import { handlingPhase } from './workforce/crowding';
 import { parkedPoses } from './workforce/dockhands';
@@ -849,17 +849,13 @@ export function buildSnapshot(w: World): Snapshot {
     large: b.large,
     warehouse: !!b.warehouse,
     exports: cratesAt(b, true) - moved(b).taken,
-    slots: shownSlots(w, b, moved(b)),
+    cells: shownCells(w, b, moved(b)),
     outgoing: !!b.outgoing,
     shut: !!b.shut,
     byCrane: byCrane(w, b),
     tiles: b.tiles && [...b.tiles],
     noAccess: b.noAccess,
     noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
-    cargo: [
-      ...feesIn(b, false).map((f) => cargoOf(f)),
-      ...feesIn(b, true).map((f) => cargoOf(f, 'goods')),
-    ],
     ...holdsView(w, b),
   }));
   const customs = hasCustomsOffice(w);
@@ -942,7 +938,7 @@ export function buildSnapshot(w: World): Snapshot {
       crates: cratesAt(p) - moved(p).taken,
       pallets: !!p.pallets,
       out: !!p.out,
-      cargo: feesIn(p, false).map((f) => cargoOf(f, p.out ? 'goods' : 'fish')),
+      cells: pileCells(p, moved(p).taken),
     })),
     contracts,
     capacity: capacity(w),

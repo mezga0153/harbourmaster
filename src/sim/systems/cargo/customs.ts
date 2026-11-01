@@ -59,12 +59,6 @@ export function waitMask(w: World, b: Bay, out: boolean): boolean[] {
   return mask.some((m) => m) ? mask : [];
 }
 
-/** Which of a bay's crates then its exports, in that order, still wait. */
-export function heldMask(w: World, b: Bay): boolean[] {
-  const mask = [...cratesIn(b, false), ...cratesIn(b, true)].map((c) => waits(c, w.tick));
-  return mask.some((m) => m) ? mask : [];
-}
-
 /** Crates at a bay (or `out`, exports) free to go: none still waiting. */
 export function readyIn(w: World, b: Bay, out: boolean): number {
   if (b.yard) return out ? boxesAt(b, true) : 0;
@@ -115,12 +109,11 @@ export function nextHold(w: World, b: Bay, out: boolean): number {
 }
 
 /** What a crate storage's view says of the crates waiting in it on customs and papers. */
-export function holdsView(w: World, b: Bay): Pick<BayView, 'waiting' | 'customs' | 'papers'> {
+export function holdsView(w: World, b: Bay): Pick<BayView, 'customs' | 'papers'> {
   const customs = holds(w, b, false).length;
   const papers = holds(w, b, true).length;
   if (customs + papers === 0) return {};
   return {
-    waiting: heldMask(w, b),
     customs: customs > 0 ? { n: customs, next: nextHold(w, b, false) } : undefined,
     papers: papers > 0 ? { n: papers, next: nextHold(w, b, true) } : undefined,
   };

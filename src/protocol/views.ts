@@ -304,13 +304,12 @@ export interface BayView {
   /** Crates waiting here to go out on a ship. */
   exports: number;
   /**
-   * Crate storage and truck bays: the slot each crate shown stands in, its
-   * crates then its exports, -1 for one with no room to show. In storage
-   * four pallet places to a tile, tile by tile, four crates to each (two
-   * side by side, two high); at a truck bay its stack's, in the order it
-   * builds it.
+   * Crate storage and truck bays: what stands in each place, crates coming
+   * in and going out alike. In storage four pallet places to a tile, tile
+   * by tile, four crates to each (two side by side, two high); at a truck
+   * bay its stack's, in the order it builds it.
    */
-  slots?: number[];
+  cells?: CellsView;
   /** Storage for cargo going out; by a crane, either way, one at a time. */
   outgoing: boolean;
   /** Storage taking no more cargo, emptying out. */
@@ -320,15 +319,24 @@ export interface BayView {
   noAccess: boolean;
   /** Why trucks cannot reach it, when they cannot. */
   noAccessWhy?: string;
-  /** What each crate holds: those in it, then its exports. */
-  cargo?: Cargo[];
-  /** Which of those still wait: on customs (timber, goods), or on export papers (canned fish). */
-  waiting?: boolean[];
   /** Crates waiting on customs: how many, and ticks till the next clears. */
   customs?: { n: number; next: number };
   /** Exports waiting on their export papers: how many, and ticks till the next are done. */
   papers?: { n: number; next: number };
 }
+
+/** What stands in one place of a holder, as the view draws it; see hold.ts. */
+export interface CellView {
+  /** A crate: what it holds. */
+  cargo?: Cargo;
+  /** A container: how it looks; see boxLookOf. */
+  look?: number;
+  /** Still waiting on customs (timber, goods) or its export papers (canned fish): sealed. */
+  sealed?: boolean;
+}
+
+/** A holder's places, each with what stands there or null. */
+export type CellsView = (CellView | null)[];
 
 export interface YardView {
   idx: number;
@@ -407,8 +415,8 @@ export interface PileView {
   pallets: boolean;
   /** Exports left by a ship, to go on board. */
   out: boolean;
-  /** What each crate holds. */
-  cargo?: Cargo[];
+  /** What stands in each of its places, the first lowest. */
+  cells: CellsView;
 }
 
 export interface TownView {

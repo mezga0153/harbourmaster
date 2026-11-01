@@ -48,6 +48,8 @@ import {
   type Shape,
 } from './hold';
 import { tip } from '../output';
+import { cargoOf } from '../../cargo';
+import type { CellsView } from '../../../protocol/views';
 
 /** Crates in a crate storage pallet place, and in a layer of one. */
 export const PLACE = B.FORKLIFT_CAPACITY;
@@ -729,20 +731,41 @@ export function exportTaken(w: World, b: Bay, nth: number, only?: Set<number>): 
 }
 
 /**
- * The slots a bay's crates show in, its crates then its exports, as its
- * view has them: jib cranes' exports already on the hook (`takenAt`)
- * shown in none (-1), and after them all the places those cranes have
- * set crates down in that the lists do not have yet (`setAt`).
+ * What a heap on the quay's view shows in each of its places: each crate
+ * and what it holds, but not the first `taken`, on a jib crane's hook.
  */
-export function shownSlots(
+export function pileCells(b: Bay, taken: number): CellsView {
+  let gone = taken;
+  return cellsOf(b).map((c) => {
+    if (!c || gone-- > 0) return null;
+    return { cargo: cargoOf(c.fee, b.out ? 'goods' : 'fish') };
+  });
+}
+
+/**
+ * What a bay's view shows in each of its places: each crate, what it holds
+ * and whether it is sealed, waiting on customs or papers; but not exports
+ * jib cranes have on the hook already (`takenAt`), and in the places those
+ * cranes have set crates down in that the cells do not have yet (`setAt`),
+ * those crates.
+ */
+export function shownCells(
   w: World,
   b: Bay,
   moved: { setAt: number[]; takenAt: number[] },
-): number[] | undefined {
+): CellsView | undefined {
   if (!slotted(b)) return undefined;
-  const { crates, exports } = crateSlots(w, b);
   const gone = new Set(moved.takenAt);
-  return [...crates, ...exports.map((s) => (gone.has(s) ? -1 : s)), ...moved.setAt];
+  const shown: CellsView = cellsOf(b).map((c, s) =>
+    !c || (c.out && gone.has(s))
+      ? null
+      : {
+          cargo: cargoOf(c.fee, c.out ? 'goods' : undefined),
+          ...(waits(c, w.tick) ? { sealed: true } : {}),
+        },
+  );
+  for (const s of moved.setAt) if (s >= 0) shown[s] ??= {};
+  return shown;
 }
 
 /** The middle two by two cells of a tile, as bits (cell cx, cz the bit cz * SUB + cx). */
