@@ -330,6 +330,8 @@ export interface Boat extends Agent {
    * backing out of each other's way.
    */
   yieldFor?: number;
+  /** Until this tick it keeps backing out of `yieldFor`'s way, though that one creeps on. */
+  yieldUntil?: number;
   /** Ticks in a row it has tried to back out of another's way and could not. */
   boxedAstern?: number;
   /**

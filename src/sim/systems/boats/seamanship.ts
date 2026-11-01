@@ -348,6 +348,7 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
   // Unable to back out of another's way a while, with land or boats
   // astern, it goes on its own way instead, out of the other's.
   if (way.makeWay >= 0 && (b.ownWayUntil ?? 0) <= world.tick) {
+    if (b.yieldFor !== way.makeWay) b.yieldUntil = world.tick + B.KEEP_BACKING;
     b.yieldFor = way.makeWay;
     // Take the way off first, then go astern: no stopping dead, unless
     // it is in water a ship pulling out has claimed, where it backs at once.

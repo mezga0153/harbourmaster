@@ -623,7 +623,10 @@ export function giveWay(
     // or a boat backing out of the way of one that outranks this one needs
     // this one to back too. The boat at the head of a chain always
     // outranks the rest, so no ring of boats ends up all waiting astern.
-    if (makeWay >= 0 || still || (o.held ?? 0) <= 20) continue;
+    // Backing out of that one's way already, it keeps on a little while
+    // after, as the other creeps on meanwhile, rather than stop and start.
+    const backing = b.yieldFor === o.id && w.tick < (b.yieldUntil ?? 0);
+    if (makeWay >= 0 || still || ((o.held ?? 0) <= 20 && !backing)) continue;
     const head = outranks(w, o, b) ? o.id : o.astern && o.yieldFor !== undefined ? o.yieldFor : -1;
     const lead = head === o.id ? o : w.boats.find((q) => q.id === head);
     if (!lead || lead === b || !outranks(w, lead, b)) continue;
