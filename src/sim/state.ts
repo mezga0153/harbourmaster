@@ -473,6 +473,18 @@ export interface Truck extends Agent {
   variant: number;
 }
 
+/** A crate where it stands; see hold.ts. */
+export interface Crate {
+  /** What it pays when it leaves on a truck, and what it holds; see cargoOf. */
+  fee: number;
+  /** Going out on a ship, not come in off one. */
+  out?: boolean;
+  /** How it looks, where that is kept. */
+  look?: number;
+  /** The tick its customs (or, going out, its export papers) clear, while they have not. */
+  clears?: number;
+}
+
 export interface Bay {
   idx: number;
   /** Its designation, on its sign or painted on the ground: B3, C2; see designations.ts. */

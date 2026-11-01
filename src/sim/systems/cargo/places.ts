@@ -31,16 +31,13 @@ import { Build } from '../../types';
 import { bayCells } from '../../rules/cells';
 import { jibLoadReach } from './exports';
 import { jibTiles } from './stores';
+import { largeShape, stackShape, type Shape } from './hold';
 
 /** Crates in a crate storage pallet place, and in a layer of one. */
 export const PLACE = B.FORKLIFT_CAPACITY;
 const PER_TILE = B.CRATES_PER_STORE_TILE;
-/** A truck bay's stack: crates in each of its two rows, and how many slots in all. */
+/** Crates in each row of a stack. */
 const BAY_ROW = 8;
-const BAY_SLOTS = 16;
-/** A large bay's yard: crates in a layer, and how many slots in all. */
-const LARGE_LAYER = 16;
-const LARGE_SLOTS = 28;
 
 /** Pallet places on each tile of crate storage. */
 const PLACES = PER_TILE / PLACE;
@@ -65,20 +62,6 @@ export function slotted(b: Bay): boolean {
   return !b.yard && !b.pile;
 }
 
-/** How a bay's slots stand on each other. */
-interface Shape {
-  /** Slots in all. */
-  cap: number;
-  /** The slot under `s`, or -1 on the ground. */
-  below(s: number): number;
-  /** The slot on top of `s`, or -1 if none can go there. */
-  above(s: number): number;
-  /** How many crates up `s` is. */
-  height(s: number): number;
-  /** Which stack `s` is in: one to a tile of crate storage, a truck bay's own. */
-  stack(s: number): number;
-}
-
 /**
  * A pallet place: four slots one after another, two side by side, two
  * high, that a forklift's load fills; slot `s` is in place s / PLACE.
@@ -88,24 +71,8 @@ function placeIn(s: number): number {
 }
 
 function shape(b: Bay): Shape {
-  if (b.large && !b.tiles) {
-    return {
-      cap: LARGE_SLOTS,
-      below: (s) => (s >= LARGE_LAYER ? s - LARGE_LAYER : -1),
-      above: (s) => (s + LARGE_LAYER < LARGE_SLOTS ? s + LARGE_LAYER : -1),
-      height: (s) => Math.floor(s / LARGE_LAYER),
-      stack: () => 0,
-    };
-  }
-  // A truck bay's stack, and crate storage's, one to each tile: two rows,
-  // each two crates wide and four high, a row filled to the top first.
-  return {
-    cap: b.tiles ? b.tiles.length * PER_TILE : BAY_SLOTS,
-    below: (s) => (s % BAY_ROW >= 2 ? s - 2 : -1),
-    above: (s) => (s % BAY_ROW < BAY_ROW - 2 ? s + 2 : -1),
-    height: (s) => Math.floor((s % BAY_ROW) / 2),
-    stack: (s) => Math.floor(s / PER_TILE),
-  };
+  if (b.large && !b.tiles) return largeShape();
+  return stackShape(b.tiles?.length ?? 0);
 }
 
 /** Which ends of a crate storage tile's stack a forklift can drive up to: now, and with no trucks about. */
