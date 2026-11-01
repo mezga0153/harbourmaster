@@ -219,6 +219,12 @@
   color: var(--text-2);
 }
 
+/* Why a tool shown in the tray may not be used yet. */
+.tray-locked {
+  margin: 4px 0 0;
+  color: var(--warn);
+}
+
 .build-label {
   margin: 4px 3px 0;
   line-height: 1.25;

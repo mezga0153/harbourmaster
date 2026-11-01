@@ -180,12 +180,12 @@ function layoutStart(map: GameMap): number {
     }
   }
 
-  // The road off the highway's first exit down to the jetty.
+  // The road off the highway's first exit down to the jetty, and a path on
+  // to it from the road's end, where the crates are heaped for the pickups
+  // (see kerbOf) until the port may build truck bays.
   for (let x = HIGHWAY_COLUMNS; x <= shoreX - 5; x++) map.build[map.idx(x, row)] = Build.Road;
   setExit(map, row, true);
-  map.build[map.idx(shoreX - 4, row)] = Build.TruckBay;
-  map.orient[map.idx(shoreX - 4, row)] = 2; // entrance towards the road, -x
-  for (let x = shoreX - 3; x <= shoreX; x++) map.build[map.idx(x, row)] = Build.Footpath;
+  for (let x = shoreX - 4; x <= shoreX; x++) map.build[map.idx(x, row)] = Build.Footpath;
   for (let x = shoreX + 1; x <= shoreX + 3; x++) {
     const i = map.idx(x, row);
     map.build[i] = Build.Jetty;
@@ -196,6 +196,27 @@ function layoutStart(map: GameMap): number {
   ownOnly(map, startPlots(map, row, shoreX));
 
   return map.idx(shoreX, row);
+}
+
+/** Where a new port heaps its crates for the pickups: the path's first tile past the road's end. */
+export function kerbOf(map: GameMap, spawn: number): number {
+  return map.idx(map.xOf(spawn) - 4, map.yOf(spawn));
+}
+
+/**
+ * The road's end beside the heap at `kerb` made two wide, for the pickups
+ * to turn about in: with no truck bay at its end, they could not.
+ */
+export function turnAbout(map: GameMap, kerb: number): void {
+  const y = map.yOf(kerb) + 1;
+  for (let x = map.xOf(kerb) - 2; x <= map.xOf(kerb) - 1; x++) {
+    const i = map.idx(x, y);
+    map.terrain[i] = Terrain.Grass;
+    map.ocean[i] = 0;
+    map.depth[i] = 0;
+    map.deco[i] = Deco.None;
+    map.build[i] = Build.Road;
+  }
 }
 
 /**

@@ -592,6 +592,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
     if (!bay) return undefined;
     // Off a truck bay's stack, as onto a truck there; its ice, on top, for a boat.
     if (bay.tiles) return store(bay);
+    if (bay.pile) return { pile: bay.idx, slot: cratesAt(bay) - 1 };
     const top = topSlots(bay, !!p.outbound, Math.max(1, p.planned));
     return top.length > 0 ? { bay: bay.idx, slot: top[0] } : undefined;
   }
@@ -611,6 +612,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   if (!bay) return undefined;
   const onto = straightOnto(w, p, bay);
   if (onto) return onBed(onto);
+  if (bay.pile) return { pile: bay.idx, slot: cratesAt(bay) };
   return bay.tiles ? store(bay) : { bay: bay.idx, slot: dropSlot(w, p, bay) };
 }
 

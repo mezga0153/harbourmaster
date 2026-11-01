@@ -102,7 +102,11 @@ export function patch(w: World): { shore: number; row: number } {
  * fishery sending boats. Paused.
  */
 export function blank(seed: number, tier: number): World {
+  // With the truck bay at the road's end new games used to start with.
+  const was = World.startBay;
+  World.startBay = true;
   const w = World.create(seed, undefined, true);
+  World.startBay = was;
   w.debug({ type: 'debug', tier });
   w.cash = 10_000_000;
   w.boats.length = 0;

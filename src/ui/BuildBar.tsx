@@ -6,7 +6,17 @@ import { BUILDABLES } from '../sim/rules';
 import type { BuildKind } from '../sim/types';
 import { money } from './format';
 import { Icon } from './icons';
-import { land, narrow, openCategory, panel, tier, togglePanel, tool, trayTabs } from './store';
+import {
+  land,
+  lockedTools,
+  narrow,
+  openCategory,
+  panel,
+  tier,
+  togglePanel,
+  tool,
+  trayTabs,
+} from './store';
 import {
   BULLDOZE_TOOL,
   CATEGORIES,
@@ -71,10 +81,12 @@ function ToolCard({
 }) {
   const { price } = toolInfo(t);
   const picture = thumbnail(t.tool);
+  // Shown, but not to be picked up yet: why is said below the cards.
+  const locked = !!lockedTools.value[t.tool];
   return (
     <button
-      class={`build-card ${active ? 'on' : ''}`}
-      onClick={() => (tool.value = active ? 'select' : t.tool)}
+      class={`build-card ${active ? 'on' : ''} ${locked ? 'locked' : ''}`}
+      onClick={() => (tool.value = active || locked ? 'select' : t.tool)}
       onMouseEnter={() => onHover(t)}
       onMouseLeave={() => onHover(null)}
       onFocus={() => onHover(t)}
@@ -85,6 +97,11 @@ function ToolCard({
       <span class="build-picture">
         {picture ? <img src={picture} alt="" draggable={false} /> : <Icon name={t.icon} />}
         {t.key && <kbd>{t.key}</kbd>}
+        {locked && (
+          <span class="lock">
+            <Icon name="lock" />
+          </span>
+        )}
       </span>
       <span class="build-label">{t.label}</span>
       <span class="build-cost">{price}</span>
@@ -156,6 +173,9 @@ function CategoryTray({ cat }: { cat: Category }) {
               </span>
             </div>
             <p class="muted">{info.hint}</p>
+            {lockedTools.value[about.tool] && (
+              <p class="tray-locked">{lockedTools.value[about.tool]}</p>
+            )}
           </>
         ) : (
           <p class="muted">

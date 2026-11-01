@@ -80,6 +80,13 @@ export const trayTabs = signal<Readonly<Record<string, string>>>({});
 export const cash = computed(() => snapshot.value?.cash ?? 0);
 /** The port's step, see TIERS: 0 before the first. */
 export const tier = computed(() => snapshot.value?.progress.tier ?? 0);
+/** Tools the port has come to but may not use yet, with why: truck bays at first. */
+export const lockedTools = computed(() => {
+  const why = snapshot.value?.progress.baysWhy;
+  const out: Record<string, string> = {};
+  if (why) out.truckBay = why;
+  return out;
+});
 /** The town up the coast, once there is one. */
 export const town = computed(() => snapshot.value?.town ?? null);
 /** What the port pays out a day: wages, haulier fees and loan interest. */

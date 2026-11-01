@@ -78,7 +78,7 @@ function isOf(name: string, prefix: string): boolean {
 
 /** Give any truck bay without a designation one, lowest tile first. */
 export function nameBays(bays: Iterable<Bay>): void {
-  const all = [...bays].filter((b) => !b.tiles);
+  const all = [...bays].filter((b) => !b.tiles && !b.kerb);
   const used = new Set(all.flatMap((b) => (b.name ? [b.name] : [])));
   for (const b of all.sort((a, b) => a.idx - b.idx)) {
     if (b.name) continue;
@@ -89,6 +89,7 @@ export function nameBays(bays: Iterable<Bay>): void {
 
 /** A place as the status lines name it: "truck bay B3", "crate storage C2", "container yard Y1". */
 export function placeOf(b: Bay): string {
+  if (b.kerb) return "the heap at the road's end";
   const what = b.yard ? 'container yard' : b.tiles ? 'crate storage' : 'truck bay';
   return b.name ? `${what} ${b.name}` : `the ${what}`;
 }

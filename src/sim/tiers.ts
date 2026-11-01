@@ -27,8 +27,8 @@ export const TIERS: Tier[] = [
     town: 0,
     unlocks: [
       'Wooden jetties',
-      'Truck bays',
-      'Hauliers with pickups, loaded by hand from the road beside a truck bay',
+      "Hauliers with pickups, loaded by hand from the crates heaped at the road's end",
+      'Truck bays, once 30 crates have come ashore for the pickups',
       'Break huts',
       "Harbourmaster's huts, each for 3 more jetties",
       'Fishery contracts',

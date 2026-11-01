@@ -216,6 +216,8 @@ export interface TierProgress {
   canUpgrade: boolean;
   /** The landmark the town must open before it may grow big enough for the next tier. */
   waitsOn?: string;
+  /** Why the port may not build truck bays yet, while it may not; see baysOpen. */
+  baysWhy?: string;
 }
 
 export interface StaffView {

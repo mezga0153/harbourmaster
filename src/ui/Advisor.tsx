@@ -19,7 +19,12 @@ const hours = (ticks: number) => Math.round((ticks * 24) / TICKS_PER_DAY);
 const TIPS: Record<string, Tip> = {
   welcome: {
     title: 'Welcome, harbourmaster',
-    text: 'Boats bring crates to your jetty. Dockhands lift them off and carry them to the truck bay, and hauliers’ trucks take them away: you are paid as each truck leaves. Select anything to see what it is doing.',
+    text: 'Boats bring crates to your jetty. Dockhands lift them off and heap them at the end of the road, and the hauliers’ pickups pull up there to take them away: you are paid as each leaves. Select anything to see what it is doing.',
+    topic: 'start',
+  },
+  truckBays: {
+    title: 'Truck bays',
+    text: `The heap at the road's end holds only ${B.PILE_CRATES} crates, so boats wait while the pickups come and go. You may now build truck bays (Cargo, then Truck bay): each holds ${B.BAY_CAPACITY} crates, beside a road, and the pickups load beside it. The heap is used as long as it stands.`,
     topic: 'start',
   },
   hut: {

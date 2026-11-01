@@ -224,6 +224,7 @@ export function cratesAt(b: Bay, out = false): number {
 }
 
 export function bayCap(b: Bay): number {
+  if (b.pile) return B.PILE_CRATES;
   if (b.tiles) {
     return b.tiles.length * (b.yard ? B.BOXES_PER_STORE_TILE : B.CRATES_PER_STORE_TILE);
   }

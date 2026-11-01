@@ -101,6 +101,8 @@ import { placeOf } from '../designations';
 import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
 import { forkCells } from './workforce/forkCells';
 import {
+  baysOpen,
+  baysShutWhy,
   docked,
   inQueue,
   lotTrouble,
@@ -207,6 +209,7 @@ export function workerWhy(w: World, p: Dockhand): string | undefined {
 /** Where a truck is headed or loading, by its designation, or `none` if it has none. */
 function truckPlace(w: World, t: Truck, none: string): string {
   const bay = dest(w, t.bayIdx);
+  if (bay?.kerb) return placeOf(bay);
   // A pickup pulls up on the road beside a truck bay.
   if (t.pickup && bay?.name && !bay.tiles) return `the road beside ${placeOf(bay)}`;
   return bay?.name ? placeOf(bay) : none;
@@ -846,24 +849,28 @@ export function buildSnapshot(w: World): Snapshot {
       why: truckWhy(w, t),
     });
   }
-  const bays: BayView[] = [...w.bays.values()].map((b) => ({
-    idx: b.idx,
-    name: b.name ?? '',
-    stock: cratesAt(b) + moved(b).set,
-    boxes: boxesAt(b),
-    capacity: bayCap(b),
-    large: b.large,
-    warehouse: !!b.warehouse,
-    exports: cratesAt(b, true) - moved(b).taken,
-    cells: shownCells(w, b, moved(b)),
-    outgoing: !!b.outgoing,
-    shut: !!b.shut,
-    byCrane: byCrane(w, b),
-    tiles: b.tiles && [...b.tiles],
-    noAccess: b.noAccess,
-    noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
-    ...holdsView(w, b),
-  }));
+  // The heap at the road's end is drawn, and shown, as a heap on the quay.
+  const kerbs = [...w.bays.values()].filter((b) => b.kerb);
+  const bays: BayView[] = [...w.bays.values()]
+    .filter((b) => !b.kerb)
+    .map((b) => ({
+      idx: b.idx,
+      name: b.name ?? '',
+      stock: cratesAt(b) + moved(b).set,
+      boxes: boxesAt(b),
+      capacity: bayCap(b),
+      large: b.large,
+      warehouse: !!b.warehouse,
+      exports: cratesAt(b, true) - moved(b).taken,
+      cells: shownCells(w, b, moved(b)),
+      outgoing: !!b.outgoing,
+      shut: !!b.shut,
+      byCrane: byCrane(w, b),
+      tiles: b.tiles && [...b.tiles],
+      noAccess: b.noAccess,
+      noAccessWhy: b.noAccess ? b.noAccessWhy : undefined,
+      ...holdsView(w, b),
+    }));
   const customs = hasCustomsOffice(w);
   const contracts: ContractView[] = w.contracts.map((c) => ({
     id: c.id,
@@ -939,7 +946,7 @@ export function buildSnapshot(w: World): Snapshot {
         why: lotTrouble(w, lot),
       };
     }),
-    piles: [...w.piles.values()].map((p) => ({
+    piles: [...w.piles.values(), ...kerbs].map((p) => ({
       idx: p.idx,
       crates: cratesAt(p) - moved(p).taken,
       pallets: !!p.pallets,
@@ -963,6 +970,7 @@ export function buildSnapshot(w: World): Snapshot {
       town: w.townSize(),
       canUpgrade: canUpgrade(w),
       waitsOn: tierWaitsOn(w),
+      baysWhy: baysOpen(w) ? undefined : baysShutWhy(w),
     },
     cranes: [...w.cranes.values()].map((c) => ({
       idx: c.idx,

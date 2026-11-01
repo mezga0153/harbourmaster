@@ -110,7 +110,11 @@ export function spawnTrucks(w: World): void {
         : undefined) ??
       (unclaimed(w, bay, false) > 0
         ? firms.find(
-            (h) => free(h) && !h.terms.cargo && (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY),
+            (h) =>
+              free(h) &&
+              !h.terms.cargo &&
+              (bay.large || h.terms.capacity <= B.TRUCK_CAPACITY) &&
+              (!bay.kerb || !!h.terms.pickup),
           )
         : undefined);
     if (!haulier) {

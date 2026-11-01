@@ -91,7 +91,7 @@ import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
 import { boxesIn, jibStows, putBox, removePile, yardCells, yardSlots } from './cargo/stores';
 import { dest } from './cargo/customs';
-import { addBay, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
+import { addBay, baysOpen, baysShutWhy, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
 import { handOn, prefixOf } from '../designations';
 
 export function build(w: World, kind: BuildKind, tiles: number[], facing?: number): void {
@@ -99,6 +99,7 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   if (BUILD_TIER[kind] > w.tier) {
     return message(w, `${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
   }
+  if (kind === 'truckBay' && !baysOpen(w)) return message(w, baysShutWhy(w), 'bad');
   let spent = 0;
   let firstError: string | null = null;
   // Why a depot just built is no use yet, said once it is up.
@@ -115,7 +116,10 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
     const skipped: number[] = [];
     for (const i of left) {
       const f = facing ?? bestFacing(w.map, kind, i);
-      const err = placementError(w.map, kind, i, undefined, f) ?? boatInTheWay(w, kind, i);
+      const err =
+        placementError(w.map, kind, i, undefined, f) ??
+        boatInTheWay(w, kind, i) ??
+        kerbInTheWay(w, footprint(w.map, kind, i, f));
       if (err) {
         firstError ??= err;
         skipped.push(i);
@@ -130,6 +134,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
       book(w, 'construction', -cost);
       spent += cost;
       footprint(w.map, kind, i, f).forEach((t, k) => {
+        // Built over, the heap at the road's end is gone: it had no crates.
+        if (w.bays.get(t)?.kerb) w.bays.delete(t);
         // A building on a quay remembers it, to leave it when cleared.
         const quay = w.map.build[t] === Build.Quay ? ON_QUAY : 0;
         // A road over the railway is a level crossing.
@@ -238,6 +244,14 @@ export function buyPlot(w: World, p: number): void {
     `The plot is the port’s to build on: ${ownedPlots(m)} plots owned. The next plot of land costs $${nextPrice(m).toLocaleString('en-US')}.`,
     'good',
   );
+}
+
+/** Crates heaped at the road's end for the pickups on any of `tiles`, or on their way there. */
+function kerbInTheWay(w: World, tiles: number[]): string | null {
+  const heap = tiles.map((t) => w.bays.get(t)).find((b) => b?.kerb);
+  return heap && cratesAt(heap) + heap.incoming > 0
+    ? 'Crates are heaped here for the pickups'
+    : null;
 }
 
 export function boatInTheWay(w: World, kind: BuildKind, i: number): string | null {
@@ -870,7 +884,7 @@ export function bulldoze(w: World, tiles: number[]): void {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
     } else if (w.map.build[i] !== Build.None) {
-      if (isBay(w.map.build[i])) removeBay(w, i);
+      if (isBay(w.map.build[i]) || w.bays.get(i)?.kerb) removeBay(w, i);
       removePile(w, i);
       for (const b of bulldozeTiles(w.map, i)) {
         w.map.build[b] = w.map.orient[b] & ON_QUAY ? Build.Quay : Build.None;

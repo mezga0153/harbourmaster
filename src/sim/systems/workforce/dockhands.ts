@@ -45,6 +45,7 @@ import {
 } from '../cargo/customs';
 import { mayEnter, toStopLine } from '../roads/traffic';
 import { drive } from '../roads/trucks';
+import { handled } from '../roads/bays';
 import { paceFactor } from '../../staff';
 import type { Candidate } from '../../staff';
 import type { Bay, Boat, Dockhand, DockhandState } from '../../state';
@@ -722,11 +723,12 @@ function work(w: World, p: Dockhand): void {
       else setDown(w, bay, p.load, false, p, { cleared: p.cleared });
       p.cleared = undefined;
       if (boxy) tip(w, 'customs');
-      if (bay.pile) tip(w, 'landed');
+      if (bay.pile && !bay.kerb) tip(w, 'landed');
       bayIncoming(bay, boxy, -p.planned);
-      // Landed on the quay, a crate has not been handled yet.
+      // Landed on the quay, a crate has not been handled yet; heaped at
+      // the road's end for the pickups, it has.
       if (boxy) w.stats.containers += p.carrying;
-      else if (!bay.pile) w.stats.cratesHandled += p.carrying;
+      else if (!bay.pile || bay.kerb) handled(w, p.carrying);
       p.carrying = 0;
       p.load = [];
       p.planned = 0;
@@ -903,8 +905,10 @@ export function assignJob(w: World, p: Dockhand): boolean {
   }
   // Crates an older game left on the quay: the forklifts take them on, or
   // the dockhands if there are none. Nothing sets any down there now.
+  // The heap at the road's end too, with no pickups coming for it any more.
   if (forks || (hands && !forklifts(w))) {
-    for (const pile of w.piles.values()) {
+    const left = [...w.bays.values()].filter((b) => b.kerb && !takesImports(w, b));
+    for (const pile of [...w.piles.values(), ...left]) {
       const avail = cratesAt(pile) - (pile.reserved ?? 0);
       if (avail <= 0 || (pile.pallets && !forks) || pile.out) continue;
       sources.push({ tile: pile.idx, avail, pile, rank: forks ? 0 : 2 });

@@ -299,6 +299,8 @@ export function byCrane(w: World, b: Bay): boolean {
  * for cargo coming in, by a crane or not.
  */
 export function takesImports(w: World, b: Bay): boolean {
+  // The heap at the road's end while pickups come for it.
+  if (b.kerb) return w.contracts.some((c) => c.terms.kind === 'haulier' && !!c.terms.pickup);
   if (!b.tiles) return !holdsIce(w, b);
   return !b.outgoing && !b.shut;
 }

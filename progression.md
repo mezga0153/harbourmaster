@@ -30,8 +30,8 @@ owns, for $1,200 rising by 15% with every plot bought (about $2,400 for
 the sixth, $4,900 for the eleventh, $19,600 for the twenty-first), 60% of
 that for a plot all of sea. Saves made with plots of 16 keep the land they
 owned, in plots of 12 whose middles lay on it, and what they built on.
-A new game owns the two to six plots round its first jetty and truck bay,
-enough for a second jetty and bay; everything built, dredged, filled in,
+A new game owns the two to six plots round its first jetty and the road's
+end, enough for a second jetty and a truck bay or two; everything built, dredged, filled in,
 marked out or cleared needs its plot owned. Saves from before land was
 bought own every plot they built on, free.
 
@@ -41,6 +41,16 @@ The hauliers send **pickups** (`pickup` in `HaulierTerms`, `src/sim/contracts.ts
 an open bed of one layer of six crates that never backs into a truck bay but
 pulls up on the road beside it (`roadside` in `src/sim/systems/roads/bays.ts`),
 out of the way of the trucks of the bay beside it, and is loaded by hand.
+
+A new game has **no truck bay**: the road from the highway ends two tiles
+wide (for the pickups to turn about) by a path to the jetty, and on the
+path's first tile the dockhands heap the crates off the boats, up to eight
+(`kerb` on a `Bay`, `addKerb` and `baysOpen` in `src/sim/systems/roads/bays.ts`),
+for the pickups to load from the road beside it. That is slower than a bay,
+so boats start to queue. Truck bays open once `BAY_UNLOCK_CRATES` (30)
+crates have come ashore (about the fourth day), or with the Coastal Wharf;
+until then the build menu shows the truck bay locked, with how many more.
+The heap stays in use while pickups come; built over or cleared, it is gone.
 
 **In the game** (`LANDMARKS` in `src/sim/town.ts`): these three steps, with
 the goals measured as crates of a kind trucked out (fish: 12 a day for 3 days

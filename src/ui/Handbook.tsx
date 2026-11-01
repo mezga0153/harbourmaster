@@ -46,9 +46,11 @@ export const TOPICS: Record<TopicId, Topic> = {
             <b>Lifted off the boat</b> by dockhands or a crane.
           </li>
           <li>
-            <b>Moved on</b> to a truck bay or storage: carried there by dockhands, who never set
-            crates down on the quay, or swung into storage by a jib crane. Forklifts move crates on
-            from storage the trucks cannot reach.
+            <b>Moved on</b> to a truck bay or storage: carried there by dockhands, or swung into
+            storage by a jib crane. Forklifts move crates on from storage the trucks cannot reach. A
+            new port has no truck bay yet: the dockhands heap up to {B.PILE_CRATES} crates at the
+            road&apos;s end for the pickups, and truck bays open once {B.BAY_UNLOCK_CRATES} have
+            come ashore.
           </li>
           <li>
             <b>Waits</b> in the bay or storage. Containers, and crates of timber and goods, also

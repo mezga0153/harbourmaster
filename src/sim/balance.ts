@@ -262,8 +262,17 @@ export const SELL_SHARE = 0.5;
 export const CRANE_RUNNING_COST = 30; // per day
 export const CRANE_TICKS = 10; // per crate lifted
 export const CRANE_STACK = 10;
-/** Crates an older game left on one quay tile beside a boat, for the forklifts. */
+/**
+ * Crates an older game left on one quay tile beside a boat, for the
+ * forklifts; and the heap at the road's end a new port starts with, which
+ * the pickups load from (see Bay.kerb).
+ */
 export const PILE_CRATES = 8;
+/**
+ * Crates a new port loads onto pickups from its heap at the road's end
+ * before the harbour authority lets it build truck bays (see baysOpen).
+ */
+export const BAY_UNLOCK_CRATES = 30;
 
 // Container Port.
 export const FEEDER_DRAFT = 4;

@@ -542,6 +542,13 @@ export interface Bay {
    * it, for the forklifts to take on; on pallets, or not.
    */
   pile?: boolean;
+  /**
+   * The heap of crates at the road's end a new port starts with, before it
+   * may build truck bays: dockhands set the crates from the boats down
+   * there, and the pickups pull up on the road beside it to be loaded. A
+   * heap (`pile`), kept with the bays, gone when built over or cleared.
+   */
+  kerb?: boolean;
   pallets?: boolean;
   /** Crates promised to forklifts on their way to the pile. */
   reserved?: number;

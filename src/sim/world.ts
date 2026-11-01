@@ -32,7 +32,7 @@ import {
 } from './contracts';
 import { ownBuilt } from './land';
 import { GameMap } from './map';
-import { extendMap, generateMap } from './mapgen';
+import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
 import {
@@ -116,7 +116,7 @@ import {
 } from './systems/workforce/dockhands';
 import { spawnShipments } from './systems/cargo/exports';
 import { putBox, shutStore, yardCells } from './systems/cargo/stores';
-import { addBay, crossesRails, lots, parkUp } from './systems/roads/bays';
+import { addBay, addKerb, crossesRails, lots, parkUp } from './systems/roads/bays';
 import { nameBays } from './designations';
 import { noteTiles } from './systems/roads/traffic';
 import { spawnTrucks, steerPoints, updateTruck } from './systems/roads/trucks';
@@ -561,17 +561,31 @@ export class World {
   static ownAllLand = false;
 
   /**
+   * New games start with a truck bay at the road's end, as they used to,
+   * rather than the heap the pickups load from: for tests built round it.
+   */
+  static startBay = false;
+
+  /**
    * A new game; `size`, the port's land, for a map as big as they were
    * before; `ownAll` owns every plot of it from the start.
    */
   static create(seed: number, size?: number, ownAll = World.ownAllLand): World {
     const { map, spawn } = generateMap(seed, size);
+    const kerb = kerbOf(map, spawn);
+    if (!World.startBay) turnAbout(map, kerb);
     if (ownAll) map.plots.fill(1);
     const world = new World(seed, map, new Rng(seed));
     world.settle();
+    if (World.startBay) {
+      map.build[kerb] = Build.TruckBay;
+      map.orient[kerb] = 2; // entrance towards the road, -x
+    }
     for (let i = 0; i < map.build.length; i++) {
       if (isBay(map.build[i]) && anchorOf(map, i) === i) addBay(world, i);
     }
+    // No truck bay yet: the crates are heaped at the road's end for the pickups.
+    if (!World.startBay) addKerb(world, kerb);
     for (let k = 0; k < B.START_DOCKHANDS; k++) {
       spawnDockhand(world, spawn, {
         id: 0,

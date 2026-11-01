@@ -11,13 +11,60 @@ import { gantryOf, quayHeading } from '../yardGantry';
 import { gantryRails, gantryYard } from '../../rules/footprint';
 import { exitRows, hasHighway } from '../../roads';
 import type { CostFn } from '../../path';
-import { message } from '../output';
+import { message, tip } from '../output';
 import { needsWideSpace, parkingLots } from '../../rules/parking';
 import type { ParkingLot, ParkingSpace } from '../../rules/parking';
 import { takesFrom } from '../cargo/stores';
-import { bayRoom, boxesAt, heldIn } from '../../helpers';
+import { bayRoom, boxesAt, cratesAt, heldIn } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { handOn, nameBays, PREFIX } from '../../designations';
+
+/** The heap of crates at the road's end a new port starts with, at `i`; see Bay.kerb. */
+export function addKerb(w: World, i: number): void {
+  w.bays.set(i, {
+    idx: i,
+    large: false,
+    boxIncoming: 0,
+    cells: Array(B.PILE_CRATES).fill(null),
+    incoming: 0,
+    nextTruckTick: 0,
+    noAccess: false,
+    pile: true,
+    kerb: true,
+  });
+}
+
+/**
+ * Whether the port may build truck bays: once its pickups have taken
+ * BAY_UNLOCK_CRATES from its heap at the road's end, with the Coastal Wharf,
+ * or where it has one already (an older game).
+ */
+export function baysOpen(w: World): boolean {
+  return (
+    w.tier >= 1 ||
+    w.stats.cratesHandled >= B.BAY_UNLOCK_CRATES ||
+    [...w.bays.values()].some((b) => !b.tiles && !b.yard && !b.pile)
+  );
+}
+
+/** Crates handled: unloaded into storage, or heaped for the pickups; truck bays open at enough. */
+export function handled(w: World, n: number): void {
+  const was = baysOpen(w);
+  w.stats.cratesHandled += n;
+  if (was || !baysOpen(w)) return;
+  message(
+    w,
+    'The harbour authority now lets the port build truck bays: Cargo, then Truck bay.',
+    'good',
+  );
+  tip(w, 'truckBays');
+}
+
+/** What the player is told while truck bays are not open yet. */
+export function baysShutWhy(w: World): string {
+  const left = Math.max(1, B.BAY_UNLOCK_CRATES - w.stats.cratesHandled);
+  return `Truck bays open once ${left} more crates have come ashore for the pickups at the road's end.`;
+}
 
 export function addBay(w: World, i: number): void {
   w.bays.set(i, {
@@ -38,7 +85,8 @@ export function addBay(w: World, i: number): void {
  */
 export function loadingDocks(w: World, bay: Bay, pickup = false): number[] {
   if (bay.tiles) return w.storeSpots(bay);
-  return pickup ? roadside(w, bay) : [bay.idx];
+  // The heap at the road's end: pickups only, beside it.
+  return pickup || bay.kerb ? roadside(w, bay) : [bay.idx];
 }
 
 /**
@@ -482,7 +530,9 @@ export function freeDock(w: World, bay: Bay, pickup = false): number {
 
 export function removeBay(w: World, i: number): void {
   const bay = w.bays.get(i);
-  if (bay && heldIn(bay) + boxesAt(bay) > 0) {
+  if (bay?.kerb && cratesAt(bay) > 0) {
+    message(w, `${cratesAt(bay)} crates heaped at the road's end were lost.`, 'bad');
+  } else if (bay && heldIn(bay) + boxesAt(bay) > 0) {
     message(
       w,
       `${heldIn(bay)} crates and ${boxesAt(bay)} containers were lost with the truck bay.`,

@@ -47,11 +47,11 @@ export function byStacker(w: World, t: Truck, bay: Bay): boolean {
 }
 
 /**
- * A crate truck at a truck bay or crate storage, which only dockhands and
- * forklifts load: it has no crew of its own.
+ * A crate truck at a truck bay, crate storage or the heap at the road's
+ * end, which only dockhands and forklifts load: it has no crew of its own.
  */
 export function byHand(_w: World, t: Truck, bay: Bay): boolean {
-  return !t.boxes && !bay.yard && !bay.pile;
+  return !t.boxes && !bay.yard && (!bay.pile || !!bay.kerb);
 }
 
 /**

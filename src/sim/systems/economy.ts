@@ -44,7 +44,7 @@ import { changeMorale } from './workforce/crowding';
 import { muster, spawnDockhand } from './workforce/dockhands';
 import { jibStows } from './cargo/stores';
 import { cancelJob } from './cargo/customs';
-import { roadTo } from './roads/bays';
+import { baysOpen, roadTo } from './roads/bays';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -250,7 +250,12 @@ export function refreshOffers(w: World): void {
     const offer = makeLobsterOffer(new Rng(w.tick * 6151 + 29), -2 - w.tick, w.tick, taken);
     if (offer) w.offers.push(offer);
   }
-  if (market && !w.offers.some((o) => isIce(o.terms)) && !w.contracts.some((c) => isIce(c.terms))) {
+  if (
+    market &&
+    baysOpen(w) &&
+    !w.offers.some((o) => isIce(o.terms)) &&
+    !w.contracts.some((c) => isIce(c.terms))
+  ) {
     const taken = new Set([...w.contracts, ...w.offers].map((c) => c.terms.name));
     const offer = makeIceOffer(new Rng(w.tick * 7919 + 17), -1 - w.tick, w.tick, taken);
     if (offer) w.offers.push(offer);
