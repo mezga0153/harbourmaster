@@ -231,8 +231,30 @@ export function BuildBar() {
       )}
     </>
   );
+  const catButton = (c: Category) => {
+    const tools = toolsAt(c, at);
+    const using = tools.find((t) => t.tool === current);
+    const isOpen = openCategory.value === c.id;
+    return (
+      <button
+        key={c.id}
+        class={`tool category ${isOpen ? 'open' : ''} ${using ? 'on' : ''}`}
+        onClick={() => (openCategory.value = isOpen ? null : c.id)}
+        aria-expanded={isOpen}
+        title={tools.map((t) => t.label).join(', ')}
+      >
+        <Icon name={using?.icon ?? c.icon} />
+        <span class="tool-label">{c.label}</span>
+        <span class="tool-cost">
+          {using ? using.label : `${tools.length} item${tools.length === 1 ? '' : 's'}`}
+        </span>
+      </button>
+    );
+  };
   const bar = useRef<HTMLElement>(null);
   const [compact, setCompact] = useState(false);
+  // How many of the menus stay on the bar; the rest go under More too.
+  const [shown, setShown] = useState(categories.length);
   const [more, setMore] = useState(false);
   // How wide the bar needs to be for every tool, measured while they were all on it.
   const needs = useRef(0);
@@ -240,49 +262,59 @@ export function BuildBar() {
     const el = bar.current;
     if (!el) return;
     const fit = () => {
-      if (!compact && el.scrollWidth > el.clientWidth + 1) {
-        needs.current = el.scrollWidth;
-        setCompact(true);
-      } else if (compact && el.clientWidth >= needs.current) setCompact(false);
+      if (!compact) {
+        if (el.scrollWidth > el.clientWidth + 1) {
+          needs.current = el.scrollWidth;
+          setCompact(true);
+        } else if (shown !== categories.length) setShown(categories.length);
+        return;
+      }
+      if (el.clientWidth >= needs.current) {
+        setCompact(false);
+        setShown(categories.length);
+        return;
+      }
+      // As many menus as there is room for beside Select and More.
+      const [left, middle, right] = [...el.children] as HTMLElement[];
+      const button = middle.querySelector<HTMLElement>('.tool')?.offsetWidth ?? 64;
+      const style = getComputedStyle(el);
+      const pad = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      const sides = left.offsetWidth + right.offsetWidth + 2 * 13 + pad;
+      const fits = Math.floor((el.clientWidth - sides + 2) / (button + 2));
+      const n = Math.max(0, Math.min(categories.length, fits));
+      if (n !== shown) setShown(n);
     };
     fit();
     const watch = new ResizeObserver(fit);
     watch.observe(el);
     return () => watch.disconnect();
-  }, [compact, categories.length]);
-  // Picking a tool or a panel from it puts it away again.
-  useEffect(() => setMore(false), [current, panel.value]);
+  }, [compact, shown, categories.length]);
+  // Picking a tool, a panel or a menu from it puts it away again.
+  useEffect(() => setMore(false), [current, panel.value, openCategory.value]);
+  const hidden = compact ? categories.slice(shown) : [];
   const moreOn =
-    current === 'bulldoze' || current === 'unmark' || current === 'land' || panel.value === 'staff';
+    current === 'bulldoze' ||
+    current === 'unmark' ||
+    current === 'land' ||
+    panel.value === 'staff' ||
+    hidden.some(
+      (c) => c.id === openCategory.value || toolsAt(c, at).some((t) => t.tool === current),
+    );
   return (
     <>
       {open && <CategoryTray key={open.id} cat={open} />}
-      {compact && more && <div class="dock-more panel">{rest}</div>}
+      {compact && more && (
+        <div class="dock-more panel">
+          {hidden.map(catButton)}
+          {rest}
+        </div>
+      )}
       <footer class="dock panel" ref={bar}>
         <div class="dock-group">
           <ToolButton t={SELECT_TOOL} active={current === 'select'} />
         </div>
         <div class="dock-group">
-          {categories.map((c) => {
-            const tools = toolsAt(c, at);
-            const using = tools.find((t) => t.tool === current);
-            const isOpen = openCategory.value === c.id;
-            return (
-              <button
-                key={c.id}
-                class={`tool category ${isOpen ? 'open' : ''} ${using ? 'on' : ''}`}
-                onClick={() => (openCategory.value = isOpen ? null : c.id)}
-                aria-expanded={isOpen}
-                title={tools.map((t) => t.label).join(', ')}
-              >
-                <Icon name={using?.icon ?? c.icon} />
-                <span class="tool-label">{c.label}</span>
-                <span class="tool-cost">
-                  {using ? using.label : `${tools.length} item${tools.length === 1 ? '' : 's'}`}
-                </span>
-              </button>
-            );
-          })}
+          {categories.slice(0, compact ? shown : categories.length).map(catButton)}
         </div>
         {compact ? (
           <div class="dock-group">
