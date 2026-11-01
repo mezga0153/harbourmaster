@@ -4,7 +4,7 @@
 import type { World } from '../../world';
 import { book, hauliers, smallTrucks } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
-import { bayCap, boxLookOf, cratesAt, isMachine, wrapAngle } from '../../helpers';
+import { bayCap, boxesAt, boxLookOf, cratesAt, isMachine, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
 import { dest, unclaimed } from '../cargo/customs';
 import {
@@ -41,10 +41,9 @@ import {
   cannedTruck,
   clearTop,
   clearedFor,
-  exportLooks,
   iceTruck,
-  readyList,
-  yardSlots,
+  putBox,
+  takeBox,
 } from '../cargo/stores';
 import { message, moneyAt, tip } from '../output';
 import { gantryDone, gantryElsewhere, liftDone, liftTaken, offToGantry } from '../yardGantry';
@@ -74,7 +73,7 @@ export function spawnTrucks(w: World): void {
   // Fullest bays get trucks first. Container trucks collect from the yards,
   // and from large bays still holding containers from older saves.
   const load = (b: Bay) =>
-    cratesAt(b) / bayCap(b) + b.boxes.length / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
+    cratesAt(b) / bayCap(b) + boxesAt(b) / (b.yard ? bayCap(b) : B.TRUCK_CAPACITY);
   const bays = [...w.bays.values(), ...w.yards.values()]
     .filter((b) => {
       // Only where there is cargo no truck is already coming for.
@@ -347,8 +346,7 @@ export function updateTruck(w: World, t: Truck): void {
         });
       } else {
         if (++t.timer % truckTicks(w, t, bay) !== 0) return;
-        exportLooks(w, bay).push(boxLookOf(t.id, t.cargo - 1));
-        (bay.outBoxes ??= []).push(t.value);
+        putBox(w, bay, { fee: t.value, at: w.tick, look: boxLookOf(t.id, t.cargo - 1) }, true);
         bay.exportIncoming = Math.max(0, (bay.exportIncoming ?? 0) - 1);
       }
       if (--t.cargo <= 0) {
@@ -395,7 +393,6 @@ export function updateTruck(w: World, t: Truck): void {
         if (full || bored || (hands ? empty : done)) w.truckLeave(t);
         return;
       }
-      const stock = bay.boxes;
       // Containers only once customs have cleared them, whichever those
       // are: under a gantry, the one it took up.
       const lifted = t.lifting === undefined ? -1 : boxLooks(w, bay).indexOf(t.lifting);
@@ -412,15 +409,19 @@ export function updateTruck(w: World, t: Truck): void {
       // Crates its crew loads besides those dockhands and forklifts bring
       // it: none they are on their way for, nor more than it has room for
       // with theirs.
-      const spare = t.boxes ? stock.length : cratesFor(w, t, bay);
+      const spare = t.boxes ? boxesAt(bay) : cratesFor(w, t, bay);
       const coming = t.boxes ? 0 : (t.coming ?? 0);
       if (coming > 0) t.idle = 0;
       if (spare > 0 && at >= 0 && t.cargo + coming < t.capacity) {
-        if (t.boxes && bay.yard) yardSlots(w, bay).boxes.splice(at, 1);
-        if (t.boxes && bay.yard) readyList(w, bay).splice(at, 1);
-        if (t.boxes && bay.yard) (t.looks ??= []).push(boxLooks(w, bay).splice(at, 1)[0]);
-        if (t.boxes) {
-          t.value += stock.splice(at, 1)[0];
+        if (t.boxes && bay.yard) {
+          boxLooks(w, bay);
+          const box = takeBox(w, bay, at);
+          (t.looks ??= []).push(box.look!);
+          t.value += box.fee;
+          t.cargo++;
+        } else if (t.boxes) {
+          // From a large bay in an older save.
+          t.value += bay.boxes!.splice(at, 1)[0];
           t.cargo++;
         } else onBed(w, t, cratesOff(w, t, bay, at, 1));
         t.idle = 0;

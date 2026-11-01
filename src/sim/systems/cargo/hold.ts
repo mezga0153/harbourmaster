@@ -132,3 +132,16 @@ export function clear(cells: Cells, sh: Shape, s: number): boolean {
 export function feesOf(crates: Crate[]): number[] {
   return crates.map((c) => c.fee);
 }
+
+/** The last stamp given, so those set down in one tick keep the order they came in. */
+let last: { tick: number; k: number } = { tick: -1, k: 0 };
+
+/**
+ * When a crate is set down now, to tell the older from the newer (see
+ * Crate.at): the tick, and after it a fraction counting those set down
+ * already this tick.
+ */
+export function stamp(tick: number): number {
+  if (last.tick !== tick) last = { tick, k: 0 };
+  return tick + ++last.k / 1e6;
+}

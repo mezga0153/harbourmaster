@@ -37,11 +37,9 @@ function laneWorld(reachNorth = 5, reachSouth = 20) {
     tiles: Array.from({ length: 7 }, (_, k) => m.idx(X + 1, Y0 + k)),
     yard: true,
     outgoing: true,
-    boxes: [],
-    crates: [],
+    cells: [],
     boxIncoming: 0,
     incoming: 0,
-    boxReady: [],
   };
   world.yards.set(yard.idx, yard);
   world.gantryLane = (b: Any) => (b === yard ? lane : null);

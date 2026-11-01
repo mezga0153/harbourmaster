@@ -9,15 +9,14 @@ import {
   boxLooks,
   carriedLooks,
   clearTop,
-  exportLooks,
   nearerMachine,
   nextYardSlot,
-  reachFrom,
+  putBox,
   reachable,
-  readyList,
+  reachFrom,
   stackSides,
+  takeBox,
   workersAt,
-  yardSlots,
 } from './cargo/stores';
 import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
@@ -525,13 +524,12 @@ export function truckJob(w: World, p: Dockhand): boolean {
       if (p.truckLoad) {
         yard.truckReserved = Math.max(0, (yard.truckReserved ?? 0) - 1);
         // Only what customs have cleared, whichever that is.
-        const ready = readyList(w, yard);
         const at = clearTop(w, yard, reachFrom(w, yard, p.goal));
         if (at >= 0) {
-          yardSlots(w, yard).boxes.splice(at, 1);
-          ready.splice(at, 1);
-          look = boxLooks(w, yard).splice(at, 1)[0];
-          fee = yard.boxes.splice(at, 1)[0];
+          boxLooks(w, yard);
+          const box = takeBox(w, yard, at);
+          look = box.look;
+          fee = box.fee;
         } else t.coming = Math.max(0, (t.coming ?? 0) - 1);
       } else {
         t.taking = Math.max(0, (t.taking ?? 0) - 1);
@@ -583,17 +581,13 @@ export function landTruckLoad(
       (t.looks ??= []).push(...carriedLooks(w, p));
       t.idle = 0;
     } else if (yard) {
-      readyList(w, yard).push(0);
-      boxLooks(w, yard).push(...carriedLooks(w, p));
-      yard.boxes.push(fee);
+      carriedLooks(w, p);
+      putBox(w, yard, { ...p.load[0], ready: 0 }, false);
     }
   } else if (yard) {
     // On a stack it reaches from where it stands, if it can.
-    const slots = yardSlots(w, yard);
-    const at = stackedAt(w, p, yard);
-    if (at >= 0) slots.exports.push(at);
-    exportLooks(w, yard).push(...carriedLooks(w, p));
-    (yard.outBoxes ??= []).push(fee);
+    carriedLooks(w, p);
+    putBox(w, yard, p.load[0], true, stackedAt(w, p, yard));
     yard.exportIncoming = Math.max(0, (yard.exportIncoming ?? 0) - 1);
   }
 }

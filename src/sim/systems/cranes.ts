@@ -21,7 +21,7 @@ import { besideStack } from './yardGantry';
 import { feesOf } from './cargo/hold';
 import { exportTaken, nextSlots, setDown, slotBelow, usedSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
-import { carriedLooks, jibStore, outLooks, readyList, stackLooks } from './cargo/stores';
+import { boxesIn, carriedLooks, jibStore, outLooks, stackLooks } from './cargo/stores';
 
 export function addCrane(w: World, i: number, kind: Crane['kind']): void {
   w.cranes.set(i, { idx: i, kind, stack: [], reserved: 0, timer: 0, angle: 0, busy: false });
@@ -867,10 +867,7 @@ export function shipUnloaded(w: World, b: Boat): void {
   if (w.unloadedAt.has(b.id)) return;
   w.unloadedAt.set(b.id, w.tick);
   for (const y of w.yards.values()) {
-    const ready = readyList(w, y);
-    for (let k = 0; k < ready.length; k++) {
-      if (ready[k] === -b.id) ready[k] = w.tick + B.CUSTOMS_TICKS;
-    }
+    for (const c of boxesIn(y)) if (c.ready === -b.id) c.ready = w.tick + B.CUSTOMS_TICKS;
   }
 }
 

@@ -41,6 +41,7 @@ import {
   put,
   sized,
   stackShape,
+  stamp,
   take,
   usedIn,
   waits,
@@ -475,7 +476,7 @@ export function setDown(
 ): Crate[] {
   const crates = load.map((c) => {
     const crate: Crate = typeof c === 'number' ? { fee: c, at: w.tick } : c;
-    crate.at = w.tick;
+    crate.at = stamp(w.tick);
     crate.clears = undefined;
     if (out) crate.out = true;
     else delete crate.out;

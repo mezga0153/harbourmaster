@@ -16,6 +16,7 @@ import {
   jibCramped,
   machineGround,
   nextYardSlot,
+  putBox,
   reachFrom,
   readyList,
   stackLooks,
@@ -313,18 +314,16 @@ export function settleGantry(w: World, y: Bay): void {
   const h = y.gantryHeld;
   if (!h) return;
   const to = y.gantryTo;
+  const at = h.fees.length === 1 ? to : undefined;
   if (h.exports) {
-    if (to !== undefined && h.fees.length === 1) yardSlots(w, y).exports.push(to);
-    exportLooks(w, y).push(...h.looks);
-    (y.outBoxes ??= []).push(...h.fees);
+    h.fees.forEach((fee, k) => putBox(w, y, { fee, at: w.tick, look: h.looks[k] }, true, at));
     y.exportIncoming = Math.max(0, (y.exportIncoming ?? 0) - h.planned);
   } else {
     // Customs clear it a while after it is stacked, as any other.
-    const ready = h.fees.map((_, k) => customsFor(w, h.from?.[k]));
-    if (to !== undefined && h.fees.length === 1) yardSlots(w, y).boxes.push(to);
-    readyList(w, y).push(...ready);
-    boxLooks(w, y).push(...h.looks);
-    y.boxes.push(...h.fees);
+    h.fees.forEach((fee, k) => {
+      const box = { fee, at: w.tick, look: h.looks[k], ready: customsFor(w, h.from?.[k]) };
+      putBox(w, y, box, false, at);
+    });
     bayIncoming(y, true, -h.planned);
     w.stats.containers += h.fees.length;
     tip(w, 'customs');

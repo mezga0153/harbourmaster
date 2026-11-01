@@ -4,18 +4,18 @@
 import { bedCap } from './beds';
 import type { World } from '../../world';
 import type { Bay, Crate, Dockhand, Truck } from '../../state';
-import { bayIncoming, bayRoom, isBoxy, needsCustoms } from '../../helpers';
+import { bayIncoming, bayRoom, boxesAt, isBoxy, needsCustoms } from '../../helpers';
 import { nag } from '../output';
 import type { BayView } from '../../../protocol/views';
 import {
   bayWithRoom,
   carriedLooks,
   dropAt,
-  exportLooks,
   jibTiles,
   nearestWithRoom,
   offJibRoom,
   outLooks,
+  putBox,
   reachable,
   servesYard,
   stock,
@@ -67,7 +67,7 @@ export function heldMask(w: World, b: Bay): boolean[] {
 
 /** Crates at a bay (or `out`, exports) free to go: none still waiting. */
 export function readyIn(w: World, b: Bay, out: boolean): number {
-  if (b.yard) return out ? (b.outBoxes?.length ?? 0) : 0;
+  if (b.yard) return out ? boxesAt(b, true) : 0;
   return cratesIn(b, out).filter((c) => !waits(c, w.tick)).length;
 }
 
@@ -135,7 +135,7 @@ export function unclaimed(w: World, b: Bay, boxes: boolean, except?: Truck): num
   const ready = boxes
     ? b.yard
       ? reachable(w, b) - (b.truckReserved ?? 0)
-      : b.boxes.length
+      : boxesAt(b)
     : readyIn(w, b, false);
   let claimed = 0;
   for (const t of w.trucks) {
@@ -340,8 +340,8 @@ export function retargetExports(w: World, p: Dockhand): void {
     .filter((b) => takesExports(w, b) && bayRoom(b, boxy) >= p.carrying && servesYard(w, p, b))
     .sort((a, b) => w.distTo(here, a) - w.distTo(here, b))[0];
   if (store?.yard) {
-    exportLooks(w, store).push(...carriedLooks(w, p));
-    (store.outBoxes ??= []).push(...feesOf(p.load));
+    carriedLooks(w, p);
+    for (const c of p.load) putBox(w, store, c, true);
   } else if (store) setDown(w, store, p.load, true, undefined, { cleared: true });
   else
     nag(w, 'putDownExports', `${p.name} had nowhere to take the exports and put them down.`, 'bad');

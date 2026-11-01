@@ -16,7 +16,7 @@
 
 import type { World } from '../../world';
 import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
-import { filled, put, sized, take, usedIn } from './hold';
+import { filled, put, sized, stamp, take, usedIn } from './hold';
 import * as B from '../../balance';
 import { isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
@@ -228,7 +228,7 @@ export function onBed(w: World, t: Truck, crates: Crate[], p?: Dockhand): void {
     if (s < 0) s = cells.findIndex((c) => !c);
     if (s < 0) s = cells.length;
     while (cells.length <= s) cells.push(null);
-    c.at = w.tick;
+    c.at = stamp(w.tick);
     put(cells, s, c);
     used.add(s);
   });

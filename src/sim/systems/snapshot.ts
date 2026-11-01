@@ -14,6 +14,7 @@ import {
   boxLookOf,
   breachPenalty,
   cancelFee,
+  boxesAt,
   craneStack,
   cratesAt,
   isBoxy,
@@ -285,7 +286,7 @@ export function truckWhy(w: World, t: Truck): string | undefined {
   if (t.state !== 'loading') return undefined;
   const bay = dest(w, t.bayIdx);
   if (!bay) return undefined;
-  if (t.boxes && bay.yard && cleared(w, bay) === 0 && bay.boxes.length > 0) {
+  if (t.boxes && bay.yard && cleared(w, bay) === 0 && boxesAt(bay) > 0) {
     return 'Waiting for customs to clear the containers in the yard.';
   }
   if (w.collectable(bay) === 0) {
@@ -542,7 +543,7 @@ function troubleView(w: World, c: Contract, customs: boolean): ContractView['tro
 export function waitingCargo(w: World): Snapshot['stock'] {
   const cranes = [...w.cranes.values()];
   const yards = [...w.yards.values()];
-  const boxes = yards.reduce((n, y) => n + y.boxes.length, 0);
+  const boxes = yards.reduce((n, y) => n + boxesAt(y), 0);
   const clearedBoxes = yards.reduce((n, y) => n + cleared(w, y), 0);
   return {
     landed:
@@ -594,14 +595,14 @@ export function cargoStats(w: World): CargoStats {
     // Storage no truck can reach is a buffer by the cranes.
     if (b.noAccess && b.tiles) c.crates.landed += cratesAt(b);
     else c.crates.ready += cratesAt(b);
-    c.containers.ready += b.boxes.length;
+    c.containers.ready += boxesAt(b);
     c.crateExports.stored += cratesAt(b, true);
   }
   for (const y of w.yards.values()) {
     const clear = cleared(w, y);
     c.containers.ready += clear;
-    c.containers.customs += y.boxes.length - clear;
-    c.containerExports.stored += y.outBoxes?.length ?? 0;
+    c.containers.customs += boxesAt(y) - clear;
+    c.containerExports.stored += boxesAt(y, true);
   }
   for (const p of w.people) {
     if (!p.carrying) continue;
@@ -842,7 +843,7 @@ export function buildSnapshot(w: World): Snapshot {
     idx: b.idx,
     name: b.name ?? '',
     stock: cratesAt(b) + moved(b).set,
-    boxes: b.boxes.length,
+    boxes: boxesAt(b),
     capacity: bayCap(b),
     large: b.large,
     warehouse: !!b.warehouse,
@@ -906,8 +907,8 @@ export function buildSnapshot(w: World): Snapshot {
     yards: [...w.yards.values()].map((y) => ({
       idx: y.idx,
       name: y.name ?? '',
-      boxes: y.boxes.length,
-      exports: y.outBoxes?.length ?? 0,
+      boxes: boxesAt(y),
+      exports: boxesAt(y, true),
       ...yardLooks(w, y, lifts),
       outgoing: !!y.outgoing,
       shut: !!y.shut,

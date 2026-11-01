@@ -6,10 +6,13 @@ import {
   buried,
   buriedCount,
   collectable,
+  putBox,
   reachable,
+  readyList,
   takesExports,
   takesImports,
 } from '../src/sim/systems/cargo/stores';
+import { boxesAt } from '../src/sim/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -50,10 +53,11 @@ function yardPort() {
 
 /** Put containers in the yard at the given slots, cleared or clearing later. */
 function fill(world: Any, yard: Any, at: { slot: number; clear: boolean }[]) {
-  yard.boxes = at.map((_, k) => 100 + k);
-  yard.boxReady = at.map((a) => (a.clear ? 0 : world.tick + 2000));
-  yard.boxSlots = at.map((a) => a.slot);
-  yard.boxLooks = at.map((_, k) => k);
+  yard.cells = [];
+  at.forEach((a, k) => {
+    const ready = a.clear ? 0 : world.tick + 2000;
+    putBox(world, yard, { fee: 100 + k, at: 0, ready, look: k }, false, a.slot);
+  });
 }
 
 describe('A reach stacker with time on its hands', () => {
@@ -84,7 +88,7 @@ describe('A reach stacker with time on its hands', () => {
       { slot: 7, clear: true },
       { slot: 9, clear: false },
     ]);
-    const before = [...yard.boxReady].sort();
+    const before = readyList(world, yard).sort();
     expect(reachable(world, yard)).toBe(0);
     let restacking = 0;
     for (let k = 0; k < TICKS_PER_DAY && buriedCount(world, yard) > 0; k++) {
@@ -98,8 +102,8 @@ describe('A reach stacker with time on its hands', () => {
     for (let k = 0; k < 60; k++) world.step();
     const stacker = world.people.find((p: Any) => p.kind === 'stacker');
     expect(stacker.carrying).toBe(0);
-    expect(yard.boxes.length).toBe(4);
-    expect([...yard.boxReady].sort()).toEqual(before);
+    expect(boxesAt(yard)).toBe(4);
+    expect(readyList(world, yard).sort()).toEqual(before);
     // And it does not go on to bury them again.
     expect(buriedCount(world, yard)).toBe(0);
     expect(stacker.state).not.toBe('toPickup');
@@ -114,7 +118,7 @@ describe('A reach stacker with time on its hands', () => {
     expect(buriedCount(world, yard)).toBe(1);
     for (let k = 0; k < 200; k++) world.step();
     expect(world.people.some((p: Any) => p.restack)).toBe(false);
-    expect(yard.boxes.length).toBe(17);
+    expect(boxesAt(yard)).toBe(17);
   });
 });
 

@@ -31,7 +31,7 @@ import {
 import { Build, Deco, Store, Terrain, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { Rng } from '../src/sim/rng';
-import { bayRoom } from '../src/sim/helpers';
+import { bayRoom, boxesAt } from '../src/sim/helpers';
 import { World } from '../src/sim/world';
 import { tip } from '../src/sim/systems/output';
 import {
@@ -73,9 +73,12 @@ import { pathFor, roomToTurn, tileBehind } from '../src/sim/systems/workforce/cr
 import { assignJob, craneStackTiles, spawnDockhand } from '../src/sim/systems/workforce/dockhands';
 import { outgoingFull, shipOut, stillLoading, stranded } from '../src/sim/systems/cargo/exports';
 import {
+  boxesIn,
+  boxFees,
   byCrane,
   clearTop,
   nextYardSlot,
+  putBox,
   reachable,
   takesExports,
   takesImports,
@@ -2727,12 +2730,12 @@ describe('Container Port tier', () => {
     );
     const yard = world.yards.get(t.yard)!;
     // Some in it, then shut it.
-    for (let k = 0; k < TICKS_PER_DAY * 4 && yard.boxes.length < 4; k++) world.step();
-    expect(yard.boxes.length).toBeGreaterThan(0);
+    for (let k = 0; k < TICKS_PER_DAY * 4 && boxesAt(yard) < 4; k++) world.step();
+    expect(boxesAt(yard)).toBeGreaterThan(0);
     world.command({ type: 'shutStore', idx: yard.idx, shut: true });
     expect(world.snapshot().yards.find((y) => y.idx === yard.idx)!.shut).toBe(true);
     // Those already on their way still come; nothing more is sent.
-    const most = yard.boxes.length + yard.boxIncoming;
+    const most = boxesAt(yard) + yard.boxIncoming;
     add(
       {
         kind: 'haulier',
@@ -2749,7 +2752,7 @@ describe('Container Port tier', () => {
     let waiting = false;
     for (let k = 0; k < TICKS_PER_DAY * 6; k++) {
       world.step();
-      expect(yard.boxes.length).toBeLessThanOrEqual(most);
+      expect(boxesAt(yard)).toBeLessThanOrEqual(most);
       if (
         k % 20 === 0 &&
         craneWhy(world, world.cranes.get(t.crane)!).startsWith(
@@ -2760,7 +2763,7 @@ describe('Container Port tier', () => {
       }
     }
     // The trucks take what is in it; the crane says why it stacks them up.
-    expect(yard.boxes.length).toBeLessThan(most);
+    expect(boxesAt(yard)).toBeLessThan(most);
     expect(waiting).toBe(true);
     // It stays shut through a save, and when the area is made bigger.
     const again = World.fromSave(world.toSave());
@@ -3146,7 +3149,7 @@ describe('Container Port tier', () => {
     world['headOut'] = (() => {
       t.state = 'leaving';
     }) as never;
-    const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown; outBoxes?: number[] };
+    const y = yard as { gantryLift?: { start: number }; gantryHeld?: unknown };
     updateTruck(world, t as never);
     const taken: number = takenIn(world, yard);
     const start = y.gantryLift!.start;
@@ -3164,7 +3167,7 @@ describe('Container Port tier', () => {
     // Off as soon as the spreader had it, well before it was set down.
     expect(left).toBe(taken);
     expect(set).toBeGreaterThan(left);
-    expect(y.outBoxes).toEqual([210]);
+    expect(boxFees(yard as never, true)).toEqual([210]);
   });
 
   it('lets a tractor go as soon as a gantry crane has its export up', () => {
@@ -3206,15 +3209,11 @@ describe('Container Port tier', () => {
     const yard = [...world.yards.values()][0];
     const spot: number = storeSpots(world, yard)[0];
     world.command({ type: 'build', kind: 'yardGantry', tiles: [spot] });
-    yard.boxes = [];
-    yard.boxReady = [];
-    yard.boxSlots = [];
+    yard.cells = [];
     // Each waits on its ship to finish unloading, as customsFor has it.
     const put = (ship: number) => {
       const k: number = nextYardSlot(world, yard, -ship);
-      yard.boxes.push(0);
-      yard.boxReady!.push(-ship);
-      yard.boxSlots!.push(k);
+      putBox(world, yard, { fee: 0, at: 0, ready: -ship }, false, k);
       return { k, tier: Math.floor((k % B.BOXES_PER_STORE_TILE) / 2) };
     };
     const first = [put(101), put(101), put(101)];
@@ -3887,13 +3886,13 @@ describe('Container Port tier', () => {
       0,
     );
     const yard = world.yards.get(t.yard)!;
-    yard.boxes.push(100, 100);
-    yard.boxReady = [world.tick + B.CUSTOMS_TICKS, world.tick + B.CUSTOMS_TICKS + 50];
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick + B.CUSTOMS_TICKS }, false);
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick + B.CUSTOMS_TICKS + 50 }, false);
     for (let k = 0; k < B.CUSTOMS_TICKS - 10; k++) world.step();
-    expect(yard.boxes).toHaveLength(2);
+    expect(boxesAt(yard)).toBe(2);
     expect(world.snapshot().yards.find((y) => y.idx === t.yard)!.cleared).toBe(0);
     for (let k = 0; k < 400; k++) world.step();
-    expect(yard.boxes).toHaveLength(0);
+    expect(boxesAt(yard)).toBe(0);
   });
 
   it('sends a two-container truck to a yard only once two are cleared for it', () => {
@@ -3919,26 +3918,23 @@ describe('Container Port tier', () => {
     const yard = world.yards.get(t.yard)!;
     const sent = () => world.trucks.filter((k) => k.boxes && k.bayIdx === t.yard).length;
     // One just cleared: no truck comes for it yet.
-    yard.boxes.push(100);
-    yard.boxReady = [world.tick];
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick }, false);
     for (let k = 0; k < B.PART_LOAD_WAIT / 2; k++) world.step();
     expect(sent()).toBe(0);
-    expect(yard.boxes).toHaveLength(1);
+    expect(boxesAt(yard)).toBe(1);
     // A second: one comes, and takes both.
-    yard.boxes.push(100);
-    yard.boxReady!.push(world.tick);
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick }, false);
     let most = 0;
     for (let k = 0; k < 400; k++) {
       world.step();
       most = Math.max(most, sent());
     }
     expect(most).toBe(1);
-    expect(yard.boxes).toHaveLength(0);
+    expect(boxesAt(yard)).toBe(0);
     // A last one on its own is fetched in the end, rather than left for good.
-    yard.boxes.push(100);
-    yard.boxReady!.push(world.tick);
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick }, false);
     for (let k = 0; k < B.PART_LOAD_WAIT + 400; k++) world.step();
-    expect(yard.boxes).toHaveLength(0);
+    expect(boxesAt(yard)).toBe(0);
   });
 
   it('lets trucks take a cleared container only once nothing is stacked on it', () => {
@@ -3952,20 +3948,18 @@ describe('Container Port tier', () => {
     // machines can get at it, every one cleared.
     const ground = workable(world, yard)!.size * 2;
     for (let k = 0; k < ground; k++) {
-      yard.boxes.push(100);
-      (yard.boxReady ??= []).push(0);
+      putBox(world, yard, { fee: 100, at: 0, ready: 0 }, false);
     }
     yardSlots(world, yard);
     // One still in customs has nowhere but on top of one of them.
-    yard.boxes.push(100);
-    yard.boxReady!.push(world.tick + 10 * TICKS_PER_DAY);
+    putBox(world, yard, { fee: 100, at: 0, ready: world.tick + 10 * TICKS_PER_DAY }, false);
     const slots = yardSlots(world, yard).boxes;
     expect(slots[ground]).toBe(slots[0] + 2);
     // The one under it is buried: the trucks can reach all but that.
     expect(reachable(world, yard)).toBe(ground - 1);
     expect(clearTop(world, yard)).not.toBe(0);
     // Once the one on top clears too, it can go, before the one under it.
-    yard.boxReady![ground] = 0;
+    boxesIn(yard)[ground].ready = 0;
     expect(reachable(world, yard)).toBe(ground + 1);
     expect(clearTop(world, yard)).toBe(ground);
   });
@@ -3982,13 +3976,11 @@ describe('Container Port tier', () => {
     const soon = world.tick + TICKS_PER_DAY;
     const later = world.tick + 7 * TICKS_PER_DAY;
     for (let k = 0; k < ground; k++) {
-      yard.boxes.push(100);
-      (yard.boxReady ??= []).push(k === 0 ? soon : later);
+      putBox(world, yard, { fee: 100, at: 0, ready: k === 0 ? soon : later }, false);
     }
     yardSlots(world, yard);
     // One clearing in a week goes on one of those, not on the first.
-    yard.boxes.push(100);
-    yard.boxReady!.push(later);
+    putBox(world, yard, { fee: 100, at: 0, ready: later }, false);
     const slots = yardSlots(world, yard).boxes;
     expect(slots[ground]).not.toBe(slots[0] + 2);
   });
@@ -4031,10 +4023,10 @@ describe('Container Port tier', () => {
     let stacked = -1;
     let taken = -1;
     for (let k = 0; k < TICKS_PER_DAY * 6 && taken < 0; k++) {
-      const before = yard.boxes.length;
+      const before = boxesAt(yard);
       world.step();
-      if (stacked < 0 && yard.boxes.length > before) stacked = world.tick;
-      if (yard.boxes.length < before) taken = world.tick;
+      if (stacked < 0 && boxesAt(yard) > before) stacked = world.tick;
+      if (boxesAt(yard) < before) taken = world.tick;
     }
     expect(stacked).toBeGreaterThan(0);
     expect(taken).toBeGreaterThan(0);
@@ -4578,8 +4570,8 @@ describe('Container Port tier', () => {
     // takes its time coming alongside.
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) world.step();
     const yard = world.yards.get(t.yard)!;
-    expect(yard.boxes.length).toBeGreaterThan(0);
-    expect([...world.bays.values()].every((b) => b.boxes.length === 0)).toBe(true);
+    expect(boxesAt(yard)).toBeGreaterThan(0);
+    expect([...world.bays.values()].every((b) => boxesAt(b) === 0)).toBe(true);
     add(
       {
         kind: 'haulier',
@@ -4597,9 +4589,9 @@ describe('Container Port tier', () => {
     // customs have had their day after the ship was unloaded.
     let collected = 0;
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
-      const before = yard.boxes.length;
+      const before = boxesAt(yard);
       world.step();
-      collected += Math.max(0, before - yard.boxes.length);
+      collected += Math.max(0, before - boxesAt(yard));
     }
     expect(collected).toBeGreaterThan(0);
   });
@@ -4631,7 +4623,8 @@ describe('Container Port tier', () => {
     world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: true });
     expect(storeSpots(world, world.yards.get(t.yard)!)).toEqual([]);
     world.command({ type: 'forkliftOnly', tiles: yard.tiles!, on: false });
-    yard.boxes.push(100, 100);
+    putBox(world, yard, { fee: 100, at: 0, ready: 0 }, false);
+    putBox(world, yard, { fee: 100, at: 0, ready: 0 }, false);
     addContract(
       world,
       {
@@ -4646,9 +4639,9 @@ describe('Container Port tier', () => {
       0,
       0,
     );
-    for (let k = 0; k < TICKS_PER_DAY && yard.boxes.length > 0; k++) world.step();
+    for (let k = 0; k < TICKS_PER_DAY && boxesAt(yard) > 0; k++) world.step();
     expect(yard.noAccess).toBe(false);
-    expect(yard.boxes.length).toBe(0);
+    expect(boxesAt(yard)).toBe(0);
   });
 
   it('keeps trucks from loading storage by a crane', () => {
@@ -4675,7 +4668,7 @@ describe('Container Port tier', () => {
     const world = World.create(7, 96);
     const bay = [...world.bays.values()][0];
     bay.large = true;
-    bay.boxes.push(100, 100);
+    (bay.boxes ??= []).push(100, 100);
     addContract(
       world,
       {
@@ -4691,7 +4684,7 @@ describe('Container Port tier', () => {
       0,
     );
     for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
-    expect(bay.boxes.length).toBe(0);
+    expect(boxesAt(bay)).toBe(0);
   });
 });
 

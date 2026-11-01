@@ -142,7 +142,7 @@ export function liftTicks(l: GantryLift): number {
 /** Room left at a bay for crates, or at a container yard for containers. */
 export function bayRoom(b: Bay, boxes: boolean): number {
   if (b.pile) return boxes ? 0 : B.PILE_CRATES - cratesAt(b) - b.incoming;
-  if (b.yard) return boxes ? bayCap(b) - b.boxes.length - b.boxIncoming - outHeld(b) : 0;
+  if (b.yard) return boxes ? bayCap(b) - boxesAt(b) - b.boxIncoming - outHeld(b) : 0;
   if (boxes) return 0;
   return bayCap(b) - cratesAt(b) - b.incoming - outHeld(b);
 }
@@ -195,7 +195,16 @@ export function heldIn(b: Bay): number {
 
 /** Exports waiting at a bay: containers in a yard, crates elsewhere. */
 export function exportsAt(b: Bay): number {
-  return b.yard ? (b.outBoxes?.length ?? 0) : cratesAt(b, true);
+  return b.yard ? boxesAt(b, true) : cratesAt(b, true);
+}
+
+/**
+ * Containers waiting at a yard (or `out`, to go out on a ship), or at a
+ * large truck bay from an older save.
+ */
+export function boxesAt(b: Bay, out = false): number {
+  if (b.yard) return count(b.cells ?? [], out);
+  return out ? 0 : (b.boxes?.length ?? 0);
 }
 
 /**
@@ -204,6 +213,7 @@ export function exportsAt(b: Bay): number {
  */
 export function cratesAt(b: Bay, out = false): number {
   const cells = b.cells ?? [];
+  if (b.yard) return 0;
   if (b.pile) return out ? 0 : count(cells);
   return count(cells, out);
 }

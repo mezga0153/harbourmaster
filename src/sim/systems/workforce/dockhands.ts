@@ -14,19 +14,21 @@ import {
   dropAt,
   dropRoom,
   freeYardSlot,
+  jibCramped,
   nearerMachine,
+  offJibRoom,
   pickupSpots,
+  putBox,
   reachFrom,
   readyList,
+  readyOn,
   servesYard,
   sourceValid,
   stackSides,
+  takeBox,
   takeFromSource,
   takesImports,
   truckable,
-  jibCramped,
-  offJibRoom,
-  readyOn,
   workersAt,
   yardSlots,
   yardWithRoom,
@@ -616,23 +618,6 @@ export function updateDockhand(w: World, p: Dockhand): void {
       const bay = dest(w, p.bayIdx);
       if (!bay) return retargetCrate(w, p);
       const boxy = isBoxy(p);
-      // Customs clear a container a while after it is stacked in the yard.
-      // Their times go on first, while the list still matches the yard.
-      if (boxy) {
-        // A stacker sets it on a stack it reaches from where it stands; a
-        // gantry where it kept for it.
-        const clears = (k: number) => p.load[k].ready ?? customsFor(w, p.load[k].from);
-        if (p.kind === 'stacker' && bay.yard) {
-          const slots = yardSlots(w, bay);
-          p.load.forEach((_, k) => {
-            slots.boxes.push(stackedAt(w, p, bay, clears(k)));
-          });
-        } else if (gantryTo !== undefined && p.load.length === 1) {
-          yardSlots(w, bay).boxes.push(gantryTo);
-        }
-        readyList(w, bay).push(...p.load.map((_, k) => clears(k)));
-        boxLooks(w, bay).push(...carriedLooks(w, p));
-      }
       // A truck waiting at the bay: straight onto it.
       const onto = straightOnto(w, p, bay);
       // Brought for a truck that has gone meanwhile, they go on the stack
@@ -640,7 +625,22 @@ export function updateDockhand(w: World, p: Dockhand): void {
       if (onto) {
         onBed(w, onto, p.load, p);
         onto.idle = 0;
-      } else if (boxy) bay.boxes.push(...feesOf(p.load));
+      } else if (boxy) {
+        // Customs clear a container a while after it is stacked in the
+        // yard. A stacker sets it on a stack it reaches from where it
+        // stands; a gantry where it kept for it.
+        carriedLooks(w, p);
+        for (const c of p.load) {
+          c.ready ??= customsFor(w, c.from);
+          const at =
+            p.kind === 'stacker' && bay.yard
+              ? stackedAt(w, p, bay, c.ready)
+              : p.load.length === 1
+                ? gantryTo
+                : undefined;
+          putBox(w, bay, c, false, at);
+        }
+      }
       // Timber and goods wait in crate storage for customs.
       else setDown(w, bay, p.load, false, p, { cleared: p.cleared });
       p.cleared = undefined;
@@ -1012,21 +1012,15 @@ export function restackJob(w: World, p: Dockhand): boolean {
         cancelJob(w, p);
         return true;
       }
-      const ready = readyList(w, yard);
-      yardSlots(w, yard).boxes.splice(take.at, 1);
-      const box = {
-        ready: ready.splice(take.at, 1)[0],
-        look: boxLooks(w, yard).splice(take.at, 1)[0],
-        fee: yard.boxes.splice(take.at, 1)[0],
-        at: w.tick,
-      };
+      boxLooks(w, yard);
+      const box = takeBox(w, yard, take.at);
       p.load = [box];
       p.carrying = 1;
       p.restack = undefined;
       const target = dest(w, p.bayIdx);
       // Straight down where it stands if that buries nothing; else over to
       // where it does, or where it can.
-      if (target === yard && cleanSlot(w, yard, p.goal, box.ready) >= 0) {
+      if (target === yard && cleanSlot(w, yard, p.goal, box.ready ?? 0) >= 0) {
         p.state = 'dropping';
         p.timer = handlingTicks(w, p, B.DROP_TICKS);
         return true;

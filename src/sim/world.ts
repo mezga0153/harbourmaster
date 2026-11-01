@@ -115,7 +115,7 @@ import {
   updateDockhand,
 } from './systems/workforce/dockhands';
 import { spawnShipments } from './systems/cargo/exports';
-import { shutStore } from './systems/cargo/stores';
+import { putBox, shutStore, yardCells } from './systems/cargo/stores';
 import { addBay, crossesRails, lots, parkUp } from './systems/roads/bays';
 import { nameBays } from './designations';
 import { noteTiles } from './systems/roads/traffic';
@@ -178,6 +178,66 @@ function loadCarried(d: Omit<Dockhand, 'handed'> & OldLoad): Dockhand {
     out.handed = was.fees.map((fee, k) => ({ fee, at: 0, look: was.looks[k], from: was.from[k] }));
   }
   return out;
+}
+
+/** How an older save kept a container yard's containers: fees in lists, and their slots, looks and customs beside them. */
+interface OldYard {
+  boxes?: number[];
+  boxReady?: number[];
+  boxSlots?: number[];
+  boxLooks?: number[];
+  outBoxes?: number[];
+  exports?: number[];
+  exportSlots?: number[];
+  exportLooks?: number[];
+  crates?: number[];
+}
+
+/**
+ * A container yard as saved, copied for the game to keep, or from an
+ * older save's lists into its cells: each container in the slot it had,
+ * the rest where they would go now; those with no customs time clear.
+ */
+function loadYard(w: World, d: Bay & OldYard): Bay {
+  const {
+    boxes,
+    boxReady,
+    boxSlots,
+    boxLooks,
+    outBoxes,
+    exports,
+    exportSlots,
+    exportLooks,
+    crates,
+    ...y
+  } = d;
+  void crates;
+  y.yard = true;
+  if (Array.isArray(y.cells) && !boxes) {
+    y.cells = y.cells.map((c) => c && { ...c });
+    return y;
+  }
+  y.cells = [];
+  const cells = yardCells(y);
+  const later: [Crate, boolean][] = [];
+  for (const [fees, slots, looks, out] of [
+    [boxes ?? [], boxSlots, boxLooks, false],
+    [outBoxes ?? exports ?? [], exportSlots, exportLooks, true],
+  ] as const) {
+    // Older saves have no customs times: all clear.
+    const ready = out ? [] : (boxReady ?? []);
+    const pad = fees.length - ready.length;
+    fees.forEach((fee, i) => {
+      const c: Crate = { fee, at: i - fees.length, look: looks?.[i] };
+      if (out) c.out = true;
+      else c.ready = i < pad ? 0 : ready[i - pad];
+      const s = slots?.[i] ?? -1;
+      if (s >= 0 && s < cells.length && !cells[s]) cells[s] = c;
+      else later.push([c, out]);
+    });
+  }
+  for (const [c, out] of later) putBox(w, y, c, out);
+  return y;
 }
 
 /**
@@ -555,7 +615,7 @@ export class World {
         bay.idx,
         loadCrates(world, {
           ...bay,
-          boxes: [...(bay.boxes ?? [])],
+          boxes: bay.boxes?.length ? [...bay.boxes] : undefined,
           boxIncoming: bay.boxIncoming ?? 0,
           large: bay.large ?? false,
           tiles: bay.tiles ? [...bay.tiles] : bay.warehouse ? [bay.idx] : undefined,
@@ -567,16 +627,7 @@ export class World {
     for (const [i, name] of s.lotNames ?? []) world.lotNames.set(i, name);
     for (const pile of s.piles ?? []) world.piles.set(pile.idx, loadCrates(world, { ...pile }));
     for (const y of s.yards ?? []) {
-      const { exports, crates, ...rest } = y as Bay & OldCrates;
-      void crates;
-      world.yards.set(y.idx, {
-        ...rest,
-        cells: [],
-        yard: true,
-        boxes: [...y.boxes],
-        outBoxes: [...(y.outBoxes ?? exports ?? [])],
-        tiles: y.tiles ? [...y.tiles] : [y.idx],
-      });
+      world.yards.set(y.idx, loadYard(world, { ...y, tiles: y.tiles ? [...y.tiles] : [y.idx] }));
     }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     world.tipsSeen = new Set(s.tips ?? []);

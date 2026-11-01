@@ -4,7 +4,8 @@
 import type { World } from '../../world';
 import { dest, holds, nextHold, readyIn, takeReady, waitMask } from './customs';
 import { roadTo } from '../roads/bays';
-import type { Bay, Boat, Crane, Crate, Dockhand, Truck } from '../../state';
+import type { Bay, Boat, Cells, Crane, Crate, Dockhand, Truck } from '../../state';
+import { feesOf, filled, put, sized, stamp, take } from './hold';
 import { message } from '../output';
 import * as B from '../../balance';
 import { laneThrough } from '../workforce/crowding';
@@ -15,6 +16,7 @@ import {
   bayCap,
   boxLookOf,
   bayRoom,
+  boxesAt,
   cratesAt,
   craneStacks,
   heldIn,
@@ -155,17 +157,15 @@ export function takeFromSource(w: World, p: Dockhand): Crate[] {
         const n = Math.min(p.planned, cratesAt(pile, true), onPallet(w, p, pile));
         return takeReady(w, pile, true, takenFrom(w, p, pile, n), n);
       }
-      const out = (pile.outBoxes ??= []);
-      const n = Math.min(p.planned, out.length);
+      const n = Math.min(p.planned, boxesAt(pile, true));
       // Off the top of the stacks in a yard.
       const load: Crate[] = [];
       const reach = p.kind === 'stacker' ? reachFrom(w, pile, p.goal) : undefined;
       for (let k = 0; k < n; k++) {
         const i = yardTop(w, pile, true, undefined, reach);
         if (i < 0) break;
-        yardSlots(w, pile).exports.splice(i, 1);
-        const look = exportLooks(w, pile).splice(i, 1)[0];
-        load.push({ fee: out.splice(i, 1)[0], at: w.tick, look });
+        exportLooks(w, pile);
+        load.push(takeBox(w, pile, i, true));
       }
       return load;
     }
@@ -611,15 +611,57 @@ export function tractorSpot(w: World, p: Dockhand, yard: Bay, from: number): num
   return order.find((t) => drivable(w.map.build[t]) && w.pathFor(p, from, t)) ?? -1;
 }
 
-/**
- * When each container in a yard clears customs, kept in step with its
- * containers; an older save's are clear already.
- */
+/** A container yard's cells, one for each place a container can stand; see yardPlace. */
+export function yardCells(b: Bay): Cells {
+  return sized((b.cells ??= []), bayCap(b));
+}
+
+/** The slots of a yard's containers (or `out`, its exports), oldest first. */
+function yardOrder(b: Bay, out: boolean): number[] {
+  const cells = yardCells(b);
+  return filled(cells, out).sort((x, y) => cells[x]!.at - cells[y]!.at || x - y);
+}
+
+/** A yard's containers (or `out`, its exports), oldest first. */
+export function boxesIn(b: Bay, out = false): Crate[] {
+  const cells = yardCells(b);
+  return yardOrder(b, out).map((s) => cells[s]!);
+}
+
+/** The fees of a yard's containers (or `out`, its exports), oldest first. */
+export function boxFees(b: Bay, out = false): number[] {
+  return feesOf(boxesIn(b, out));
+}
+
+/** When each container in a yard clears customs, oldest first (see Crate.ready); older saves' are clear. */
 export function readyList(_w: World, b: Bay): number[] {
-  b.boxReady ??= [];
-  while (b.boxReady.length < b.boxes.length) b.boxReady.unshift(0);
-  if (b.boxReady.length > b.boxes.length) b.boxReady.length = b.boxes.length;
-  return b.boxReady;
+  return boxesIn(b).map((c) => c.ready ?? 0);
+}
+
+/**
+ * A container set down in a yard (or `out`, an export): in `slot` if that
+ * is free, else where it would go now (see freeYardSlot).
+ */
+export function putBox(w: World, b: Bay, c: Crate, out: boolean, slot?: number): void {
+  const cells = yardCells(b);
+  c.at = stamp(w.tick);
+  if (out) c.out = true;
+  else delete c.out;
+  let s = slot !== undefined && slot >= 0 && slot < cells.length && !cells[slot] ? slot : -1;
+  if (s < 0) {
+    const { boxes, exports } = yardSlots(w, b);
+    s = freeYardSlot(w, b, boxes, exports, out ? undefined : (c.ready ?? 0));
+  }
+  // With no place as it should go, any empty one; past the last if none.
+  if (s < 0) s = cells.findIndex((q) => !q);
+  if (s < 0) s = cells.length;
+  while (cells.length <= s) cells.push(null);
+  put(cells, s, c);
+}
+
+/** Take a yard's container (or `out`, export) `i`, oldest first, out of it. */
+export function takeBox(_w: World, b: Bay, i: number, out = false): Crate {
+  return take(yardCells(b), yardOrder(b, out)[i]);
 }
 
 /** Whether customs have cleared a container ready at `r` (see boxReady). */
@@ -637,43 +679,14 @@ export function outLooks(_w: World, c: Crane): number[] {
   return (c.outLooks = aligned(c.outStack ?? [], c.outLooks, c.idx + 1));
 }
 
-/** How the containers in a yard look. */
+/** How the containers in a yard look, oldest first. */
 export function boxLooks(_w: World, b: Bay): number[] {
-  return (b.boxLooks = aligned(b.boxes, b.boxLooks, b.idx));
+  return boxesIn(b).map((c, k) => (c.look ??= boxLookOf(b.idx, 1000 + k)));
 }
 
-/**
- * The slot each container in a yard is stacked in, and each export,
- * kept beside them: a container set down goes in the lowest free place
- * with one under it, across the whole yard before it goes higher; under
- * a yard gantry, up first (see freeYardSlot).
- */
-export function yardSlots(w: World, b: Bay): { boxes: number[]; exports: number[] } {
-  const boxes = (b.boxSlots ??= []);
-  const exports = (b.exportSlots ??= []);
-  if (boxes.length > b.boxes.length) boxes.length = b.boxes.length;
-  if (exports.length > (b.outBoxes?.length ?? 0)) exports.length = b.outBoxes?.length ?? 0;
-  const cap = bayCap(b);
-  const used = new Set<number>();
-  for (const list of [boxes, exports]) {
-    list.forEach((k, i) => {
-      if (k >= cap || used.has(k)) list[i] = -1;
-      else used.add(k);
-    });
-  }
-  const ready = readyList(w, b);
-  for (const [list, n, out] of [
-    [boxes, b.boxes.length, false],
-    [exports, b.outBoxes?.length ?? 0, true],
-  ] as const) {
-    for (let i = 0; i < n; i++) {
-      if (i < list.length && list[i] >= 0) continue;
-      const k = freeYardSlot(w, b, boxes, exports, out ? undefined : ready[i]);
-      list[i] = k;
-      used.add(k);
-    }
-  }
-  return { boxes, exports };
+/** The slot each container in a yard is stacked in, and each export, oldest first. */
+export function yardSlots(_w: World, b: Bay): { boxes: number[]; exports: number[] } {
+  return { boxes: yardOrder(b, false), exports: yardOrder(b, true) };
 }
 
 /**
@@ -846,9 +859,9 @@ export function reachable(w: World, b: Bay): number {
   return n;
 }
 
-/** How the containers waiting in a yard to go out look. */
+/** How the containers waiting in a yard to go out look, oldest first. */
 export function exportLooks(_w: World, b: Bay): number[] {
-  return (b.exportLooks = aligned(b.outBoxes ?? [], b.exportLooks, b.idx + 1));
+  return boxesIn(b, true).map((c, k) => (c.look ??= boxLookOf(b.idx + 1, 1000 + k)));
 }
 
 /** How the containers a stacker carries look, each given one if it has none. */
@@ -881,5 +894,5 @@ export function nextClear(w: World, b: Bay): number {
 
 /** What a truck could take away from this bay now. */
 export function collectable(w: World, b: Bay): number {
-  return readyIn(w, b, false) + (b.yard ? reachable(w, b) : b.boxes.length);
+  return readyIn(w, b, false) + (b.yard ? reachable(w, b) : boxesAt(b));
 }

@@ -84,12 +84,12 @@ import {
 } from '../roads';
 import { nextParkWay } from '../rules/parking';
 import type { Bay, Crate } from '../state';
-import { bayCap, bayIncoming, bayRoom, cratesAt, isBoxy } from '../helpers';
+import { bayCap, bayIncoming, bayRoom, boxesAt, cratesAt, isBoxy, yardPlace } from '../helpers';
 import { cratesIn, place, slotsOf, stackOf } from './cargo/places';
 import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
-import { jibStows, readyList, removePile } from './cargo/stores';
+import { boxesIn, jibStows, putBox, removePile, yardCells, yardSlots } from './cargo/stores';
 import { dest } from './cargo/customs';
 import { addBay, lotOf, lotTrouble, lots, removeBay } from './roads/bays';
 import { handOn, prefixOf } from '../designations';
@@ -609,8 +609,8 @@ export function rebuildStores(w: World): void {
   const had = new Map<number, string>();
   for (const a of old) for (const t of a.tiles!) if (a.name) had.set(t, a.name);
   const areas: Bay[] = [];
-  const held = new Map<number, number[]>();
-  const ready = new Map<number, number[]>();
+  // Containers coming in, by the tile they stand on.
+  const held = new Map<number, Crate[]>();
   // Crates coming in, by the tile they stand on.
   const crates = new Map<number, Crate[]>();
   const lost = { crates: 0, boxes: 0 };
@@ -621,15 +621,12 @@ export function rebuildStores(w: World): void {
   for (const a of old) {
     const tiles = a.tiles!;
     if (a.yard) {
-      const goods = a.boxes;
-      const clear = readyList(w, a);
-      const per = B.BOXES_PER_STORE_TILE;
-      tiles.forEach((t, k) => {
-        const last = k === tiles.length - 1;
-        held.set(t, goods.slice(k * per, last ? undefined : (k + 1) * per));
-        ready.set(t, clear.slice(k * per, last ? undefined : (k + 1) * per));
-      });
-      lost.boxes += goods.length;
+      const cells = yardCells(a);
+      for (const s of yardSlots(w, a).boxes) {
+        const t = tiles[Math.min(tiles.length - 1, yardPlace(s).tile)];
+        held.set(t, [...(held.get(t) ?? []), cells[s]!]);
+      }
+      lost.boxes += boxesAt(a);
     } else {
       for (const s of slotsOf(a, false)) {
         const t = tiles[Math.min(tiles.length - 1, stackOf(a, s))];
@@ -670,7 +667,6 @@ export function rebuildStores(w: World): void {
       yard,
       outgoing: storesOutgoing(kind),
       tiles,
-      boxes: [],
       boxIncoming: 0,
       cells: [],
       incoming: 0,
@@ -687,16 +683,15 @@ export function rebuildStores(w: World): void {
       place(w, area, goods);
       lost.crates -= goods.length;
     }
-    const goods = yard ? tiles.flatMap((t) => held.get(t) ?? []).slice(0, bayCap(area)) : [];
-    area.boxes.push(...goods);
     if (yard) {
-      area.boxReady = tiles.flatMap((t) => ready.get(t) ?? []).slice(0, goods.length);
-      // Joined up from areas stacked at different times: oldest first.
-      const order = goods.map((_, k) => k).sort((x, y) => area.boxReady![x] - area.boxReady![y]);
-      area.boxes = order.map((k) => goods[k]);
-      area.boxReady = order.map((k) => area.boxReady![k]);
+      // Joined up from areas stacked at different times: those clearing first, first.
+      const goods = tiles
+        .flatMap((t) => held.get(t) ?? [])
+        .slice(0, bayCap(area))
+        .sort((x, y) => (x.ready ?? 0) - (y.ready ?? 0));
+      for (const c of goods) putBox(w, area, c, false);
+      lost.boxes -= goods.length;
     }
-    lost.boxes -= goods.length;
     (yard ? w.yards : w.bays).set(i, area);
     areas.push(area);
   }
@@ -742,8 +737,8 @@ export function rebuildStores(w: World): void {
     if (!a.yard && area && area.tiles?.join() === a.tiles?.join()) continue;
     const room = area ? Math.max(0, bayRoom(area, !!a.yard)) : 0;
     if (a.yard) {
-      const goods = a.outBoxes ?? [];
-      if (area) (area.outBoxes ??= []).push(...goods.slice(0, room));
+      const goods = boxesIn(a, true);
+      if (area) for (const c of goods.slice(0, room)) putBox(w, area, c, true);
       lost.boxes += Math.max(0, goods.length - room);
       continue;
     }

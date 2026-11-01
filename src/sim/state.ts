@@ -480,7 +480,11 @@ export interface Crate {
   look?: number;
   /** Containers: the ship it came off, by id. */
   from?: number;
-  /** Containers: when customs clear it, as a yard's boxReady has it, where that is known already. */
+  /**
+   * Containers: when customs clear it, where that is known already; minus
+   * the ship's id while that ship is still being unloaded, as the clock only
+   * starts once it is.
+   */
   ready?: number;
   /** The tick its customs (or, going out, its export papers) clear, while they have not. */
   clears?: number;
@@ -497,21 +501,14 @@ export interface Bay {
   large: boolean;
   /** A warehouse: lots of room, and two loading docks that load fast. */
   warehouse?: boolean;
-  /** Fees of containers waiting here (container yards only). */
-  boxes: number[];
-  /**
-   * Container yards: when each of `boxes` clears customs; minus the ship's
-   * id while that ship is still being unloaded, as the clock only starts
-   * once it is. Older saves have none: all clear.
-   */
-  boxReady?: number[];
+  /** Large truck bays from older saves: fees of containers still waiting there. */
+  boxes?: number[];
   boxIncoming: number;
-  /** Container yards: fees of containers waiting to go out on a ship. */
-  outBoxes?: number[];
   /**
-   * Its crates where they stand, coming in and going out: a cell for each
-   * place one can be, as its view draws them; see hold.ts. A heap on the
-   * quay keeps its crates in the first cells, in the order they came.
+   * Its crates where they stand, coming in and going out, or in a container
+   * yard its containers: a cell for each place one can be, as its view
+   * draws them; see hold.ts and yardPlace. A heap on the quay keeps its
+   * crates in the first cells, in the order they came.
    */
   cells: Cells;
   /** Crates being carried here right now. */
@@ -563,12 +560,6 @@ export interface Bay {
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */
   truckReserved?: number;
-  /** Container yards: how each container, and each of `outBoxes`, looks. */
-  boxLooks?: number[];
-  exportLooks?: number[];
-  /** Container yards: the slot each container, and each of `outBoxes`, is stacked in; see yardSlots. */
-  boxSlots?: number[];
-  exportSlots?: number[];
   /**
    * A storage area: the port road and quay tiles marked out for it, lowest
    * first; its main tile is the first. Trucks load from beside it.
