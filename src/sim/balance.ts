@@ -259,6 +259,7 @@ export const LOW_FUEL = 25; // heads home to refuel below this
 export const REFUEL_PER_TICK = 2;
 export const FUEL_COST = 45; // for a full tank
 export const PARK_AFTER = 60; // idle ticks before a forklift drives home to park
+export const PARK_IN_WAY = 8; // idle ticks before one beside a truck bay, storage or a crane pulls aside
 export const SELL_SHARE = 0.5;
 export const CRANE_RUNNING_COST = 30; // per day
 export const CRANE_TICKS = 10; // per crate lifted

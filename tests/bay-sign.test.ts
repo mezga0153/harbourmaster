@@ -126,8 +126,9 @@ describe("A truck bay's sign", () => {
     // height of it and the trucks, the board over them.
     const FORKLIFT = [-0.26, 0.42, -0.175, 0.175];
     const TALLEST = 0.48;
-    // The post's half width and a little room round it.
-    const pad = 0.03;
+    // The post's half width and a little room round it (as near as sums
+    // come out in floating point).
+    const pad = 0.03 - 1e-9;
     let near = 0;
     let loading = 0;
     for (let t = 0, now = 0; t < TICKS_PER_DAY * 2; t++) {

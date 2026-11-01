@@ -558,6 +558,16 @@ function work(w: World, p: Dockhand): void {
       // Idle forklifts go home to park instead of blocking the quay.
       if (isMachine(p) && p.state === 'idle') {
         p.timer++;
+        // A forklift in the way of the work pulls aside a few tiles off
+        // meanwhile.
+        if (
+          p.kind === 'forklift' &&
+          p.timer > B.PARK_IN_WAY &&
+          p.timer <= B.PARK_AFTER &&
+          inTheWay(w, w.tileOf(p))
+        ) {
+          if (stepAside(w, p)) return;
+        }
         if (p.timer > B.PARK_AFTER && w.tileOf(p) !== p.home) {
           p.timer = 0;
           goToDepot(w, p, 'park');
@@ -799,6 +809,66 @@ export function diagnose(w: World, p: Dockhand): void {
     w.warnedStuck = true;
     message(w, `${p.name}: ${stuck}.`, 'bad');
   }
+}
+
+/**
+ * Whether a machine with nothing to do standing on tile `t` is in the way
+ * of the work: within `reach` tiles of a truck bay, storage or a crane.
+ */
+export function inTheWay(w: World, t: number, reach = 1): boolean {
+  const m = w.map;
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      const [x, y] = [m.xOf(t) + dx, m.yOf(t) + dy];
+      if (!m.inBounds(x, y)) continue;
+      const i = m.idx(x, y);
+      if (m.store[i] > 0 || isBay(m.build[i]) || m.build[i] === Build.JibCrane) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * A forklift with nothing to do pulls aside to the nearest ground it can
+ * drive to a few tiles off, well out of the way of the work (see
+ * inTheWay), clear of where the others work it from with their forks out
+ * too if it can, and of the other machines and where they are going. True
+ * if it sets off.
+ */
+export function stepAside(w: World, p: Dockhand): boolean {
+  return asideTo(w, p, 2) || asideTo(w, p, 1);
+}
+
+/** Pull aside to ground at least `clear` tiles off the work; see stepAside. */
+function asideTo(w: World, p: Dockhand, clear: number): boolean {
+  const m = w.map;
+  const here = w.tileOf(p);
+  const cost = costFor(w, p);
+  const taken = new Set(
+    w.people
+      .filter((q) => q !== p && isMachine(q))
+      .map((q) => (q.path.length > 0 ? q.goal : w.tileOf(q))),
+  );
+  let best = -1;
+  let near = Infinity;
+  for (let dy = -4; dy <= 4; dy++) {
+    for (let dx = -4; dx <= 4; dx++) {
+      const [x, y] = [m.xOf(here) + dx, m.yOf(here) + dy];
+      if (!m.inBounds(x, y)) continue;
+      const i = m.idx(x, y);
+      const d = Math.abs(dx) + Math.abs(dy);
+      if (d >= near || taken.has(i) || m.build[i] === Build.Depot) continue;
+      if (!Number.isFinite(cost(i)) || inTheWay(w, i, clear)) continue;
+      [best, near] = [i, d];
+    }
+  }
+  if (best < 0) return false;
+  const path = w.pathFor(p, here, best);
+  if (!path || path.length > 8) return false;
+  p.path = path;
+  p.goal = best;
+  p.state = 'wander';
+  return true;
 }
 
 /** Whether another dockhand stands within a step of this one, or it stands in a truck bay. */

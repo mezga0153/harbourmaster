@@ -180,14 +180,25 @@ describe('Crates in storage and at truck bays', () => {
     let picks = 0;
     let drops = 0;
     let farRow = 0;
+    let byHand = false;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
       for (const p of world.people) {
-        if (p.kind !== 'forklift') continue;
         const now = p.state;
         const fresh = was.get(p.id) !== now;
         was.set(p.id, now);
         if (!fresh || (now !== 'picking' && now !== 'dropping')) continue;
+        // Dockhands set crates waiting on customs on the ground, in either
+        // row, and take them from either by hand: the rows' order is the
+        // forklifts' alone, so it is looked at only till a dockhand works
+        // the stack.
+        if (p.kind === 'dockhand') {
+          const at = crateAt(world, p, now === 'picking');
+          const s = at?.slot ?? -1;
+          if (at?.store === store.idx && Math.floor(s / 16) === n) byHand = true;
+          continue;
+        }
+        if (p.kind !== 'forklift') continue;
         const pick = now === 'picking';
         const at = crateAt(world, p, pick);
         if (at?.store === undefined || at.place === undefined) continue;
@@ -205,7 +216,7 @@ describe('Crates in storage and at truck bays', () => {
       // only ever goes on a full far row, or one emptied since.
       const slots = new Set(crateSlots(world, store).crates);
       const mine = [...slots].filter((s) => s >= 0 && Math.floor(s / 16) === n);
-      if (mine.some((s) => row(s) === 1) && t % 50 === 0) {
+      if (!byHand && mine.some((s) => row(s) === 1) && t % 50 === 0) {
         expect(mine.filter((s) => row(s) === 0).length).toBeGreaterThan(0);
       }
     }

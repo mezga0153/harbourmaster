@@ -568,6 +568,9 @@ export function moveCells(
       p.turnWait = (p.turnWait ?? 0) + 1;
       // Another's turn it waits out however long; no room, a while.
       if (want.busy || p.turnWait < TURN_PATIENCE) {
+        // Waiting on another, it keeps no other stack from them: two
+        // that came for each other's would wait for good.
+        if (want.busy) p.lock = undefined;
         p.waitingWhy = want.busy
           ? 'Waiting its turn at the crates another is working'
           : 'Waiting for room beside the crates to work them from';
