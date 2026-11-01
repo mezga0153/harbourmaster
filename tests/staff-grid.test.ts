@@ -76,8 +76,6 @@ describe('The staff’s grid', () => {
     scene.add(structures.group, entities.group);
     const entries = (entities as Any).entries as Map<number, Any>;
     const grid = entities.staffGrid;
-    let routes = 0;
-    let crossing = 0;
     let stands = 0;
     let inStack = 0;
     let walkFrames = 0;
@@ -97,18 +95,6 @@ describe('The staff’s grid', () => {
         for (const e of entries.values()) {
           const v = e.view;
           const h = e.hand;
-          if (v.kind === 'forklift' && h?.plan && !seen.has(h.plan)) {
-            // Each way it plans to line up: round crates, never across them.
-            seen.add(h.plan);
-            const p = h.plan;
-            const way = [p.out ?? h.from, ...(p.via ?? []), p.line];
-            if (way.length > 2) {
-              routes++;
-              for (let k = 2; k < way.length - 1; k++) {
-                if (grid.lineBlocked('forklift', way[k - 1], way[k], CELL_CRATE) > 0) crossing++;
-              }
-            }
-          }
           if (v.kind !== 'dockhand') continue;
           if (h?.goal && v.handAt?.store !== undefined && !seen.has(h)) {
             seen.add(h);
@@ -126,8 +112,6 @@ describe('The staff’s grid', () => {
     expect(inCrates / walkFrames, 'dockhands among crates').toBeLessThan(0.002);
     expect(stands).toBeGreaterThan(5);
     expect(inStack).toBe(0);
-    expect(routes).toBeGreaterThan(0);
-    expect(crossing).toBe(0);
     // A cell is a quarter tile.
     expect(CELL).toBe(0.25);
   }, 240_000);
@@ -147,7 +131,7 @@ describe('The staff’s grid', () => {
     const m = world.map;
     const kept = (x: number, z: number) => {
       const [tx, tz] = [Math.floor(x), Math.floor(z)];
-      const bits = keptCells(world, m.idx(tx, tz));
+      const bits = keptCells(world, m.idx(tx, tz), 2);
       const [cx, cz] = [Math.floor((x - tx) * SUB), Math.floor((z - tz) * SUB)];
       return (bits & (1 << (cz * SUB + cx))) !== 0;
     };

@@ -410,8 +410,7 @@ export function exportsComing(w: World, b: Boat): number {
  */
 export function stillLoading(w: World, b: Boat): boolean {
   if (outCap(b) === 0) return false;
-  if ((b.outIncoming ?? 0) > 0) return true;
-  if (outAboard(b) >= outCap(b)) return false;
+  if (outAboard(b) >= outCap(b) && (b.outIncoming ?? 0) === 0) return false;
   // Those already at its cranes, or on their way there, it takes anyway.
   const coming = exportsComing(w, b) - (b.outIncoming ?? 0);
   // It takes what is in the port when it is ready to go, never waiting for
@@ -426,6 +425,7 @@ export function stillLoading(w: World, b: Boat): boolean {
     // The line allows time to load as well as to unload.
     b.grace += take * B.MOORED_TICKS_PER_CRATE;
   }
+  if ((b.outIncoming ?? 0) > 0) return true;
   if (outAboard(b) >= b.loadQuota) return false;
   // Nothing left in the port that other ships alongside are not taking.
   const theirs = w.boats

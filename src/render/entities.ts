@@ -50,8 +50,6 @@ const FOLD = (80 * Math.PI) / 180;
 /** How quickly a trailer settles straight behind a truck standing still, per game second. */
 const SETTLE = 3;
 
-/** Furthest a forklift drives up to a pallet, from where it stops for it. */
-const REACH_MOST = 1.3;
 /** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
 const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
@@ -346,12 +344,17 @@ export class Entities {
         // sat on a bench, just where their seat is.
         const seated = cur.sitting && !cur.moving;
         const going = e.about && !e.about.done ? e.about : null;
-        const about = cur.kind === 'forklift' ? this.turningAbout(e, prev, x, y) : null;
+        // Going cell by cell, or to where it works a load, just where the
+        // game has it: it turns and goes round things itself.
+        const exact = !!cur.cells || !!cur.stand;
+        const about = cur.kind === 'forklift' && !exact ? this.turningAbout(e, prev, x, y) : null;
         // Once round, it faces the way it is going, not part way between.
         const way = about ? about.dir : dir;
         let [rx, ry] =
           cur.kind === 'forklift'
-            ? this.forkSpot(e, x, y, way, dt)
+            ? exact
+              ? [x, y]
+              : this.forkSpot(e, x, y, way, dt)
             : seated
               ? [x, y]
               : cur.kind === 'dockhand'
@@ -556,7 +559,9 @@ export class Entities {
     const v = e.view;
     const [dx, dz] =
       v.kind === 'forklift'
-        ? this.forkSpot(e, x, y, dir, dt)
+        ? v.stand || v.cells || v.handStage
+          ? [x, y]
+          : this.forkSpot(e, x, y, dir, dt)
         : v.kind === 'dockhand'
           ? [x, y]
           : [x - Math.sin(dir) * 0.2, y + Math.cos(dir) * 0.2];
@@ -748,25 +753,21 @@ export class Entities {
         // Its forks right under the load as it draws it, coming at it the
         // same way: in from where it stands, straightening onto it.
         const square = own && Math.cos(own.goal.dir - dir) > 0.9;
-        const goal = square
-          ? { ...own.goal, dir }
-          : { ...line, x: x + Math.cos(dir) * d, z: z + Math.sin(dir) * d };
+        const [gx, gz] = [x + Math.cos(dir) * d, z + Math.sin(dir) * d];
+        // Come at it another way, its forks at the height of it from there.
+        const lift = own ? liftFrom(this.map, own.goal, gx, gz) : h;
+        const goal = square ? { ...own.goal, dir } : { ...line, x: gx, z: gz, h: lift };
         w.plan = { line, goal, away: [], stood: true };
         e.route = [w.from, line, w.plan.goal];
       }
       if (!w.plan) {
-        const plan = this.forkPlanFor(v, w.from);
-        // Too far from it, as the game has it, to drive up to it: it works
-        // it from where it is.
-        if (plan && Math.hypot(plan.goal.x - v.x, plan.goal.z - v.y) > REACH_MOST + 0.3) {
-          const goal = { ...w.from, dir: plan.goal.dir, h: plan.goal.h };
-          w.plan = { goal, line: goal };
-        } else w.plan = plan ?? undefined;
-        if (w.plan && w.last) w.plan.out = w.last.line;
-        // Round crates in the way to line up, not through them.
-        if (w.plan) w.plan.via = forkRoute(this.forkSite, w.plan.out ?? w.from, w.plan.line);
-        const p = w.plan;
-        e.route = p && [w.from, ...(p.out ? [p.out] : []), ...(p.via ?? []), p.line, p.goal];
+        // With nowhere the game has it stand: it works the load from where
+        // the game has it, its forks up or down to it, going nowhere.
+        const own = this.forkPlanFor(v, w.from);
+        const h = own ? liftFrom(this.map, own.goal, low.x, low.z) : ride(v);
+        const at = { x: low.x, z: low.z, dir: low.dir, h };
+        w.plan = { line: at, goal: at, away: [], stood: true };
+        e.route = [at];
       }
       place(this.map, e, w.plan ? forkIn(w.plan, w.from, phase, w.stage === 'pick') : low);
       return;
@@ -865,7 +866,12 @@ export class Entities {
         prefer = (face) => (Math.cos(face - way) > 0.9 ? 0 : 0.5);
       }
     }
-    return forkPlan(this.forkSite, crates, heading, prefer, from);
+    // Come at from a way it never would, as working it from where it
+    // stopped: its forks at the height of it all the same.
+    return (
+      forkPlan(this.forkSite, crates, heading, prefer, from) ??
+      forkPlan(this.forkSite, crates, heading, () => 0, from)
+    );
   }
 
   /**
@@ -1209,4 +1215,14 @@ export class Entities {
   worldPositions(): { view: EntityView; pos: Vector3 }[] {
     return [...this.entries.values()].map((e) => ({ view: e.view, pos: e.model.root.position }));
   }
+}
+
+/** How high a forklift at x, z lifts its forks to the load `goal` has them at, from where it stands. */
+function liftFrom(
+  map: GameMap,
+  goal: { x: number; z: number; h: number },
+  x: number,
+  z: number,
+): number {
+  return Math.max(0, goal.h + surfaceY(map, goal.x, goal.z) - surfaceY(map, x, z));
 }

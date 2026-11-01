@@ -1,6 +1,6 @@
 import type { World } from '../../world';
 import type { Dockhand, Stand } from '../../state';
-import type { StandAt } from './stands';
+import type { StandAt, StandPlan } from './stands';
 import { Build } from '../../types';
 import {
   bayCells,
@@ -8,12 +8,11 @@ import {
   CELL,
   pullStraight,
   SUB,
-  turnedCell,
   turnedPoint,
   type CellPoint,
 } from '../../rules/cells';
 import { slotCells, usedSlots } from '../cargo/places';
-import { lengthOf } from '../roads/traffic';
+import { lanePos, lengthOf } from '../roads/traffic';
 import { craneHeld } from '../cranes';
 import { drivable } from '../../rules';
 
@@ -39,6 +38,8 @@ const CAB_CLEAR = 0.3;
 /** Where a truck bay's sign post stands on its model, as drawn (see baySign), and how far a forklift keeps from it. */
 const POST = [0.015, 0.9];
 const POST_CLEAR = 0.5;
+/** Ticks a worker waits with no room beside the crates to work them from before it works them from where it is. */
+const TURN_PATIENCE = 30;
 /** How far back from where it stands a forklift lines up on the load, to drive the last of it straight. */
 const LINE_UP = 0.35;
 /** How far apart points along a straight way are checked, in tiles. */
@@ -48,6 +49,8 @@ const LINE_STEP = 0.06;
 interface Kept {
   tick: number;
   bits: Map<number, number>;
+  /** Those kept just ahead of a truck's cab, from dockhands only. */
+  cabs: Map<number, number>;
 }
 const keptBy = new WeakMap<World, Kept>();
 
@@ -60,6 +63,11 @@ interface Plan {
   points: CellPoint[];
   /** Where it ends, where that is the place it works a crate from. */
   stand?: Stand;
+  /** Made while another was at work at the stack it goes to: it looks again before it gets there. */
+  waits?: boolean;
+  /** The stack the crate is in it goes to work, as it was when made. */
+  lock?: string; /** The trucks standing close by when it was made: one pulling up or off, it looks again. */
+  trucks: string;
 }
 const plans = new WeakMap<Dockhand, Plan>();
 
@@ -88,21 +96,25 @@ export function forkCells(p: Dockhand): CellPoint[] | undefined {
  * The cells of tile `i` kept from forklifts, as bits (cell cx, cz the bit
  * cz * SUB + cx): the middle two by two of crate storage or a pile on the
  * quay with crates on it, the row of a jib crane's landing stack, a truck
- * bay's stack and the half of it a truck stands in.
+ * bay's stack and the half of it a truck stands in; for a dockhand
+ * (`size` 1) those just ahead of a truck's cab too, which a forklift
+ * (`size` 2) may drive across to load it.
  */
-export function keptCells(w: World, i: number): number {
+export function keptCells(w: World, i: number, size = 1): number {
   let kept = keptBy.get(w);
   if (!kept || kept.tick !== w.tick) {
-    kept = { tick: w.tick, bits: workKept(w) };
+    kept = { tick: w.tick, ...workKept(w) };
     keptBy.set(w, kept);
   }
-  return kept.bits.get(i) ?? 0;
+  const bits = kept.bits.get(i) ?? 0;
+  return size === 2 ? bits : bits | (kept.cabs.get(i) ?? 0);
 }
 
-function workKept(w: World): Map<number, number> {
+function workKept(w: World): { bits: Map<number, number>; cabs: Map<number, number> } {
   const m = w.map;
   const bits = new Map<number, number>();
-  const put = (i: number, b: number) => bits.set(i, (bits.get(i) ?? 0) | b);
+  const cabs = new Map<number, number>();
+  const put = (i: number, b: number, to = bits) => to.set(i, (to.get(i) ?? 0) | b);
   // Crates in storage, on a truck bay's stack and piled on the quay, by the slots they are in.
   for (const b of [...w.bays.values(), ...w.piles.values()]) {
     if (b.yard) continue;
@@ -110,12 +122,6 @@ function workKept(w: World): Map<number, number> {
       const { tile, cells } = slotCells(w, b, k);
       put(tile, cells);
     }
-  }
-  // A truck bay's sign post, in its front corner by the road.
-  for (const i of w.bays.keys()) {
-    if (m.build[i] !== Build.TruckBay) continue;
-    const [cx, cz] = turnedCell(m.orient[i], 0, SUB - 1);
-    put(i, 1 << (cz * SUB + cx));
   }
   for (const c of w.cranes.values()) {
     if (c.kind !== 'jib' || craneHeld(c) === 0) continue;
@@ -172,11 +178,10 @@ function workKept(w: World): Map<number, number> {
     if (!m.inBounds(tx, ty)) continue;
     const i = m.idx(tx, ty);
     // A truck standing in its truck bay: the whole half of the bay away
-    // from its stack, where the view has it stand.
-    if (m.build[i] === Build.TruckBay && !t.pickup) {
+    // from its stack, where the view has it stand, and its body where it
+    // reaches out of it.
+    if (m.build[i] === Build.TruckBay && !t.pickup)
       put(i, bayCells(m.orient[i], 0.25, false, false));
-      continue;
-    }
     // The cells its body is over, and those just ahead of its cab, where
     // nobody walks across in front of it.
     const half = lengthOf(w, t) / 2 + 0.05;
@@ -184,23 +189,28 @@ function workKept(w: World): Map<number, number> {
     const [c, sn] = [Math.cos(t.dir), Math.sin(t.dir)];
     const reach = (CELL / 2) * (Math.abs(c) + Math.abs(sn));
     const r = Math.ceil((half + CAB_CLEAR + CELL) * SUB);
-    const [ux, uz] = [Math.floor(t.x * SUB), Math.floor(t.y * SUB)];
+    // Where it is drawn, to the side of its lane.
+    const [px, py] = lanePos(w, t);
+    const [ux, uz] = [Math.floor(px * SUB), Math.floor(py * SUB)];
     for (let cz = uz - r; cz <= uz + r; cz++) {
       for (let cx = ux - r; cx <= ux + r; cx++) {
-        const mx = (cx + 0.5) * CELL - t.x;
-        const mz = (cz + 0.5) * CELL - t.y;
+        const mx = (cx + 0.5) * CELL - px;
+        const mz = (cz + 0.5) * CELL - py;
         const along = mx * c + mz * sn;
         const across = -mx * sn + mz * c;
         const ahead = along > 0 ? CAB_CLEAR : 0;
         if (along - reach >= half + ahead || -along - reach >= half) continue;
-        if (Math.abs(across) - reach >= side) continue;
+        // Across, only cells mostly over it: between two standing side by
+        // side, the room there is between them stays.
+        if (Math.abs(across) >= side) continue;
         const [qx, qz] = [Math.floor(cx / SUB), Math.floor(cz / SUB)];
         if (!m.inBounds(qx, qz)) continue;
-        put(m.idx(qx, qz), 1 << ((cz - qz * SUB) * SUB + (cx - qx * SUB)));
+        const cab = along - reach >= half;
+        put(m.idx(qx, qz), 1 << ((cz - qz * SUB) * SUB + (cx - qx * SUB)), cab ? cabs : bits);
       }
     }
   }
-  return bits;
+  return { bits, cabs };
 }
 
 /** Whether the cell at x, y is kept from the staff, by crates or a truck. */
@@ -235,24 +245,40 @@ export function planCells(
   w: World,
   p: Dockhand,
   stands: StandAt[] = [],
+  wide = 1,
+  short = false,
 ): { points: CellPoint[]; stand?: Stand } | null {
   const m = w.map;
   const size = sizeOf(p);
   if (p.path.length === 0 && stands.length === 0) return null;
+  // The places it likes best, if it can get to one; else any.
+  const best = stands.filter((q) => !q.rank);
+  if (best.length > 0 && best.length < stands.length) {
+    const made = planCells(w, p, best, wide);
+    if (made?.stand) return made;
+  }
   const here = w.tileOf(p);
-  const tiles = [here, ...p.path.slice(0, WINDOW)];
+  const tiles = [here, ...p.path.slice(0, short ? Math.min(WINDOW, p.path.length - 1) : WINDOW)];
   // Into or out of its depot, and on the tile at its door, it drives tile by tile, through the door.
   if (tiles.some((t) => m.build[t] === Build.Depot)) return null;
   if (p.came !== undefined && p.came >= 0 && m.build[p.came] === Build.Depot) return null;
   const end = tiles[tiles.length - 1];
-  const last = p.path.length <= WINDOW;
+  const last = !short && p.path.length <= WINDOW;
+  // Nowhere free to work a crate in storage from: up to the tile before
+  // it, to wait there for room rather than drive in among the crates; from
+  // there, in.
+  const stored = w.bays.get(w.storeOf[p.goal])?.tiles !== undefined;
+  const toTile = () =>
+    stands.length > 0 && stored && p.path.length > 1
+      ? planCells(w, p, [], 1, true)
+      : planCells(w, p);
   // The tiles of its way, and those beside them it may go on, to go round crates.
   const cost = size === 2 ? w.driveCost : w.walkCost;
   const lane = new Set<number>(tiles);
   for (const t of tiles) {
     const [x, y] = [m.xOf(t), m.yOf(t)];
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -wide; dy <= wide; dy++) {
+      for (let dx = -wide; dx <= wide; dx++) {
         if (!m.inBounds(x + dx, y + dy)) continue;
         const n = m.idx(x + dx, y + dy);
         if (lane.has(n) || m.build[n] === Build.Depot) continue;
@@ -271,9 +297,12 @@ export function planCells(
       }
     }
   }
+  // Onto the road too, beside a pickup they load at the roadside.
   for (const t of near) {
-    if (m.build[t] !== Build.Depot && (Number.isFinite(cost(t)) || drivable(m.build[t])))
+    const b = m.build[t];
+    if (b !== Build.Depot && (Number.isFinite(cost(t)) || drivable(b) || b === Build.Road)) {
       lane.add(t);
+    }
   }
   const tileOfCell = (cx: number, cz: number) => {
     const [tx, tz] = [Math.floor(cx / SUB), Math.floor(cz / SUB)];
@@ -284,7 +313,7 @@ export function planCells(
   const kept = (cx: number, cz: number) => {
     const t = tileOfCell(cx, cz);
     if (t < 0 || !lane.has(t)) return true;
-    const bits = keptCells(w, t);
+    const bits = keptCells(w, t, size);
     return (
       bits !== 0 && (bits & (1 << ((cz - m.yOf(t) * SUB) * SUB + (cx - m.xOf(t) * SUB)))) !== 0
     );
@@ -347,6 +376,7 @@ export function planCells(
       const old = places.get(key);
       if (!old || s.reach < old.reach) places.set(key, s);
     }
+    if (stands.length > 0 && places.size === 0) return toTile();
   }
   // Else where it stops: the middle of the tile, where that is clear; else
   // the nearest clear corner on it, its edges too.
@@ -406,7 +436,8 @@ export function planCells(
   });
   if (!nodes || nodes.length === 0) {
     // No way to a place to work the crate from: to its tile, as anywhere else.
-    return places.size > 0 ? planCells(w, p) : null;
+    if (places.size > 0 && wide === 1) return planCells(w, p, stands, 2);
+    return places.size > 0 ? toTile() : null;
   }
   const [ex, ez] = nodes[nodes.length - 1];
   const stand = places.get(ex * 65536 + ez);
@@ -415,7 +446,10 @@ export function planCells(
   if (stand) {
     let k = 0;
     while (k < nodes.length && !free(...nodes[k])) k++;
-    if (nodes.slice(k).some(([x, z]) => !free(x, z))) return planCells(w, p);
+    if (nodes.slice(k).some(([x, z]) => !free(x, z))) {
+      // Round further off, if that finds a way; else from where it gets to.
+      return wide === 1 ? planCells(w, p, stands, 2) : toTile();
+    }
   }
   // Stopped on the edge of its goal's tile, it is just inside it.
   const stop = stand ? { x: stand.x, z: stand.y } : at(ex, ez);
@@ -425,7 +459,21 @@ export function planCells(
     stop.z = inside(stop.z, m.yOf(end));
   }
   const points = [{ x: p.x, z: p.y }, ...nodes.slice(1, -1).map(([x, z]) => at(x, z)), stop];
-  const corners = [...pullStraight(points, lineBlocked), stop];
+  // Straight on where nothing is in the way, but for where it sets off
+  // or stops among crates, getting out or going in.
+  const among = [points[0], stop].filter((q) => blockedAt(q.x, q.z));
+  const by = (x: number, z: number) =>
+    among.some((q) => Math.hypot(x - q.x, z - q.z) < half + CELL);
+  const pullBlocked = (a: CellPoint, b: CellPoint) => {
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / LINE_STEP));
+    let k = 0;
+    for (let s = 0; s <= n; s++) {
+      const [x, z] = [a.x + ((b.x - a.x) * s) / n, a.z + ((b.z - a.z) * s) / n];
+      if (!by(x, z) && blockedAt(x, z)) k++;
+    }
+    return k;
+  };
+  const corners = [...pullStraight(points, pullBlocked), stop];
   // A forklift comes the last bit straight at the load, square on, rather
   // than turn on the spot where it stands.
   if (stand && size === 2) {
@@ -474,6 +522,16 @@ function takenStands(w: World, p: Dockhand): Set<number> {
   return out;
 }
 
+/** The trucks standing within reach of a plan, where they stand. */
+function trucksBy(w: World, p: Dockhand): string {
+  let at = '';
+  for (const t of w.trucks) {
+    if (t.path.length > 0 || Math.abs(t.x - p.x) + Math.abs(t.y - p.y) > WINDOW) continue;
+    at += `${t.id}:${t.x},${t.y};`;
+  }
+  return at;
+}
+
 /**
  * A dockhand or forklift going `speed` tiles this tick along its way
  * across the cells (see planCells), to a place it works a crate from among
@@ -487,7 +545,7 @@ export function moveCells(
   p: Dockhand,
   speed: number,
   enter?: (i: number) => boolean,
-  stands?: () => StandAt[],
+  stands?: () => StandPlan,
 ): 'moving' | 'arrived' | 'waiting' | null {
   const m = w.map;
   let plan = plans.get(p);
@@ -497,27 +555,60 @@ export function moveCells(
     plan.path !== p.path ||
     plan.len !== p.path.length ||
     plan.tile !== here ||
-    plan.goal !== p.goal
+    plan.goal !== p.goal ||
+    plan.trucks !== trucksBy(w, p)
   ) {
-    const ends = stands && p.path.length <= WINDOW ? stands() : [];
+    const want = stands && p.path.length <= WINDOW ? stands() : undefined;
+    const ends = want?.stands ?? [];
     let made = p.path.length > 0 || ends.length > 0 ? planCells(w, p, ends) : null;
+    // Come up to the stack another works at, or with no way round to a
+    // place to work the crate from: it waits there its turn, a while.
+    const near = p.path.length <= 1;
+    if (want && near && (want.busy || (ends.length > 0 && !made?.stand))) {
+      p.turnWait = (p.turnWait ?? 0) + 1;
+      // Another's turn it waits out however long; no room, a while.
+      if (want.busy || p.turnWait < TURN_PATIENCE) {
+        p.waitingWhy = want.busy
+          ? 'Waiting its turn at the crates another is working'
+          : 'Waiting for room beside the crates to work them from';
+        plans.delete(p);
+        p.v = 0;
+        return 'moving';
+      }
+    }
     // Nowhere to stand for the crate on the tile it is on already: it works
-    // it from here, unless it stands among crates or in a truck's way.
+    // it from here, unless it stands among crates or in a truck's way; the
+    // stack its own meanwhile all the same.
     if (made && !made.stand && p.path.length === 0 && !keptAt(w, p.x, p.y)) made = null;
+    if (want && near && !want.busy) p.lock = want.lock;
     if (!made) {
       plans.delete(p);
       return null;
     }
-    plan = { path: p.path, len: p.path.length, tile: here, goal: p.goal, ...made };
+    plan = {
+      path: p.path,
+      len: p.path.length,
+      tile: here,
+      goal: p.goal,
+      ...made,
+      waits: want?.busy,
+      lock: want?.lock,
+      trucks: trucksBy(w, p),
+    };
     plans.set(p, plan);
-    // A place to work the crate from, kept from others.
+    // A place to work the crate from, and the stack, kept from others.
     p.stand = made.stand;
+    p.lock = near ? want?.lock : undefined;
+    if (made.stand) {
+      p.turnWait = undefined;
+      p.waitingWhy = undefined;
+    }
   }
   // A truck has pulled in where it was to stand, or crates have been set
   // down there: it looks again.
   if (plan.stand && sizeOf(p) === 1 && keptAt(w, plan.stand.x, plan.stand.y)) {
     plans.delete(p);
-    p.stand = undefined;
+    p.stand = p.lock = undefined;
     return 'moving';
   }
   let budget = speed;
@@ -547,9 +638,23 @@ export function moveCells(
   }
   plan.len = p.path.length;
   plan.tile = w.tileOf(p);
+  if (plan.points.length === 0 && plan.waits) {
+    // Come up to the stack another was at work at: it looks again.
+    plans.delete(p);
+    return 'moving';
+  }
   if (plan.points.length === 0) {
-    // At the place it works the crate from: there, facing it.
+    // At the place it works the crate from: there, facing it, the stack
+    // its own; unless another has come to work it first, or it goes on a
+    // truck gone meanwhile, or one pulled in since, when it looks again.
     if (plan.stand) {
+      const now = stands?.();
+      if (now && (now.busy || now.lock !== plan.lock)) {
+        plans.delete(p);
+        p.stand = p.lock = undefined;
+        return 'moving';
+      }
+      p.lock = now?.lock;
       p.x = plan.stand.x;
       p.y = plan.stand.y;
       p.dir = plan.stand.dir;

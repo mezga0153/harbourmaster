@@ -18,7 +18,15 @@ import {
   takeBox,
   workersAt,
 } from './cargo/stores';
-import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
+import {
+  cancelJob,
+  dest,
+  noPlaceWhy,
+  readyIn,
+  retargetCrate,
+  takeReady,
+  waitMask,
+} from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
 import { bedRoom, keepSlots, onBed, onTrailer, slotsFor } from './cargo/beds';
 import type { Bay, Crate, Dockhand, Truck } from '../state';
@@ -267,7 +275,7 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
     }
     case 'toDrop': {
       if (!live) {
-        cancelJob(w, p);
+        carryBack(w, p, t);
         return true;
       }
       const r = walk(w, p);
@@ -280,12 +288,31 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
     }
     case 'dropping': {
       if (--p.timer > 0) return true;
+      if (!live) {
+        carryBack(w, p, t);
+        return true;
+      }
       landCrates(w, p, t, bay, live);
       endTruckJob(w, p);
       return true;
     }
   }
   return false;
+}
+
+/**
+ * Crates in hand for a truck gone meanwhile: carried back to the stack, or
+ * on to storage with room, as any others, set down from beside it.
+ */
+function carryBack(w: World, p: Dockhand, t: Truck | undefined): void {
+  if (p.carrying <= 0) return cancelJob(w, p);
+  if (t) t.coming = Math.max(0, (t.coming ?? 0) - p.carrying);
+  p.truckId = p.bedAt = p.truckLoad = undefined;
+  p.stand = p.lock = p.onto = undefined;
+  p.planned = p.carrying;
+  p.bayIdx = p.stockIdx = -1;
+  p.cleared = true;
+  retargetCrate(w, p);
 }
 
 /**

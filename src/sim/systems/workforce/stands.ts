@@ -2,13 +2,14 @@ import type { World } from '../../world';
 import type { Boat, Dockhand, Stand, Truck } from '../../state';
 import type { HandAt } from '../../../protocol/views';
 import { Build } from '../../types';
+import { craneTicks } from '../../helpers';
 import { CELL, STORE_ROWS, SUB, turnedCell, turnedPoint } from '../../rules/cells';
 import { forksAlongZ } from '../../rules';
 import * as B from '../../balance';
-import { stackEnds } from '../cargo/places';
+import { stackEnds, usedSlots } from '../cargo/places';
 import { crateAt } from '../yardGantry';
 import { pickupSpots } from '../cargo/stores';
-import { lengthOf } from '../roads/traffic';
+import { lanePos, lengthOf } from '../roads/traffic';
 import { farSide } from '../cargo/beds';
 import { mooredTiles } from '../boats/berthing';
 import { boatHalf } from '../boats/berthing';
@@ -20,18 +21,46 @@ import { boatHalf } from '../boats/berthing';
 // stack its row faces, a truck's bed from its side, a truck bay's stack
 // from behind. It walks or drives there, works the crate where it stands,
 // and the view draws it just there, leaning or putting its forks in.
+//
+// One at a time works a stack of crates: in a tile of crate storage, on a
+// truck bay's stack, a heap on the quay, a jib crane's landing stack, or a
+// side of a truck's bed. Another going to the same one waits by it till
+// the first is done there, as does a jib crane swinging a crate onto it.
 
 /** A place a worker may stand, and the node of the grid it is at; see planCells. */
 export interface StandAt extends Stand {
   node: [number, number];
+  /** Taken only where none of a lower rank can be got to, as across a truck from its far side. */
+  rank?: number;
 }
 
+/**
+ * Where a worker may stand to work the crate it goes for: the places, the
+ * stack the crate is in (see lockOf), and whether another is at work on
+ * that stack, so it waits its turn.
+ */
+export interface StandPlan {
+  stands: StandAt[];
+  lock?: string;
+  busy: boolean;
+}
+
+/** How far through its swing a jib crane has the stack it swings a crate onto to itself. */
+const CRANE_COMING = 0.5;
 /** How far a dockhand reaches to a crate, from the middle of the cell it stands in. */
-export const ARM = 0.45;
+export const ARM = 0.55;
 /** How far it stands from a truck in a truck bay, leaning over its side, where the stack is in the way. */
-const BAY_ARM = 0.6;
+const BAY_ARM = 0.65;
+/** How far a dockhand stands from a truck bay's stack, reaching over its near row to the back one. */
+const STACK_ARM = 0.6;
+/** How far apart the rows of a truck bay's stack are. */
+const ROW_GAP = 0.18;
 /** How far a forklift stands back from a crate it lines up on, to its middle: its body, and its forks. */
-const FORK_BACK = [0.45, 0.55];
+const FORK_BACK = [0.45, 0.55, 0.65];
+/** How far apart the columns of a truck's bed are. */
+const COLUMN = 0.19;
+/** How much further back a forklift stands to reach a truck's crates from across its bed. */
+const ACROSS_BED = 0.2;
 
 /**
  * Where the crate a worker is about to take or set down is, on the ground,
@@ -53,6 +82,12 @@ interface Spot {
   arm?: number;
   /** Cells a dockhand never stands in, kept for the stack the crate is in, crates there or not. */
   avoid?: Set<number>;
+  /** The stack the crate is in, which one worker works at a time; none for a boat. */
+  lock?: string;
+  /** Along a truck's bed: a forklift may stand a column either way of its load, failing that. */
+  along?: [number, number];
+  /** A dockhand only behind it, past the row behind it, along its first way: as at a truck bay's stack. */
+  behind?: boolean;
 }
 
 /** A cell's key, x * 65536 + z. */
@@ -69,12 +104,40 @@ function middleOf(w: World, t: number): Set<number> {
  * set down the load it carries: none where there is no crate or place, or
  * the worker is not one that stands to it (a reach stacker or tractor).
  */
-export function standsFor(w: World, p: Dockhand, pick: boolean): StandAt[] {
-  if (p.kind !== 'dockhand' && p.kind !== 'forklift') return [];
+export function standsFor(w: World, p: Dockhand, pick: boolean): StandPlan {
+  if (p.kind !== 'dockhand' && p.kind !== 'forklift') return { stands: [], busy: false };
   const at = crateAt(w, p, pick);
   const spot = at ? spotOf(w, p, at) : null;
-  if (!spot) return [];
-  return p.kind === 'forklift' ? forkStands(spot) : handStands(spot);
+  if (!spot) return { stands: [], busy: false };
+  const holder = spot.lock ? locks(w).get(spot.lock) : undefined;
+  const busy = !!holder && holder !== p;
+  const stands = busy ? [] : p.kind === 'forklift' ? forkStands(spot) : handStands(spot);
+  return { stands, lock: spot.lock, busy };
+}
+
+/** Who is at work at each stack, right now: workers going to or at one, and jib cranes swinging onto one. */
+export function locks(w: World): Map<string, object> {
+  const at = new Map<string, object>();
+  for (const q of w.people) if (q.lock) at.set(q.lock, q);
+  // A jib crane from when its crate is coming down onto the stack.
+  for (const c of w.cranes.values()) {
+    const into = c.setInto;
+    const b = into && w.bays.get(into.store);
+    if (!b?.tiles || into!.slot < 0 || c.timer < craneTicks(c) * CRANE_COMING) continue;
+    at.set(storeLock(b.idx, into!.slot), c);
+  }
+  return at;
+}
+
+/** The lock of the stack slot `slot` of crate storage `store` is in: its tile's. */
+export function storeLock(store: number, slot: number): string {
+  return `s${store}:${Math.floor(slot / B.CRATES_PER_STORE_TILE)}`;
+}
+
+/** Whether a worker is at work at the stack slot `slot` of crate storage `store` is in. */
+export function storeBusy(w: World, store: number, slot: number): boolean {
+  const q = locks(w).get(storeLock(store, slot));
+  return !!q && 'name' in q;
 }
 
 /** Where crate or place `at` is, and how it may be come at. */
@@ -97,19 +160,27 @@ function spotOf(w: World, p: Dockhand, at: HandAt): Spot | null {
     const [x, y] = z
       ? [m.xOf(t) + across, m.yOf(t) + along]
       : [m.xOf(t) + along, m.yOf(t) + across];
-    if (p.kind !== 'forklift') return { x, y, avoid: middleOf(w, t) };
-    // From the end of the stack its row faces, or through the other row.
+    const lock = storeLock(b.idx, slot);
+    if (p.kind !== 'forklift') return { x, y, avoid: middleOf(w, t), lock };
+    // From the end of the stack its row faces, or through the other row
+    // while that is empty.
     const { now } = stackEnds(w, t);
+    const used = usedSlots(w, b);
+    const first = Math.floor(slot / per) * per;
+    const empty = (rw: number) => {
+      for (let k = first + rw * 8; k < first + rw * 8 + 8; k++) if (used.has(k)) return false;
+      return true;
+    };
     const exact: Stand[] = [];
     for (const end of [row, 1 - row]) {
-      if (!now[end]) continue;
+      if (!now[end] || (end !== row && !empty(end))) continue;
       const edge = end === 0 ? 0 : 1;
       const d = end === 0 ? 1 : -1;
       const [sx, sy] = z ? [m.xOf(t) + 0.5, m.yOf(t) + edge] : [m.xOf(t) + edge, m.yOf(t) + 0.5];
       const dir = z ? Math.atan2(d, 0) : Math.atan2(0, d);
       exact.push({ x: sx, y: sy, dir, reach: Math.abs(along - edge) });
     }
-    return { x, y, exact };
+    return { x, y, exact, lock };
   }
   if (at.bay !== undefined) {
     if (m.build[at.bay] !== Build.TruckBay || at.slot === undefined || at.slot < 0) return null;
@@ -136,8 +207,10 @@ function spotOf(w: World, p: Dockhand, at: HandAt): Spot | null {
       x: m.xOf(at.bay) + lx,
       y: m.yOf(at.bay) + lz,
       ways: [[Math.round(fx / n), Math.round(fz / n)]],
-      arm: BAY_ARM,
+      arm: STACK_ARM,
       avoid,
+      behind: true,
+      lock: `b${at.bay}`,
     };
   }
   if (at.pile !== undefined) {
@@ -148,7 +221,12 @@ function spotOf(w: World, p: Dockhand, at: HandAt): Spot | null {
       [0.38, 0.62],
       [0.62, 0.62],
     ][k];
-    return { x: m.xOf(at.pile) + px, y: m.yOf(at.pile) + pz, avoid: middleOf(w, at.pile) };
+    return {
+      x: m.xOf(at.pile) + px,
+      y: m.yOf(at.pile) + pz,
+      avoid: middleOf(w, at.pile),
+      lock: `p${at.pile}`,
+    };
   }
   if (at.crane !== undefined) {
     const c = at.crane;
@@ -165,7 +243,7 @@ function spotOf(w: World, p: Dockhand, at: HandAt): Spot | null {
         : water(-1, 0)
           ? [0.875, 0.5, [1, 0]]
           : [0.125, 0.5, [-1, 0]];
-    return { x: m.xOf(c) + px, y: m.yOf(c) + pz, ways: [way] };
+    return { x: m.xOf(c) + px, y: m.yOf(c) + pz, ways: [way], lock: `c${c}` };
   }
   if (at.truck !== undefined) {
     const t = w.trucks.find((q) => q.id === at.truck);
@@ -189,13 +267,15 @@ function bedSpot(w: World, t: Truck, at: HandAt): Spot {
   const [fx, fy] = [Math.cos(t.dir), Math.sin(t.dir)];
   // Its left, as it faces; side 0 of its bed.
   const [lx, ly] = [Math.sin(t.dir), -Math.cos(t.dir)];
+  // Where it is drawn, to the side of its lane.
+  const [tx, ty] = lanePos(w, t);
   let [x, y, side] = [0, 0, 0];
   for (const s of slots) {
     const k = Math.floor((s % per) / 2);
     const left = s % 2 === 0 ? 1 : -1;
     const along = -len / 2 + (cols - k) * 0.19 - 0.07;
-    x += t.x + fx * along + lx * 0.08 * left;
-    y += t.y + fy * along + ly * 0.08 * left;
+    x += tx + fx * along + lx * 0.08 * left;
+    y += ty + fy * along + ly * 0.08 * left;
     side += left;
   }
   x /= slots.length;
@@ -209,8 +289,10 @@ function bedSpot(w: World, t: Truck, at: HandAt): Spot {
   const near = farSide(w, t) === 0 ? -1 : 1;
   const left = inBay ? near : side >= 0 ? 1 : -1;
   const out: [number, number] = [lx * left, ly * left];
-  if (inBay) return { x, y, ways: [[-out[0], -out[1]]], arm: BAY_ARM };
-  return { x, y, ways: [[-out[0], -out[1]]], side: out };
+  const lock = `t${t.id}`;
+  const along: [number, number] = [fx, fy];
+  if (inBay) return { x, y, ways: [[-out[0], -out[1]]], arm: BAY_ARM, lock, along };
+  return { x, y, ways: [[-out[0], -out[1]]], side: out, lock, along };
 }
 
 /** The cells on the quay edge beside a boat a dockhand works it from, facing it. */
@@ -253,16 +335,23 @@ function handStands(s: Spot): StandAt[] {
     for (const [cx, cz] of s.cells) near(cx, cz);
     return out.sort((a, b) => a.reach - b.reach).slice(0, 6);
   }
+  // On its side if it has one; failing that, across from the other,
+  // leaning over to it.
   const arm = s.arm ?? ARM;
-  const r = Math.ceil(arm * SUB) + 1;
+  const far = s.side ? BAY_ARM : arm;
+  const r = Math.ceil(far * SUB) + 1;
   const [ux, uz] = [Math.floor(s.x * SUB), Math.floor(s.y * SUB)];
   for (let cz = uz - r; cz <= uz + r; cz++) {
     for (let cx = ux - r; cx <= ux + r; cx++) {
       const [x, y] = [(cx + 0.5) * CELL, (cz + 0.5) * CELL];
       const d = Math.hypot(s.x - x, s.y - y);
-      if (d > arm || d < CELL * 0.5 || s.avoid?.has(key(cx, cz))) continue;
-      if (s.side && (x - s.x) * s.side[0] + (y - s.y) * s.side[1] <= 0) continue;
+      if (d < CELL * 0.5 || s.avoid?.has(key(cx, cz))) continue;
+      const way = s.behind && s.ways?.[0];
+      if (way && (x - s.x) * way[0] + (y - s.y) * way[1] > -ROW_GAP) continue;
+      const across = !!s.side && (x - s.x) * s.side[0] + (y - s.y) * s.side[1] <= 0;
+      if (d > (across ? far : arm)) continue;
       near(cx, cz);
+      if (across) out[out.length - 1].rank = 1;
     }
   }
   return out;
@@ -282,15 +371,26 @@ function forkStands(s: Spot): StandAt[] {
     [0, -1],
   ];
   const out: StandAt[] = [];
-  for (const [dx, dy] of ways) {
+  // Square on to it; failing that, a column along a truck's bed either
+  // way, edging over to it as it drives in, or from across the bed, its
+  // forks reaching over to the crates on the far side.
+  const shifts = s.along ? [0, -COLUMN, COLUMN] : [0];
+  const all = s.side ? [...ways, s.side] : ways;
+  all.forEach(([dx, dy], k) => {
     const n = Math.hypot(dx, dy) || 1;
     const [ux, uy] = [dx / n, dy / n];
-    for (const back of FORK_BACK) {
-      const [vx, vz] = node(s.x - ux * back, s.y - uy * back);
-      const [x, y] = [vx * CELL, vz * CELL];
-      const reach = Math.hypot(s.x - x, s.y - y);
-      out.push({ node: [vx, vz], x, y, dir: Math.atan2(uy, ux), reach });
+    for (const shift of shifts) {
+      const [ax, ay] = s.along ? [s.along[0] * shift, s.along[1] * shift] : [0, 0];
+      for (const near of FORK_BACK) {
+        // Across the bed, the width of it further back.
+        const back = k >= ways.length ? near + ACROSS_BED : near;
+        const [vx, vz] = node(s.x + ax - ux * back, s.y + ay - uy * back);
+        const [x, y] = [vx * CELL, vz * CELL];
+        const reach = Math.hypot(s.x - x, s.y - y);
+        const rank = shift || k >= ways.length ? 1 : 0;
+        out.push({ node: [vx, vz], x, y, dir: Math.atan2(uy, ux), reach, rank });
+      }
     }
-  }
+  });
   return out;
 }

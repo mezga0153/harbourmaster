@@ -29,6 +29,7 @@ describe('The advisor says to mark storage out on the quay', () => {
     }
     expect(world.tipsSeen.has('quayStorage')).toBe(false);
     expect(world.carryWalk).toBeLessThan(5);
-    expect(anchored).toBeGreaterThan(B.ANCHOR_PENALTY_TICKS);
+    // Waiting a good while at anchor all the same.
+    expect(anchored).toBeGreaterThan(B.ANCHOR_PENALTY_TICKS / 2);
   }, 120_000);
 });

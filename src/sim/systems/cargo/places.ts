@@ -128,7 +128,13 @@ export function stackEnds(w: World, t: number): Ends {
     const [x, y] = [m.xOf(t) + (z ? 0 : d), m.yOf(t) + (z ? d : 0)];
     if (!m.inBounds(x, y)) return -1;
     const n = m.idx(x, y);
-    return drivable(m.build[n]) && m.build[n] !== Build.Depot ? n : -1;
+    if (!drivable(m.build[n]) || m.build[n] === Build.Depot) return -1;
+    // Ground that leads nowhere else, as a jib crane at the end of a jetty,
+    // is got to only through the stack.
+    const on = m
+      .neighbors4(n)
+      .some((k) => k !== t && drivable(m.build[k]) && m.build[k] !== Build.Depot);
+    return on ? n : -1;
   };
   const [a, b] = [side(-1), side(1)];
   ends = {

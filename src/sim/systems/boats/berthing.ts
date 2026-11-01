@@ -1123,8 +1123,9 @@ export function updateBoat(w: World, b: Boat): void {
         // Kept loading long past its time, it sails with what it has.
         if (b.mooredTicks > b.grace + B.LOAD_OVERRUN_TICKS) b.loadQuota = outAboard(b);
         // Lying in the way of a ship coming in, it takes on what is on its
-        // way to it, and no more.
-        if (waitingFor(w, b)) {
+        // way to it, and no more, once they have had a while to start.
+        const started = w.tick - (b.unloadedAt ?? w.tick) >= B.LOAD_START_TICKS;
+        if (started && waitingFor(w, b)) {
           b.loadQuota = Math.min(b.loadQuota ?? Infinity, outAboard(b) + exportsComing(w, b));
         }
         b.timer = 0;

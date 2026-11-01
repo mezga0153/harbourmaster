@@ -110,6 +110,10 @@ export interface Dockhand extends Agent {
    * down, once it has a place to, and which way it faces; see stands.ts.
    */
   stand?: Stand;
+  /** The stack of crates it has its place to work at, which one works at a time; see stands.ts. */
+  lock?: string;
+  /** Ticks it has waited by a stack for another to be done there. */
+  turnWait?: number;
   /** Setting a load down at a truck bay: the truck it goes straight onto, or -1 for the stack. */
   onto?: number;
   /** A forklift: ticks it still takes backing its forks out of the load it worked, before it drives on. */

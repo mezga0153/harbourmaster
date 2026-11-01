@@ -109,7 +109,8 @@ import {
 import { claimDrop, feesIn, setDown } from '../cargo/places';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
-import { standsFor, type StandAt } from './stands';
+import { standsFor, type StandPlan } from './stands';
+import { drivable } from '../../rules';
 
 export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
   const p: Dockhand = {
@@ -335,11 +336,50 @@ export function rescue(w: World, p: Dockhand): boolean {
   // A machine a crane has just set a container down beside is not lost.
   const cost = isMachine(p) ? w.groundCost : costFor(w, p);
   if (Number.isFinite(cost(w.tileOf(p)))) return false;
+  // Just off it, as on the road beside a pickup they loaded: they walk
+  // back onto the nearest of it, across the road.
+  const back = stepBack(w, p, cost);
+  if (back && p.state === 'idle') {
+    p.path = back;
+    p.goal = back[back.length - 1];
+    p.state = 'wander';
+    return true;
+  }
+  if (back) return false;
   const at = isMachine(p) && p.home >= 0 ? p.home : muster(w);
   p.x = w.map.xOf(at) + 0.5;
   p.y = w.map.yOf(at) + 0.5;
   p.path = [];
   return true;
+}
+
+/**
+ * The way a worker off its ground, a few tiles at most, walks back onto
+ * it: across roads and the like, never water nor buildings; null if none.
+ */
+function stepBack(w: World, p: Dockhand, cost: CostFn): number[] | null {
+  const m = w.map;
+  const start = w.tileOf(p);
+  const came = new Map<number, number>([[start, -1]]);
+  let edge = [start];
+  for (let d = 0; d < 4 && edge.length > 0; d++) {
+    const next: number[] = [];
+    for (const t of edge) {
+      for (const n of m.neighbors4(t)) {
+        if (came.has(n)) continue;
+        came.set(n, t);
+        if (Number.isFinite(cost(n))) {
+          const way = [n];
+          for (let k = t; k !== start && k >= 0; k = came.get(k)!) way.unshift(k);
+          return way;
+        }
+        const b = m.build[n];
+        if (b === Build.Road || drivable(b)) next.push(n);
+      }
+    }
+    edge = next;
+  }
+  return null;
 }
 
 export function walk(w: World, p: Dockhand) {
@@ -391,7 +431,8 @@ export function walk(w: World, p: Dockhand) {
     const cells = p.kind === 'forklift' ? moveCells(w, p, v, enter, standsOf(w, p)) : null;
     r = cells ?? w.move(p, w.driveCost, true, () => v, enter, repath);
     // Held up behind something, it is waiting as at a tile it may not enter.
-    if (r === 'moving' && p.x === x0 && p.y === y0) r = 'waiting';
+    // Waiting its turn at the crates is not being held up on its way.
+    if (r === 'moving' && p.x === x0 && p.y === y0 && p.turnWait === undefined) r = 'waiting';
   } else {
     const pace = paceFactor(p.skill, p.morale, p.energy);
     // Cell by cell round the crates on its way, too.
@@ -445,10 +486,12 @@ export function updateDockhand(w: World, p: Dockhand): void {
 
 function work(w: World, p: Dockhand): void {
   // Done with a crate: the place it stood to work it is free for others.
-  if (p.stand && !HANDLING.has(p.state)) p.stand = undefined;
+  if ((p.stand || p.lock) && !HANDLING.has(p.state)) p.stand = p.lock = undefined;
   if (p.onto !== undefined && p.state !== 'dropping') p.onto = undefined;
   if ((p.state === 'idle' || p.state === 'wander') && rescue(w, p)) return;
-  if (tire(w, p)) return goOnBreak(w, p);
+  // Tired, they stop for a break: back on their own ground first, off the
+  // road by a pickup they loaded.
+  if (tire(w, p) && Number.isFinite(costFor(w, p)(w.tileOf(p)))) return goOnBreak(w, p);
   if (p.truckId !== undefined && (isBoxy(p) ? truckJob(w, p) : crateTruckJob(w, p))) return;
   if (p.restack && restackJob(w, p)) return;
   switch (p.state) {
@@ -648,6 +691,12 @@ function work(w: World, p: Dockhand): void {
       const boxy = isBoxy(p);
       // A truck waiting at the bay: straight onto it.
       const onto = straightOnto(w, p, bay);
+      // Gone while it set about it: it goes round to the stack with them.
+      if (p.onto !== undefined && p.onto >= 0 && !onto) {
+        p.state = 'toDrop';
+        p.stand = p.lock = p.onto = undefined;
+        return;
+      }
       // Brought for a truck that has gone meanwhile, they go on the stack
       // however full it is.
       if (onto) {
@@ -696,6 +745,8 @@ export function headTo(w: World, p: Dockhand, goal: number): boolean {
   p.goal = goal;
   // Somewhere new: no place kept to stand at there yet.
   p.stand = undefined;
+  p.lock = undefined;
+  p.turnWait = undefined;
   return true;
 }
 
@@ -703,7 +754,7 @@ export function headTo(w: World, p: Dockhand, goal: number): boolean {
  * The places a dockhand or forklift on its way to take a crate, or to set
  * its load down, may stand to work it from (see stands.ts); none else.
  */
-function standsOf(w: World, p: Dockhand): (() => StandAt[]) | undefined {
+function standsOf(w: World, p: Dockhand): (() => StandPlan) | undefined {
   if (p.state !== 'toPickup' && p.state !== 'toDrop') return undefined;
   return () => standsFor(w, p, p.state === 'toPickup');
 }

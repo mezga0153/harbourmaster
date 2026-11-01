@@ -22,6 +22,7 @@ import { count, feesOf, filled, put, sized, stamp, take } from './cargo/hold';
 import { exportTaken, nextSlots, setDown, slotBelow, usedSlots, waitsIn } from './cargo/places';
 import { loadShip, wantsLoad } from './cargo/exports';
 import { boxesIn, carriedLooks, jibStore, outLooks, stackLooks } from './cargo/stores';
+import { storeBusy } from './workforce/stands';
 
 export function addCrane(w: World, i: number, kind: Crane['kind']): void {
   w.cranes.set(i, { idx: i, kind, cells: [], reserved: 0, timer: 0, angle: 0, busy: false });
@@ -83,6 +84,11 @@ export function updateCrane(w: World, c: Crane): void {
   if (store) keepSlot(w, c, store, boat);
   c.angle = Math.atan2(boat.y - (m.yOf(c.idx) + 0.5), boat.x - (m.xOf(c.idx) + 0.5));
   if (++c.timer < craneTicks(c)) return;
+  // Every stack in reach worked at: it holds the crate over them till one is free.
+  if (store && (c.setInto?.slot ?? -1) < 0) {
+    c.timer = craneTicks(c) - 1;
+    return;
+  }
   c.timer = 0;
   boat.crates--;
   if (store) {
@@ -116,7 +122,7 @@ export function updateCrane(w: World, c: Crane): void {
 /**
  * The slot in crate storage `store` a jib crane sets the crate it is
  * lifting off `boat` down in: the one it kept as it took it up, while that
- * is still free to set it on; else the next on a tile of the storage in
+ * is still free to set it on and no worker is at work at its stack; else the next on a tile of the storage in
  * its reach, never one beyond, kept for it from then on.
  */
 function keepSlot(w: World, c: Crane, store: Bay, boat: Boat): void {
@@ -124,11 +130,16 @@ function keepSlot(w: World, c: Crane, store: Bay, boat: Boat): void {
   if (kept && kept.store === store.idx && kept.slot >= 0) {
     const used = usedSlots(w, store);
     const under = slotBelow(store, kept.slot);
-    if (!used.has(kept.slot) && (under < 0 || used.has(under))) return;
+    const free = !used.has(kept.slot) && (under < 0 || used.has(under));
+    // Nor where a worker has since come to work the stack.
+    if (free && !storeBusy(w, store.idx, kept.slot)) return;
   }
   c.setInto = undefined;
   const ground = waitsIn(store, false, [boat.fee]);
-  const [slot] = nextSlots(w, store, 1, ground, jibReach(w, c, store));
+  // Onto a stack in reach no worker is at work at, one at a time.
+  const per = B.CRATES_PER_STORE_TILE;
+  const free = new Set([...jibReach(w, c, store)].filter((n) => !storeBusy(w, store.idx, n * per)));
+  const [slot] = nextSlots(w, store, 1, ground, free);
   c.setInto = { store: store.idx, slot };
 }
 
