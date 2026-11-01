@@ -2,7 +2,7 @@ import { signal } from '@preact/signals';
 import { context, sendFeedback, type FeedbackKind } from '../log/feedback';
 import { Icon } from './icons';
 import { graphics, soundSettings } from './prefs';
-import { messages, panel, selection, snapshot } from './store';
+import { messages, narrow, openCategory, panel, selection, snapshot } from './store';
 import { InfoHeader } from './widgets';
 
 // Telling us about a bug, an idea or anything else, from Settings: what the
@@ -179,5 +179,26 @@ export function FeedbackPanel() {
         </button>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Telling us, over the map at the bottom left: a bug or an idea is a click
+ * away rather than in Settings. Out of the way of a panel and the build menu
+ * on a phone.
+ */
+export function ReportButton() {
+  if (panel.value === 'feedback') return null;
+  if (narrow.value && (panel.value || selection.value || openCategory.value)) return null;
+  return (
+    <button
+      class="btn report-btn panel"
+      onClick={() => (panel.value = 'feedback')}
+      title="Report a bug or share an idea"
+      aria-label="Report a bug or share an idea"
+    >
+      <Icon name="chat" />
+      <span>Report</span>
+    </button>
   );
 }

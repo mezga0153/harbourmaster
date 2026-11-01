@@ -5,7 +5,7 @@ import { Advisor } from './Advisor';
 import { BuildBar } from './BuildBar';
 import { ContractsPanel } from './Contracts';
 import { BankruptDialog, NewGameDialog } from './Dialogs';
-import { FeedbackPanel } from './Feedback';
+import { FeedbackPanel, ReportButton } from './Feedback';
 import { FinancePanel } from './Finance';
 import { HandbookPanel } from './Handbook';
 import { Icon } from './icons';
@@ -56,6 +56,7 @@ export function App({ actions }: { actions: Actions }) {
       <PreviewTip />
       <HoverTip />
       {!(narrow.value && (panel.value || selection.value || menuOpen.value)) && <Advisor />}
+      <ReportButton />
       <MapControls actions={actions} />
       <BuildBar />
       <MobileMenu actions={actions} />

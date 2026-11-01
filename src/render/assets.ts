@@ -90,11 +90,17 @@ const RECOLOUR: Record<string, number> = {
 
 const loaded = new Map<AssetName, Loaded>();
 
-/** Load every model once. Call before the first map is shown. */
-export async function loadAssets(): Promise<void> {
+/**
+ * Load every model once. Call before the first map is shown. `progress` hears
+ * how many are done of how many, as each comes in.
+ */
+export async function loadAssets(progress?: (done: number, of: number) => void): Promise<void> {
   const loader = new GLTFLoader();
+  const all = Object.entries(FIT) as [AssetName, Fit][];
+  let done = 0;
+  progress?.(0, all.length);
   await Promise.all(
-    (Object.entries(FIT) as [AssetName, Fit][]).map(async ([name, fit]) => {
+    all.map(async ([name, fit]) => {
       try {
         const gltf = await loader.loadAsync(BASE + fit.file);
         loaded.set(name, normalise(gltf.scene, gltf.animations, fit));
@@ -102,6 +108,7 @@ export async function loadAssets(): Promise<void> {
         // A missing model falls back to the built-in art.
         console.warn(`Could not load ${fit.file}`, err);
       }
+      progress?.(++done, all.length);
     }),
   );
 }

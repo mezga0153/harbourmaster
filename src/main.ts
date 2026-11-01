@@ -14,6 +14,7 @@ import { App } from './ui/App';
 import type { Actions } from './ui/actions';
 import { downloadSave } from './ui/download';
 import { wireOverlays } from './ui/mapOverlays';
+import { loaded, loading } from './ui/loading';
 import { graphics } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
 import { advise, land, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
@@ -105,7 +106,10 @@ function showLand(): void {
 }
 
 // Models load in parallel with the worker starting up; messages wait for them.
-const assetsReady = loadAssets();
+loading(0.1, 'Loading the models…');
+const assetsReady = loadAssets((done, of) =>
+  loading(0.1 + (0.75 * done) / Math.max(1, of), `Loading the models… ${done} of ${of}`),
+).then(() => loading(0.88, 'Laying out the port…'));
 let inbox = Promise.resolve();
 
 worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
@@ -140,6 +144,7 @@ function handle(msg: WorkerMessage): void {
     showLand();
     if (urlView?.seed === msg.seed) applyView(renderer.cam, urlView);
     urlView = null;
+    loading(0.95, 'Drawing the port…');
     return;
   }
   if (!map) return;
@@ -167,6 +172,7 @@ function handle(msg: WorkerMessage): void {
   if (msg.tiles.length > 0) overlays.onTiles();
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
+  loaded();
   sound.onSnapshot(msg.snapshot);
   logFrame(msg.snapshot, msg.events, map);
   overlays.onSnapshot();
