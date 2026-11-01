@@ -143,6 +143,11 @@ export function Panel({ map }: { map: () => GameMap | null }) {
       <div class="dbg-head">
         <b>Debug overlays</b>
         <span class="dbg-muted">` to close</span>
+        {!location.pathname.endsWith('/dev.html') && (
+          <a class="dbg-lab" href="/dev.html" target="_blank" rel="noopener">
+            Dev lab ↗
+          </a>
+        )}
         <button onClick={() => setOpt('open', false)}>×</button>
       </div>
       <Check k="on" label="Draw overlays" />
