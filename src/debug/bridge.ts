@@ -8,7 +8,8 @@ import { report } from './report';
 // Dev server only: mirrors the running game into .debug/ in the project
 // (report.txt, snapshot.json, save.json, screenshot.png, log.txt), so tools
 // outside the browser can see what is happening. See vite.config.ts.
-// Turned off with ?nodebug, and in automated browsers unless ?bridge.
+// Turned off with ?nodebug, and in automated or headless browsers unless
+// ?bridge.
 
 const STATE_MS = 5_000;
 const SAVE_MS = 60_000;
@@ -24,7 +25,10 @@ interface Hooks {
 export function startBridge({ worker, send, renderer, map }: Hooks): void {
   const hot = import.meta.hot;
   const params = new URLSearchParams(location.search);
-  if (!hot || params.has('nodebug') || (navigator.webdriver && !params.has('bridge'))) return;
+  // Headless Chrome driven over its debugging port does not say it is
+  // automated, so it is known by its name.
+  const automated = navigator.webdriver || /Headless/.test(navigator.userAgent);
+  if (!hot || params.has('nodebug') || (automated && !params.has('bridge'))) return;
 
   const log: string[] = [];
   const note = (line: string) => {

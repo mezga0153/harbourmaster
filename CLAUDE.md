@@ -21,8 +21,8 @@ mirrors itself into `.debug/` (gitignored, see `src/debug/bridge.ts` and
 `HM_SAVE=1 HM_DAYS=1 npx vitest run tests/debug-save.test.ts --silent=false`
 loads `save.json` into the sim, runs it on and prints the report.
 
-Automated browsers don't mirror (so tests can't overwrite the player's files)
-unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
+Automated and headless browsers don't mirror (so tests can't overwrite the
+player's files) unless the URL has `?bridge`; `?nodebug` turns it off in any tab.
 
 ## Debug overlays
 
