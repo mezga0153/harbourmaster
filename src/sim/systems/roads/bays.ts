@@ -111,14 +111,14 @@ export function addBay(w: World, i: number): void {
 }
 
 /**
- * Where trucks stand to load: in a truck bay, or beside a storage area. A
- * pickup backs into a truck bay too, or pulls up on the road beside it.
+ * Where trucks stand to load: in a truck bay, pickups too, or beside a
+ * storage area; pickups at the heap at the road's end, on the road beside it.
  */
-export function loadingDocks(w: World, bay: Bay, pickup = false): number[] {
+export function loadingDocks(w: World, bay: Bay, _pickup = false): number[] {
   if (bay.tiles) return w.storeSpots(bay);
   // The heap at the road's end: pickups only, beside it.
   if (bay.kerb) return roadside(w, bay);
-  return pickup ? [bay.idx, ...roadside(w, bay)] : [bay.idx];
+  return [bay.idx];
 }
 
 /**
@@ -425,27 +425,6 @@ export function goDeeper(w: World, t: Truck, bay: Bay): void {
   // spot it was going to; never round another way, nor back round to one.
   if (!to || to.dock === t.goal || !t.path.every((i, k) => to.path[k] === i)) return;
   if (to.path.length - t.path.length > w.dist(t.goal, to.dock)) return;
-  t.goal = to.dock;
-  t.path = to.path;
-}
-
-/**
- * A pickup on its way to the road beside a truck bay, the bay itself come
- * free meanwhile: it backs into that instead, if it can get there.
- */
-export function intoBay(w: World, t: Truck, bay: Bay): void {
-  if (!t.pickup || bay.tiles || bay.kerb || t.goal === bay.idx) return;
-  if (!w.freeDockSet(bay, lengthOf(w, t), true).has(bay.idx)) return;
-  t.state = 'parked';
-  const to = dockFor(
-    w,
-    bay,
-    (d, avoid) => w.routeFrom(t, d, avoiding(w, truckCostFor(w, bay.idx, -1, t), avoid)),
-    lengthOf(w, t),
-    true,
-  );
-  t.state = 'toBay';
-  if (!to || to.dock !== bay.idx) return;
   t.goal = to.dock;
   t.path = to.path;
 }

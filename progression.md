@@ -40,10 +40,10 @@ bought own every plot they built on, free.
 ## Fishing Jetty: village to town (cap 100 → 300+)
 
 The hauliers send **pickups** (`pickup` in `HaulierTerms`, `src/sim/contracts.ts`):
-an open bed of one layer of six crates that backs into a truck bay, or pulls
-up on the road beside it (`roadside` in `src/sim/systems/roads/bays.ts`), out
-of the way of the trucks of the bay beside it. Beside the bay it is loaded
-by hand; in it, by forklifts too.
+an open bed of one layer of six crates that backs into a truck bay as the
+small trucks do, loaded there by hand or by forklift; only at the heap at
+the road's end does it pull up on the road beside it (`roadside` in
+`src/sim/systems/roads/bays.ts`), to be loaded by hand.
 
 A new game has **no truck bay**: the road from the highway ends two tiles
 wide (for the pickups to turn about) by a path to the jetty, and on the

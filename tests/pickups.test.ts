@@ -29,7 +29,7 @@ describe('Pickups', () => {
     }
   });
 
-  it('back into a truck bay, or pull up on the road beside it, loaded there by hand only', () => {
+  it('back into a truck bay, never stopping on the road beside it, where a forklift would not load one', () => {
     const world: Any = World.create(7, 96);
     world.tier = 0;
     const bay = [...world.bays.values()][0];
@@ -43,8 +43,8 @@ describe('Pickups', () => {
       for (const tr of world.trucks) {
         if (!tr.pickup || tr.state !== 'loading') continue;
         const at = m.idx(Math.floor(tr.x), Math.floor(tr.y));
-        // In the bay, or on the road beside it.
-        expect([bay.idx, ...roadside(world, bay)]).toContain(at);
+        // In the bay, not on the road beside it.
+        expect(at).toBe(bay.idx);
         if (at === bay.idx) inBay++;
         else beside = tr;
         loaded = Math.max(loaded, tr.cargo);
