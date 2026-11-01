@@ -22,7 +22,7 @@ import {
   workersAt,
 } from './stores';
 import { holds, readyIn, takeReady, waitMask } from './customs';
-import { crateSlots, stackOf, takeFirst } from './places';
+import { crateSlots, exportsFit, stackOf, takeFirst } from './places';
 import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
 import type { Bay, Boat, Crane, Crate, Dockhand, Truck } from '../../state';
@@ -216,7 +216,10 @@ export function exportTarget(
     for (const c of cranes) {
       for (const store of jibStores(w, c)) {
         // Only as many as fit on the tiles of it the crane reaches.
-        const space = Math.min(room, bayRoom(store, false), jibRoom(w, c, store));
+        // and as a forklift's load sits level there.
+        let space = Math.min(room, bayRoom(store, false), jibRoom(w, c, store));
+        if (p.kind === 'forklift' && space > 0)
+          space = exportsFit(w, store, Math.min(space, p.capacity));
         const takes = ice ? takesIce(w, store) : takesExports(w, store);
         if (store === source || space <= 0 || !takes) continue;
         const at = dropAt(w, p, store, from);

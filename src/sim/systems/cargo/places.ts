@@ -468,6 +468,32 @@ export function claimDrop(w: World, p: Dockhand, b: Bay): boolean {
   return true;
 }
 
+/**
+ * The most exports, up to `most`, a forklift could set down level in
+ * crate storage `b` by a jib crane, where the crane loading a ship from it
+ * reaches if it can (as dropSlot has it); 0 if none.
+ */
+export function exportsFit(w: World, b: Bay, most: number): number {
+  const used = usedSlots(w, b);
+  const kept = reserved(w, b);
+  const only = b.tiles && !b.yard ? jibLoadReach(w, b) : undefined;
+  // Room kept, too, for the loads other forklifts are bringing there and
+  // have yet to find a place for as they come.
+  for (const q of w.people) {
+    if (q.kind !== 'forklift' || !q.outbound || q.bayIdx !== b.idx || claiming(q, b)) continue;
+    const n = Math.max(1, q.carrying || q.planned);
+    let s = only ? loadSlot(b, n, used, kept, w, only) : -1;
+    if (s < 0) s = loadSlot(b, n, used, kept, w);
+    if (s < 0) return 0;
+    for (let k = s; k < s + n; k++) kept.add(k);
+  }
+  for (let n = most; n > 0; n--) {
+    if (only && loadSlot(b, n, used, kept, w, only) >= 0) return n;
+    if (loadSlot(b, n, used, kept, w) >= 0) return n;
+  }
+  return 0;
+}
+
 /** Whether a forklift's load of `n` has a level place to go at this bay. */
 export function loadFits(w: World, b: Bay, n: number, p?: Dockhand): boolean {
   if (!slotted(b)) return true;
