@@ -125,8 +125,35 @@ function layoutStart(map: GameMap): number {
     isOcean(xl + 4, r + 1) &&
     map.depth[map.idx(xl + 4, r)] >= BOAT_DRAFT;
   if (W > 96) {
-    // A big map: where the coast comes in nearest the highway, a natural
-    // harbour a short drive off it, well away from the ends of the port's land.
+    // A big map: on a point of land running out into the sea, with the
+    // coast either side of it further in, rather than in a bay, well away
+    // from the ends of the port's land; the furthest out, nearest the
+    // middle as far out.
+    const LOOK = 5;
+    let most = 1;
+    for (let r = Math.round(map.limit * 0.25); r <= Math.round(map.limit * 0.75); r++) {
+      const xw = firstOcean(r);
+      if (xw < 16 || xw > W - 12 || !fits(r, xw - 1)) continue;
+      const sides = [firstOcean(r - LOOK), firstOcean(r + LOOK)];
+      if (sides.some((x) => x < 0)) continue;
+      // Deep enough for a boat a tile off the shore beside it, for quays.
+      const deep = [-3, -2, -1, 1, 2, 3].every((d) => {
+        const x = firstOcean(r + d);
+        return x >= 0 && map.depth[map.idx(x + 1, r + d)] >= BOAT_DRAFT;
+      });
+      if (!deep) continue;
+      const out = Math.min(...sides.map((x) => xw - x));
+      const better =
+        out > most || (out === most && row >= 0 && Math.abs(r - cy) < Math.abs(row - cy));
+      if (better) {
+        most = out;
+        row = r;
+        shoreX = xw - 1;
+      }
+    }
+  }
+  if (W > 96 && row < 0) {
+    // No point: where the coast comes in nearest the highway.
     for (let r = Math.round(map.limit * 0.25); r <= Math.round(map.limit * 0.75); r++) {
       const xw = firstOcean(r);
       if (xw < 16 || xw > W - 12 || !fits(r, xw - 1)) continue;
@@ -177,6 +204,13 @@ function layoutStart(map: GameMap): number {
   for (let y = row - 2; y <= row + 2; y++) {
     for (let x = shoreX - 7; x <= shoreX; x++) {
       if (map.inBounds(x, y)) map.deco[map.idx(x, y)] = Deco.None;
+    }
+  }
+  // No rock on the shore round the jetty, where the port starts building.
+  for (let y = row - 5; y <= row + 5; y++) {
+    for (let x = shoreX - 12; x <= shoreX; x++) {
+      const i = map.inBounds(x, y) ? map.idx(x, y) : -1;
+      if (i >= 0 && map.terrain[i] === Terrain.Rock) map.terrain[i] = Terrain.Grass;
     }
   }
 

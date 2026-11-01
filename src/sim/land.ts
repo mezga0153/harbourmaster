@@ -111,26 +111,21 @@ export function isLandError(err: string): boolean {
 }
 
 /**
- * The plots a new game starts with, free: round the first jetty, the shore
- * and truck bay behind it with some of the road in, the water off the
- * jetty's end, and the plots beside
- * them along the coast, towards the side the jetty lies nearer, for a
- * second jetty and bay. Two plots to six, as they straddle lines
- * between plots. The public road in from the highway is the town's and
- * needs none.
+ * The plots a new game starts with, free: just those under its first
+ * jetty, the water off its end, the path to it and the end of the road in
+ * where the pickups turn about; the rest of the shore it buys as it grows.
+ * One plot to four, as they straddle lines between plots. The public road
+ * in from the highway is the town's and needs none.
  */
 export function startPlots(map: GameMap, row: number, shoreX: number): number[] {
-  const cols = new Set<number>();
-  for (const x of [shoreX - 10, shoreX, shoreX + 5]) {
-    const cx = Math.min(map.w - 1, Math.max(0, x));
-    cols.add(Math.floor(cx / B.PLOT_SIZE));
+  const out = new Set<number>();
+  for (let y = row - 1; y <= row + 1; y++) {
+    for (let x = shoreX - 6; x <= shoreX + 5; x++) {
+      const [cx, cy] = [Math.min(map.w - 1, Math.max(0, x)), Math.min(map.h - 1, Math.max(0, y))];
+      out.add(Math.floor(cy / B.PLOT_SIZE) * map.plotsWide + Math.floor(cx / B.PLOT_SIZE));
+    }
   }
-  const py = Math.floor(row / B.PLOT_SIZE);
-  const upper = row % B.PLOT_SIZE < B.PLOT_SIZE / 2;
-  const other = upper ? (py > 0 ? py - 1 : py + 1) : py < map.plotsHigh - 1 ? py + 1 : py - 1;
-  const out: number[] = [];
-  for (const r of [py, other]) for (const c of cols) out.push(r * map.plotsWide + c);
-  return out;
+  return [...out];
 }
 
 /** Own just the plots given, and none bought yet: a new game's land. */

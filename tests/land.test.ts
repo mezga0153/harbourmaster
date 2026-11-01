@@ -11,7 +11,7 @@ import {
   seaPlot,
 } from '../src/sim/land';
 import { findPath } from '../src/sim/path';
-import { placementError } from '../src/sim/rules';
+import { bayTrouble, bestFacing, placementError } from '../src/sim/rules';
 import { Build, Terrain } from '../src/sim/types';
 import { World } from '../src/sim/world';
 
@@ -205,31 +205,30 @@ describe('Land', () => {
     expect(World.fromSave(old.toSave()).map.plots).toEqual(old.map.plots);
   });
 
-  it('starts every map with room for a second jetty and truck bay, reached by road from the highway', () => {
+  it('starts every map owning little more than its jetty and the road’s end, with room for a truck bay by the road', () => {
     for (let seed = 1; seed <= 20; seed++) {
       const w = fresh(seed);
       const m = w.map;
       const mine = [] as number[];
       for (let i = 0; i < m.w * m.limit; i++) if (m.owns(i)) mine.push(i);
-      const row = m.yOf(m.entry);
-      // A jetty off the shore, away from the first.
-      const jetty = mine.filter(
-        (i) =>
-          Math.abs(m.yOf(i) - row) >= 3 &&
-          m.terrain[i] === Terrain.Water &&
-          !placementError(m, 'jetty', i) &&
-          m.depth[i] >= B.BOAT_DRAFT - 0.5,
-      );
-      expect(jetty.length, `seed ${seed}: room for a jetty`).toBeGreaterThan(0);
+      // A few plots: a second jetty's land is bought.
+      expect(mine.length, `seed ${seed}: land owned`).toBeLessThanOrEqual(4 * B.PLOT_SIZE ** 2);
+      // The jetty and the water off its end are the port's.
+      for (let i = 0; i < m.build.length; i++) {
+        if (m.build[i] === Build.Jetty) expect(m.owns(i), `seed ${seed}: jetty owned`).toBe(true);
+      }
       // A truck bay beside the road in.
       const bay = mine.filter(
-        (i) => m.build[i] === Build.None && !placementError(m, 'truckBay', i),
+        (i) =>
+          m.build[i] === Build.None &&
+          !placementError(m, 'truckBay', i) &&
+          !bayTrouble(m, i, bestFacing(m, 'truckBay', i))?.startsWith('No road'),
       );
       expect(bay.length, `seed ${seed}: room for a truck bay`).toBeGreaterThan(0);
       // Some of the road in is the port's to build off, with land to build on beside it.
-      expect(mine.filter((i) => m.build[i] === Build.Road).length).toBeGreaterThanOrEqual(6);
+      expect(mine.filter((i) => m.build[i] === Build.Road).length).toBeGreaterThanOrEqual(2);
       const land = mine.filter((i) => m.build[i] === Build.None && !placementError(m, 'road', i));
-      expect(land.length, `seed ${seed}: room to build`).toBeGreaterThan(60);
+      expect(land.length, `seed ${seed}: room to build`).toBeGreaterThan(20);
       // That road runs on public road all the way from the highway.
       const firstBay = mine.find((i) => m.build[i] === Build.TruckBay)!;
       const path = findPath(
