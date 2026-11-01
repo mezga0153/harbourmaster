@@ -23,7 +23,7 @@ import {
 } from './stores';
 import { holds, readyIn, takeReady, waitMask } from './customs';
 import { crateSlots, exportsFit, stackOf, takeFirst } from './places';
-import { avoiding, dockFor, intoSpace, truckCostFor } from '../roads/bays';
+import { avoiding, dockFor, intoSpace, oneWayLane, queueRoom, truckCostFor } from '../roads/bays';
 import { arrival, entryClear, lengthOf } from '../roads/traffic';
 import type { Bay, Boat, Crane, Crate, Dockhand, Truck } from '../../state';
 import {
@@ -748,15 +748,18 @@ export function exportStore(
   const from = w.tileOf(t);
   // Ice to a bay that holds ice already before another, keeping the rest for the catch.
   const iced = (b: Bay) => (iceTruck(w, t) && holdsIce(w, b) ? 0 : 1);
+  const len = lengthOf(w, t);
+  // Not one whose queue in is full already: no need to find the way to it.
+  const queue = (b: Bay) => !oneWayLane(w, b) || queueRoom(w, b, len);
   const stores = [...(t.boxes ? w.yards : w.bays).values()]
-    .filter((b) => takesFrom(w, b, t) && bayRoom(b, t.boxes) >= t.cargo)
+    .filter((b) => takesFrom(w, b, t) && bayRoom(b, t.boxes) >= t.cargo && queue(b))
     .sort((a, b) => iced(a) - iced(b) || w.distTo(from, a) - w.distTo(from, b));
   for (const store of stores) {
     const to = dockFor(
       w,
       store,
       (d, avoid) => w.routeFrom(t, d, avoiding(w, truckCostFor(w, store.idx, -1, t), avoid)),
-      lengthOf(w, t),
+      len,
     );
     if (to) return { store, ...to };
   }
