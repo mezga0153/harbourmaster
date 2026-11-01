@@ -130,6 +130,13 @@ when changing tiers, town growth, contracts or what unlocks what.
   find their way) are pure functions in `src/sim/rules/`, exported from
   `rules.ts`; tuning numbers are in `balance.ts`; the bits of a tile's
   `orient` in `orient.ts`.
+- Every crate and container is one record (`Crate` in `state.ts`) in the
+  cells of what holds it, a cell for each place as the view draws it:
+  storage, truck bays and quay heaps (`cargo/places.ts`), yards and crane
+  stacks (`cargo/stores.ts`, `cranes.ts`), truck beds (`cargo/beds.ts`), a
+  ship's deck; workers carry theirs as a list. Move records whole with the
+  holder's put/take functions (see `cargo/hold.ts`), never fees alone, and
+  the view gets cells too (`CellsView`).
 - `src/protocol.ts` exports the messages between the threads
   (`protocol/messages.ts`) and what the view sees (`protocol/views.ts`).
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
