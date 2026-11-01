@@ -2974,9 +2974,10 @@ describe('Container Port tier', () => {
       const s = world.snapshot();
       for (const c of s.cranes) for (const l of c.looks ?? []) after.add(l);
       for (const y of s.yards) {
-        for (const l of y.looks) {
-          after.add(l);
-          yards.add(l);
+        for (const c of y.cells ?? []) {
+          if (c?.look === undefined) continue;
+          after.add(c.look);
+          yards.add(c.look);
         }
       }
       for (const e of s.entities) {

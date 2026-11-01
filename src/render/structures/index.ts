@@ -22,7 +22,7 @@ import { runShipGantry } from './cranes/shipGantry';
 import { liftFrom, NO_RUN, pickOf, runYardGantry } from './cranes/yardGantry';
 import { animateFurniture } from './furniture';
 import { offset, storeArea } from './map';
-import { Stock, type BayStack } from './stock';
+import { freeIn, lookIn, Stock, type BayStack } from './stock';
 import {
   boundary,
   FACES,
@@ -309,8 +309,8 @@ export class Structures {
 
   setYards(yards: YardView[]): void {
     for (const y of yards) {
-      if (y.slots) this.stock.stackYard(y.tiles, y.slots, y.looks);
-      else this.stock.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true, y.looks);
+      if (y.cells) this.stock.stackYard(y.tiles, y.cells);
+      else this.stock.fill(y.tiles, y.boxes + y.exports + (y.lifted ?? 0), true);
       if (y.tiles.length > 0) this.stock.yardTiles.set(y.tiles[0], y.tiles);
       // Its gantry, at work or not, and where in the yard the container
       // it is moving lies, or for one coming off a truck, where it goes.
@@ -376,9 +376,9 @@ export class Structures {
     work: 'load' | 'unload',
     look?: number,
   ): YardGantryParts['pick'] {
-    const order = tiles.length > 0 ? (this.stock.slots.get(tiles[0]) ?? []) : [];
-    const k = work === 'load' ? (look === undefined ? -1 : order.indexOf(look)) : order.length;
-    return pickOf(g, this.stock.yardSlot(tiles, k));
+    const cells = tiles.length > 0 ? (this.stock.yardCells.get(tiles[0]) ?? []) : [];
+    const k = work === 'load' ? (look === undefined ? -1 : lookIn(cells, look)) : freeIn(cells);
+    return k < 0 ? null : pickOf(g, this.stock.boxAt(tiles, k));
   }
 
   /**
@@ -423,9 +423,9 @@ export class Structures {
       // A given container is there only while it shows.
       if (at.look !== undefined && !slot?.visible) slot = undefined;
     } else if (at.yard !== undefined) {
-      const order = this.stock.slots.get(at.yard) ?? [];
-      const k = at.look === undefined ? order.length : order.indexOf(at.look);
-      slot = this.stock.yardSlot(this.stock.yardTiles.get(at.yard) ?? [], k);
+      const cells = this.stock.yardCells.get(at.yard) ?? [];
+      const k = at.look === undefined ? freeIn(cells) : lookIn(cells, at.look);
+      if (k >= 0) slot = this.stock.boxAt(this.stock.yardTiles.get(at.yard) ?? [], k);
     }
     if (!slot) return null;
     slot.getWorldPosition(out);

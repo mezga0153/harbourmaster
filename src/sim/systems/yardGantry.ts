@@ -20,6 +20,7 @@ import {
   reachFrom,
   readyList,
   stackLooks,
+  yardCells,
   yardSlots,
   yardTop,
 } from './cargo/stores';
@@ -56,7 +57,7 @@ import type { Vehicle } from '../helpers';
 import { craneHeld, cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
 import * as B from '../balance';
 import { tip } from './output';
-import type { EntityView, HandAt } from '../../protocol/views';
+import type { CellsView, EntityView, HandAt } from '../../protocol/views';
 import { roundTicks, slotsFor } from './cargo/beds';
 import { pickTile } from './boats/berthing';
 
@@ -857,10 +858,11 @@ export function yardLooks(
   world: World,
   y: Bay,
   lifts: Map<number, GantryWork & { yard: number }>,
-): GantryWork & { looks: number[]; slots: number[]; lifted: number; workYard?: number } {
-  const looks = [...boxLooks(world, y), ...exportLooks(world, y)];
-  const { boxes, exports } = yardSlots(world, y);
-  const slots = [...boxes, ...exports];
+): GantryWork & { cells: CellsView; lifted: number; workYard?: number } {
+  boxLooks(world, y);
+  exportLooks(world, y);
+  const cells: CellsView = yardCells(y).map((c) => c && { look: c.look });
+  const at = (look: number | undefined) => cells.findIndex((c) => c && c.look === look);
   const w = [...lifts.values()].find((l) => l.yard === y.idx) ?? gantryWork(world, y);
   const p = w.workPhase ?? 0;
   const { taken, set } = liftMarks(w.workLegs);
@@ -868,26 +870,24 @@ export function yardLooks(
   // Where in the yard the container it moves is, or goes.
   const workYard =
     w.working === 'load'
-      ? slots[looks.indexOf(w.workLook ?? -1)]
+      ? at(w.workLook) >= 0
+        ? at(w.workLook)
+        : undefined
       : w.working === 'unload'
         ? (w.workYard ?? nextYardSlot(world, y))
         : undefined;
   if (w.working === 'load' && p >= taken) {
-    const k = looks.indexOf(w.workLook ?? -1);
-    if (k >= 0) {
-      looks.splice(k, 1);
-      slots.splice(k, 1);
-    }
+    const k = at(w.workLook);
+    if (k >= 0) cells[k] = null;
     lifted = -1;
   } else if (w.working === 'unload' && p >= set && w.workLook !== undefined) {
-    looks.push(w.workLook);
-    slots.push(workYard ?? nextYardSlot(world, y));
+    const k = workYard ?? nextYardSlot(world, y);
+    if (k >= 0) cells[k] = { look: w.workLook };
     lifted = 1;
   }
   const { working, workLook, workAt, workTruck, workSlot, workPhase, workLegs, workTicks } = w;
   return {
-    looks,
-    slots,
+    cells,
     lifted,
     working,
     workLook,

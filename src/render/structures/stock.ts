@@ -40,6 +40,8 @@ export class Stock {
   readonly yardTiles = new Map<number, number[]>();
   /** The tiles of each crate storage area, by its first, for where a jib crane sets crates. */
   readonly areas = new Map<number, number[]>();
+  /** What stands in each place of each yard, by its first tile. */
+  readonly yardCells = new Map<number, CellsView>();
   /** Cargo landed on the quay, by tile. */
   readonly piles = new Map<number, Pile>();
 
@@ -181,22 +183,22 @@ export class Stock {
   }
 
   /**
-   * A yard's containers each in the slot the game stacks it in, `slots[k]`
-   * looking like `looks[k]`: a tile's two stacks, three high, tile by tile.
+   * A yard's containers each in the place the game stacks it in, as it
+   * looks (see YardView.cells): a tile's two stacks, three high, tile by tile.
    */
-  stackYard(tiles: number[], slots: number[], looks: number[]): void {
+  stackYard(tiles: number[], cells: CellsView): void {
     const per = BOXES_PER_STORE_TILE;
-    const shown = new Map<number, number>();
-    slots.forEach((k, j) => shown.set(k, looks[j]));
     tiles.forEach((t, n) => {
       this.stackAt(t)?.boxes.forEach((o, r) => {
-        const look = shown.get(n * per + r);
+        const look = cells[n * per + r]?.look;
         o.visible = look !== undefined;
         if (look !== undefined) paintContainer(o, look);
       });
     });
+    if (tiles.length === 0) return;
+    this.yardCells.set(tiles[0], cells);
     // What is in it, for a gantry to tell when one has come or gone.
-    if (tiles.length > 0) this.slots.set(tiles[0], [...looks]);
+    this.slots.set(tiles[0], looksIn(cells));
   }
 
   /** The slots of the containers kept under `key`, brought up to date with `looks`. */
@@ -213,17 +215,6 @@ export class Stock {
    */
   kept(key: number, look: number): number {
     return (this.slots.get(key) ?? []).reduce((n, l) => n + (l === look ? 1 : 0), 0);
-  }
-
-  /** Container slot `k` of a yard, counting a tile's worth at a time from its first. */
-  yardSlot(tiles: number[], k: number): Object3D | undefined {
-    if (k < 0) return undefined;
-    for (const t of tiles) {
-      const items = this.stackAt(t)?.boxes ?? [];
-      if (k < items.length) return items[k];
-      k -= items.length;
-    }
-    return undefined;
   }
 
   /** The containers kept under `key`, in slot order; see settle. */
@@ -253,6 +244,21 @@ export class Stock {
     }
     return undefined;
   }
+}
+
+/** How the containers in a holder's cells look, place by place. */
+export function looksIn(cells: CellsView): number[] {
+  return cells.flatMap((c) => (c?.look !== undefined ? [c.look] : []));
+}
+
+/** The first place in a holder's cells with a container that looks like `look`, or -1. */
+export function lookIn(cells: CellsView, look: number): number {
+  return cells.findIndex((c) => c?.look === look);
+}
+
+/** The first empty place in a holder's cells, or -1. */
+export function freeIn(cells: CellsView): number {
+  return cells.findIndex((c) => !c);
 }
 
 /**
