@@ -14,6 +14,17 @@ export function loading(fraction: number, what: string): void {
   box.querySelector('.what')!.textContent = what;
 }
 
+/**
+ * The game cannot start: the bar stops and the screen says why and what to
+ * do, in place of what was loading.
+ */
+export function failed(why: string): void {
+  if (!box) return;
+  box.classList.add('js', 'failed');
+  box.querySelector('.what')!.textContent = why;
+  box.querySelector('.quip')?.remove();
+}
+
 /** The game is up: the screen fades away. */
 export function loaded(): void {
   if (!box || box.classList.contains('done')) return;

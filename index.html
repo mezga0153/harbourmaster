@@ -211,7 +211,13 @@
           transform: translateX(100%);
         }
       }
+      #loading.failed .bar {
+        display: none;
+      }
       #loading .what {
+        max-width: min(320px, 80vw);
+        text-align: center;
+        line-height: 1.45;
         min-height: 1.2em;
       }
       #loading .quip {

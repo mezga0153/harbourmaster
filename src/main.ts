@@ -14,7 +14,7 @@ import { App } from './ui/App';
 import type { Actions } from './ui/actions';
 import { downloadSave } from './ui/download';
 import { wireOverlays } from './ui/mapOverlays';
-import { loaded, loading } from './ui/loading';
+import { failed, loaded, loading } from './ui/loading';
 import { graphics } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
 import { advise, land, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
@@ -38,6 +38,15 @@ const hud = document.createElement('div');
 hud.className = 'hud';
 uiRoot.appendChild(hud);
 
+// Some browsers, after the graphics have crashed on a page a few times, turn
+// 3D off for that site till they are restarted: say so rather than hang.
+if (!webglWorks()) {
+  failed(
+    'Your browser has turned off 3D graphics for this game, or has none to give it. Close the browser completely and open it again (on a phone, swipe it away from the recent apps), then come back. If it happens again, lower the graphics in Settings.',
+  );
+  report('webgl', 'no WebGL to start with');
+  throw new Error('No WebGL');
+}
 const renderer = new Renderer(document.getElementById('game')!, floaters);
 watchErrors(worker, renderer.canvas);
 let map: GameMap | null = null;
@@ -204,4 +213,15 @@ if (import.meta.env.DEV) {
       if (e.data.type === 'debugView') dbg.receive(e.data.view);
     });
   });
+}
+
+/** Whether the browser will give the game a WebGL 2 context. */
+function webglWorks(): boolean {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return !!gl;
+  } catch {
+    return false;
+  }
 }
