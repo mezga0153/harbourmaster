@@ -20,6 +20,8 @@ import { wireOverlays } from '../ui/mapOverlays';
 import { graphics } from '../ui/prefs';
 import { advise, land, pushMessage, seed, selection, snapshot } from '../ui/store';
 import { button, defaults, el, paramPanel, select, toggle, type Params } from './controls';
+import { RECORDED, type Scenario } from './scenario';
+import { scenarioSection } from './scenarioPanel';
 import { PRESETS, sendBoat, sendTug } from './situations';
 
 // The Scenes tab: the whole game, drawn and played as it is, with the sim
@@ -29,7 +31,7 @@ import { PRESETS, sendBoat, sendTug } from './situations';
 
 const LOOP_MS = 100;
 
-class Runner {
+export class Runner {
   world: World | null = null;
   map: GameMap | null = null;
   readonly renderer: Renderer;
@@ -42,6 +44,13 @@ class Runner {
   /** Keys and commands are taken only while the tab is showing. */
   active = false;
   onFrame?: (s: Snapshot) => void;
+  /**
+   * The mini scenario being played (src/dev/scenario.ts), whose steps the
+   * port's commands sent from here are added to as they are taken; null
+   * for any other game.
+   */
+  scenario: Scenario | null = null;
+  onRecord?: () => void;
   /** The debug overlays (src/debug/), and what they want of the sim each frame. */
   private debug: ReturnType<typeof startDebug>;
   private debugWant: DebugWant | null = null;
@@ -96,6 +105,7 @@ class Runner {
   /** Play this game from here. */
   start(w: World): void {
     this.world = w;
+    this.scenario = null;
     this.map = GameMap.fromData(w.map.toData());
     w.drainTileChanges();
     w.drainPlotChanges();
@@ -142,6 +152,10 @@ class Runner {
     }
     if (cmd.type === 'debug') return w.debug(cmd);
     w.command(cmd);
+    if (this.scenario && RECORDED.has(cmd.type)) {
+      this.scenario.steps.push({ at: w.tick, cmd: structuredClone(cmd) });
+      this.onRecord?.();
+    }
   }
 
   /** Run the game on by `ticks`, however fast it is set to run, and draw it. */
@@ -201,8 +215,10 @@ class Runner {
     if (this.debugWant) this.debug.receive(collect(w, this.debugWant));
     for (const ev of events) {
       if (ev.kind === 'message') pushMessage(ev.text, ev.tone);
-      else if (ev.kind === 'tip') advise(ev.id);
-      else this.renderer.showMoney(ev.amount, ev.x, ev.y);
+      // The advisor's tips would only be in the way in a mini scenario.
+      else if (ev.kind === 'tip') {
+        if (!this.scenario) advise(ev.id);
+      } else this.renderer.showMoney(ev.amount, ev.x, ev.y);
     }
     this.onFrame?.(s);
   }
@@ -462,6 +478,14 @@ export function scenesTab(): HTMLElement & { activate(on: boolean): void } {
       'div',
       { className: 'lab-body' },
       section('Start from', presetBox, el('div', { className: 'lab-row' }, devGame, file)),
+      section(
+        'Mini scenario',
+        scenarioSection(
+          game,
+          () => runner,
+          (t) => (status.textContent = t),
+        ),
+      ),
       section('Run', run),
       section('Send in', sendRow),
       status,
