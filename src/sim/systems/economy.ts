@@ -336,11 +336,11 @@ export function offerBlocked(w: World, terms: Terms, customs = hasCustomsOffice(
 /** What customs does for a line's cargo, for the reason it cannot be signed. */
 function customsWhat(t: Terms): string {
   if (t.kind === 'shipper')
-    return 'its canned fish goes out on export papers. Build one (Port buildings)';
+    return 'its canned fish goes out on export papers. Build one (Buildings)';
   if (t.kind === 'fishery' && t.vessel === 'feeder')
-    return 'customs clears its containers. Build one (Port buildings)';
+    return 'customs clears its containers. Build one (Buildings)';
   const what = t.kind === 'fishery' ? t.catch : 'cargo';
-  return `customs clears its ${what}. Build one (Port buildings)`;
+  return `customs clears its ${what}. Build one (Buildings)`;
 }
 
 /**

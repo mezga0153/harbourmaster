@@ -28,6 +28,8 @@ export function selectionAt(
   // A boat's or worker's mark picks it, by its id.
   if (picked.problem?.type === 'boat' || picked.problem?.type === 'worker')
     return { type: 'entity', id: picked.problem.idx };
+  // A dock no one coordinates: what the harbour offices and huts look after.
+  if (picked.problem?.type === 'dock') return { type: 'office', idx: picked.problem.idx };
   // A shipper's mark opens the Contracts panel on it, by its id.
   if (picked.problem?.type === 'contract') {
     openContract(picked.problem.idx);

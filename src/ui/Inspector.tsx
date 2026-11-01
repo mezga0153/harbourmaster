@@ -65,7 +65,7 @@ export function InfoPanel({ actions }: { actions: Actions }) {
   if (sel.type === 'town') return <TownPanel actions={actions} />;
   if (sel.type === 'railway') return <RailwayPanel />;
   if (sel.type === 'yardGantry') return <YardGantryInfo idx={sel.idx} onClose={close} />;
-  if (sel.type === 'office') return <OfficeInfo hut={!!sel.hut} onClose={close} />;
+  if (sel.type === 'office') return <OfficeInfo hut={!!sel.hut} idx={sel.idx} onClose={close} />;
   if (sel.type === 'customs') return <CustomsInfo onClose={close} />;
   // The rest are things in the snapshot, found there; gone, nothing shows.
   const found = selected.value;
@@ -287,9 +287,19 @@ function ParkingInfo({ lot, onClose: close }: { lot: Lot; onClose: () => void })
   );
 }
 
-function OfficeInfo({ hut, onClose: close }: { hut: boolean; onClose: () => void }) {
+function OfficeInfo({
+  hut,
+  idx,
+  onClose: close,
+}: {
+  hut: boolean;
+  idx: number;
+  onClose: () => void;
+}) {
   const d = snapshot.value?.docks;
   if (!d) return null;
+  // Come to from a dock's red mark: what is wrong with it, first.
+  const mark = snapshot.value?.problems.find((p) => p.type === 'dock' && p.idx === idx);
   const idle = d.total - d.coordinated;
   return (
     <aside class="side panel">
@@ -298,6 +308,7 @@ function OfficeInfo({ hut, onClose: close }: { hut: boolean; onClose: () => void
         title={hut ? "Harbourmaster's hut" : 'Harbour office'}
         onClose={close}
       />
+      {mark && <p class="note bad">{mark.text}</p>}
       <p class="muted">
         The harbour master coordinates the berths: boats only moor at docks someone looks after, the
         nearest the port first. A harbour office looks after {B.DOCKS_PER_OFFICE} docks, jetties or

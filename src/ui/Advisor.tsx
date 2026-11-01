@@ -29,7 +29,7 @@ const TIPS: Record<string, Tip> = {
   },
   hut: {
     title: 'Somewhere to rest',
-    text: 'A dockhand is tired. With nowhere to rest they sit down where they are, which is slow and bad for morale. Build a break hut near the jetty: Port buildings, then Break hut (K).',
+    text: 'A dockhand is tired. With nowhere to rest they sit down where they are, which is slow and bad for morale. Build a break hut near the jetty: Buildings, then Break hut (K).',
     topic: 'dockhands',
   },
   speed: {
@@ -114,7 +114,7 @@ const TIPS: Record<string, Tip> = {
   },
   customsOffice: {
     title: 'A customs office',
-    text: `A line on the contracts board brings cargo customs must clear: timber or goods off the coasters, containers off the feeders, or crates of goods or the cannery's canned fish going out, inspected for export. It cannot be signed till the port has a customs office: build one from Port buildings, on open ground or a port path in the port's land, its door facing a port path or road. One does for the whole port, for $${B.CUSTOMS_OFFICE_COST.toLocaleString('en-US')}.`,
+    text: `A line on the contracts board brings cargo customs must clear: timber or goods off the coasters, containers off the feeders, or crates of goods or the cannery's canned fish going out, inspected for export. It cannot be signed till the port has a customs office: build one from Buildings, on open ground or a port path in the port's land, its door facing a port path or road. One does for the whole port, for $${B.CUSTOMS_OFFICE_COST.toLocaleString('en-US')}.`,
     topic: 'storage',
   },
   papers: {
@@ -174,7 +174,7 @@ const TIPS: Record<string, Tip> = {
   },
   cannery: {
     title: 'The cannery',
-    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. It can be signed once the port has a customs office (Port buildings), for the export papers. Its trucks need three things. 1: truck parking outside the port, marked out on a public road with road along both its long sides, where they wait their turn. 2: a port gate, with port roads inside it on to crate storage marked out for cargo going out, where they unload. 3: a shipping line’s coasters calling, to take it on board. Next the town wants a builders’ yard: put 25 crates of canned fish on board ships.',
+    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. It can be signed once the port has a customs office (Buildings), for the export papers. Its trucks need three things. 1: truck parking outside the port, marked out on a public road with road along both its long sides, where they wait their turn. 2: a port gate, with port roads inside it on to crate storage marked out for cargo going out, where they unload. 3: a shipping line’s coasters calling, to take it on board. Next the town wants a builders’ yard: put 25 crates of canned fish on board ships.',
     topic: 'exports',
   },
   buildersYard: {

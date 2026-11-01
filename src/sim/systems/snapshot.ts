@@ -477,6 +477,21 @@ export function problems(w: World): ProblemView[] {
     if (b.state !== 'moored' || !b.noRoom || b.crates === 0) continue;
     out.push({ x: b.x, y: b.y, h: 1.6, text: noRoomWords(w, b.noRoom), type: 'boat', idx: b.id });
   }
+  // Docks boats do not use, with no harbour office or hut to look after them.
+  for (const d of docks(w)) {
+    if (d.coordinated) continue;
+    const what = d.quay ? 'quay' : 'jetty';
+    const who = d.quay
+      ? `a harbour office: each looks after ${B.DOCKS_PER_OFFICE} docks`
+      : `a harbour office (${B.DOCKS_PER_OFFICE} docks each) or a harbourmaster's hut (${B.JETTIES_PER_HUT} jetties each)`;
+    out.push({
+      ...middle(d.tiles),
+      h: 0.9,
+      text: `Boats do not use this ${what}: no one coordinates its berths. Build another ${who}, from Buildings.`,
+      type: 'dock',
+      idx: d.tiles[0],
+    });
+  }
   for (const p of w.people) {
     const why = quitTrouble(w, p);
     if (why) out.push({ x: p.x, y: p.y, h: 1.3, text: why, type: 'worker', idx: p.id });
@@ -517,7 +532,7 @@ function quitTrouble(w: World, p: Dockhand): string | null {
     );
   if (p.kind === 'dockhand' && !w.map.build.includes(Build.BreakHut))
     said.push(
-      'Nowhere to rest: breaks sat on the ground wear morale down. Build a break hut (Port buildings).',
+      'Nowhere to rest: breaks sat on the ground wear morale down. Build a break hut (Buildings).',
     );
   else if (p.raiseAsk === 0) said.push('Breaks in a break hut and a raise lift morale.');
   return said.join(' ');
@@ -582,7 +597,7 @@ function troubleView(w: World, c: Contract, customs: boolean): ContractView['tro
   // pulled down: it goes on, but no line like it can be signed.
   if (!customs && needsCustomsOffice(c.terms)) {
     return {
-      text: 'The port has no customs office: this line goes on as signed, but no other whose cargo customs clears can be signed till you build one (Port buildings).',
+      text: 'The port has no customs office: this line goes on as signed, but no other whose cargo customs clears can be signed till you build one (Buildings).',
       bad: false,
     };
   }

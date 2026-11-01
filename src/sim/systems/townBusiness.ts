@@ -117,7 +117,7 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
   const sign = (trade: 'canned' | 'timber' | 'goods', what: string) => {
     const o = w.offers.find((x) => townTrade(x.terms) === trade);
     if (o && needsCustomsOffice(o.terms) && !hasCustomsOffice(w)) {
-      return `Build a customs office (Port buildings) so you can sign ${o.terms.name}'s offer: ${trade === 'canned' ? 'the canned fish needs export papers' : `customs clears the ${trade}`}`;
+      return `Build a customs office (Buildings) so you can sign ${o.terms.name}'s offer: ${trade === 'canned' ? 'the canned fish needs export papers' : `customs clears the ${trade}`}`;
     }
     return `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
   };

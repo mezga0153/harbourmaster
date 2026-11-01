@@ -310,7 +310,7 @@ export const CATEGORIES: Category[] = [
   {
     // The port's own buildings: the offices that run it, and the crew's huts.
     id: 'facilities',
-    label: 'Port buildings',
+    label: 'Buildings',
     icon: 'office',
     tools: [
       { tool: 'harbourHut', icon: 'office', label: "Harbourmaster's hut", group: 'Offices' },

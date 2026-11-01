@@ -113,7 +113,7 @@ ever full (`tests/coastal-storage.test.ts`). The Next step card says when
 storage full of crates in customs, or no storage at all, holds the town up.
 
 **The customs office** (`customs` in `src/sim/rules/buildables.ts`, $1,000,
-from the Coastal Wharf, under Port buildings with the harbour office and
+from the Coastal Wharf, under Buildings with the harbour office and
 hut): a line whose cargo customs clears cannot be signed till the port has
 one (`needsCustomsOffice` in `src/sim/contracts.ts`): the timber and goods
 coasters, feeder lines' containers, and the cannery, for its export papers.

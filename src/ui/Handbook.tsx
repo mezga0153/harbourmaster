@@ -255,7 +255,7 @@ export const TOPICS: Record<TopicId, Topic> = {
         <p>
           <b>Customs and export papers.</b> Lines landing timber, goods or containers, and shippers
           sending crates of goods and the cannery, cannot be signed till the port has a customs
-          office (Port buildings): one does for the whole port. Crates of timber and goods off the
+          office (Buildings): one does for the whole port. Crates of timber and goods off the
           coasters go into crate storage for cargo coming in, never a truck bay nor straight onto a
           truck, and wait there about {hours(B.CRATE_CUSTOMS_TICKS)} hours for customs before a
           truck may take them. Crates of goods and canned fish going out wait in the outgoing
