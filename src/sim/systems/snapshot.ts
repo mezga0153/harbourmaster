@@ -651,12 +651,13 @@ export function buildSnapshot(w: World): Snapshot {
         p,
         liftedLoad(w, p.carrying, isBoxy(p) ? [...carriedLooks(w, p)] : undefined, lifts.get(p.id)),
       ),
-      moving: p.path.length > 0,
+      moving: p.path.length > 0 || !!forkCells(p)?.length,
       ahead:
         (p.kind === 'dockhand' || p.kind === 'forklift') && p.path.length > 0
           ? p.path.slice(0, AHEAD_TILES)
           : undefined,
-      cells: p.kind === 'forklift' && p.path.length > 0 ? cellsAhead(p) : undefined,
+      cells: p.kind === 'forklift' || p.kind === 'dockhand' ? cellsAhead(p) : undefined,
+      stand: p.stand && { ...p.stand },
       cargo: isBoxy(p)
         ? undefined
         : p.load.map((c) => cargoOf(c.fee, p.outbound ? 'goods' : 'fish')),

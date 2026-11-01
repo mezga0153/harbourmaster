@@ -1,5 +1,5 @@
 import { Group, Vector3, type Object3D } from 'three';
-import { VESSELS, WALK_SPEED } from '../sim/balance';
+import { VESSELS } from '../sim/balance';
 import type { EntityView, HandAt } from '../protocol';
 import { AHEAD_TILES } from '../protocol/views';
 import type { GameMap } from '../sim/map';
@@ -9,6 +9,7 @@ import { place, type Entry, type Hand } from './entities/entry';
 import {
   BACKED_OUT,
   bodyBlocked,
+  FORK_REACH,
   forkIn,
   forkOut,
   forkPlan,
@@ -23,22 +24,18 @@ import {
   CELL_CRATE,
   CELL_NO_WALK,
   CELL_TRUCK,
-  HALF,
   StaffGrid,
   type CrateBox,
   type Point,
 } from './entities/grid';
 import { keepInside, parkIn, parkOut } from './entities/parking';
 import {
-  aroundTrucks,
   bayFrame,
   bayStand,
-  byBack,
   clearOfTruck,
   HAND_REACH,
   inTruck,
   LEAN_MOST,
-  offTrucks,
   stillTrucks,
   type TruckSite,
 } from './entities/trucks';
@@ -46,17 +43,7 @@ import { disposeOwned, KeyedObjects } from './keyed';
 import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from './machines';
 import { modelFor } from './model';
 import { alertMarker, CRATE, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
-import {
-  aboutAt,
-  driveTo,
-  FORK_KEEP,
-  length,
-  slide,
-  turnAbout,
-  walkVia,
-  type About,
-  type Pose,
-} from './motion';
+import { aboutAt, driveTo, FORK_KEEP, slide, turnAbout, type About, type Pose } from './motion';
 import { fidget, fidgetAt, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import { ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
@@ -75,8 +62,6 @@ const SETTLE = 3;
 
 /** Furthest a forklift drives up to a pallet, from where it stops for it. */
 const REACH_MOST = 1.3;
-/** Furthest a dockhand walks up to a crate, from where they stop for it. */
-const WALK_MOST = 1.6;
 /** Game seconds a stacker or tractor takes to go back to driving once it has handed a container over. */
 const HAND_SETTLE = 0.5;
 /** How far a stacker lifts a container clear of the others as it moves it. */
@@ -91,16 +76,10 @@ const DOWN_BY = 0.5;
 const DOWN_RATE = 4;
 const UP_RATE = 3;
 
-/** Fastest a dockhand closes on where they should be, tiles per game second: a brisk walk. */
-const CATCH_UP = WALK_SPEED * TICKS_PER_SECOND * 1.5;
 /** What a dockhand with nothing to do is doing, as the game has it. */
 const IDLE = 'Waiting for work';
 /** How near another dockhand standing about is for them to chat. */
 const CHAT_NEAR = 0.7;
-/** How far apart dockhands standing about keep. */
-const ROOM = 0.36;
-/** How quickly a dockhand turns to the way they step, per game second. */
-const TURN_RATE = 12;
 /** How far back from the edge of the quay a dockhand stands, toes to the edge. */
 const TOES = 0.05;
 /** How far off the way it is going a forklift has to face to turn about. */
@@ -164,8 +143,6 @@ const FORK_LANES = [
 ];
 /** How far right of the middle of their way people walk, so those going opposite ways pass. */
 const WALK_KEEP = 0.2;
-/** The lanes people pick between as they walk, the usual first: out to the gaps between stacks of crates. */
-const WALK_LANES = [WALK_KEEP, 0.3, 0.375, 0.1, 0.45, 0, -0.1, -0.2, -0.3, -0.375, -0.45];
 /**
  * What a forklift looks ahead for on the staff's grid: crates and trucks;
  * the edge of the ground it keeps off where it is (see bodyBlocked), as
@@ -394,7 +371,7 @@ export class Entities {
             : seated
               ? [x, y]
               : cur.kind === 'dockhand'
-                ? this.walkSpot(e, x, y, way)
+                ? [x, y]
                 : [x - Math.sin(way) * WALK_KEEP, y + Math.cos(way) * WALK_KEEP];
         let yaw = way;
         if (about && !about.done) {
@@ -412,20 +389,6 @@ export class Entities {
           yaw += e.slip.yaw * f;
           e.slip.left -= dt / SLIP_TIME;
           if (e.slip.left <= 0) e.slip = undefined;
-        }
-        if (cur.kind === 'dockhand') {
-          // Across a truck bay along its back, out of the truck's way.
-          if (!seated) [rx, ry] = byBack(this.trucks, rx, ry);
-          // Standing about, they keep a step apart rather than stand in each other,
-          // nor among crates.
-          if (!cur.moving && !seated) {
-            [rx, ry] = this.spread(e, rx, ry);
-            const free = this.staffGrid.nearestFree('dockhand', rx, ry, 0.75, WALK_OFF);
-            if (free) [rx, ry] = [free.x, free.z];
-          }
-          // Onto the other side of the way as they turn about, at a walk.
-          const to = this.catchUp(e, rx, ry, yaw, dt);
-          [rx, ry, yaw] = [to.x, to.z, Math.hypot(to.x - rx, to.z - ry) > 0.03 ? to.dir : yaw];
         }
         root.rotation.y = -yaw;
         root.position.set(rx, surfaceY(this.map, rx, ry), ry);
@@ -611,7 +574,7 @@ export class Entities {
       v.kind === 'forklift'
         ? this.forkSpot(e, x, y, dir, dt)
         : v.kind === 'dockhand'
-          ? this.walkSpot(e, x, y, dir)
+          ? [x, y]
           : [x - Math.sin(dir) * 0.2, y + Math.cos(dir) * 0.2];
     const drive: Pose = {
       x: dx,
@@ -641,33 +604,29 @@ export class Entities {
       // Seen part way through, at speed, it does the rest in what is left.
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
-      w.goal ??= clearOfTruck(this.trucks, v, this.workPose(v, w, drive), w.from) ?? undefined;
+      // Where the game has them stand to work it, just there; else as near it as they may.
+      w.goal ??=
+        (v.stand
+          ? this.workPose(v, w, drive)
+          : clearOfTruck(this.trucks, v, this.workPose(v, w, drive), w.from)) ?? undefined;
       // A dockhand the game has too far from the crate to walk up to it
       // works it from where they are, though they go as far as the edge of
       // a jetty off the corner a boat lies at. They are shown a snapshot
       // behind the game, so that is measured from where the game has them.
-      const far = w.goal && Math.hypot(w.goal.x - v.x, w.goal.z - v.y) > WALK_MOST;
-      if (w.goal && far && v.kind === 'dockhand') {
+      // With nowhere the game has them stand to work it, they work it from
+      // where they are, facing it.
+      if (w.goal && !v.stand && v.kind === 'dockhand') {
         w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
       }
       // Nowhere known to work it: where they are, but out of any crates there.
       w.goal ??= v.kind === 'dockhand' ? this.outOfCrates({ ...drive, h: 0 }) : undefined;
       const goal = w.goal ?? { ...drive, h: 0 };
       if (v.kind === 'dockhand') {
-        // Walked up to at their own pace, in what is left of it, before they
-        // bend to it.
-        const left = Math.max(1, (v.handTicks ?? 1) * (1 - w.start));
-        // Round a truck in the way, not through it, nor through crates.
-        w.via ??= this.walkWay(w.from, goal);
-        e.route = [w.from, ...w.via, goal];
-        const d = length([w.from, ...w.via, goal]);
-        // Never faster than they walk, though it leaves them less time to
-        // bend to it, or none: a truck backed in where they stood, say.
-        w.walk ??= Math.max(0.1, d / (WALK_SPEED * left));
-        e.stepping = phase < w.walk;
+        // Where the game has them, as it has them: they bend to it there.
+        e.stepping = false;
         w.at = phase;
-        pose = { ...walkVia(w.from, w.via, goal, Math.min(1, phase / w.walk)), h: 0 };
-        place(this.map, e, pose);
+        e.route = [goal];
+        place(this.map, e, { ...goal, x: drive.x, z: drive.z });
         return;
       }
       // Under a gantry, a tractor is lined up before the spreader comes down;
@@ -689,27 +648,13 @@ export class Entities {
         w.from = e.pose ?? drive;
       }
       const s = (this.sim - w.done) / HAND_SETTLE;
-      if (
-        v.kind === 'dockhand' &&
-        !v.moving &&
-        s < 4 &&
-        e.pose &&
-        this.staffGrid.blockedAt('dockhand', e.pose.x, e.pose.z, HALF.dockhand, WALK_OFF) === 0
-      ) {
-        // Done, but not off anywhere yet: they stay where they worked, ready
-        // for the next crate there, rather than step back and in again.
-        pose = { ...e.pose, h: 0 };
+      if (v.kind === 'dockhand') {
+        // Done: on from where the game has them, which is where they worked
+        // it, the crate going from where it lay into their hands as they
+        // straighten up.
+        if ((e.down ?? 0) <= 0.02) e.hand = undefined;
         e.stepping = false;
-      } else if (v.kind === 'dockhand') {
-        // Walks back onto their way, catching up with it, or a step clear of
-        // the others there if they stand about.
-        const [bx, bz] = byBack(this.trucks, drive.x, drive.z);
-        let [gx, gz] = v.moving ? [bx, bz] : this.spread(e, bx, bz);
-        if (!v.moving) ({ x: gx, z: gz } = this.outOfCrates({ ...drive, x: gx, z: gz }));
-        pose = { ...this.catchUp(e, gx, gz, drive.dir, dt, v.moving), h: 0 };
-        e.stepping = true;
-        const there = Math.hypot(pose.x - gx, pose.z - gz) < 0.02;
-        if (there || s >= 4) e.hand = undefined;
+        pose = { ...drive, h: 0 };
       } else if (s >= 1) e.hand = undefined;
       else {
         const a = ease(s);
@@ -818,6 +763,23 @@ export class Entities {
       );
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
+      if (!w.plan && v.stand) {
+        // Where the game has it stand, square on to the load: its forks up
+        // to the height of it, and in under it.
+        const own = this.forkPlanFor(v, w.from);
+        const h = own?.goal.h ?? ride(v);
+        const { x, y: z, dir, reach } = v.stand;
+        const line = { x, z, dir, h };
+        const d = Math.max(0, reach - FORK_REACH);
+        // Its forks right under the load as it draws it, coming at it the
+        // same way: in from where it stands, straightening onto it.
+        const square = own && Math.cos(own.goal.dir - dir) > 0.9;
+        const goal = square
+          ? { ...own.goal, dir }
+          : { ...line, x: x + Math.cos(dir) * d, z: z + Math.sin(dir) * d };
+        w.plan = { line, goal, away: [], stood: true };
+        e.route = [w.from, line, w.plan.goal];
+      }
       if (!w.plan) {
         const plan = this.forkPlanFor(v, w.from);
         // Too far from it, as the game has it, to drive up to it: it works
@@ -841,6 +803,13 @@ export class Entities {
       w.from = e.pose ?? low;
     }
     let s = (this.sim - w.done) / FORK_SETTLE;
+    // Where the game has it stand: backed out to there as the game has it
+    // back out, then on as the game has it.
+    if (w.plan?.stood && s >= BACKED_OUT) {
+      e.hand = undefined;
+      place(this.map, e, low);
+      return;
+    }
     if (w.plan && s > BACKED_OUT) {
       // Backed out, it waits where it lined up while its way on still runs
       // through crates, as off the tile it worked, then drives round them.
@@ -979,67 +948,10 @@ export class Entities {
     return out;
   }
 
-  /**
-   * Where a dockhand walking at x, y along `way` is drawn: to the right of
-   * the middle of their way, so people going opposite ways pass, unless
-   * crates are there or just ahead, as through crate storage; then the
-   * lane nearest that clear of them, out to the gaps between the stacks.
-   */
-  private walkSpot(e: Entry, x: number, y: number, way: number): [number, number] {
-    const grid = this.staffGrid;
-    const looks = this.lookAhead(e.view, x, y);
-    const off = (px: number, pz: number, dir: number, k: number) =>
-      grid.blockedAt(
-        'dockhand',
-        px - Math.sin(dir) * k,
-        pz + Math.cos(dir) * k,
-        HALF.dockhand,
-        WALK_OFF,
-      );
-    const ahead = (k: number) => looks.reduce((n, p) => n + p.w * off(p.x, p.z, p.dir, k), 0);
-    const k0 = e.keep?.[0] ?? WALK_KEEP;
-    let keep = WALK_KEEP;
-    if (off(x, y, way, WALK_KEEP) > 0 || ahead(WALK_KEEP) > 0) {
-      let least = Infinity;
-      for (const k of WALK_LANES) {
-        const n =
-          off(x, y, way, k) * 10 +
-          ahead(k) +
-          0.4 * Math.abs(k - k0) +
-          0.2 * Math.abs(k - WALK_KEEP);
-        if (n < least) [keep, least] = [k, n];
-      }
-    }
-    e.keep = [keep, 0];
-    const at: [number, number] = [x - Math.sin(way) * keep, y + Math.cos(way) * keep];
-    e.route = [
-      { x: e.pose?.x ?? at[0], z: e.pose?.z ?? at[1] },
-      ...looks.map((p) => ({ x: p.x - Math.sin(p.dir) * keep, z: p.z + Math.cos(p.dir) * keep })),
-    ];
-    return at;
-  }
-
   /** Where a dockhand at `pose` stands instead, clear of crates: the nearest clear spot of the staff's grid. */
   private outOfCrates(pose: Pose): Pose {
     const free = this.staffGrid.nearestFree('dockhand', pose.x, pose.z, 0.75, WALK_OFF);
     return free ? { ...pose, x: free.x, z: free.z } : pose;
-  }
-
-  /**
-   * The corners a dockhand walks by from one point to another: round a
-   * truck standing in the way, by its back (see aroundTrucks), and where
-   * that way runs through crates, round them across the staff's grid.
-   */
-  private walkWay(from: Point, to: Point): Point[] {
-    const via = aroundTrucks(this.trucks, from, to);
-    const grid = this.staffGrid;
-    // Only to somewhere clear of crates: at a truck bay's stack they stand where they always have.
-    if (grid.blockedAt('dockhand', to.x, to.z, HALF.dockhand, WALK_OFF) > 0) return via;
-    const legs = [from, ...via, to];
-    const through = legs.some(
-      (p, k) => k > 0 && !grid.clearLine('dockhand', legs[k - 1], p, WALK_OFF),
-    );
-    return through ? grid.route('dockhand', from, to) : via;
   }
 
   /**
@@ -1099,88 +1011,6 @@ export class Entities {
     }
   }
 
-  /**
-   * Where a dockhand standing about at x, z stands, a step clear of any
-   * other dockhand nearby, and still on the quay.
-   */
-  private spread(e: Entry, x: number, z: number): [number, number] {
-    let px = 0;
-    let pz = 0;
-    // By where the game has them, which holds still while they stand: each
-    // steps half the room aside, and they stay put once apart.
-    const me = e.view;
-    for (const o of this.entries.values()) {
-      if (o === e || o.view.kind !== 'dockhand' || o.view.moving) continue;
-      const dx = me.x - o.view.x;
-      const dz = me.y - o.view.y;
-      const d = Math.hypot(dx, dz);
-      if (d >= ROOM) continue;
-      // Right on top of each other: apart, opposite ways, whichever way their ids say.
-      const pair = Math.min(e.view.id, o.view.id) * 2.39996 + (e.view.id < o.view.id ? 0 : Math.PI);
-      const a = d < 1e-3 ? pair : Math.atan2(dz, dx);
-      px += (Math.cos(a) * (ROOM - d)) / 2;
-      pz += (Math.sin(a) * (ROOM - d)) / 2;
-    }
-    // Off the edge that way: as far round from it as it takes to stay on the quay.
-    for (const turn of [0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, Math.PI]) {
-      const c = Math.cos(turn);
-      const s = Math.sin(turn);
-      const nx = x + px * c - pz * s;
-      const nz = z + px * s + pz * c;
-      if (surfaceY(this.map, nx, nz) > 0) return [nx, nz];
-    }
-    return [x, z];
-  }
-
-  /**
-   * A dockhand's way onto x, z: no faster than a brisk walk, so they never
-   * jump there, facing the way they step and otherwise `dir`.
-   */
-  private catchUp(
-    e: Entry,
-    x: number,
-    z: number,
-    dir: number,
-    dt: number,
-    leaving = false,
-  ): Omit<Pose, 'h'> {
-    // Just come into view, or a long way on (the tab was in the background):
-    // further than from the far side of a pickup at the roadside to its bay.
-    if (!e.pose || Math.hypot(x - e.pose.x, z - e.pose.z) > 3) return { x, z, dir };
-    // Going on from a truck they loaded, where the game has them walk
-    // through it: they make for where they come out the other side, round it.
-    for (let k = 0; leaving && k < 30 && inTruck(this.trucks, x, z); k++) {
-      x += Math.cos(dir) * 0.05;
-      z += Math.sin(dir) * 0.05;
-    }
-    [x, z] = offTrucks(this.trucks, e, x, z);
-    // Round a truck in the way, by its nearer corner.
-    const via = e.pose && aroundTrucks(this.trucks, e.pose, { x, z })[0];
-    if (via) [x, z] = [via.x, via.z];
-    const at = e.pose;
-    // Round crates in the way, across the staff's grid, rather than through them.
-    if (!this.staffGrid.clearLine('dockhand', at, { x, z }, WALK_OFF)) {
-      let d = e.detour;
-      const stamp = this.staffGrid.stamp;
-      if (!d || d.stamp !== stamp || Math.hypot(d.to.x - x, d.to.z - z) > 0.15) {
-        d = e.detour = { to: { x, z }, via: this.staffGrid.route('dockhand', at, { x, z }), stamp };
-      }
-      while (d.via.length > 0 && Math.hypot(d.via[0].x - at.x, d.via[0].z - at.z) < 0.04) {
-        d.via.shift();
-      }
-      if (d.via.length > 0) {
-        e.route = [{ x: at.x, z: at.z }, ...d.via, { x, z }];
-        [x, z] = [d.via[0].x, d.via[0].z];
-      }
-    } else e.detour = undefined;
-    const d = Math.hypot(x - at.x, z - at.z);
-    const step = Math.min(d, CATCH_UP * dt);
-    const nx = d > 0 ? at.x + ((x - at.x) / d) * step : x;
-    const nz = d > 0 ? at.z + ((z - at.z) / d) * step : z;
-    const way = d - step > 0.03 ? Math.atan2(z - at.z, x - at.x) : dir;
-    return { x: nx, z: nz, dir: lerpAngle(at.dir, way, Math.min(1, dt * TURN_RATE)) };
-  }
-
   /** Where a stacker or tractor stands to hand a container over, or null if it is not known. */
   private workPose(v: EntityView, w: Hand, drive: Pose): Pose | null {
     const at = v.handAt;
@@ -1200,6 +1030,16 @@ export class Entities {
     const p = this.slotAt;
     const heading = this.handSlot(at, p);
     if (heading === null) return null;
+    // Where the game has it stand to work it, facing it: just there,
+    // leaning to it as far as it must.
+    if (v.stand && (v.kind === 'dockhand' || v.kind === 'forklift')) {
+      const { x, y: z, dir } = v.stand;
+      const over =
+        v.kind === 'dockhand'
+          ? Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - hold))
+          : undefined;
+      return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
+    }
     // At a truck bay, to its stack or the truck in it, from the back corner
     // behind the stack, clear of the truck.
     const corner = v.kind === 'dockhand' && bayStand(this.trucks, v, at);

@@ -245,6 +245,8 @@ export const FORKLIFT_PRICE = 1500;
 export const FORKLIFT_WAGE = 55; // operator, per day
 export const FORKLIFT_CAPACITY = 4;
 export const FORKLIFT_SPEED = 0.42; // tiles per tick
+/** Ticks a forklift takes backing its forks out of a load it has taken or set down, before it drives on. */
+export const FORK_BACK_TICKS = 4;
 export const FORKLIFT_BREAKDOWN = 0.06; // chance per day
 export const REPAIR_TICKS = 240;
 export const REPAIR_COST = 112; // at a depot; a call-out to a broken-down forklift costs double

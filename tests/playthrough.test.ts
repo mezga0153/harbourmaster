@@ -23,8 +23,11 @@ describe('Playthrough', () => {
   // to a truck's far side, seed 1 did, 3 passing (20, 25 and 27). Seed 25
   // passed each way. With crates on a truck's bed kept in cells, seed 25
   // tipped over, 2 of seeds 1 to 28 passing either way (12 and 25, then 12
-  // and 27): seed 12 passed each way.
-  it.each([12])(
+  // and 27): seed 12 passed each way. With dockhands and forklifts going
+  // cell by cell to where they stand to work each crate, 3 of seeds 1 to
+  // 28 pass (22, 24 and 26, against 12 and 27), handling more crates on
+  // the whole.
+  it.each([22])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);

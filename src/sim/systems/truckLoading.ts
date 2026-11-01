@@ -20,7 +20,7 @@ import {
 } from './cargo/stores';
 import { cancelJob, dest, noPlaceWhy, readyIn, takeReady, waitMask } from './cargo/customs';
 import { claimDrop, setDown } from './cargo/places';
-import { bedRoom, keepSlots, onBed, onTrailer, roundTicks, slotsFor } from './cargo/beds';
+import { bedRoom, keepSlots, onBed, onTrailer, slotsFor } from './cargo/beds';
 import type { Bay, Crate, Dockhand, Truck } from '../state';
 import { onPallet, palletTile, stackedAt, takenFrom } from './yardGantry';
 import * as B from '../balance';
@@ -53,6 +53,11 @@ export function byHand(_w: World, t: Truck, bay: Bay): boolean {
 export function straightOnto(w: World, p: Dockhand, bay: Bay): Truck | undefined {
   if (isBoxy(p) || p.outbound || p.truckId !== undefined || bay.tiles || p.carrying <= 0) {
     return undefined;
+  }
+  // Setting its load down already: where it set about it, while that truck is still there.
+  if (p.onto !== undefined) {
+    const t = w.trucks.find((q) => q.id === p.onto);
+    return t && t.state === 'loading' && t.bayIdx === bay.idx ? t : undefined;
   }
   // Only onto a truck with room for them all; a pickup only by hand.
   return w.trucks.find(
@@ -231,15 +236,12 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       if (r === 'blocked') cancelJob(w, p);
       else if (r === 'arrived' && !bayTaken(w, p, bay)) {
         p.state = 'picking';
-        // Back from the far side of the truck it loaded last, first.
-        if (p.back?.truck !== t.id) p.back = undefined;
-        p.timer = handlingTicks(w, p, B.PICK_TICKS) + (p.back?.ticks ?? 0);
+        p.timer = handlingTicks(w, p, B.PICK_TICKS);
       }
       return true;
     }
     case 'picking': {
       if (--p.timer > 0) return true;
-      p.back = undefined;
       if (!live) {
         cancelJob(w, p);
         return true;
@@ -258,17 +260,28 @@ export function crateTruckJob(w: World, p: Dockhand): boolean {
       p.load = fees;
       // Fewer than it went for: only the first of the places kept for them.
       if (p.bedAt) p.bedAt = p.bedAt.slice(0, fees.length);
-      // The truck is right beside it: round to its far side, though.
-      p.state = 'dropping';
-      p.timer = handlingTicks(w, p, B.DROP_TICKS) + roundTicks(w, t, p);
+      // Round to the side of the truck they go on, beside it.
+      headTo(w, p, w.tileOf(p));
+      p.state = 'toDrop';
+      return true;
+    }
+    case 'toDrop': {
+      if (!live) {
+        cancelJob(w, p);
+        return true;
+      }
+      const r = walk(w, p);
+      if (r === 'blocked') cancelJob(w, p);
+      else if (r === 'arrived') {
+        p.state = 'dropping';
+        p.timer = handlingTicks(w, p, B.DROP_TICKS);
+      }
       return true;
     }
     case 'dropping': {
       if (--p.timer > 0) return true;
-      const back = t ? roundTicks(w, t, p) : 0;
       landCrates(w, p, t, bay, live);
       endTruckJob(w, p);
-      if (t && back > 0) p.back = { truck: t.id, ticks: back };
       return true;
     }
   }
@@ -323,22 +336,11 @@ export function unloadTruckJob(
         at: w.tick,
         look: boxLookOf(t!.id, t!.cargo + k),
       }));
-      // On to the place in storage they go, unless it is right here; a
-      // truck bay's stack is right beside the truck.
+      // On to the place in storage they go, or by the truck bay's stack
+      // right beside the truck, to stand by it.
       const tile = bay?.tiles ? palletTile(w, bay, false, false, true, p) : -1;
-      if (tile >= 0 && tile !== w.tileOf(p) && headTo(w, p, tile)) {
-        p.state = 'toDrop';
-        return true;
-      }
-      // Where they go kept for them; a forklift waits for a level place.
-      if (bay && !claimDrop(w, p, bay)) {
-        p.state = 'toDrop';
-        p.path = [];
-        p.waitingWhy = noPlaceWhy(p, bay);
-        return true;
-      }
-      p.state = 'dropping';
-      p.timer = handlingTicks(w, p, B.DROP_TICKS);
+      if (tile < 0 || tile === w.tileOf(p) || !headTo(w, p, tile)) headTo(w, p, w.tileOf(p));
+      p.state = 'toDrop';
       return true;
     }
     case 'toDrop': {

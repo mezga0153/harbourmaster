@@ -105,6 +105,15 @@ export interface Dockhand extends Agent {
    */
   dropAt?: number;
   dropIn?: number;
+  /**
+   * Where it stands to work the crate it goes for or the load it sets
+   * down, once it has a place to, and which way it faces; see stands.ts.
+   */
+  stand?: Stand;
+  /** Setting a load down at a truck bay: the truck it goes straight onto, or -1 for the stack. */
+  onto?: number;
+  /** A forklift: ticks it still takes backing its forks out of the load it worked, before it drives on. */
+  backing?: number;
   /** Loading a crate truck: the places on its bed kept for the load it brings; see beds.ts. */
   bedAt?: number[];
   /** Just loaded a crate truck from round its far side: ticks to come back, before the next. */
@@ -458,6 +467,14 @@ export interface Truck extends Agent {
   idle: number;
   timer: number;
   variant: number;
+}
+
+/** Where a worker stands to work a crate, and which way it faces; `reach` how far off the crate is. */
+export interface Stand {
+  x: number;
+  y: number;
+  dir: number;
+  reach: number;
 }
 
 /** A crate where it stands; see hold.ts. */

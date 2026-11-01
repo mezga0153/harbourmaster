@@ -216,7 +216,10 @@ export function handlingTicks(w: World, p: Dockhand, base: number): number {
     return base;
   }
   if (p.kind === 'stacker') return Math.round(base * 2.5);
-  if (p.kind === 'forklift') return Math.round(base * 1.5);
+  // A forklift has driven up to the place it works the load from already
+  // (see stands.ts): its forks in and up, or in and down, a little quicker
+  // than a dockhand, as it backs them out after (FORK_BACK_TICKS).
+  if (p.kind === 'forklift') return Math.max(2, base - B.FORK_BACK_TICKS / 2);
   return Math.max(1, Math.round(base * traitDef(p.trait).handling));
 }
 

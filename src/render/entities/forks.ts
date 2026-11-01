@@ -101,6 +101,8 @@ export interface ForkPlan {
   via?: Point[];
   /** Corners it drives by from where it lined up back onto its way. */
   away?: Point[];
+  /** Lined up where the game has it stand to work the load (see stands.ts). */
+  stood?: boolean;
 }
 
 export type { Point };

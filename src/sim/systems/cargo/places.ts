@@ -95,7 +95,7 @@ function shape(b: Bay): Shape {
 }
 
 /** Which ends of a crate storage tile's stack a forklift can drive up to: now, and with no trucks about. */
-interface Ends {
+export interface Ends {
   now: [boolean, boolean];
   ever: [boolean, boolean];
 }
@@ -108,7 +108,7 @@ let endsCache: { w: World; tick: number; trucks: Set<number>; at: Map<number, En
  * up to, the front row's then the back row's: port ground (not a depot),
  * and now, no truck standing there.
  */
-function stackEnds(w: World, t: number): Ends {
+export function stackEnds(w: World, t: number): Ends {
   if (endsCache?.w !== w || endsCache.tick !== w.tick) {
     // Trucks standing still, loading, unloading or parked, stand in the way.
     const trucks = new Set<number>();
@@ -634,6 +634,7 @@ export function takeOrder(
   const { crates, exports } = crateSlots(w, b);
   const list = out ? exports : crates;
   const used = new Set([...crates, ...exports].filter((s) => s >= 0));
+  const kept = reserved(w, b);
   const want = at >= 0 && at < list.length && list[at] >= 0 ? placeIn(list[at]) : -1;
   const whole = (k: number) => {
     for (let s = k * PLACE; s < (k + 1) * PLACE; s++) if (!used.has(s)) return false;
@@ -646,7 +647,8 @@ export function takeOrder(
     list.forEach((s, i) => {
       if (pick.includes(i) || !ok(i)) return;
       const up = s >= 0 ? sh.above(s) : -1;
-      if (up >= 0 && used.has(up)) return;
+      // Nor from under a load on its way down onto it.
+      if (up >= 0 && (used.has(up) || kept.has(up))) return;
       // In storage off a pallet not whole first, so those that are stay
       // whole for the forklifts, and one a forklift can get to before any
       // other; at a truck bay the last slot of its stack first, as it

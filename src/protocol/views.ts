@@ -85,10 +85,17 @@ export interface EntityView {
    */
   ahead?: number[];
   /**
-   * Forklifts driving cell by cell (see forkCells.ts): the corners they go
-   * by next, as x, y pairs, the last where they stop, up to AHEAD_CELLS.
+   * Dockhands and forklifts going cell by cell (see forkCells.ts): the
+   * corners they go by next, as x, y pairs, the last where they stop, up
+   * to AHEAD_CELLS.
    */
   cells?: number[];
+  /**
+   * Dockhands and forklifts: where they stand to work the crate they go
+   * for or the load they set down, once they have a place to, which way
+   * they face it and how far off it is; they work it from just there.
+   */
+  stand?: { x: number; y: number; dir: number; reach: number };
 }
 
 /** How many of the corners ahead of a forklift driving cell by cell the game tells; see EntityView.cells. */

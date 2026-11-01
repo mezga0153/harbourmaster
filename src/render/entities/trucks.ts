@@ -371,7 +371,7 @@ export function stillTrucks(site: TruckSite): StillTruck[] {
 }
 
 /** How far a model reaches each way from its middle, unturned. */
-function sizeOf(root: Object3D): Box3 {
+export function sizeOf(root: Object3D): Box3 {
   const at = root.position.clone();
   const turn = root.rotation.y;
   root.position.set(0, 0, 0);

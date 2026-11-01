@@ -1,7 +1,7 @@
 // Dockhands and port machines: hiring them in, depots, fuel and repairs,
 // walking and driving, each one's turn, and the jobs they take.
 
-import { moveCells } from './forkCells';
+import { moveCells, toStand } from './forkCells';
 import { onBed } from '../cargo/beds';
 import type { World } from '../../world';
 import { exportSources, loadSpot, takeExportJob, wantsLoad } from '../cargo/exports';
@@ -47,7 +47,7 @@ import { mayEnter, toStopLine } from '../roads/traffic';
 import { drive } from '../roads/trucks';
 import { paceFactor } from '../../staff';
 import type { Candidate } from '../../staff';
-import type { Bay, Boat, Dockhand } from '../../state';
+import type { Bay, Boat, Dockhand, DockhandState } from '../../state';
 import * as B from '../../balance';
 import {
   bayIncoming,
@@ -109,6 +109,7 @@ import {
 import { claimDrop, feesIn, setDown } from '../cargo/places';
 import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
+import { standsFor, type StandAt } from './stands';
 
 export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
   const p: Dockhand = {
@@ -342,6 +343,11 @@ export function rescue(w: World, p: Dockhand): boolean {
 }
 
 export function walk(w: World, p: Dockhand) {
+  // Backing its forks out of what it worked, it goes nowhere yet.
+  if (p.backing) {
+    p.backing--;
+    return 'moving';
+  }
   const before = w.tileOf(p);
   const laneBefore = laneOf(p.dir);
   const boxy = isBoxy(p);
@@ -378,14 +384,19 @@ export function walk(w: World, p: Dockhand) {
       boxy && !p.squeeze ? Math.min(roomAhead(w, p) - B.TRUCK_GAP, toStopLine(w, p)) : Infinity;
     const [x0, y0] = [p.x, p.y];
     // A forklift goes cell by cell round the crates on its way; see forkCells.ts.
-    const v = drive(w, p, speed, room());
-    const cells = p.kind === 'forklift' ? moveCells(w, p, v, enter) : null;
+    // Stopping at the place it works a crate from, not short of it on the
+    // tile its way ends at.
+    const near = p.kind === 'forklift' ? toStand(p) : Infinity;
+    const v = drive(w, p, speed, Math.min(room(), near), near === Infinity);
+    const cells = p.kind === 'forklift' ? moveCells(w, p, v, enter, standsOf(w, p)) : null;
     r = cells ?? w.move(p, w.driveCost, true, () => v, enter, repath);
     // Held up behind something, it is waiting as at a tile it may not enter.
     if (r === 'moving' && p.x === x0 && p.y === y0) r = 'waiting';
   } else {
     const pace = paceFactor(p.skill, p.morale, p.energy);
-    r = w.move(p, w.walkCost, true, () => w.walkSpeed() * pace, enter);
+    // Cell by cell round the crates on its way, too.
+    const v = w.walkSpeed() * pace;
+    r = moveCells(w, p, v, enter, standsOf(w, p)) ?? w.move(p, w.walkCost, true, () => v, enter);
   }
   const after = w.tileOf(p);
   const laneAfter = laneOf(p.dir);
@@ -418,7 +429,24 @@ export function walk(w: World, p: Dockhand) {
   return r;
 }
 
+/** The states of a worker on its way to work a crate, or working it, with a place to stand for it. */
+const HANDLING = new Set<DockhandState>(['toPickup', 'picking', 'toDrop', 'dropping']);
+
 export function updateDockhand(w: World, p: Dockhand): void {
+  const before = p.state;
+  const stood = !!p.stand;
+  work(w, p);
+  // A forklift done with a load backs its forks out of where it worked it,
+  // before it drives on.
+  if (p.kind === 'forklift' && stood && p.state !== before) {
+    if (before === 'picking' || before === 'dropping') p.backing = B.FORK_BACK_TICKS;
+  }
+}
+
+function work(w: World, p: Dockhand): void {
+  // Done with a crate: the place it stood to work it is free for others.
+  if (p.stand && !HANDLING.has(p.state)) p.stand = undefined;
+  if (p.onto !== undefined && p.state !== 'dropping') p.onto = undefined;
   if ((p.state === 'idle' || p.state === 'wander') && rescue(w, p)) return;
   if (tire(w, p)) return goOnBreak(w, p);
   if (p.truckId !== undefined && (isBoxy(p) ? truckJob(w, p) : crateTruckJob(w, p))) return;
@@ -508,7 +536,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
       const r = walk(w, p);
       if (r === 'blocked') return cancelJob(w, p);
       if (r === 'arrived') {
-        if (toPallet(w, p, w.bays.get(p.stockIdx), true)) return;
+        if (!p.stand && toPallet(w, p, w.bays.get(p.stockIdx), true)) return;
         p.state = 'picking';
         p.timer = handlingTicks(w, p, B.PICK_TICKS);
         // Which container off a crane's stack it takes, from the top as
@@ -569,7 +597,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
       if (r === 'arrived') {
         // The place its pallet goes in crate storage may have moved on
         // while it came: it goes on to it.
-        if (toPallet(w, p, w.bays.get(p.bayIdx), false)) return;
+        if (!p.stand && toPallet(w, p, w.bays.get(p.bayIdx), false)) return;
         // One at a time at a truck bay: it waits its turn.
         const bay = w.bays.get(p.bayIdx);
         if (bay && bayTaken(w, p, bay)) return;
@@ -580,6 +608,8 @@ export function updateDockhand(w: World, p: Dockhand): void {
         }
         p.waitingWhy = undefined;
         p.state = 'dropping';
+        // Onto the truck there, or the stack, as it sets about it.
+        p.onto = (bay && straightOnto(w, p, bay)?.id) ?? -1;
         p.timer = handlingTicks(w, p, B.DROP_TICKS);
       }
       return;
@@ -664,7 +694,18 @@ export function headTo(w: World, p: Dockhand, goal: number): boolean {
   if (!path) return false;
   p.path = path;
   p.goal = goal;
+  // Somewhere new: no place kept to stand at there yet.
+  p.stand = undefined;
   return true;
+}
+
+/**
+ * The places a dockhand or forklift on its way to take a crate, or to set
+ * its load down, may stand to work it from (see stands.ts); none else.
+ */
+function standsOf(w: World, p: Dockhand): (() => StandAt[]) | undefined {
+  if (p.state !== 'toPickup' && p.state !== 'toDrop') return undefined;
+  return () => standsFor(w, p, p.state === 'toPickup');
 }
 
 /**

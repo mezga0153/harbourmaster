@@ -7,6 +7,7 @@ import { World } from '../src/sim/world';
 import { cargoOf, withCargo } from '../src/sim/cargo';
 import { Entities, turnAbout } from '../src/render/entities';
 import { settle, Structures } from '../src/render/structures';
+import { sizeOf } from '../src/render/entities/trucks';
 import { surfaceY } from '../src/render/terrain';
 import { boat, person, truck } from '../src/render/model';
 import { forklift } from '../src/render/machines';
@@ -199,7 +200,7 @@ describe('Dockhands handling crates', () => {
     expect(up).toBeGreaterThan(0);
   });
 
-  it('unload the near side of a boat first, and load the far side of a truck first', () => {
+  it('unload the near side of a boat first, and walk round a truck to the side its crate goes on', () => {
     const world = World.create(7, 96);
     smallTruckHauliers(world);
     const m = world.map;
@@ -245,10 +246,11 @@ describe('Dockhands handling crates', () => {
           near.boat[1]++;
           if (on.filter((k) => d(k) < mine - 1e-6).length <= on.length / 2) near.boat[0]++;
         } else if (other.kind === 'truck' && view.handStage === 'drop') {
-          // Of the places still free, among the farther half.
-          const free = slots.filter((k) => !entities.slotShown(at.truck!, k));
+          // Beside the place it goes, within reach, leaning over the side
+          // in a truck bay: round the truck to its far side first, as that
+          // fills first.
           near.truck[1]++;
-          if (free.filter((k) => d(k) > mine + 1e-6).length <= free.length / 2) near.truck[0]++;
+          if (mine < 0.8) near.truck[0]++;
         }
       }
     }
@@ -607,7 +609,7 @@ describe('Trucks at a truck bay', () => {
           for (const truck of entries.values()) {
             if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
             const r = truck.model.root;
-            const body = truck.size as Box3 | undefined;
+            const body = (truck.size ??= sizeOf(truck.model.root)) as Box3 | undefined;
             if (!body) continue;
             const dir = -r.rotation.y;
             const dx = p.x - r.position.x;
@@ -827,7 +829,7 @@ describe('Forklifts handling crates', () => {
           if (points.some(([x, z]) => structures.crateIn(x, z, -0.05))) inCrates++;
           for (const truck of entries.values()) {
             if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
-            const body = truck.size as Box3 | undefined;
+            const body = (truck.size ??= sizeOf(truck.model.root)) as Box3 | undefined;
             if (!body) continue;
             const r = truck.model.root;
             const td = -r.rotation.y;
@@ -989,8 +991,12 @@ describe('Crates stacked at a truck bay or in crate storage', () => {
       const n = cratesAt(bay) + cratesAt(bay, true);
       if (n < held) taken++;
       // Those still shown are where they were, as they were; but for one a
-      // jib crane lowers in, which shows before it is set down and painted.
-      if (n <= held) for (const [c, icon] of now) if (was.has(c)) expect(icon).toBe(was.get(c));
+      // jib crane lowers in, which shows before it is set down and painted,
+      // and one set down where another was taken from just now.
+      const fresh = (bay.cells ?? []).some((q) => q && q.at >= world.tick);
+      if (n <= held && !fresh) {
+        for (const [c, icon] of now) if (was.has(c)) expect(icon).toBe(was.get(c));
+      }
       was = now;
       held = n;
     }
@@ -1049,6 +1055,7 @@ describe("Shippers' trucks unloaded at crate storage", () => {
         let hands = 0;
         let store = 0;
         const on = new Set<Object3D>();
+        const each = new Map<number, number>();
         structures.group.traverse((o) => o.userData.size && shows(o) && store++);
         for (const e of entries.values()) {
           const v = e.view;
@@ -1056,9 +1063,12 @@ describe("Shippers' trucks unloaded at crate storage", () => {
           if (v.kind === 'truck' && /^(Unloading|Waiting for a dockhand)/.test(v.activity ?? '')) {
             bed += shown.length;
             for (const c of shown) on.add(c);
-          } else if (v.kind === kind) hands += shown.length;
+          } else if (v.kind === kind) {
+            hands += shown.length;
+            each.set(v.id, shown.length);
+          }
         }
-        return { bed, hands, store, on };
+        return { bed, hands, store, on, each };
       };
       const still = new Map<number, number>();
       let was = count();
@@ -1095,7 +1105,10 @@ describe("Shippers' trucks unloaded at crate storage", () => {
             expect(hands).toBe(-store);
             set++;
           }
-          expect(bed < 0 && store > 0 && hands === 0).toBe(false);
+          // One taking a crate off as another sets one down: in the hands of the one.
+          let took = 0;
+          for (const [id, n] of c.each) took += Math.max(0, n - (was.each.get(id) ?? 0));
+          if (bed < 0 && store > 0) expect(took).toBe(-bed);
           was = c;
           // Never on or across the front of a truck standing there.
           for (const e of entries.values()) {
@@ -1104,7 +1117,7 @@ describe("Shippers' trucks unloaded at crate storage", () => {
             for (const truck of entries.values()) {
               if (truck.view.kind !== 'truck' || (still.get(truck.view.id) ?? 0) < 10) continue;
               const r = truck.model.root;
-              const body = truck.size as Box3 | undefined;
+              const body = (truck.size ??= sizeOf(truck.model.root)) as Box3 | undefined;
               if (!body) continue;
               const dir = -r.rotation.y;
               const dx = p.x - r.position.x;

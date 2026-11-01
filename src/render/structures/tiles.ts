@@ -48,6 +48,9 @@ import { fences } from './fences';
 import { builtUp, is, joins, landAt, leadsTo, offset, openWater, storeArea, streetAt } from './map';
 import { BALLAST, BARRIER, STEEL } from './paints';
 import type { BayStack } from './stock';
+import { STORE_ROWS } from '../../sim/rules/cells';
+
+export { STORE_ROWS };
 
 // What stands on each tile of the map: the static model for each kind of
 // building, road and quay, built once by makeTile when the tile changes.
@@ -701,8 +704,6 @@ export function storage(m: GameMap, g: Group, i: number, y: number, parts: TileP
   parts.stack = stack;
 }
 
-/** Crate storage's stack: where its two rows are across the tile, along the forks' way. */
-export const STORE_ROWS = [0.4, 0.6];
 /** How high a pallet of crates in storage stands, board and two crates, for the next on top. */
 export const STORE_PALLET = 0.025 + 2 * CRATE;
 

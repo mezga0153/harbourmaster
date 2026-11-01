@@ -9,6 +9,8 @@ import { FACING } from './footprint';
 export const SUB = 4;
 /** How wide a cell is, in tiles. */
 export const CELL = 1 / SUB;
+/** Crate storage's stack: where its two rows are across the tile, along the forks' way, as the view draws them. */
+export const STORE_ROWS = [0.4, 0.6];
 
 /** A point on the ground, in tiles. */
 export interface CellPoint {
@@ -209,6 +211,13 @@ export function turnedCell(orient: number, lx: number, lz: number): [number, num
   const z = -u * Math.sin(a) + v * Math.cos(a);
   const at = (q: number) => Math.min(SUB - 1, Math.max(0, Math.floor((q + 0.5) * SUB)));
   return [at(x), at(z)];
+}
+
+/** Where x, z on a tile's model as it is drawn, facing +z, is within the tile once turned to face `orient`. */
+export function turnedPoint(orient: number, x: number, z: number): [number, number] {
+  const a = turnOf(orient);
+  const [u, v] = [x - 0.5, z - 0.5];
+  return [0.5 + u * Math.cos(a) + v * Math.sin(a), 0.5 - u * Math.sin(a) + v * Math.cos(a)];
 }
 
 /** Where x, z within a tile (0 to 1 each way) is on its model as it is drawn, facing +z, before it is turned to face `orient`. */
