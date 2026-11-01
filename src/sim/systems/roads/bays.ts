@@ -335,8 +335,11 @@ export function dockFor(
     const past = path.slice(0, -1).some((i) => willStand.has(i));
     const toPass = onTheirWay.get(dock);
     const inTheWay = toPass !== undefined && toPass + 2 >= path.length;
-    if (!through && !past && !inTheWay && (!best || path.length > best.path.length)) {
-      best = { dock, path };
+    if (!through && !past && !inTheWay) {
+      // A pickup backs into the truck bay itself when it is free, rather
+      // than stop on the road beside it.
+      if (pickup && dock === bay.idx) return { dock, path };
+      if (!best || path.length > best.path.length) best = { dock, path };
     }
   }
   return best;
@@ -422,6 +425,27 @@ export function goDeeper(w: World, t: Truck, bay: Bay): void {
   // spot it was going to; never round another way, nor back round to one.
   if (!to || to.dock === t.goal || !t.path.every((i, k) => to.path[k] === i)) return;
   if (to.path.length - t.path.length > w.dist(t.goal, to.dock)) return;
+  t.goal = to.dock;
+  t.path = to.path;
+}
+
+/**
+ * A pickup on its way to the road beside a truck bay, the bay itself come
+ * free meanwhile: it backs into that instead, if it can get there.
+ */
+export function intoBay(w: World, t: Truck, bay: Bay): void {
+  if (!t.pickup || bay.tiles || bay.kerb || t.goal === bay.idx) return;
+  if (!w.freeDockSet(bay, lengthOf(w, t), true).has(bay.idx)) return;
+  t.state = 'parked';
+  const to = dockFor(
+    w,
+    bay,
+    (d, avoid) => w.routeFrom(t, d, avoiding(w, truckCostFor(w, bay.idx, -1, t), avoid)),
+    lengthOf(w, t),
+    true,
+  );
+  t.state = 'toBay';
+  if (!to || to.dock !== bay.idx) return;
   t.goal = to.dock;
   t.path = to.path;
 }

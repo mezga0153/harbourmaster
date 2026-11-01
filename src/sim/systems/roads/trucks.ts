@@ -13,6 +13,7 @@ import {
   freeDock,
   frontFor,
   goDeeper,
+  intoBay,
   intoSpace,
   noWayIn,
   parkUp,
@@ -304,6 +305,7 @@ export function updateTruck(w: World, t: Truck): void {
         return;
       }
       if (bay.tiles && (w.tick + t.id) % 10 === 0) goDeeper(w, t, bay);
+      if (t.pickup && !bay.tiles && (w.tick + t.id) % 10 === 0) intoBay(w, t, bay);
       const cost = truckCostFor(w, t.bayIdx, -1, t);
       const r = w.move(t, cost, false, pace(w, t, cost), mayEnter(w, t), truckReroute(w, t));
       if (r === 'blocked') {
