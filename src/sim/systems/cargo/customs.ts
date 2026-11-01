@@ -14,7 +14,6 @@ import {
   jibTiles,
   nearestWithRoom,
   offJibRoom,
-  outLooks,
   putBox,
   reachable,
   servesYard,
@@ -38,6 +37,7 @@ import {
   takeOrder,
 } from './places';
 import { feesOf, waits } from './hold';
+import { putOnCrane } from '../cranes';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -196,8 +196,8 @@ export function dropOutbound(w: World, p: Dockhand): boolean {
       return true;
     }
     crane.outReserved = Math.max(0, (crane.outReserved ?? 0) - p.planned);
-    outLooks(w, crane).push(...carriedLooks(w, p));
-    (crane.outStack ??= []).push(...feesOf(p.load));
+    carriedLooks(w, p);
+    for (const c of p.load) putOnCrane(w, crane, c, true);
   } else if (p.outbound && dest(w, p.bayIdx)?.tiles) {
     // Into storage by a jib crane, for it to lift on board.
     const store = dest(w, p.bayIdx)!;

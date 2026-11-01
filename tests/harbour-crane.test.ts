@@ -7,6 +7,7 @@ import { World } from '../src/sim/world';
 import { Entities, turnOf } from '../src/render/entities';
 import { Structures } from '../src/render/structures';
 import { addContract } from '../src/sim/systems/economy';
+import { craneHeld, putOnCrane } from '../src/sim/systems/cranes';
 
 /**
  * A two-wide pier out to water deep enough for feeders with a harbour crane
@@ -118,8 +119,8 @@ describe('Harbour crane', () => {
       for (let q = 0; q < speed; q++) world.step();
       // Once the ship is empty, exports to take on board.
       const ship = world.boats.find((b) => b.vessel === 'feeder');
-      if (!given && ship?.state === 'moored' && ship.crates === 0 && sim.stack.length <= 2) {
-        sim.outStack = [100, 100];
+      if (!given && ship?.state === 'moored' && ship.crates === 0 && craneHeld(sim) <= 2) {
+        for (const fee of [100, 100]) putOnCrane(world, sim, { fee, at: 0 }, true);
         given = true;
       }
       const s = world.snapshot();

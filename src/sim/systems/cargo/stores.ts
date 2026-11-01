@@ -10,23 +10,31 @@ import { message } from '../output';
 import * as B from '../../balance';
 import { laneThrough } from '../workforce/crowding';
 import {
-  YARD_STACKS,
-  YARD_TIERS,
-  aligned,
   bayCap,
-  boxLookOf,
   bayRoom,
   boxesAt,
-  cratesAt,
+  boxLookOf,
   craneStacks,
+  cratesAt,
   heldIn,
   isBoxy,
   truckBay,
+  YARD_STACKS,
+  YARD_TIERS,
   yardPlace,
 } from '../../helpers';
 import { boatHalf, mooredTiles } from '../boats/berthing';
 import { Build, TICKS_PER_DAY, isDock } from '../../types';
-import { craneKinds, cranePlaces, craneTop, jibReach, jibStores } from '../cranes';
+import {
+  craneHeld,
+  craneKinds,
+  cranePlaces,
+  craneTop,
+  jibReach,
+  jibStores,
+  onCrane,
+  takeOffCrane,
+} from '../cranes';
 import { onPallet, palletPlaces, palletTile, takenFrom } from '../yardGantry';
 import { crateSlots, loadSlot, reserved, slotCount, stackOf, takeTop, usedSlots } from './places';
 import { byHand, cratesFor } from '../truckLoading';
@@ -122,7 +130,7 @@ export function takeFromSource(w: World, p: Dockhand): Crate[] {
       p.handed = undefined;
       return load;
     }
-    const n = Math.min(p.planned, crane.stack.length);
+    const n = Math.min(p.planned, craneHeld(crane));
     if (crane.kind !== 'jib') {
       // Off the top of its stacks, one at a time.
       const load: Crate[] = [];
@@ -135,15 +143,15 @@ export function takeFromSource(w: World, p: Dockhand): Crate[] {
         p.takeAt = undefined;
         const i = free ? chosen : craneTop(w, crane, false);
         if (i < 0) break;
-        cranePlaces(w, crane).stack.splice(i, 1);
-        const from = (crane.stackFrom ?? []).splice(i, 1)[0];
-        const look = stackLooks(w, crane).splice(i, 1)[0];
-        load.push({ fee: crane.stack.splice(i, 1)[0], at: w.tick, look, from });
+        stackLooks(w, crane);
+        load.push(takeOffCrane(w, crane, i));
       }
       return load;
     }
     // A jib crane's landing stack, off the top.
-    return crane.stack.splice(crane.stack.length - n, n).map((fee) => ({ fee, at: w.tick }));
+    const load: Crate[] = [];
+    for (let k = 0; k < n; k++) load.unshift(takeOffCrane(w, crane, craneHeld(crane) - 1));
+    return load;
   }
   if (p.stockIdx >= 0) {
     const pile = stock(w, p.stockIdx);
@@ -543,7 +551,7 @@ export function crateTiles(w: World): Set<number> {
     else for (const k of palletPlaces(w, b)) if (k >= 0) at.add(b.tiles[Math.floor(k / per)]);
   }
   for (const p of w.piles.values()) if (held(p)) at.add(p.idx);
-  for (const c of w.cranes.values()) if (c.kind === 'jib' && c.stack.length > 0) at.add(c.idx);
+  for (const c of w.cranes.values()) if (c.kind === 'jib' && craneHeld(c) > 0) at.add(c.idx);
   w.crateTileCache = { tick: w.tick, at };
   return at;
 }
@@ -669,14 +677,14 @@ export function isClear(w: World, r: number): boolean {
   return r >= 0 && r <= w.tick;
 }
 
-/** How the containers on a crane's stack look, kept beside them. */
+/** How the containers on a crane's stack look, oldest first, each given one if it has none. */
 export function stackLooks(_w: World, c: Crane): number[] {
-  return (c.stackLooks = aligned(c.stack, c.stackLooks, c.idx));
+  return onCrane(c).map((q, k) => (q.look ??= boxLookOf(c.idx, 1000 + k)));
 }
 
-/** How the exports set down for a crane look. */
+/** How the exports set down for a crane look, oldest first. */
 export function outLooks(_w: World, c: Crane): number[] {
-  return (c.outLooks = aligned(c.outStack ?? [], c.outLooks, c.idx + 1));
+  return onCrane(c, true).map((q, k) => (q.look ??= boxLookOf(c.idx + 1, 1000 + k)));
 }
 
 /** How the containers in a yard look, oldest first. */

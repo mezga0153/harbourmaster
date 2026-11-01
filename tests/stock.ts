@@ -1,9 +1,15 @@
-import type { Bay } from '../src/sim/state';
+import type { Bay, Crane } from '../src/sim/state';
+import { putOnCrane } from '../src/sim/systems/cranes';
 import type { World } from '../src/sim/world';
 import { setDown } from '../src/sim/systems/cargo/places';
 
 export { cratesAt } from '../src/sim/helpers';
 export { feesIn, usedSlots } from '../src/sim/systems/cargo/places';
+
+/** Crates (or containers) set down on a crane's landing stack, as it would. */
+export function stackUpCrane(w: World, c: Crane, fees: number[], out = false): void {
+  for (const fee of fees) putOnCrane(w, c, { fee, at: 0 }, out);
+}
 
 /**
  * Crates set down at a bay as if they had been there a while: in the slots

@@ -38,7 +38,7 @@ import type { CostFn } from '../../path';
 import * as B from '../../balance';
 import { costFor, headTo } from '../workforce/dockhands';
 import {
-  cranePlaces,
+  craneHeld,
   craneReaches,
   craneTop,
   deckSlot,
@@ -47,6 +47,7 @@ import {
   jibReach,
   jibStores,
   outSlots,
+  takeOffCrane,
 } from '../cranes';
 import { near } from '../boats/berthing';
 import { cargoOf, withCargo } from '../../cargo';
@@ -312,7 +313,7 @@ export function wantsLoad(_w: World, b: Boat): boolean {
 export function exportsWaiting(w: World, boxes: boolean): number {
   let n = 0;
   for (const s of boxes ? w.yards.values() : w.bays.values()) n += exportsAt(s);
-  if (boxes) for (const c of w.cranes.values()) n += c.outStack?.length ?? 0;
+  if (boxes) for (const c of w.cranes.values()) n += craneHeld(c, true);
   else for (const p of w.piles.values()) if (p.out) n += cratesAt(p);
   return n;
 }
@@ -334,7 +335,7 @@ export function exportsFor(w: World, b: Boat): number {
   if (b.vessel === 'smack') return n;
   if (boxes) {
     for (const c of w.cranes.values()) {
-      if (craneReaches(w, c, b)) n += c.outStack?.length ?? 0;
+      if (craneReaches(w, c, b)) n += craneHeld(c, true);
     }
   } else {
     for (const p of w.piles.values()) {
@@ -353,7 +354,7 @@ export function exportsComing(w: World, b: Boat): number {
   if (b.vessel !== 'feeder') return n;
   for (const c of w.cranes.values()) {
     if (c.kind !== 'jib' && craneReaches(w, c, b)) {
-      n += (c.outStack?.length ?? 0) + (c.outReserved ?? 0);
+      n += craneHeld(c, true) + (c.outReserved ?? 0);
     }
   }
   return n;
@@ -390,7 +391,7 @@ export function stillLoading(w: World, b: Boat): boolean {
   // Its own cargo still being cleared off the crane comes first; and those
   // at its cranes, or on their way there, are coming.
   const busy =
-    coming > 0 || [...w.cranes.values()].some((c) => c.stack.length > 0 && craneReaches(w, c, b));
+    coming > 0 || [...w.cranes.values()].some((c) => craneHeld(c) > 0 && craneReaches(w, c, b));
   b.loadIdle = busy ? 0 : (b.loadIdle ?? 0) + 1;
   return b.loadIdle < B.LOAD_WAIT;
 }
@@ -456,7 +457,7 @@ export function loadShip(w: World, c: Crane): void {
   let take: (() => number) | null = null;
   let from: { store?: Bay; pile?: Bay } = {};
   if (boxes) {
-    if (c.outStack?.length) {
+    if (craneHeld(c, true)) {
       const k = c.liftSlot;
       if (c.liftBoat !== ship.id || k === undefined || k < 0 || outSlots(w, ship).includes(k)) {
         c.liftBoat = ship.id;
@@ -466,11 +467,12 @@ export function loadShip(w: World, c: Crane): void {
       take = () => {
         // Off the top of the stacks, at a gantry crane.
         const i = Math.max(0, craneTop(w, c, true));
-        cranePlaces(w, c).out.splice(i, 1);
-        (ship.outLooks ??= []).push(...outLooks(w, c).splice(i, 1));
+        outLooks(w, c);
+        const box = takeOffCrane(w, c, i, true);
+        (ship.outLooks ??= []).push(box.look!);
         outSlots(w, ship).push(c.liftSlot!);
         c.liftSlot = undefined;
-        return c.outStack!.splice(i, 1)[0];
+        return box.fee;
       };
     }
   } else {

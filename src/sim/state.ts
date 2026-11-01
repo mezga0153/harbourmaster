@@ -145,18 +145,16 @@ export interface Crane {
    * feeders. A gantry's stack is the bay between its legs.
    */
   kind: 'jib' | 'harbour' | 'gantry';
-  /** Fees of the crates on the landing stack. */
-  stack: number[];
+  /**
+   * What is on its landing stack, crates or containers, and for a container
+   * crane the exports set down for it, in their places: on a jib crane's in
+   * the order they came, on a container crane's by place (see cranePlaces).
+   */
+  cells: Cells;
   /** The stack holds a coaster's pallets, which only forklifts can move. */
   pallets?: boolean;
   reserved: number;
-  /** Container cranes: the ship each container on the stack came off, by id. */
-  stackFrom?: number[];
-  /** Container cranes: exports set down for it to lift on board, and those on the way. */
-  outStack?: number[];
-  /** Container cranes: how each container on the stack, and each export, looks. */
-  stackLooks?: number[];
-  outLooks?: number[];
+  /** Container cranes: room kept for exports on their way to it. */
   outReserved?: number;
   timer: number;
   angle: number;
@@ -193,12 +191,6 @@ export interface Crane {
      */
     held?: { fees: number[]; looks: number[]; planned: number };
   };
-  /**
-   * A gantry crane: the place on its landing stack each container lifted
-   * off is in, and each export; see cranePlaces.
-   */
-  places?: number[];
-  outPlaces?: number[];
 }
 
 /**

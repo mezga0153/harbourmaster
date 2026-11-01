@@ -44,11 +44,16 @@ import {
 } from '../src/sim/systems/snapshot';
 import { addContract, capacity, newDay, refreshOffers } from '../src/sim/systems/economy';
 import {
+  craneFees,
+  craneHeld,
   cranePlaces,
   craneReaches,
   craneTakenIn,
   craneTop,
+  onCrane,
+  putOnCrane,
   serveTractor,
+  takeOffCrane,
   underGantry,
 } from '../src/sim/systems/cranes';
 import { cornerRing, seaWay, seaWayFor } from '../src/sim/systems/boats/traffic';
@@ -110,7 +115,7 @@ import {
 } from '../src/sim/systems/roads/traffic';
 import { cutOff, updateTruck } from '../src/sim/systems/roads/trucks';
 import { oldPile } from './wharf';
-import { cratesAt, feesIn, stockUp, usedSlots } from './stock';
+import { cratesAt, feesIn, stackUpCrane, stockUp, usedSlots } from './stock';
 
 /**
  * A strip of truck parking two spaces long between the public road and a
@@ -783,7 +788,7 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'jibCrane', tiles: [crane] });
     // Pallets an older game left at the crane's feet, so the dockhands
     // leave them for the forklift.
-    world.cranes.get(crane)!.stack.push(10, 10);
+    stackUpCrane(world, world.cranes.get(crane)!, [10, 10]);
     world.cranes.get(crane)!.pallets = true;
     // The bay is only joined to the quay by port paths, which forklifts avoid.
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
@@ -808,13 +813,13 @@ describe('Coastal Wharf tier', () => {
     buildOffice(world);
     const crane = world.cranes.get(tip)!;
     // From before jib cranes stopped setting crates down at their feet.
-    crane.stack.push(10, 10, 10, 10);
+    stackUpCrane(world, crane, [10, 10, 10, 10]);
     crane.pallets = true;
     for (let t = 0; t < 300; t++) world.step();
-    expect(crane.stack).toHaveLength(4);
+    expect(craneHeld(crane)).toBe(4);
     world.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(world) });
-    for (let t = 0; t < TICKS_PER_DAY && crane.stack.length > 0; t++) world.step();
-    expect(crane.stack).toHaveLength(0);
+    for (let t = 0; t < TICKS_PER_DAY && craneHeld(crane) > 0; t++) world.step();
+    expect(craneHeld(crane)).toBe(0);
   });
 
   /** The starting jetty paved into a quay, its paths into port roads, and an office. */
@@ -881,7 +886,7 @@ describe('Coastal Wharf tier', () => {
     // The next boat sets out after a day and takes a while to sail in.
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
-      expect(world.cranes.get(tip)!.stack).toHaveLength(0);
+      expect(craneHeld(world.cranes.get(tip)!)).toBe(0);
       stowed = Math.max(stowed, cratesAt(world.bays.get(store)!));
     }
     expect(stowed).toBeGreaterThan(0);
@@ -1050,7 +1055,7 @@ describe('Coastal Wharf tier', () => {
         }
       }
       expect(crane.busy).toBe(false);
-      expect(crane.stack).toHaveLength(0);
+      expect(craneHeld(crane)).toBe(0);
     }
     expect(waited).toBeGreaterThan(0);
     // Storage marked out beside it clears the mark, and it unloads into that.
@@ -1061,7 +1066,7 @@ describe('Coastal Wharf tier', () => {
     let stowed = 0;
     for (let t = 0; t < TICKS_PER_DAY * 3 && stowed === 0; t++) {
       world.step();
-      expect(crane.stack).toHaveLength(0);
+      expect(craneHeld(crane)).toBe(0);
       stowed = world.bays.has(beside) ? cratesAt(world.bays.get(beside)!) : 0;
     }
     expect(stowed).toBeGreaterThan(0);
@@ -1106,7 +1111,7 @@ describe('Coastal Wharf tier', () => {
     const load = boat.crates;
     for (let t = 0; t < 100; t++) {
       world.step();
-      expect(crane.stack).toHaveLength(0);
+      expect(craneHeld(crane)).toBe(0);
     }
     expect(boat.crates).toBe(load);
     expect(craneWhy(world, crane)).toMatch(/Crate storage in reach is full/);
@@ -1124,20 +1129,20 @@ describe('Coastal Wharf tier', () => {
     world.command({ type: 'build', kind: 'jibCrane', tiles: [tip] });
     world.command({ type: 'store', tiles: [jetty[jetty.length - 2]], kind: 'crates', on: true });
     // A save from before jib cranes stopped setting crates down at their feet.
-    world.cranes.get(tip)!.stack.push(10, 10, 10, 10);
+    stackUpCrane(world, world.cranes.get(tip)!, [10, 10, 10, 10]);
     const loaded = World.fromSave(JSON.parse(JSON.stringify(world.toSave())));
     const crane = loaded.cranes.get(tip)!;
-    expect(crane.stack).toHaveLength(4);
+    expect(craneHeld(crane)).toBe(4);
     expect(craneWhy(loaded, crane)).toMatch(/collect the crates at its feet/);
     loaded.command({ type: 'buyMachine', kind: 'forklift', tile: buildDepot(loaded) });
-    let most = crane.stack.length;
+    let most = craneHeld(crane);
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       loaded.step();
       // It only ever goes down.
-      expect(crane.stack.length).toBeLessThanOrEqual(most);
-      most = crane.stack.length;
+      expect(craneHeld(crane)).toBeLessThanOrEqual(most);
+      most = craneHeld(crane);
     }
-    expect(crane.stack).toHaveLength(0);
+    expect(craneHeld(crane)).toBe(0);
   });
 });
 
@@ -3200,7 +3205,7 @@ describe('Container Port tier', () => {
     }
     expect(free).toBe(craneTakenIn(world, crane));
     expect(p.carrying).toBe(0);
-    expect(crane.outStack).toEqual([210]);
+    expect(craneFees(crane, true)).toEqual([210]);
     expect(crane.outReserved).toBe(0);
   });
 
@@ -3510,16 +3515,17 @@ describe('Container Port tier', () => {
     );
     const crane = world.cranes.get(at)!;
     let stacked = 0;
-    const push = crane.stack.push.bind(crane.stack);
-    crane.stack.push = (...v: number[]) => {
-      stacked += v.length;
-      return push(...v);
-    };
+    // Each container set down on the crane's stack, as it is first seen there.
+    const seen = new WeakSet<object>();
     let calledAhead = false;
     let lifted = 0;
     const left = new Map<number, number>();
     for (let k = 0; k < TICKS_PER_DAY * 3; k++) {
       world.step();
+      for (const q of onCrane(crane)) {
+        if (!seen.has(q)) stacked++;
+        seen.add(q);
+      }
       const ship = world.boats.find((b) => b.vessel === 'feeder' && craneReaches(world, crane, b));
       const coming = world.people.some(
         (p) => p.kind === 'tractor' && p.state === 'toPickup' && p.craneIdx === at,
@@ -3602,18 +3608,13 @@ describe('Container Port tier', () => {
     const { at } = placeGantry(world, gantryPier(world, t.crane));
     const c = world.cranes.get(at)!;
     // One stack filled first, two high, then the next begun.
-    for (let k = 0; k < 5; k++) {
-      c.stack.push(100 + k);
-      (c.stackFrom ??= []).push(-1);
-    }
+    for (let k = 0; k < 5; k++) putOnCrane(world, c, { fee: 100 + k, at: 0, from: -1 });
     const across = B.GANTRY_RAILS * 2;
     const places = cranePlaces(world, c).stack;
     expect(places).toEqual([0, across, 1, across + 1, 2]);
     // The highest with none on it comes off first; one under another waits.
     expect(craneTop(world, c, false)).toBe(3);
-    c.stack.splice(3, 1);
-    c.stackFrom!.splice(3, 1);
-    places.splice(3, 1);
+    takeOffCrane(world, c, 3);
     expect(craneTop(world, c, false)).toBe(1);
     expect(craneTop(world, c, false)).not.toBe(0);
   });
@@ -3756,7 +3757,7 @@ describe('Container Port tier', () => {
     const tiers = new Map<number, number[]>();
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       world.step();
-      stacked = Math.max(stacked, world.cranes.get(at)!.stack.length);
+      stacked = Math.max(stacked, craneHeld(world.cranes.get(at)!));
       const v = world.snapshot().cranes.find((c) => c.idx === at)!;
       if (v.working === 'unload') {
         const list = tiers.get(v.workBoat!) ?? [];
@@ -4342,7 +4343,7 @@ describe('Container Port tier', () => {
     near.y = m.yOf(by) + 0.5;
     far.x = m.xOf(depot) + 0.5;
     far.y = m.yOf(depot) + 0.5;
-    world.cranes.get(t.crane)!.stack.push(150);
+    stackUpCrane(world, world.cranes.get(t.crane)!, [150]);
     // The one at home, asked first, leaves it to the one at the crane.
     expect(assignJob(world, far)).toBe(false);
     expect(assignJob(world, near)).toBe(true);

@@ -82,7 +82,7 @@ import {
   workingAt,
 } from './crowding';
 import { frontOf, gantryRails } from '../../rules/footprint';
-import { cranePlaces, craneTop, customsFor, dueAt, shipFor } from '../cranes';
+import { craneFees, craneHeld, cranePlaces, craneTop, customsFor, dueAt, shipFor } from '../cranes';
 import type { CostFn } from '../../path';
 import {
   bayTaken,
@@ -681,7 +681,7 @@ export function diagnose(w: World, p: Dockhand): void {
   const reach = (goal: number) => !!w.pathFor(p, here, goal);
   const sources: number[] = [];
   for (const c of w.cranes.values()) {
-    if ((c.kind !== 'jib') === boxy && c.stack.length > 0) sources.push(pickTile(w, c));
+    if ((c.kind !== 'jib') === boxy && craneHeld(c) > 0) sources.push(pickTile(w, c));
   }
   // Crates an older game left on the quay, for the forklifts to take on.
   if (!boxy) for (const pile of w.piles.values()) if (cratesAt(pile)) sources.push(pile.idx);
@@ -794,12 +794,12 @@ export function assignJob(w: World, p: Dockhand): boolean {
   const sources: Source[] = [];
   for (const crane of w.cranes.values()) {
     if ((crane.kind !== 'jib') !== boxy) continue;
-    if (crane.pallets && crane.stack.length > 0 && !forks) continue;
+    if (crane.pallets && craneHeld(crane) > 0 && !forks) continue;
     // A tractor goes to a container crane working a ship too, or about to,
     // for the containers still to come off it for that crane: called
     // ahead, to be there as each is lifted (see dueAt).
     const ship = p.kind === 'tractor' ? (shipFor(w, crane)?.left ?? 0) : 0;
-    const avail = crane.stack.length + ship - crane.reserved;
+    const avail = craneHeld(crane) + ship - crane.reserved;
     if (avail > 0) sources.push({ tile: craneSpot(w, p, crane), avail, crane, rank: 0 });
   }
   if (hands) {
@@ -884,7 +884,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
       (src.boat
         ? needsCustoms(src.boat.fee)
         : src.crane
-          ? src.crane.stack.some(needsCustoms)
+          ? craneFees(src.crane).some(needsCustoms)
           : !!src.pile && !src.pile.tiles && feesIn(src.pile, false).some(needsCustoms));
     const bay = boxy
       ? yardWithRoom(w, p, src.tile)

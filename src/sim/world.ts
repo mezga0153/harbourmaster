@@ -100,7 +100,7 @@ import {
 } from './systems/building';
 import { buildTown } from './systems/townBusiness';
 import { buyTug, updateTugs } from './systems/tugs';
-import { updateCrane } from './systems/cranes';
+import { craneCells, putOnCrane, updateCrane } from './systems/cranes';
 import { boatCostFor, near, spawnBoat, spawnBoats, updateBoat } from './systems/boats/berthing';
 import { docks } from './systems/boats/berthing';
 import { craneFront } from './systems/boats/berthing';
@@ -238,6 +238,47 @@ function loadYard(w: World, d: Bay & OldYard): Bay {
   }
   for (const [c, out] of later) putBox(w, y, c, out);
   return y;
+}
+
+/** How an older save kept what is on a crane's stack: fees in lists, and their places, looks and ships beside them. */
+interface OldCrane {
+  stack?: number[];
+  stackFrom?: number[];
+  stackLooks?: number[];
+  outStack?: number[];
+  outLooks?: number[];
+  places?: number[];
+  outPlaces?: number[];
+}
+
+/**
+ * A crane as saved, copied for the game to keep, or from an older save's
+ * lists into its cells: each in the place it had, the rest where they
+ * would go now.
+ */
+function loadCrane(w: World, d: Crane & OldCrane): Crane {
+  const { stack, stackFrom, stackLooks, outStack, outLooks, places, outPlaces, ...c } = d;
+  if (Array.isArray(c.cells)) {
+    c.cells = c.cells.map((q) => q && { ...q });
+    return c;
+  }
+  c.cells = [];
+  const cells = craneCells(c);
+  const later: [Crate, boolean][] = [];
+  for (const [fees, at, looks, from, out] of [
+    [stack ?? [], places, stackLooks, stackFrom, false],
+    [outStack ?? [], outPlaces, outLooks, undefined, true],
+  ] as const) {
+    fees.forEach((fee, i) => {
+      const q: Crate = { fee, at: i - fees.length, look: looks?.[i], from: from?.[i] };
+      if (out) q.out = true;
+      const k = c.kind === 'jib' ? -1 : (at?.[i] ?? -1);
+      if (k >= 0 && k < cells.length && !cells[k]) cells[k] = q;
+      else later.push([q, out]);
+    });
+  }
+  for (const [q, out] of later) putOnCrane(w, c, q, out);
+  return c;
 }
 
 /**
@@ -565,9 +606,8 @@ export class World {
     world.tier = s.tier;
     world.congestion = s.congestion;
     world.jam = { ...s.jam };
-    for (const c of s.cranes) {
-      world.cranes.set(c.idx, { ...c, kind: c.kind ?? 'jib', stack: [...c.stack] });
-    }
+    for (const c of s.cranes)
+      world.cranes.set(c.idx, loadCrane(world, { ...c, kind: c.kind ?? 'jib' }));
     // Older saves booked all cargo income as one: the rest start at nothing.
     world.today = { ...emptyLedger(), ...s.today };
     world.yesterday = s.yesterday ? { ...emptyLedger(), ...s.yesterday } : null;

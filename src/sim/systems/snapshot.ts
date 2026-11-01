@@ -49,6 +49,7 @@ import {
 import { businessViews, landmarkView, wantsView } from './townBusiness';
 import { tugged } from './tugs';
 import {
+  craneHeld,
   craneWork,
   deckView,
   jibLifts,
@@ -324,7 +325,7 @@ export function craneWhy(w: World, c: Crane): string {
         : 'Swinging crates straight into crate storage.';
     }
     // Crates an older game left on the ground at its feet.
-    if (c.stack.length > 0) return 'Waiting for a forklift to collect the crates at its feet.';
+    if (craneHeld(c) > 0) return 'Waiting for a forklift to collect the crates at its feet.';
     if (berthTrouble(w, c)) return 'No boat can come alongside it.';
     if (!jibStows(w, c)) return 'No crate storage in reach to swing crates into.';
     if (!jibStore(w, c)) {
@@ -338,7 +339,7 @@ export function craneWhy(w: World, c: Crane): string {
   if (c.busy) return 'Lifting containers off the ship.';
   // Nowhere for them to go: every yard with room has stopped taking them.
   const yards = [...w.yards.values()].filter((y) => !y.outgoing && bayRoom(y, true) > 0);
-  if (c.stack.length > 0 && yards.length > 0 && yards.every((y) => y.shut)) {
+  if (craneHeld(c) > 0 && yards.length > 0 && yards.every((y) => y.shut)) {
     return 'Every container yard with room has stopped taking containers: open one to them again, or mark out another.';
   }
   if (full) {
@@ -346,7 +347,7 @@ export function craneWhy(w: World, c: Crane): string {
       ? 'The bay between its legs is full: waiting for reach stackers.'
       : 'Stack full: waiting for reach stackers.';
   }
-  return c.stack.length > 0
+  return craneHeld(c) > 0
     ? 'Waiting for reach stackers to take the containers to a yard.'
     : berthTrouble(w, c)
       ? 'No container ship can come alongside it.'
@@ -548,11 +549,11 @@ export function waitingCargo(w: World): Snapshot['stock'] {
   return {
     landed:
       [...w.piles.values()].reduce((n, p) => n + cratesAt(p), 0) +
-      cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + c.stack.length, 0),
+      cranes.filter((c) => c.kind === 'jib').reduce((n, c) => n + craneHeld(c), 0),
     stored: [...w.bays.values()].reduce((n, b) => n + cratesAt(b), 0),
     crateExports: exportsWaiting(w, false),
     boxExports: exportsWaiting(w, true),
-    boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + c.stack.length, 0),
+    boxLanded: cranes.filter((c) => c.kind !== 'jib').reduce((n, c) => n + craneHeld(c), 0),
     boxCustoms: boxes - clearedBoxes,
     boxCleared: clearedBoxes,
   };
@@ -587,8 +588,8 @@ export function cargoStats(w: World): CargoStats {
   }
   for (const k of w.cranes.values()) {
     const boxes = k.kind !== 'jib';
-    (boxes ? c.containers : c.crates).landed += k.stack.length;
-    (boxes ? c.containerExports : c.crateExports).atCrane += k.outStack?.length ?? 0;
+    (boxes ? c.containers : c.crates).landed += craneHeld(k);
+    (boxes ? c.containerExports : c.crateExports).atCrane += craneHeld(k, true);
   }
   for (const p of w.piles.values()) c.crates.landed += cratesAt(p);
   for (const b of w.bays.values()) {

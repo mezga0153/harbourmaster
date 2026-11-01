@@ -52,7 +52,7 @@ import {
   liftTicks,
 } from '../helpers';
 import type { Vehicle } from '../helpers';
-import { cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
+import { craneHeld, cranePlaces, craneTop, customsFor, nextCranePlace, takingAt } from './cranes';
 import * as B from '../balance';
 import { tip } from './output';
 import type { EntityView, HandAt } from '../../protocol/views';
@@ -590,7 +590,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   }
   if (pick) {
     const crane = w.cranes.get(p.craneIdx);
-    if (crane?.kind === 'jib') return { crane: crane.idx, slot: crane.stack.length - 1 };
+    if (crane?.kind === 'jib') return { crane: crane.idx, slot: craneHeld(crane) - 1 };
     const boat = w.boats.find((b) => b.id === p.boatId);
     if (boat) return onBoat(boat);
     const pile = w.piles.get(p.stockIdx);

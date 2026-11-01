@@ -12,6 +12,7 @@ import {
 } from '../../rules/cells';
 import { slotCells, usedSlots } from '../cargo/places';
 import { lengthOf } from '../roads/traffic';
+import { craneHeld } from '../cranes';
 
 // Forklifts drive across the port a quarter tile at a time: the tiles of
 // their way (see pathFor) are the lane they keep to, and within those and
@@ -81,7 +82,7 @@ function workKept(w: World): Map<number, number> {
     }
   }
   for (const c of w.cranes.values()) {
-    if (c.kind !== 'jib' || c.stack.length === 0) continue;
+    if (c.kind !== 'jib' || craneHeld(c) === 0) continue;
     // Along the landward edge of its tile, as the view stacks them.
     const water = (dx: number, dy: number) => {
       const x = m.xOf(c.idx) + dx;
