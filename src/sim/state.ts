@@ -330,6 +330,14 @@ export interface Boat extends Agent {
    * backing out of each other's way.
    */
   yieldFor?: number;
+  /** Ticks in a row it has tried to back out of another's way and could not. */
+  boxedAstern?: number;
+  /**
+   * Until this tick it goes on its own way rather than back out of
+   * another's, having found it could not: so the other is not kept waiting
+   * on it for good.
+   */
+  ownWayUntil?: number;
   /** Speed going astern, which builds up and comes off gradually too. */
   sternway?: number;
   /** Closest it has got to its goal, and ticks since it last got closer. */

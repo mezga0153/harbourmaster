@@ -345,7 +345,9 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
   // A boat with right of way is waiting on this one: go astern to clear
   // its way, as long as nothing is behind. Backing and getting nowhere for
   // too long counts as wedged too.
-  if (way.makeWay >= 0) {
+  // Unable to back out of another's way a while, with land or boats
+  // astern, it goes on its own way instead, out of the other's.
+  if (way.makeWay >= 0 && (b.ownWayUntil ?? 0) <= world.tick) {
     b.yieldFor = way.makeWay;
     // Take the way off first, then go astern: no stopping dead, unless
     // it is in water a ship pulling out has claimed, where it backs at once.
@@ -361,6 +363,11 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
       }
     }
     goAstern(world, b);
+    b.boxedAstern = b.sternway ? 0 : (b.boxedAstern ?? 0) + 1;
+    if (b.boxedAstern > B.BOXED_ASTERN) {
+      b.boxedAstern = 0;
+      b.ownWayUntil = world.tick + B.OWN_WAY_TICKS;
+    }
     if ((b.held ?? 0) > B.BOAT_WEDGED_AFTER) {
       startSqueeze(world, b);
       b.held = 0;
@@ -369,6 +376,7 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
     return 'moving';
   }
   b.yieldFor = undefined;
+  b.boxedAstern = 0;
   b.astern = false;
   // Small boats nip about; a long ship works itself round, ahead or
   // astern, minding its whole hull. So does a small boat boxed in against
