@@ -159,10 +159,12 @@ export interface CraneView {
   stack: number;
   /** Container cranes: exports set down for it to lift on board. */
   out: number;
-  /** Container cranes: how each container on the stack looks, then the exports. */
-  looks?: number[];
-  /** Gantry cranes: the place on the stack each of those is in: four stacks, four high. */
-  places?: number[];
+  /**
+   * Container cranes: what stands in each place on the stack, those lifted
+   * off and exports alike, with how it looks: a gantry crane's four stacks,
+   * four high.
+   */
+  cells?: CellsView;
   /** Most it sets down before waiting for them to be taken away. */
   max: number;
   angle: number;

@@ -196,23 +196,20 @@ export class Structures {
       if (!c) continue;
       // Exports set down for a container crane wait on its stack too: on a
       // gantry crane's each in the place the game has it.
-      if (v.places && v.looks) {
-        const at = new Map<number, number>();
-        v.places.forEach((k, j) => at.set(k, v.looks![j]));
+      if (v.cells) {
+        const cells = v.cells;
         c.stack.forEach((o, k) => {
-          const look = at.get(k);
+          const look = cells[k]?.look;
           o.visible = look !== undefined;
           if (look !== undefined) paintContainer(o, look);
         });
-        this.stock.slots.set(-1 - v.idx, [...v.looks]);
-        this.stock.cranePlaces.set(v.idx, { looks: v.looks, places: v.places });
-      } else {
-        const order = v.looks ? this.stock.settled(-1 - v.idx, v.looks) : undefined;
-        c.stack.forEach((o, k) => {
-          o.visible = k < v.stack + v.out;
-          if (order && k < order.length) paintContainer(o, order[k]);
-        });
-      }
+        // How each place looks, -1 empty, for its runner to tell when one has come or gone.
+        this.stock.slots.set(
+          -1 - v.idx,
+          cells.map((q) => q?.look ?? -1),
+        );
+        this.stock.cranePlaces.set(v.idx, cells);
+      } else c.stack.forEach((o, k) => (o.visible = k < v.stack + v.out));
       c.busy = v.busy;
       if (v.busy) c.target = -v.angle;
       if (c.jib) {
@@ -399,8 +396,8 @@ export class Structures {
     if (at.crane !== undefined && placed) {
       // A gantry crane's stack, each in its place.
       const stack = this.craneAt(at.crane)?.stack ?? [];
-      const j = at.look === undefined ? -1 : placed.looks.indexOf(at.look);
-      const k = j >= 0 ? placed.places[j] : at.place;
+      const j = at.look === undefined ? -1 : lookIn(placed, at.look);
+      const k = j >= 0 ? j : at.place;
       slot = k === undefined ? undefined : stack[k];
       if (at.look !== undefined && !slot?.visible) slot = undefined;
     } else if (at.crane !== undefined) {

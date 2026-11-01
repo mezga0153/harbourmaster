@@ -16,7 +16,7 @@ import {
   heldIn,
   outAboard,
 } from '../helpers';
-import type { CraneView } from '../../protocol/views';
+import type { CellsView, CraneView } from '../../protocol/views';
 import { besideStack } from './yardGantry';
 import { count, feesOf, filled, put, sized, stamp, take } from './cargo/hold';
 import { exportTaken, nextSlots, setDown, slotBelow, usedSlots, waitsIn } from './cargo/places';
@@ -730,32 +730,31 @@ export function onBoardFrom(w: World, c: Crane, p: Dockhand, ship: Boat, slot: n
 }
 
 /**
- * A crane's landing stack and exports for the view: as a gantry crane
- * lifting one onto a tractor or off one has it, off the stack once its
- * spreader has it, or on once set down.
+ * What a crane's stack shows: how many lifted off a ship, how many exports,
+ * and on a container crane's what stands in each place, with how it looks;
+ * one lifted onto a tractor gone once the spreader has it, a tractor's
+ * export there once set down, and an export lifted on board gone once the
+ * spreader has it (the ship shows it once it is set down; see deckView).
  */
 export function servedStack(
   w: World,
   c: Crane,
   set: number,
-): { stack: number; out: number; looks?: number[]; places?: number[] } {
+): { stack: number; out: number; cells?: CellsView } {
   const stack = craneHeld(c) + set;
   const out = craneHeld(c, true);
   if (c.kind === 'jib') return { stack, out };
-  const looks = [...stackLooks(w, c), ...outLooks(w, c)];
-  const gantry = true;
-  const at = cranePlaces(w, c);
-  const places = at && [...at.stack, ...at.out];
-  const less = (i: number) => {
-    looks.splice(i, 1);
-    places?.splice(i, 1);
-  };
+  stackLooks(w, c);
+  outLooks(w, c);
+  const cells: CellsView = craneCells(c).map((q) => q && { look: q.look });
+  const places = cranePlaces(w, c);
   const serve = c.serving;
   const p = serve && w.people.find((q) => q.id === serve.id);
   const phase = c.timer / craneTicks(c);
   if (serve?.give && p && phase >= B.CRANE_LIFT_TAKEN && stack > 0) {
-    less(Math.max(0, takingAt(w, p, c)));
-    return { stack: stack - 1, out, looks, places };
+    const k = places.stack[Math.max(0, takingAt(w, p, c))];
+    if (k !== undefined) cells[k] = null;
+    return { stack: stack - 1, out, cells };
   }
   if (
     serve &&
@@ -764,18 +763,18 @@ export function servedStack(
     (p || serve.held) &&
     phase >= B.CRANE_LIFT_SET
   ) {
-    places?.push(nextCranePlace(w, c, true));
-    return { stack, out: out + 1, looks: [...looks, ...servedLooks(w, c, p)], places };
+    const k = nextCranePlace(w, c, true);
+    if (k >= 0) cells[k] = { look: servedLooks(w, c, p)[0] };
+    return { stack, out: out + 1, cells };
   }
-  // A gantry crane putting an export on board: off the stack once its
-  // spreader has it (the ship shows it once it is set down; see deckView).
   const ship = w.boats.find((b) => b.id === c.liftBoat);
-  const loading = gantry && c.busy && !serve && ship && !liftingFrom(w, c, ship);
+  const loading = c.busy && !serve && ship && !liftingFrom(w, c, ship);
   if (loading && c.liftSlot !== undefined && phase >= B.CRANE_LIFT_TAKEN && out > 0) {
-    less(stack + Math.max(0, craneTop(w, c, true)));
-    return { stack, out: out - 1, looks, places };
+    const k = places.out[Math.max(0, craneTop(w, c, true))];
+    if (k !== undefined) cells[k] = null;
+    return { stack, out: out - 1, cells };
   }
-  return { stack, out, looks, places };
+  return { stack, out, cells };
 }
 
 /**

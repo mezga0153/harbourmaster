@@ -34,8 +34,8 @@ export interface Pile {
 export class Stock {
   /** Which container is in which slot, by yard (its first tile) or crane (as -1 - idx); see settle. */
   readonly slots = new Map<number, number[]>();
-  /** Gantry cranes' stacks: each container's look and place, as the game has them. */
-  readonly cranePlaces = new Map<number, { looks: number[]; places: number[] }>();
+  /** Container cranes' stacks: what stands in each place, as the game has it. */
+  readonly cranePlaces = new Map<number, CellsView>();
   /** Each container yard's tiles, by its first. */
   readonly yardTiles = new Map<number, number[]>();
   /** The tiles of each crate storage area, by its first, for where a jib crane sets crates. */

@@ -367,10 +367,10 @@ function crane(name: string, tool: string, kind: 'jib' | 'harbour' | 'gantry'): 
           kind,
           stack: q.stack as number,
           out: 0,
-          looks:
+          cells:
             kind === 'jib'
               ? undefined
-              : Array.from({ length: q.stack as number }, (_, k) => k * 3 + 1),
+              : Array.from({ length: q.stack as number }, (_, k) => ({ look: k * 3 + 1 })),
           max: 16,
           angle: ((q.angle as number) * Math.PI) / 180,
           busy: true,
