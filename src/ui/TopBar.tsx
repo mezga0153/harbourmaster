@@ -175,13 +175,13 @@ export function TopBar({ actions }: { actions: Actions }) {
           <button
             class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
             onClick={() => openTown()}
-            title={`${t.name}, ${TOWN_STAGES[t.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow${t.next ? `. Next: ${t.next.name.toLowerCase()}, ${Math.round(landmarkProgress(t.next) * 100)}% of the way` : ''}`}
+            title={`${t.name}, ${TOWN_STAGES[t.stage].name.toLowerCase()} up the coast: what the town wants, and how big it must grow for the port to grow${t.next?.waiting ? `. Next: upgrade the port to a ${t.next.waiting}` : t.next ? `. Next: ${t.next.name.toLowerCase()}, ${Math.round(landmarkProgress(t.next) * 100)}% of the way` : ''}`}
           >
             <Stat
               icon="town"
               label={t.name}
               title=""
-              bar={t.next ? landmarkProgress(t.next) : undefined}
+              bar={t.next && !t.next.waiting ? landmarkProgress(t.next) : undefined}
             >
               {t.population.toLocaleString('en-US')}
             </Stat>

@@ -40,6 +40,26 @@ function NextStep() {
       </div>
     );
   }
+  // Its goal waits on the port's next step: that first, the landmark after.
+  if (n.waiting) {
+    return (
+      <div class="card town-next">
+        <div class="card-head">
+          <strong>Next: upgrade the port to a {n.waiting}</strong>
+          {t.cap !== null && (
+            <span class={`badge ${t.population >= t.cap ? 'bad' : ''}`}>
+              {count(t.population)} / {count(t.cap)} people
+            </span>
+          )}
+        </div>
+        <p>
+          The town's next landmark comes once the port is a {n.waiting}: upgrade it in the Port
+          panel (P). Till then the town can {cap(t.cap)}.
+        </p>
+        {t.opened.length > 0 && <p class="muted">Open already: {t.opened.join(', ')}.</p>}
+      </div>
+    );
+  }
   const total = n.days === undefined;
   return (
     <div class="card town-next">
