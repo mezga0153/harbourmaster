@@ -52,7 +52,7 @@ import { needsWideSpace } from '../../rules/parking';
 import { Build } from '../../types';
 import { outgoingFull } from '../cargo/exports';
 import { byHand, byStacker, cratesFor, cratesOff, truckTicks } from '../truckLoading';
-import { bedCap, bottomFull, offBed, topFirst } from '../cargo/beds';
+import { bedCap, bedCells, bottomFull, offBed, onBed, topFirst } from '../cargo/beds';
 import { BUSINESSES, HIGHWAY_X } from '../../town';
 import { cargoOf } from '../../cargo';
 
@@ -419,10 +419,10 @@ export function updateTruck(w: World, t: Truck): void {
         if (t.boxes && bay.yard) yardSlots(w, bay).boxes.splice(at, 1);
         if (t.boxes && bay.yard) readyList(w, bay).splice(at, 1);
         if (t.boxes && bay.yard) (t.looks ??= []).push(boxLooks(w, bay).splice(at, 1)[0]);
-        const fee = t.boxes ? stock.splice(at, 1)[0] : cratesOff(w, t, bay, at, 1)[0];
-        t.value += fee;
-        if (!t.boxes) (t.fees ??= []).push(fee);
-        t.cargo++;
+        if (t.boxes) {
+          t.value += stock.splice(at, 1)[0];
+          t.cargo++;
+        } else onBed(w, t, cratesOff(w, t, bay, at, 1));
         t.idle = 0;
       } else {
         t.idle += every;
@@ -471,16 +471,15 @@ export function updateTruck(w: World, t: Truck): void {
       // Just the crates the business takes come off; the rest go on by road.
       const code = w.map.build[t.drop ?? -1];
       const def = BUSINESSES[code];
-      const fees = t.fees ?? [];
       const off: number[] = [];
       if (!t.boxes && def) {
         // Off the top of the bed first.
+        const cells = bedCells(t);
         const picks: number[] = [];
-        for (const i of topFirst(w, t)) {
-          if (picks.length < n && def.takes.includes(cargoOf(fees[i]))) picks.push(i);
+        for (const s of topFirst(w, t)) {
+          if (picks.length < n && def.takes.includes(cargoOf(cells[s]!.fee))) picks.push(s);
         }
-        offBed(w, t, picks);
-        for (const i of [...picks].sort((a, b) => b - a)) off.push(...fees.splice(i, 1));
+        off.push(...offBed(w, t, picks));
       }
       const got = t.boxes ? n : off.length;
       // Fewer than were kept for it: the rest are wanted still.
@@ -494,8 +493,11 @@ export function updateTruck(w: World, t: Truck): void {
         moneyAt(w, bonus, t.drop ?? w.tileOf(t));
       }
       if (w.town) w.town.local += t.boxes ? got * B.CONTAINER_GOODS : got;
-      t.value -= Math.round(worth);
-      t.cargo -= got;
+      // Crates came off the bed, and its cargo and value with them.
+      if (t.boxes) {
+        t.value -= Math.round(worth);
+        t.cargo -= got;
+      }
       // On to the next business that takes some of the rest, else away.
       if (t.cargo > 0 && nextStop(w, t)) return;
       t.stops = undefined;

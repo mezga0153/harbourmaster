@@ -59,6 +59,7 @@ import { isIce } from '../../contracts';
 import type { Contract, ShipperTerms } from '../../contracts';
 import { needsWideSpace } from '../../rules/parking';
 import { TICKS_PER_DAY } from '../../types';
+import { feesOn } from './beds';
 
 /**
  * Exports waiting to go on a ship being loaded: dockhands carry crates on
@@ -414,10 +415,10 @@ export function readyWords(w: World, b: Boat): string {
 }
 
 /** What each crate on a crate truck holds, in load order. */
-export function truckCargo(_w: World, t: Truck): Cargo[] {
+export function truckCargo(w: World, t: Truck): Cargo[] {
   // A shipper's are all alike.
   if (t.exports) return Array<Cargo>(t.cargo).fill(cargoOf(t.value, 'goods'));
-  const fees = t.fees ?? [];
+  const fees = t.load ? feesOn(w, t) : [];
   return Array.from({ length: t.cargo }, (_, k) => (k < fees.length ? cargoOf(fees[k]) : 'fish'));
 }
 

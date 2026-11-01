@@ -459,10 +459,8 @@ export interface Truck extends Agent {
   coming?: number;
   /** Container trucks: how each container on board looks, in load order. */
   looks?: number[];
-  /** Crate trucks: each crate on board, as its fee, in load order; see cargo.ts. */
-  fees?: number[];
-  /** Crate trucks: the place on its bed of each crate in `fees`; see beds.ts. */
-  bed?: number[];
+  /** Crate trucks: the crates on its bed, where each stands; see beds.ts. */
+  load?: Cells;
   /** Crate trucks: the side of it loaded first, away from those who load it; see farSide. */
   far?: 0 | 1;
   /** How the container a yard gantry is lifting onto it looks, from when it took it up. */

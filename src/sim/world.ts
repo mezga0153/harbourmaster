@@ -1,4 +1,15 @@
-import type { Agent, Bay, Boat, Crane, Dockhand, JibJob, SaveData, Truck, Tug } from './state';
+import type {
+  Agent,
+  Bay,
+  Boat,
+  Cells,
+  Crane,
+  Dockhand,
+  JibJob,
+  SaveData,
+  Truck,
+  Tug,
+} from './state';
 import { fromOld, type OldCrates } from './systems/cargo/places';
 import type {
   Capacity,
@@ -137,6 +148,28 @@ export const SAVE_VERSION = 11;
 export const SPEEDS = [0, 1, 2, 4, 8];
 
 export type { SaveData, Tug } from './state';
+
+/**
+ * A crate truck's bed as saved, copied for the game to keep; or an older
+ * save's crates on it, kept as fees with their places on its bed beside
+ * them, each into its place, any without one into the next free.
+ */
+function loadBed(t: Truck & { fees?: number[]; bed?: number[] }): Truck {
+  const { fees, bed, ...truck } = t;
+  if (truck.load) truck.load = truck.load.map((c) => c && { ...c });
+  else if (fees) {
+    const cells: Cells = [];
+    fees.forEach((fee, i) => {
+      let s = bed?.[i] ?? -1;
+      if (s < 0 || cells[s]) s = cells.findIndex((c) => !c);
+      if (s < 0) s = Math.max(cells.length, i);
+      while (cells.length <= s) cells.push(null);
+      cells[s] = { fee, at: i - fees.length };
+    });
+    truck.load = cells;
+  }
+  return truck;
+}
 
 /**
  * A bay's crates as saved, copied for the game to keep, or from an older
@@ -464,7 +497,7 @@ export class World {
     }));
     world.boats = s.boats.map((b) => ({ ...b, path: [...b.path] }));
     world.tugs = (s.tugs ?? []).map((t) => ({ ...t, path: [...t.path] }));
-    world.trucks = s.trucks.map((t) => ({ ...t, path: [...t.path] }));
+    world.trucks = s.trucks.map((t) => loadBed({ ...t, path: [...t.path] }));
     // Older saves had warehouses and container yards as buildings: now they
     // are storage marked out on the port road or quay they stood on.
     const m = world.map;

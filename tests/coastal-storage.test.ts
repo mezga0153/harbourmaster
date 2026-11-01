@@ -5,6 +5,7 @@ import { dropRoom } from '../src/sim/systems/cargo/stores';
 import { truckLeave } from '../src/sim/systems/roads/traffic';
 import { shipOut as shipOutOf } from '../src/sim/systems/cargo/exports';
 import { wharf } from './wharf';
+import { feesOn } from '../src/sim/systems/cargo/beds';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -26,7 +27,7 @@ function run(world: Any, days: number) {
   const leave = truckLeave.bind(null, world);
   world.truckLeave = (t: Any) => {
     if (t.state !== 'leaving' && t.state !== 'away') {
-      for (const f of t.fees ?? []) {
+      for (const f of feesOn(world, t)) {
         const c = cargoOf(f);
         if (c === 'timber' || c === 'goods') tally[c]++;
       }

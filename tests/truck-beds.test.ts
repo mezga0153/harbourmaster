@@ -37,7 +37,7 @@ function atBay(): { world: Any; t: Any; hand: Any; lift: Any } {
     bayIdx: bay.idx,
     cargo: 0,
     value: 0,
-    fees: [],
+    load: [],
     boxes: false,
     idle: 0,
     timer: 0,
@@ -55,9 +55,7 @@ function load(world: Any, t: Any, p: Any, n: number): number[] {
   p.truckId = t.id;
   p.truckLoad = true;
   const k = slots.length;
-  t.fees.push(...Array(k).fill(withCargo(20, 'fish')));
-  t.cargo += k;
-  onBed(world, t, k, p);
+  onBed(world, t, Array(k).fill(withCargo(20, 'fish')), p);
   p.truckId = undefined;
   p.truckLoad = undefined;
   return slots;
@@ -117,13 +115,12 @@ describe('A truck’s bed', () => {
     const before = [...bedSlots(world, t)];
     const order = topFirst(world, t);
     // The top layer first.
-    expect(layer(t, before[order[0]])).toBe(1);
-    expect(layer(t, before[order[1]])).toBe(1);
+    expect(layer(t, order[0])).toBe(1);
+    expect(layer(t, order[1])).toBe(1);
     // Two off the top: those under them stay put.
     offBed(world, t, order.slice(0, 2));
-    t.fees.splice(0, 2);
     const after = bedSlots(world, t);
-    const kept = before.filter((_, i) => !order.slice(0, 2).includes(i));
+    const kept = before.filter((s) => !order.slice(0, 2).includes(s));
     expect(after).toEqual(kept);
   });
 
@@ -154,7 +151,7 @@ describe('A truck’s bed', () => {
       if (cratesAt(bay) < 8) stockUp(world, bay, [withCargo(20, 'fish')]);
       world.step();
       for (const t of world.trucks) {
-        if (t.boxes || !t.fees || t.state !== 'loading') continue;
+        if (t.boxes || !t.load || t.state !== 'loading') continue;
         const bed = [...bedSlots(world, t)];
         const was = seen.get(t.id) ?? [];
         // Each crate stays in its place as others go on.

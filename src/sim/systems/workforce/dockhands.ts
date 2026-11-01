@@ -643,10 +643,7 @@ export function updateDockhand(w: World, p: Dockhand): void {
       // Brought for a truck that has gone meanwhile, they go on the stack
       // however full it is.
       if (onto) {
-        onto.cargo += p.carrying;
-        onto.value += p.cargoFees.reduce((n, f) => n + f, 0);
-        (onto.fees ??= []).push(...p.cargoFees);
-        onBed(w, onto, p.cargoFees.length, p);
+        onBed(w, onto, p.cargoFees, p);
         onto.idle = 0;
       } else if (boxy) bay.boxes.push(...p.cargoFees);
       // Timber and goods wait in crate storage for customs.

@@ -52,6 +52,7 @@ import { book } from '../economy';
 import { moneyAt } from '../output';
 import { frontOf } from '../../rules/footprint';
 import { iceTruck } from '../cargo/stores';
+import { feesOn } from '../cargo/beds';
 
 /** Loading at the kerb, unloading in town, parked or away on the highway: off the road. */
 export function onRoad(_w: World, o: Truck): boolean {
@@ -792,7 +793,7 @@ export function truckLeave(w: World, t: Truck): void {
     // Towards the town's next landmark, crates of what it wants sent out.
     const goal = w.town && landmarkGoal(w.town, w.tier)?.goal;
     if (goal && !goal.aboard && !t.boxes && w.town) {
-      w.town.goal += (t.fees ?? []).filter((f) => cargoOf(f) === goal.cargo).length;
+      w.town.goal += feesOn(w, t).filter((f) => cargoOf(f) === goal.cargo).length;
       openLandmark(w, landmarkDue(w.town, false, w.tier));
     }
     const income = t.value;
@@ -827,10 +828,10 @@ export function laterStops(_w: World, t: Truck): string {
 }
 
 /** How many of a truck's crates (or containers) a business takes. */
-export function takenBy(_w: World, t: Truck, def: Business): number {
+export function takenBy(w: World, t: Truck, def: Business): number {
   if (def.boxes !== t.boxes) return 0;
   if (t.boxes) return t.cargo;
-  return (t.fees ?? []).filter((f) => def.takes.includes(cargoOf(f))).length;
+  return feesOn(w, t).filter((f) => def.takes.includes(cargoOf(f))).length;
 }
 
 /**
@@ -844,7 +845,7 @@ export function townStops(w: World, t: Truck): { code: number; count: number }[]
   // What it has of each kind, given out as businesses take them.
   const left = new Map<string, number>();
   if (t.boxes) left.set('box', t.cargo);
-  else for (const f of t.fees ?? []) left.set(cargoOf(f), (left.get(cargoOf(f)) ?? 0) + 1);
+  else for (const f of feesOn(w, t)) left.set(cargoOf(f), (left.get(cargoOf(f)) ?? 0) + 1);
   const out: { code: number; count: number }[] = [];
   for (const code of new Set(w.map.build)) {
     const def = BUSINESSES[code];

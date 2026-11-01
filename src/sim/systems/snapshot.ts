@@ -799,7 +799,7 @@ export function buildSnapshot(w: World): Snapshot {
       ),
       cargo: t.boxes ? undefined : truckCargo(w, t),
       // Where each of a hauliers' crate truck's crates stands on its bed.
-      bed: t.boxes || t.exports || !t.fees ? undefined : [...bedSlots(w, t)],
+      bed: t.boxes || t.exports || !t.load ? undefined : [...bedSlots(w, t)],
       moving: t.path.length > 0,
       name: t.company,
       activity:

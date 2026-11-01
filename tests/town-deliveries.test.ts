@@ -8,6 +8,7 @@ import { cratesFor, cratesOff } from '../src/sim/systems/truckLoading';
 import { deliverInTown } from '../src/sim/systems/roads/traffic';
 import { updateTruck } from '../src/sim/systems/roads/trucks';
 import { stockUp } from './stock';
+import { feesOn } from '../src/sim/systems/cargo/beds';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -47,7 +48,7 @@ function truckWith(world: Any, kinds: Cargo[]): Any {
     bayIdx: bay.idx,
     cargo: fees.length,
     value: fees.reduce((a, f) => a + f, 0),
-    fees,
+    load: fees.map((fee) => ({ fee, at: 0 })),
     boxes: false,
     idle: 0,
     timer: 0,
@@ -105,7 +106,7 @@ describe('Deliveries in town', () => {
     world.trucks.push(t);
     updateTruck(world, t);
     expect(t.cargo).toBe(2);
-    expect(t.fees.map((f: number) => cargoOf(f))).toEqual(['lobster', 'lobster']);
+    expect(feesOn(world, t).map((f: number) => cargoOf(f))).toEqual(['lobster', 'lobster']);
     expect(Math.round(t.value)).toBe(Math.round(2 * withCargo(30, 'lobster')));
   });
 });
@@ -152,7 +153,7 @@ describe('Crate trucks', () => {
       [Build.FishMarket, Build.Restaurant, Build.BuildersYard].sort(),
     );
     // Dropped what each took; the goods went on out by road.
-    expect(t.fees.map((f: number) => cargoOf(f))).toEqual(['goods']);
+    expect(feesOn(world, t).map((f: number) => cargoOf(f))).toEqual(['goods']);
     expect(t.cargo).toBe(1);
     expect(world.town.wants[Build.FishMarket]).toBe(wants[Build.FishMarket] - 3);
   });
@@ -181,7 +182,7 @@ describe('Crate trucks', () => {
         if (t.state !== 'toTown' || t.boxes) continue;
         // As many crates aboard as it drops there are of what it takes.
         const def = BUSINESSES[world.map.build[t.drop]]!;
-        const ours = t.fees
+        const ours = feesOn(world, t)
           .map((f: number) => cargoOf(f))
           .filter((c: Cargo) => def.takes.includes(c));
         expect(ours.length).toBeGreaterThanOrEqual(t.dropCount);

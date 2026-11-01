@@ -605,7 +605,7 @@ export function crateAt(w: World, p: Dockhand, pick: boolean): HandAt | undefine
   }
   // Onto a truck it is loading: the places on its bed kept for the load.
   const onBed = (t: Truck): HandAt => {
-    if (t.boxes || t.exports || !t.fees) return { truck: t.id, slot: t.cargo };
+    if (t.boxes || t.exports || !t.load) return { truck: t.id, slot: t.cargo };
     const slots = p.bedAt?.length ? p.bedAt : slotsFor(w, t, p, Math.max(1, p.carrying));
     return slots.length > 0 ? { truck: t.id, slot: slots[0], slots } : { truck: t.id, slot: -1 };
   };

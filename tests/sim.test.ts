@@ -4741,7 +4741,7 @@ describe('The Coastal Wharf’s landmarks', () => {
       bayIdx: -1,
       cargo: n,
       value: 20 * n,
-      fees: Array(n).fill(withCargo(20, cargo)),
+      load: Array.from({ length: n }, () => ({ fee: withCargo(20, cargo), at: 0 })),
       boxes: false,
       idle: 0,
       timer: 0,

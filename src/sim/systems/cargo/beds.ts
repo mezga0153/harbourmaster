@@ -15,7 +15,8 @@
 // loaded by hand.
 
 import type { World } from '../../world';
-import type { Bay, Dockhand, Truck } from '../../state';
+import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
+import { filled, put, sized, take, usedIn } from './hold';
 import * as B from '../../balance';
 import { isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
@@ -85,27 +86,26 @@ function sourceTile(w: World, bay: Bay, t: Truck): number {
   )[0];
 }
 
-/**
- * The slot of each crate on a truck, kept beside its fees: brought up to
- * date with them, any without one (a game saved before beds kept their
- * crates' places) set down as dockhands would.
- */
-export function bedSlots(w: World, t: Truck): number[] {
-  const fees = t.fees ?? [];
-  const bed = (t.bed ??= []);
-  if (bed.length > fees.length) bed.length = fees.length;
-  const used = new Set<number>();
-  bed.forEach((s, i) => {
-    if (s < 0 || s >= slotsOf(t) || used.has(s)) bed[i] = -1;
-    else used.add(s);
-  });
-  for (let i = 0; i < fees.length; i++) {
-    if (i < bed.length && bed[i] >= 0) continue;
-    const s = handOrder(w, t).find((k) => !used.has(k)) ?? -1;
-    bed[i] = s;
-    if (s >= 0) used.add(s);
-  }
-  return bed;
+/** A crate truck's bed: a cell for each place on it; see hold.ts. */
+export function bedCells(t: Truck): Cells {
+  return sized((t.load ??= []), slotsOf(t));
+}
+
+/** The slots of the crates on a truck's bed, in the order they went on. */
+export function bedSlots(_w: World, t: Truck): number[] {
+  const cells = t.load ?? [];
+  return filled(cells).sort((x, y) => cells[x]!.at - cells[y]!.at || x - y);
+}
+
+/** The crates on a truck's bed, in the order they went on. */
+export function onBoard(w: World, t: Truck): Crate[] {
+  const cells = t.load ?? [];
+  return bedSlots(w, t).map((s) => cells[s]!);
+}
+
+/** The fees of the crates on a truck's bed, in the order they went on. */
+export function feesOn(w: World, t: Truck): number[] {
+  return onBoard(w, t).map((c) => c.fee);
 }
 
 /** The slots kept on a truck for loads on their way to it, but `except`'s. */
@@ -180,7 +180,7 @@ function forkSlots(w: World, t: Truck, n: number, used: Set<number>, kept: Set<n
  */
 export function slotsFor(w: World, t: Truck, p: Dockhand, n: number): number[] {
   if (n <= 0) return [];
-  const used = new Set(bedSlots(w, t).filter((s) => s >= 0));
+  const used = usedIn(bedCells(t));
   const kept = keptOn(w, t, p);
   if (isMachine(p)) return t.pickup ? [] : forkSlots(w, t, n, used, kept);
   return handSlots(w, t, n, new Set([...used, ...kept]));
@@ -188,7 +188,7 @@ export function slotsFor(w: World, t: Truck, p: Dockhand, n: number): number[] {
 
 /** Room on a truck's bed for crates no one is bringing yet, for any who load it. */
 export function bedRoom(w: World, t: Truck): number {
-  const used = new Set(bedSlots(w, t).filter((s) => s >= 0));
+  const used = usedIn(bedCells(t));
   const kept = keptOn(w, t);
   const layers = bedLayers(t) > 1 && forkliftsAt(w) ? 2 : 1;
   let n = 0;
@@ -210,57 +210,62 @@ export function keepSlots(w: World, t: Truck, p: Dockhand, n: number): number[] 
 }
 
 /**
- * The `n` crates just put on a truck's fees went on by `p`: into the slots
- * kept for them where those are free still, else where they would go now.
+ * Crates put on a truck by `p`, if given: into the slots kept for them
+ * where those are free still, else where they would go now, else as by
+ * hand. Its cargo and value go up by them.
  */
-export function onBed(w: World, t: Truck, n: number, p?: Dockhand): void {
-  const bed = bedSlots(w, t);
-  // Those just pushed have no slot yet; bedSlots gave them one as by hand.
-  bed.length = Math.max(0, (t.fees?.length ?? 0) - n);
-  const used = new Set(bed.filter((s) => s >= 0));
+export function onBed(w: World, t: Truck, fees: number[], p?: Dockhand): void {
+  const cells = bedCells(t);
+  const used = usedIn(cells);
   let slots = p?.bedAt ?? [];
   if (p) p.bedAt = undefined;
-  if (slots.length < n || slots.some((s) => used.has(s))) {
-    slots = p ? slotsFor(w, t, p, n) : [];
+  if (slots.length < fees.length || slots.some((s) => used.has(s) || s >= cells.length)) {
+    slots = p ? slotsFor(w, t, p, fees.length) : [];
   }
-  for (let k = 0; k < n; k++) {
-    const s = slots[k] ?? handOrder(w, t).find((q) => !used.has(q)) ?? -1;
-    bed.push(s);
-    if (s >= 0) used.add(s);
-  }
+  fees.forEach((fee, k) => {
+    let s = slots[k] ?? handOrder(w, t).find((q) => !used.has(q)) ?? -1;
+    // With no place left, any; past the last if none.
+    if (s < 0) s = cells.findIndex((c) => !c);
+    if (s < 0) s = cells.length;
+    while (cells.length <= s) cells.push(null);
+    put(cells, s, { fee, at: w.tick });
+    used.add(s);
+  });
+  t.cargo += fees.length;
+  t.value += fees.reduce((n, f) => n + f, 0);
 }
 
 /**
- * Which of a truck's crates come off first: those on top, then the rest,
- * the last on first. Indexes into its fees.
+ * The slots of a truck's crates in the order they come off: those on top,
+ * then the rest, the last on first.
  */
 export function topFirst(w: World, t: Truck): number[] {
-  const bed = bedSlots(w, t);
+  const cells = bedCells(t);
   const per = t.capacity;
-  return bed
-    .map((s, i) => ({ i, layer: s >= 0 ? Math.floor(s / per) : 0 }))
-    .sort((a, b) => b.layer - a.layer || b.i - a.i)
-    .map((x) => x.i);
+  return bedSlots(w, t).sort(
+    (a, b) => Math.floor(b / per) - Math.floor(a / per) || cells[b]!.at - cells[a]!.at || b - a,
+  );
 }
 
 /**
- * Take crates off a truck's bed at `picks` (indexes into its fees, as
- * taken off its fees too): any left on top of where one came from settle
- * into its place, as they would.
+ * Take the crates at `slots` off a truck's bed: any left on top of where
+ * one came from settle into its place, as they would. Their fees; its
+ * cargo and value go down by them.
  */
-export function offBed(w: World, t: Truck, picks: number[]): void {
-  const bed = bedSlots(w, t);
-  for (const i of [...picks].sort((a, b) => b - a)) bed.splice(i, 1);
+export function offBed(w: World, t: Truck, slots: number[]): number[] {
+  const cells = bedCells(t);
+  const fees = slots.map((s) => take(cells, s).fee);
   const per = t.capacity;
-  const used = new Set(bed);
-  bed.forEach((s, i) => {
-    const under = s - per;
-    if (s >= per && !used.has(under)) {
-      used.delete(s);
-      used.add(under);
-      bed[i] = under;
+  cells.forEach((c, s) => {
+    if (c && s >= per && !cells[s - per]) {
+      cells[s - per] = c;
+      cells[s] = null;
     }
   });
+  t.cargo -= fees.length;
+  t.value -= fees.reduce((n, f) => n + f, 0);
+  void w;
+  return fees;
 }
 
 /**

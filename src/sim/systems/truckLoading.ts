@@ -417,10 +417,7 @@ export function landCrates(
   if (p.carrying <= 0) return;
   if (t) t.coming = Math.max(0, (t.coming ?? 0) - p.carrying);
   if (live && t) {
-    t.cargo += p.carrying;
-    t.value += p.cargoFees.reduce((n, f) => n + f, 0);
-    (t.fees ??= []).push(...p.cargoFees);
-    onBed(w, t, p.cargoFees.length, p);
+    onBed(w, t, p.cargoFees, p);
     t.idle = 0;
   } else if (bay) {
     setDown(w, bay, p.cargoFees, false, p, { cleared: true });
