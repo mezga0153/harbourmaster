@@ -23,7 +23,7 @@ import { Build } from '../types';
 import { cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
 import { isIce, needsCustomsOffice, type Contract } from '../contracts';
-import { thought } from '../staff';
+import { thought, traitDef } from '../staff';
 import { BUSINESSES, population, townHomes, townTarget } from '../town';
 import { depotViews } from './output';
 import type {
@@ -467,6 +467,10 @@ export function problems(w: World): ProblemView[] {
     if (b.state !== 'moored' || !b.noRoom || b.crates === 0) continue;
     out.push({ x: b.x, y: b.y, h: 1.6, text: noRoomWords(w, b.noRoom), type: 'boat', idx: b.id });
   }
+  for (const p of w.people) {
+    const why = quitTrouble(w, p);
+    if (why) out.push({ x: p.x, y: p.y, h: 1.3, text: why, type: 'worker', idx: p.id });
+  }
   for (const lot of lots(w)) {
     const why = lotTrouble(w, lot);
     if (why)
@@ -479,6 +483,34 @@ export function problems(w: World): ProblemView[] {
       });
   }
   return out;
+}
+
+/**
+ * Why a worker may soon quit, for a red mark over them: morale low, or a
+ * raise asked for that a no (an unanswered ask counts as one) would bring
+ * low; and what would help.
+ */
+function quitTrouble(w: World, p: Dockhand): string | null {
+  const refused = p.morale + B.RAISE_REFUSE_MORALE * traitDef(p.trait).moraleLoss;
+  const asks = p.raiseAsk > 0 && refused < B.MORALE_WARN;
+  if (p.morale >= B.MORALE_WARN && !asks) return null;
+  const said: string[] = [
+    p.lowMoraleDays > 0
+      ? `${p.name} is miserable and will quit tomorrow.`
+      : p.morale < B.MORALE_WARN
+        ? `${p.name} is unhappy (morale ${Math.round(p.morale)}%) and may quit.`
+        : `${p.name} may quit if the raise is turned down.`,
+  ];
+  if (p.raiseAsk > 0)
+    said.push(
+      `Asks for a raise to $${p.raiseAsk}/day: answer in the Staff panel by tomorrow, or it counts as a no.`,
+    );
+  if (p.kind === 'dockhand' && !w.map.build.includes(Build.BreakHut))
+    said.push(
+      'Nowhere to rest: breaks sat on the ground wear morale down. Build a break hut (Port buildings).',
+    );
+  else if (p.raiseAsk === 0) said.push('Breaks in a break hut and a raise lift morale.');
+  return said.join(' ');
 }
 
 /**

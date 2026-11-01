@@ -25,8 +25,9 @@ export function selectionAt(
   picked: Picked,
 ): Selection | null {
   const i = at !== null && map ? anchorOf(map, at) : at;
-  // A boat's mark picks the boat, by its id.
-  if (picked.problem?.type === 'boat') return { type: 'entity', id: picked.problem.idx };
+  // A boat's or worker's mark picks it, by its id.
+  if (picked.problem?.type === 'boat' || picked.problem?.type === 'worker')
+    return { type: 'entity', id: picked.problem.idx };
   // A shipper's mark opens the Contracts panel on it, by its id.
   if (picked.problem?.type === 'contract') {
     openContract(picked.problem.idx);

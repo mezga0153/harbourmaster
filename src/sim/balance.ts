@@ -24,6 +24,7 @@ export const MORALE_HUT_BREAK = 2;
 export const MORALE_FLOOR_BREAK = -4;
 export const MORALE_EXHAUSTED = -3; // ran completely out of energy
 export const QUIT_MORALE = 15;
+export const MORALE_WARN = 30; // a red mark over a worker this unhappy, or that a no to a raise would make so
 export const RAISE_CHANCE = 0.08; // per dockhand per day, when not delighted
 export const RAISE_MORALE_BELOW = 65;
 export const RAISE_STEP = 10; // per day

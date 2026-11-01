@@ -493,9 +493,11 @@ export interface ProblemView {
   text: string;
   /**
    * What picking it selects; a contract's (a shipper's trucks with nowhere
-   * to wait or unload) opens the Contracts panel on it, by its id.
+   * to wait or unload) opens the Contracts panel on it, by its id; a
+   * boat's or worker's selects it, by its id, and the mark goes along with it.
    */
-  type: 'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry' | 'depot' | 'boat' | 'contract';
+  type:
+    'crane' | 'bay' | 'yard' | 'parking' | 'yardGantry' | 'depot' | 'boat' | 'worker' | 'contract';
   idx: number;
 }
 

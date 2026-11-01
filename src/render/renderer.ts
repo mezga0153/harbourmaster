@@ -259,6 +259,8 @@ export class Renderer {
       const mark = this.markOf.get(k)!;
       mark.position.set(p.x, p.h, p.y);
       mark.userData.h = p.h;
+      // A worker's mark goes along with them, as the view moves them.
+      mark.userData.follow = p.type === 'worker' ? p.idx : undefined;
     });
   }
 
@@ -413,6 +415,9 @@ export class Renderer {
       this.layers.structures.update(dt, time);
       // The red marks bob above what is wrong.
       for (const mark of this.marks.children) {
+        const follow = mark.userData.follow as number | undefined;
+        const at = follow !== undefined ? this.layers.entities.positionOf(follow, this.tmp) : null;
+        if (at) mark.position.set(at.x, 0, at.z);
         mark.position.y = (mark.userData.h ?? 1.1) + Math.sin(time * 4) * 0.08;
       }
       (this.layers.seabed.userData.time as { value: number }).value = time;

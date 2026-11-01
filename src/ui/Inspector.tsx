@@ -489,6 +489,7 @@ function YardInfo({ yard, actions, onClose: close }: InfoProps & { yard: Yard })
 
 /** A boat, truck, dockhand or machine: what it is doing, and why it is held up if it is. */
 function EntityInfo({ entity: e, actions, onClose: close }: InfoProps & { entity: Entity }) {
+  const quitting = snapshot.value?.problems.find((p) => p.type === 'worker' && p.idx === e.id);
   return (
     <aside class="side panel">
       <InfoHeader kicker={KIND_LABEL[e.kind]} title={e.name} onClose={close} />
@@ -497,6 +498,7 @@ function EntityInfo({ entity: e, actions, onClose: close }: InfoProps & { entity
         {e.activity}
       </p>
       {e.why && <Why topic={WHY_TOPIC[e.kind]}>{e.why}</Why>}
+      {quitting && <p class="note bad">{quitting.text}</p>}
       {(e.kind === 'dockhand' || isMachineKind(e.kind)) && (
         <StaffDetails id={e.id} actions={actions} onDismiss={close} />
       )}
