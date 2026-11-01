@@ -19,20 +19,10 @@ import {
   type ForkPlan,
   type ForkSite,
 } from './entities/forks';
-import {
-  CELL,
-  CELL_CRATE,
-  CELL_NO_WALK,
-  CELL_TRUCK,
-  StaffGrid,
-  type CrateBox,
-  type Point,
-} from './entities/grid';
+import { CELL_CRATE, CELL_TRUCK, StaffGrid, type CrateBox, type Point } from './entities/grid';
 import { keepInside, parkIn, parkOut } from './entities/parking';
 import {
   bayFrame,
-  bayStand,
-  clearOfTruck,
   HAND_REACH,
   inTruck,
   LEAN_MOST,
@@ -80,8 +70,6 @@ const UP_RATE = 3;
 const IDLE = 'Waiting for work';
 /** How near another dockhand standing about is for them to chat. */
 const CHAT_NEAR = 0.7;
-/** How far back from the edge of the quay a dockhand stands, toes to the edge. */
-const TOES = 0.05;
 /** How far off the way it is going a forklift has to face to turn about. */
 const TURN_FROM = (Math.PI * 2) / 3;
 /** How near right round a forklift turning about has to be to swing its tail either way. */
@@ -149,10 +137,6 @@ const WALK_KEEP = 0.2;
  * its way out of its depot runs through ground it does not drive on.
  */
 const AHEAD_OFF = CELL_CRATE | CELL_TRUCK;
-/** What a dockhand's way keeps out of, of the staff's grid: crates, and the water. */
-const WALK_OFF = CELL_CRATE | CELL_NO_WALK;
-/** How far inside the edge of a cell a dockhand stands to work a crate, keeping out of the cell beside. */
-const CELL_INSET = 0.06;
 
 /** How high a forklift's forks ride as it drives about: low, a load just off the ground. */
 function ride(v: EntityView): number {
@@ -605,21 +589,11 @@ export class Entities {
       w.start ??= now;
       const phase = w.start < 1 ? Math.max(0, (now - w.start) / (1 - w.start)) : 1;
       // Where the game has them stand to work it, just there; else as near it as they may.
-      w.goal ??=
-        (v.stand
-          ? this.workPose(v, w, drive)
-          : clearOfTruck(this.trucks, v, this.workPose(v, w, drive), w.from)) ?? undefined;
+      w.goal ??= this.workPose(v, w, drive) ?? undefined;
       // A dockhand the game has too far from the crate to walk up to it
       // works it from where they are, though they go as far as the edge of
       // a jetty off the corner a boat lies at. They are shown a snapshot
       // behind the game, so that is measured from where the game has them.
-      // With nowhere the game has them stand to work it, they work it from
-      // where they are, facing it.
-      if (w.goal && !v.stand && v.kind === 'dockhand') {
-        w.goal = { ...w.from, dir: w.goal.dir, h: w.goal.h, over: w.goal.over };
-      }
-      // Nowhere known to work it: where they are, but out of any crates there.
-      w.goal ??= v.kind === 'dockhand' ? this.outOfCrates({ ...drive, h: 0 }) : undefined;
       const goal = w.goal ?? { ...drive, h: 0 };
       if (v.kind === 'dockhand') {
         // Where the game has them, as it has them: they bend to it there.
@@ -948,39 +922,6 @@ export class Entities {
     return out;
   }
 
-  /** Where a dockhand at `pose` stands instead, clear of crates: the nearest clear spot of the staff's grid. */
-  private outOfCrates(pose: Pose): Pose {
-    const free = this.staffGrid.nearestFree('dockhand', pose.x, pose.z, 0.75, WALK_OFF);
-    return free ? { ...pose, x: free.x, z: free.z } : pose;
-  }
-
-  /**
-   * Where a dockhand stands to work a crate at `p` on the ground, as in
-   * crate storage: in the gap beside the stack, never in it, the nearest
-   * clear cell of the staff's grid it can reach the crate from, by how
-   * far they lean and how far they walk from `from`; null if none is.
-   */
-  private standBy(p: Point, from: Point): Point | null {
-    const grid = this.staffGrid;
-    const [cx, cz] = grid.cellOf(p.x, p.z);
-    let best: Point | null = null;
-    let least = Infinity;
-    const lie = (a: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, a));
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const [nx, nz] = [cx + dx, cz + dz];
-        if (!grid.free('dockhand', nx, nz)) continue;
-        const x = lie(p.x, nx * CELL + CELL_INSET, (nx + 1) * CELL - CELL_INSET);
-        const z = lie(p.z, nz * CELL + CELL_INSET, (nz + 1) * CELL - CELL_INSET);
-        const reach = Math.hypot(x - p.x, z - p.z);
-        if (reach > HAND_REACH + LEAN_MOST) continue;
-        const cost = 2 * reach + 0.3 * Math.hypot(x - from.x, z - from.z);
-        if (cost < least) [best, least] = [{ x, z }, cost];
-      }
-    }
-    return best;
-  }
-
   /**
    * A dockhand with nothing to do passes the time: looks round, stretches,
    * checks the time, taps a foot, or turns to chat with someone standing
@@ -1040,46 +981,16 @@ export class Entities {
           : undefined;
       return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
     }
-    // At a truck bay, to its stack or the truck in it, from the back corner
-    // behind the stack, clear of the truck.
-    const corner = v.kind === 'dockhand' && bayStand(this.trucks, v, at);
-    if (corner) {
-      // On a clear cell of the bay's grid, off its crates and the half its truck stands in.
-      const clear = this.staffGrid.nearestFree(
-        'dockhand',
-        corner.x,
-        corner.z,
-        0.5,
-        WALK_OFF | CELL_TRUCK,
-      );
-      const { x, z } = clear ?? corner;
+    // A dockhand with nowhere the game has them stand works it from where
+    // they are, facing it, leaning to it as far as they may.
+    if (v.kind === 'dockhand') {
+      const { x, z } = drive;
+      const over = Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - hold));
       const dir = Math.atan2(p.z - z, p.x - x);
-      const over =
-        v.kind === 'dockhand'
-          ? Math.min(LEAN_MOST, Math.max(0, Math.hypot(p.x - x, p.z - z) - hold))
-          : undefined;
-      return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over, fixed: true };
+      return { x, z, dir, h: p.y - surfaceY(this.map, x, z), over };
     }
-    // A dockhand works a crate in crate storage from the gap beside its stack.
-    const gap = v.kind === 'dockhand' && at.store !== undefined ? this.standBy(p, drive) : null;
-    if (gap) {
-      const reach = Math.hypot(p.x - gap.x, p.z - gap.z);
-      return {
-        x: gap.x,
-        z: gap.z,
-        dir: Math.atan2(p.z - gap.z, p.x - gap.x),
-        h: p.y - surfaceY(this.map, gap.x, gap.z),
-        over: Math.min(LEAN_MOST, Math.max(0, reach - hold)),
-      };
-    }
-    // A stacker takes a container side on; a tractor's trailer lies along
-    // it; a dockhand comes straight up to the crate.
-    const straight = v.kind === 'dockhand' && at.place === undefined;
-    const lie = stacker
-      ? heading + Math.PI / 2
-      : straight
-        ? Math.atan2(p.z - drive.z, p.x - drive.x)
-        : heading;
+    // A stacker takes a container side on; a tractor's trailer lies along it.
+    const lie = stacker ? heading + Math.PI / 2 : heading;
     // From whichever side is nearer, sooner than turn right round.
     const cost = (face: number) => {
       const [dx, dz] = ahead(face, hold);
@@ -1087,34 +998,11 @@ export class Entities {
         Math.hypot(p.x - dx - drive.x, p.z - dz - drive.z) + 0.4 * (1 - Math.cos(face - drive.dir))
       );
     };
-    w.face ??= straight || cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
+    w.face ??= cost(lie) <= cost(lie + Math.PI) ? lie : lie + Math.PI;
     const [dx, dz] = ahead(w.face, hold);
-    let x = p.x - dx;
-    let z = p.z - dz;
-    if (v.kind !== 'dockhand') return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z) };
-    // A dockhand goes no further than the edge of the quay, and leans out
-    // from there to a crate on a boat rather than step aboard.
-    const way = Math.hypot(x - drive.x, z - drive.z);
-    const [ux, uz] = ahead(w.face, 1);
-    let dry = 0;
-    while (dry < way + TOES && surfaceY(this.map, drive.x + ux * dry, drive.z + uz * dry) > 0) {
-      dry += 0.02;
-    }
-    let stand = Math.max(0, Math.min(way, dry - TOES));
-    // Nor where a truck stands, other than the one they load: on to the
-    // crate's side of it, or else back from it.
-    const clear = (d: number) =>
-      !inTruck(this.trucks, drive.x + ux * d, drive.z + uz * d, v.handAt?.truck);
-    if (!clear(stand)) {
-      let k = 0.02;
-      while (k < 0.8 && !clear(stand + k) && !clear(stand - k)) k += 0.02;
-      if (clear(stand + k)) stand += k;
-      else if (clear(stand - k)) stand -= k;
-    }
-    x = drive.x + ux * stand;
-    z = drive.z + uz * stand;
-    const over = Math.min(LEAN_MOST, Math.max(0, way - stand));
-    return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z), over };
+    const x = p.x - dx;
+    const z = p.z - dz;
+    return { x, z, dir: w.face, h: p.y - surfaceY(this.map, x, z) };
   }
 
   /**

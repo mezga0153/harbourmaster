@@ -58,7 +58,7 @@ import { craneHeld, cranePlaces, craneTop, customsFor, nextCranePlace, takingAt 
 import * as B from '../balance';
 import { tip } from './output';
 import type { CellsView, EntityView, HandAt } from '../../protocol/views';
-import { roundTicks, slotsFor } from './cargo/beds';
+import { slotsFor } from './cargo/beds';
 import { pickTile } from './boats/berthing';
 
 /** A yard gantry stands beside this container yard, to load its trucks. */
@@ -365,16 +365,7 @@ export function handView(
   const crates = p.kind === 'forklift' || p.kind === 'dockhand';
   const at = crates ? crateAt(w, p, pick) : handAt(w, p, pick);
   if (crates && !at) return {};
-  // Onto a crate truck, round to its far side first.
-  const onto =
-    !pick && crates && p.truckLoad ? w.trucks.find((t) => t.id === p.truckId) : undefined;
-  // Coming back from its far side, picking up the next.
-  const back =
-    pick && crates && p.truckLoad && p.back?.truck === p.truckId ? (p.back?.ticks ?? 0) : 0;
-  const ticks =
-    handlingTicks(w, p, pick ? B.PICK_TICKS : B.DROP_TICKS) +
-    (onto ? roundTicks(w, onto, p) : 0) +
-    back;
+  const ticks = handlingTicks(w, p, pick ? B.PICK_TICKS : B.DROP_TICKS);
   return {
     handStage: pick ? 'pick' : 'drop',
     handPhase: clamp(1 - p.timer / ticks, 0, 1),

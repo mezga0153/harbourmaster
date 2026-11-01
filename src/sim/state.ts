@@ -116,8 +116,6 @@ export interface Dockhand extends Agent {
   backing?: number;
   /** Loading a crate truck: the places on its bed kept for the load it brings; see beds.ts. */
   bedAt?: number[];
-  /** Just loaded a crate truck from round its far side: ticks to come back, before the next. */
-  back?: { truck: number; ticks: number };
   /** Why it is waiting where it is to set its load down, if it is. */
   waitingWhy?: string;
   /** A tractor under a gantry crane: what the crane set straight on it off the ship. */

@@ -136,7 +136,10 @@ when changing tiers, town growth, contracts or what unlocks what.
   stacks (`cargo/stores.ts`, `cranes.ts`), truck beds (`cargo/beds.ts`), a
   ship's deck; workers carry theirs as a list. Move records whole with the
   holder's put/take functions (see `cargo/hold.ts`), never fees alone, and
-  the view gets cells too (`CellsView`).
+  the view gets cells too (`CellsView`). Dockhands and forklifts go cell by
+  cell (`workforce/forkCells.ts`) to a free place beside the crate, facing
+  it (`workforce/stands.ts`), and work it from there; the view draws them
+  just where the game has them, bending or putting the forks in.
 - `src/protocol.ts` exports the messages between the threads
   (`protocol/messages.ts`) and what the view sees (`protocol/views.ts`).
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),

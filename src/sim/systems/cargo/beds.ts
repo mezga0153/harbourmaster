@@ -18,7 +18,6 @@ import type { World } from '../../world';
 import type { Bay, Cells, Crate, Dockhand, Truck } from '../../state';
 import { filled, put, sized, stamp, take, usedIn } from './hold';
 import type { CellsView } from '../../../protocol/views';
-import * as B from '../../balance';
 import { boxLookOf, isMachine } from '../../helpers';
 import { frontOf } from '../../rules/footprint';
 import { dest } from './customs';
@@ -292,18 +291,4 @@ export function offBed(w: World, t: Truck, slots: number[]): number[] {
   t.value -= fees.reduce((n, f) => n + f, 0);
   void w;
   return fees;
-}
-
-/**
- * Ticks more than setting it down a worker takes to load a crate onto a
- * truck, and to come back from it: round to its far side, or out to a
- * pickup at the roadside. In a truck bay they lean over from behind its
- * stack.
- */
-export function roundTicks(w: World, t: Truck, p: Dockhand, s = p.bedAt?.[0]): number {
-  if (s === undefined || s < 0) return 0;
-  const bay = dest(w, t.bayIdx);
-  if (bay && !bay.tiles && !t.pickup && w.tileOf(t) === bay.idx) return 0;
-  const way = (s % 2 === farSide(w, t) ? 1.2 : 0.4) + (t.pickup ? 0.6 : 0);
-  return Math.ceil(way / (isMachine(p) ? B.FORKLIFT_SPEED : B.WALK_SPEED));
 }
