@@ -36,9 +36,10 @@ describe('the keyboard table', () => {
       tool: 'bulldoze',
       toggle: true,
     });
-    // Shift+M is a million on the dev server only; otherwise just the finance panel.
+    // Shift+M is a million, on the dev server and in the published game; M alone the finance panel.
     expect(keyAction(press('M', true), 0, true)).toEqual({ type: 'debugCash' });
-    expect(keyAction(press('M', true), 0, false)).toEqual({ type: 'panel', panel: 'finance' });
+    expect(keyAction(press('M', true), 0, false)).toEqual({ type: 'debugCash' });
+    expect(keyAction(press('M'), 0, false)).toEqual({ type: 'panel', panel: 'finance' });
     expect(keyAction(press('x'), 0, false)).toBeNull();
   });
 });

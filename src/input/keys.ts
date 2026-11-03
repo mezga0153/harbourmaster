@@ -15,7 +15,7 @@ export type KeyAction =
   | { type: 'escape' }
   /** Pick a tool up (`toggle`: or put it down again, and show its category). */
   | { type: 'tool'; tool: Tool; toggle: boolean }
-  /** Dev server only: a million for testing. */
+  /** A million, a cheat for testing or for fun. */
   | { type: 'debugCash' };
 
 export interface Shortcut {
@@ -43,7 +43,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { key: 'backspace', label: 'Del', action: { type: 'tool', tool: 'bulldoze', toggle: false } },
   { key: 'h', label: 'H', action: { type: 'panel', panel: 'staff' } },
   { key: 'c', label: 'C', action: { type: 'panel', panel: 'contracts' } },
-  { key: 'm', label: 'M', shift: true, dev: true, action: { type: 'debugCash' } },
+  { key: 'm', label: 'M', shift: true, action: { type: 'debugCash' } },
   { key: 'm', label: 'M', action: { type: 'panel', panel: 'finance' } },
   { key: 'p', label: 'P', action: { type: 'panel', panel: 'port' } },
   { key: '?', label: '?', action: { type: 'panel', panel: 'handbook' } },

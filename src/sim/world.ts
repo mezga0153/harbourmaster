@@ -958,7 +958,7 @@ export class World {
     }
   }
 
-  /** Testing shortcuts. The worker only forwards these on the dev server. */
+  /** Testing shortcuts. The worker only forwards these on the dev server, but for the million (Shift+M). */
   debug(cmd: Extract<Command, { type: 'debug' }>): void {
     if (cmd.cash) {
       this.cash += cmd.cash;

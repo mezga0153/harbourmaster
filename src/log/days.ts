@@ -22,8 +22,8 @@ import { visitAction, visitDay, visitGame } from './visit';
 const URL_ = '/api/days';
 const GAME_KEY = 'harbourmaster.log.game';
 const DAY_KEY = 'harbourmaster.log.day';
-/** Commands that are not the player doing something. */
-const NOT_ACTIONS = new Set(['learnt', 'debug', 'dumpSave', 'loadSave']);
+/** Commands that are not the player doing something. A `debug` is the Shift+M cheat, kept so a day's money can be told apart. */
+const NOT_ACTIONS = new Set(['learnt', 'dumpSave', 'loadSave']);
 
 export interface Tallies {
   game: string;

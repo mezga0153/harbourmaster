@@ -96,7 +96,9 @@ function handle(cmd: Command): void {
     save(false);
     postFrame([{ kind: 'message', text: `Loaded ${cmd.name}.`, tone: 'good' }]);
   } else if (cmd.type === 'debug') {
+    // The published game takes only the million (Shift+M); the rest is dev only.
     if (import.meta.env.DEV) world.debug(cmd);
+    else if (cmd.cash) world.debug({ type: 'debug', cash: 1_000_000 });
   } else if (cmd.type === 'dumpSave') {
     if (import.meta.env.DEV) ctx.postMessage({ type: 'dump', save: world.toSave() });
   } else if (cmd.type === 'debugView') {
