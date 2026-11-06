@@ -185,6 +185,8 @@ export interface CraneView {
   why: string;
   /** Why no ship can ever come alongside it, if none can. */
   trouble?: string;
+  /** Which trouble it is, for the guide that shows how to put it right. */
+  fix?: CraneFix;
   /**
    * Container cranes at work: lifting a container off a ship's deck or an
    * export onto it, the ship, the deck slot, how the container looks, and
@@ -490,6 +492,14 @@ export interface TownView {
  * Something on the map that cannot work as it is: a red mark over it, and
  * what is wrong, shown when it is picked.
  */
+/**
+ * What keeps a crane from working: no open water beside it, no harbour
+ * office running its quay, a quay too narrow for a container ship, no room
+ * alongside for the hull, water too shallow, or (a jib crane) no crate
+ * storage in reach.
+ */
+export type CraneFix = 'water' | 'office' | 'wide' | 'room' | 'depth' | 'storage';
+
 export interface ProblemView {
   /** Where the mark stands, in tiles, and how high: over the top of what is wrong. */
   x: number;

@@ -7,6 +7,7 @@ import { ContractsPanel } from './Contracts';
 import { BankruptDialog, NewGameDialog, PhoneNotice } from './Dialogs';
 import { FeedbackPanel, ReportButton } from './Feedback';
 import { FinancePanel } from './Finance';
+import { GuideDialog } from './Guide';
 import { HandbookPanel } from './Handbook';
 import { Icon } from './icons';
 import { InfoPanel } from './Inspector';
@@ -62,6 +63,7 @@ export function App({ actions }: { actions: Actions }) {
       <MobileMenu actions={actions} />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
+      <GuideDialog />
       <LandDialog send={actions.send} />
       <PhoneNotice />
     </>

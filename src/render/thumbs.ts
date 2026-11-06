@@ -11,6 +11,7 @@ import {
   PlaneGeometry,
   Scene,
   SRGBColorSpace,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three';
@@ -37,10 +38,11 @@ const SIZE = [176, 120] as const;
 
 type Patch = { map: GameMap; focus: number[]; stock?: { tiles: number[]; boxes: boolean } };
 
-function patch(): GameMap {
-  const m = new GameMap(W, H);
-  for (let i = 0; i < W * H; i++) {
-    const sea = m.xOf(i) >= COAST;
+/** A patch of shore `w` by `h`, sand up to column `coast` and sea beyond; see also the guides' pictures (guides.ts). */
+export function patch(w = W, h = H, coast = COAST): GameMap {
+  const m = new GameMap(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const sea = m.xOf(i) >= coast;
     m.terrain[i] = sea ? Terrain.Water : Terrain.Sand;
     m.depth[i] = sea ? 6 : 0;
     m.ocean[i] = sea ? 1 : 0;
@@ -49,26 +51,26 @@ function patch(): GameMap {
   return m;
 }
 
-const at = (m: GameMap, x: number, y: number) => m.idx(x, y);
+export const at = (m: GameMap, x: number, y: number) => m.idx(x, y);
 
-function lay(m: GameMap, code: number, tiles: number[]): number[] {
+export function lay(m: GameMap, code: number, tiles: number[]): number[] {
   for (const t of tiles) m.build[t] = code;
   return tiles;
 }
 
-function row(m: GameMap, y: number, x0: number, x1: number): number[] {
+export function row(m: GameMap, y: number, x0: number, x1: number): number[] {
   return Array.from({ length: x1 - x0 + 1 }, (_, k) => at(m, x0 + k, y));
 }
 
-function block(m: GameMap, x0: number, y0: number, x1: number, y1: number): number[] {
+export function block(m: GameMap, x0: number, y0: number, x1: number, y1: number): number[] {
   const out: number[] = [];
   for (let y = y0; y <= y1; y++) out.push(...row(m, y, x0, x1));
   return out;
 }
 
-/** A building of `kind` with its main tile at `i`, facing the first way that works. */
-function place(m: GameMap, kind: BuildKind, i: number): number[] {
-  const f = bestFacing(m, kind, i);
+/** A building of `kind` with its main tile at `i`, facing `facing` or the first way that works. */
+export function place(m: GameMap, kind: BuildKind, i: number, facing?: number): number[] {
+  const f = facing ?? bestFacing(m, kind, i);
   const tiles = footprint(m, kind, i, f).filter((t) => t >= 0);
   tiles.forEach((t, k) => {
     m.build[t] = BUILDABLES[kind].code;
@@ -231,23 +233,21 @@ export const PICTURED: readonly string[] = [
 
 let gl: WebGLRenderer | null = null;
 
-function renderer(): WebGLRenderer {
-  if (gl) return gl;
-  gl = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  gl.setPixelRatio(2);
-  gl.setSize(SIZE[0], SIZE[1], false);
-  gl.outputColorSpace = SRGBColorSpace;
-  gl.toneMapping = ACESFilmicToneMapping;
-  gl.toneMappingExposure = 1.15;
+function renderer(size: readonly [number, number]): WebGLRenderer {
+  if (!gl) {
+    gl = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    gl.setPixelRatio(2);
+    gl.outputColorSpace = SRGBColorSpace;
+    gl.toneMapping = ACESFilmicToneMapping;
+    gl.toneMappingExposure = 1.15;
+  }
+  const now = gl.getSize(new Vector2());
+  if (now.x !== size[0] || now.y !== size[1]) gl.setSize(size[0], size[1], false);
   return gl;
 }
 
-function shoot(content: Object3D, box: Box3): string {
-  const s = new Scene();
-  s.add(new HemisphereLight(0xeaf4ff, 0x8a7f6a, 1.6));
-  const sun = new DirectionalLight(0xfff1dc, 2.4);
-  sun.position.set(-4, 8, 3);
-  s.add(sun, content);
+/** The game's view of `box`, from its south-east and above as the game's camera starts, framed to fill `size`. */
+export function viewOf(box: Box3, shape: readonly [number, number] = SIZE): OrthographicCamera {
   const centre = box.getCenter(new Vector3());
   const size = box.getSize(new Vector3());
   const cam = new OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -268,15 +268,30 @@ function shoot(content: Object3D, box: Box3): string {
         corners.push(new Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse));
   const hw = Math.max(...corners.map((c) => Math.abs(c.x))) * 1.04;
   const hh = Math.max(...corners.map((c) => Math.abs(c.y))) * 1.04;
-  const aspect = SIZE[0] / SIZE[1];
+  const aspect = shape[0] / shape[1];
   const half = Math.max(hw / aspect, hh, size.length() * 0.05);
   cam.left = -half * aspect;
   cam.right = half * aspect;
   cam.top = half;
   cam.bottom = -half;
   cam.updateProjectionMatrix();
-  const r = renderer();
+  return cam;
+}
+
+/** `content` in the light of a sunny day, as `cam` sees it, as a PNG data URL `size` big. */
+export function shoot(
+  content: Object3D,
+  cam: OrthographicCamera,
+  size: readonly [number, number] = SIZE,
+): string {
+  const s = new Scene();
+  s.add(new HemisphereLight(0xeaf4ff, 0x8a7f6a, 1.6));
+  const sun = new DirectionalLight(0xfff1dc, 2.4);
+  sun.position.set(-4, 8, 3);
+  s.add(sun, content);
+  const r = renderer(size);
   r.render(s, cam);
+  s.remove(content);
   return r.domElement.toDataURL('image/png');
 }
 
@@ -341,7 +356,7 @@ export function stage(tool: string): Staged | null {
 
 function picture(tool: string): string | null {
   const s = stage(tool);
-  return s ? shoot(s.content, s.box) : null;
+  return s ? shoot(s.content, viewOf(s.box)) : null;
 }
 
 const cache = new Map<string, string | null>();

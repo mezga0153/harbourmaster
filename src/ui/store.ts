@@ -1,6 +1,7 @@
 import { computed, effect, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { Preview } from '../preview/types';
+import type { GuideId } from './guides';
 import type { Tool } from './tools';
 
 // The UI's shared state: what the sim last sent, what the player has in
@@ -58,6 +59,13 @@ export const preview = signal<Preview | null>(null);
 /** Which way the next building faces; null picks a way that fits. */
 export const rotation = signal<number | null>(null);
 export const newGameOpen = signal(false);
+
+/** The guide open over the game (Guide.tsx), and the step it is on. */
+export const guide = signal<{ id: GuideId; step: number } | null>(null);
+
+export function openGuide(id: GuideId, step = 0): void {
+  guide.value = { id, step };
+}
 /** The port's land: plots owned, and what the next plot of land and of seabed costs. */
 export const land = signal<{
   owned: number;
@@ -209,6 +217,8 @@ export const advice = signal<string[]>([]);
 
 export function advise(id: string): void {
   if (!advice.value.includes(id)) advice.value = [...advice.value, id];
+  // The port has become a Coastal Wharf: how to build one, step by step.
+  if (id === 'tier1') openGuide('wharf');
 }
 
 let nextMessageId = 1;

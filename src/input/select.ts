@@ -3,7 +3,8 @@ import type { GameMap } from '../sim/map';
 import { anchorOf } from '../sim/rules';
 import { ownedByTown } from '../sim/town';
 import { Build, isTownBuilding } from '../sim/types';
-import { openContract, type Selection } from '../ui/store';
+import { craneGuide, stepFor } from '../ui/guides';
+import { openContract, openGuide, type Selection } from '../ui/store';
 
 /** What the renderer found under the pointer, ahead of the tile itself. */
 export interface Picked {
@@ -34,6 +35,14 @@ export function selectionAt(
   if (picked.problem?.type === 'contract') {
     openContract(picked.problem.idx);
     return null;
+  }
+  // A crane's mark shows how to put it right, over its panel.
+  if (picked.problem?.type === 'crane') {
+    const c = s?.cranes.find((c) => c.idx === picked.problem!.idx);
+    if (c) {
+      const id = craneGuide(c.kind);
+      openGuide(id, stepFor(id, c.fix));
+    }
   }
   if (picked.problem) return { type: picked.problem.type, idx: picked.problem.idx };
   if (picked.entity) return { type: 'entity', id: picked.entity.id };

@@ -28,6 +28,7 @@ import { BUSINESSES, population, townHomes, townTarget } from '../town';
 import { depotViews } from './output';
 import type {
   BayView,
+  CraneFix,
   ContractView,
   EntityView,
   ProblemView,
@@ -369,6 +370,11 @@ export function craneTrouble(w: World, c: Crane): string | null {
   return berthTrouble(w, c) ?? jibTrouble(w, c);
 }
 
+/** What is wrong with a crane as a thing to put right, for the guide that shows how (see CraneFix). */
+export function craneFix(w: World, c: Crane): CraneFix | undefined {
+  return berthIssue(w, c)?.fix ?? (jibTrouble(w, c) ? 'storage' : undefined);
+}
+
 /**
  * Why a jib crane cannot unload a boat, or null if it can: it swings crates
  * only into crate storage for cargo coming in within its reach, never down
@@ -386,6 +392,11 @@ export function jibTrouble(w: World, c: Crane): string | null {
  * two wide, with room for its hull and water deep enough.
  */
 export function berthTrouble(w: World, c: Crane): string | null {
+  return berthIssue(w, c)?.text ?? null;
+}
+
+/** berthTrouble, with which of them it is. */
+function berthIssue(w: World, c: Crane): { fix: CraneFix; text: string } | null {
   const m = w.map;
   const feeder = c.kind !== 'jib';
   const draft = feeder ? B.FEEDER_DRAFT : B.BOAT_DRAFT;
@@ -410,17 +421,29 @@ export function berthTrouble(w: World, c: Crane): string | null {
       if (water(n) === 1) return null;
     }
   }
-  if (deepest < 0) return `No open water beside it for ${what} to lie in.`;
+  if (deepest < 0) return { fix: 'water', text: `No open water beside it for ${what} to lie in.` };
   if (!office) {
-    return 'No ship will come: this quay is not run by a harbour office. Build one nearby.';
+    return {
+      fix: 'office',
+      text: 'No ship will come: this quay is not run by a harbour office. Build one nearby.',
+    };
   }
   if (!wide)
-    return 'A container ship moors only against a quay two tiles wide: widen the quay here.';
+    return {
+      fix: 'wide',
+      text: 'A container ship moors only against a quay two tiles wide: widen the quay here.',
+    };
   if (!room) {
     const reach = boatHalf(w, feeder);
-    return `No room alongside for ${what}'s hull: it lies centred on the crane, and needs open water ${reach} tile${reach === 1 ? '' : 's'} either way along the quay from it.`;
+    return {
+      fix: 'room',
+      text: `No room alongside for ${what}'s hull: it lies centred on the crane, and needs open water ${reach} tile${reach === 1 ? '' : 's'} either way along the quay from it.`,
+    };
   }
-  return `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`;
+  return {
+    fix: 'depth',
+    text: `The water alongside is only ${deepest.toFixed(1)} m deep, and ${what} needs ${draft} m: dredge in front of it.`,
+  };
 }
 
 /**
@@ -1041,6 +1064,7 @@ export function buildSnapshot(w: World): Snapshot {
       ...jibReachView(w, c),
       why: craneWhy(w, c),
       trouble: craneTrouble(w, c) ?? undefined,
+      fix: craneFix(w, c),
       ...craneWork(w, c, jibs),
     })),
     town: w.town && {

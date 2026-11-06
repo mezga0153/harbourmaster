@@ -8,7 +8,9 @@ import type { Actions } from './actions';
 import { duration, money } from './format';
 import { Icon } from './icons';
 import { StaffDetails } from './Staff';
-import { cash, selected, selection, snapshot, tier } from './store';
+import { FlipBook } from './Guide';
+import { craneGuide, stepFor } from './guides';
+import { cash, openGuide, selected, selection, snapshot, tier } from './store';
 import { RailwayPanel, TownPanel } from './Town';
 import { InfoHeader, Meter, More, Why } from './widgets';
 
@@ -160,6 +162,12 @@ function BayInfo({ bay, actions, onClose: close }: InfoProps & { bay: Bay }) {
             : 'For crates coming in: dockhands and forklifts bring them, jib cranes close by swing them straight in, and trucks load from inside the port, on the yellow tiles.'}{' '}
           <More topic="storage" />
         </p>
+      )}
+      {bay.tiles && !bay.outgoing && (
+        <button class="picture-link" onClick={() => openGuide('wharf', 2)}>
+          <FlipBook id="storage" small />
+          <span class="link">How storage is used ›</span>
+        </button>
       )}
       <dl class="props">
         <dt>{bay.outgoing && !bay.byCrane ? 'Crates in' : 'Crates waiting'}</dt>
@@ -374,7 +382,17 @@ function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => 
         <span class={`dot ${c.busy ? 'live' : ''}`} />
         {c.why}
       </p>
-      {c.trouble && <p class="note bad">{c.trouble}</p>}
+      {c.trouble && (
+        <p class="note bad">
+          {c.trouble}{' '}
+          <button
+            class="link"
+            onClick={() => openGuide(craneGuide(c.kind), stepFor(craneGuide(c.kind), c.fix))}
+          >
+            Show me how ›
+          </button>
+        </p>
+      )}
       <p class="muted">
         {CRANE_NOTE[c.kind]}{' '}
         {c.kind === 'jib'

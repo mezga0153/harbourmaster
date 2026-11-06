@@ -161,6 +161,13 @@ when changing tiers, town growth, contracts or what unlocks what.
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
   `entities/` and `motion.ts` for moving things, `util/` for shared maths,
   `keyed.ts` for keeping keyed objects (and disposing what they own).
+- The guides (`src/ui/Guide.tsx`, steps in `src/ui/guides.ts`): a few
+  steps over the game, each with a picture the game's own renderer draws
+  of a bit of port built up a beat at a time (`src/render/guides.ts`,
+  on `thumbs.ts`'s patches), played as a flip book with a hand showing
+  where to click and drag. The Coastal Wharf's opens on the upgrade; a
+  crane's when its red mark is clicked, on the step for its `fix`.
+  `__hm.openGuide('wharf', 2)` opens one on the dev server.
 - The UI: one file a panel in `src/ui/`, styles by area in `src/ui/styles/`,
   input in `src/input/`, build previews as pure functions in `src/preview/`,
   `main.ts` wiring only.

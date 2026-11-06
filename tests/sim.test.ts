@@ -1050,6 +1050,8 @@ describe('Coastal Wharf tier', () => {
     const mark = () => problems(world).find((p) => p.type === 'crane' && p.idx === tip);
     expect(mark()?.text).toMatch(/No crate storage in reach.*next to it/);
     expect(world.snapshot().cranes.find((c) => c.idx === tip)!.trouble).toMatch(/No crate storage/);
+    // Clicking the mark shows how to put that right: the guide's storage step.
+    expect(world.snapshot().cranes.find((c) => c.idx === tip)!.fix).toBe('storage');
     expect(craneWhy(world, crane)).toMatch(/No crate storage in reach/);
     // The harbour master sends no boat to a berth under it, with others free.
     const m = world.map;

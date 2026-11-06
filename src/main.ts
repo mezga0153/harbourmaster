@@ -17,7 +17,17 @@ import { wireOverlays } from './ui/mapOverlays';
 import { assetsLoaded, failed, loaded, loading, refused, titleMenu } from './ui/loading';
 import { graphics } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
-import { advise, land, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
+import {
+  advise,
+  land,
+  openGuide,
+  panel,
+  pushMessage,
+  seed,
+  selection,
+  snapshot,
+  tool,
+} from './ui/store';
 import './ui/style.css';
 import { applyView, readView, trackView } from './view-url';
 
@@ -199,7 +209,7 @@ function handle(msg: WorkerMessage): void {
 if (import.meta.env.DEV) {
   // Handle for poking at the game from the console or a test driver.
   Object.assign(window, {
-    __hm: { renderer, send, map: () => map, snapshot, selection, tool, sound },
+    __hm: { renderer, send, map: () => map, snapshot, selection, tool, sound, openGuide },
   });
   // Mirror the game into .debug/ for tools outside the browser.
   void import('./debug/bridge').then((b) =>

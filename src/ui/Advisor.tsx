@@ -1,6 +1,9 @@
 import * as B from '../sim/balance';
 import { TICKS_PER_DAY } from '../sim/types';
-import { advice, openHandbook } from './store';
+import type { PictureId } from '../render/guides';
+import { FlipBook } from './Guide';
+import type { GuideId } from './guides';
+import { advice, openGuide, openHandbook } from './store';
 import { Icon } from './icons';
 
 interface Tip {
@@ -8,6 +11,10 @@ interface Tip {
   text: string;
   /** The handbook page with more. */
   topic: string;
+  /** A picture of it in use, playing as a flip book (render/guides.ts). */
+  picture?: PictureId;
+  /** The guide that shows how, step by step, and on which step. */
+  guide?: [GuideId, number];
 }
 
 const hours = (ticks: number) => Math.round((ticks * 24) / TICKS_PER_DAY);
@@ -56,16 +63,21 @@ const TIPS: Record<string, Tip> = {
     title: 'Crates on pallets',
     text: 'Coasters bring their crates on pallets, and a lot of them. Dockhands carry each straight into crate storage or a truck bay, never setting one down on the quay, so mark out crate storage near the berth; a jib crane swings them straight into storage beside it instead.',
     topic: 'boats',
+    picture: 'storage',
   },
   quayStorage: {
     title: 'Storage on the quay',
     text: 'Boats are kept waiting while the dockhands walk each crate off them a long way to storage or a truck bay. Mark out crate storage for cargo coming in, and crate storage for cargo going out, on the quay right by the berths, so they carry each a few steps rather than across the port. Trucks load beside it, or forklifts move the crates on to the truck bays.',
     topic: 'storage',
+    picture: 'storage',
+    guide: ['wharf', 2],
   },
   cranes: {
     title: 'Machines only round a crane',
     text: `The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. A jib crane swings crates only into crate storage for cargo coming in right next to it, in that red ground: mark some out there, or it unloads nothing. What a container crane lands, reach stackers take on.`,
     topic: 'cranes',
+    picture: 'jib',
+    guide: ['jib', 2],
   },
   forklifts: {
     title: 'Forklifts',
@@ -91,6 +103,8 @@ const TIPS: Record<string, Tip> = {
     title: 'Crate storage',
     text: `Trucks load from inside the port, on a port road or quay beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane right next to it fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both.`,
     topic: 'storage',
+    picture: 'storage',
+    guide: ['wharf', 2],
   },
   yardGantry: {
     title: 'Yard gantry',
@@ -201,6 +215,7 @@ const TIPS: Record<string, Tip> = {
     title: 'Coastal Wharf',
     text: 'Quays reach deeper water for coasters, forklifts and jib cranes speed up the work, and storage can be marked out on port roads and quays.',
     topic: 'machines',
+    guide: ['wharf', 0],
   },
   tier2: {
     title: 'Container Port',
@@ -224,16 +239,29 @@ export function Advisor() {
       </div>
       <strong>{tip.title}</strong>
       <p>{tip.text}</p>
+      {tip.picture && <FlipBook id={tip.picture} small />}
       <div class="actions">
-        <button
-          class="btn"
-          onClick={() => {
-            openHandbook(tip.topic);
-            done();
-          }}
-        >
-          Read more
-        </button>
+        {tip.guide ? (
+          <button
+            class="btn"
+            onClick={() => {
+              openGuide(...tip.guide!);
+              done();
+            }}
+          >
+            Show me how
+          </button>
+        ) : (
+          <button
+            class="btn"
+            onClick={() => {
+              openHandbook(tip.topic);
+              done();
+            }}
+          >
+            Read more
+          </button>
+        )}
         <button class="btn primary" onClick={done}>
           Got it
         </button>
