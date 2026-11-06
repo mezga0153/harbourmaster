@@ -54,8 +54,8 @@
       rel="stylesheet"
     />
     <style>
-      /* The loading screen, up before the game's code and styles arrive (src/ui/loading.ts):
-         the sea at dusk, and something cheeky to read while it loads. */
+      /* The title screen, up before the game's code and styles arrive (src/ui/loading.ts):
+         a sunny bit of sea, what to play, and something cheeky to read while it loads. */
       #loading {
         position: fixed;
         inset: 0;
@@ -142,14 +142,32 @@
           transform: translate(2000px, 10px);
         }
       }
+      #loading .bob {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        animation: bob 3.2s ease-in-out infinite;
+      }
+      @keyframes bob {
+        0%,
+        100% {
+          transform: translateY(0) rotate(-2.5deg);
+        }
+        50% {
+          transform: translateY(7px) rotate(2.5deg);
+        }
+      }
       #loading .card {
         position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 12px;
-        margin-bottom: 22vh;
-        padding: 22px 30px 18px;
+        width: min(400px, calc(100vw - 32px));
+        box-sizing: border-box;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+        margin-bottom: min(22vh, 160px);
+        padding: 22px 26px 18px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 16px;
         background: rgba(20, 27, 41, 0.9);
@@ -208,6 +226,118 @@
       #loading.failed .bar {
         display: none;
       }
+      #loading .blurb {
+        margin: 0;
+        color: #c3cbd8;
+        font-size: 13.5px;
+        line-height: 1.5;
+        text-align: center;
+      }
+      /* What to play: up once the game knows what is saved in this browser. */
+      #loading .menu {
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        margin-top: 4px;
+      }
+      #loading.menu-up:not(.picked):not(.failed) .menu {
+        display: flex;
+        animation: rise 0.35s ease-out;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+      }
+      #loading .go {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 11px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #edf1f7;
+        font: inherit;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          transform 0.15s,
+          background 0.15s,
+          box-shadow 0.15s;
+      }
+      #loading .go[hidden] {
+        display: none;
+      }
+      #loading .go:hover,
+      #loading .go:focus-visible {
+        transform: translateY(-2px) rotate(-0.6deg);
+        background: rgba(255, 255, 255, 0.12);
+        outline: none;
+      }
+      #loading .go:active {
+        transform: translateY(1px);
+      }
+      #loading .go.primary {
+        border-color: transparent;
+        background: linear-gradient(#ffd77e, #f5b83d 55%, #e59a2a);
+        color: #2a1c05;
+        box-shadow:
+          0 3px 0 #b8741a,
+          0 8px 20px rgba(245, 184, 61, 0.3);
+      }
+      #loading .go.primary:hover,
+      #loading .go.primary:focus-visible {
+        background: linear-gradient(#ffe39c, #f7c254 55%, #eba53a);
+        box-shadow:
+          0 5px 0 #b8741a,
+          0 12px 24px rgba(245, 184, 61, 0.4);
+      }
+      #loading .go.quiet {
+        border-color: transparent;
+        background: none;
+        color: #a7b1c2;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 6px;
+      }
+      #loading .go.quiet:hover,
+      #loading .go.quiet:focus-visible {
+        color: #edf1f7;
+        background: none;
+      }
+      #loading .go small {
+        font-size: 11.5px;
+        font-weight: 500;
+        opacity: 0.75;
+      }
+      #loading .note {
+        max-width: 100%;
+        color: #ffb59a;
+        font-size: 12.5px;
+        line-height: 1.45;
+        text-align: center;
+      }
+      /* The models are in and the menu waits on the player: nothing to show loading. */
+      #loading.idle .bar,
+      #loading.idle .what,
+      #loading.idle .quip {
+        display: none;
+      }
+      @media (max-height: 560px) {
+        #loading .card {
+          margin-bottom: 0;
+          gap: 8px;
+          padding: 14px 20px 12px;
+        }
+        #loading .blurb {
+          display: none;
+        }
+      }
       #loading .what {
         max-width: min(320px, 80vw);
         text-align: center;
@@ -239,14 +369,7 @@
     </style>
   </head>
   <body>
-    <div
-      id="loading"
-      role="progressbar"
-      aria-label="Loading the game"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow="4"
-    >
+    <div id="loading">
       <svg
         class="scene"
         viewBox="0 0 1600 900"
@@ -307,6 +430,18 @@
           d="M0 660 Q50 650 100 660 T200 660 T300 660 T400 660 T500 660 T600 660 T700 660 T800 660 T900 660 T1000 660 T1100 660 T1200 660 T1300 660 T1400 660 T1500 660 T1600 660 T1700 660 T1800 660 T1900 660 T2000 660 V900 H0 Z"
           fill="#45c8e6"
         />
+        <g class="boat">
+          <g class="bob">
+            <path d="M1166 640 V588 L1206 628 Z" fill="#fff6e0" />
+            <path d="M1166 640 V572" stroke="#5a4636" stroke-width="5" stroke-linecap="round" />
+            <path d="M1166 574 L1186 580 L1166 586 Z" fill="#e8524a" />
+            <rect x="1118" y="626" width="34" height="26" rx="4" fill="#f4efe4" />
+            <rect x="1124" y="632" width="10" height="9" rx="2" fill="#5fb8f0" />
+            <rect x="1114" y="620" width="42" height="8" rx="3" fill="#e8524a" />
+            <path d="M1080 650 H1236 L1218 684 Q1160 694 1100 684 Z" fill="#e8524a" />
+            <path d="M1084 658 H1232" stroke="#ffffff" stroke-width="5" />
+          </g>
+        </g>
 
         <path
           class="swell"
@@ -322,7 +457,30 @@
       <div class="card">
         <h1>Harbourmaster</h1>
         <div class="tag">Crates in, crates out. Mostly.</div>
-        <div class="bar"><span></span></div>
+        <p class="blurb">
+          The town has handed you the keys to a creaky little fishing jetty. Land the catch, keep
+          the shops stocked and the gulls off the crates, and grow it, plank by plank, into a busy
+          port.
+        </p>
+        <nav class="menu" aria-label="Play">
+          <button class="go primary" data-go="continue" hidden>
+            <span>Carry on</span><small></small>
+          </button>
+          <button class="go" data-go="new"><span>New port</span></button>
+          <button class="go quiet" data-go="file"><span>Load a save file</span></button>
+          <input type="file" accept=".json,application/json" hidden />
+        </nav>
+        <div class="note" role="status" hidden></div>
+        <div
+          class="bar"
+          role="progressbar"
+          aria-label="Loading the game"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="4"
+        >
+          <span></span>
+        </div>
         <div class="what">Loading the game…</div>
         <div class="quip"></div>
       </div>

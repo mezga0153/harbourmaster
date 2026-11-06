@@ -14,7 +14,7 @@ import { App } from './ui/App';
 import type { Actions } from './ui/actions';
 import { downloadSave } from './ui/download';
 import { wireOverlays } from './ui/mapOverlays';
-import { failed, loaded, loading } from './ui/loading';
+import { assetsLoaded, failed, loaded, loading, refused, titleMenu } from './ui/loading';
 import { graphics } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
 import { advise, land, panel, pushMessage, seed, selection, snapshot, tool } from './ui/store';
@@ -118,10 +118,13 @@ function showLand(): void {
 loading(0.1, 'Loading the models…');
 const assetsReady = loadAssets((done, of) =>
   loading(0.1 + (0.75 * done) / Math.max(1, of), `Loading the models… ${done} of ${of}`),
-).then(() => loading(0.88, 'Laying out the port…'));
+).then(assetsLoaded);
 let inbox = Promise.resolve();
 
 worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
+  // The title screen's, while the models are still loading behind it.
+  if (e.data.type === 'autosave') return titleMenu(e.data.save, send);
+  if (e.data.type === 'refused') return refused(e.data.text);
   inbox = inbox.then(() => assetsReady).then(() => handle(e.data));
 };
 
@@ -138,6 +141,7 @@ setReportHooks({
 
 function handle(msg: WorkerMessage): void {
   if (msg.type === 'dump' || msg.type === 'debugView') return;
+  if (msg.type === 'autosave' || msg.type === 'refused') return;
   if (msg.type === 'exported') {
     if (!msg.forReport) return downloadSave(msg.save);
     for (const take of wantSave.splice(0)) take(msg.save);

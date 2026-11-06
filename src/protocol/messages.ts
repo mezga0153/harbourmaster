@@ -46,6 +46,8 @@ export type Command =
   | { type: 'setSpeed'; speed: number }
   /** The player has found out for themselves what this advisor tip would teach them. */
   | { type: 'learnt'; tip: string }
+  /** Carry on from the game saved in this browser (a new port if there is none): the title screen's pick. */
+  | { type: 'continue' }
   | { type: 'newGame'; seed?: number }
   | { type: 'save' }
   /**
@@ -107,5 +109,9 @@ export type WorkerMessage =
   | { type: 'debugView'; view: DebugView }
   /** The game as a save, to keep in a file; see exportSave. */
   | { type: 'exported'; save: SaveData; forReport?: boolean }
+  /** What the game saved in this browser holds, for the title screen; null if there is none. */
+  | { type: 'autosave'; save: { seed: number; tick: number; cash: number; tier: number } | null }
+  /** A pick on the title screen that could not start a game (a save file it cannot read), and why. */
+  | { type: 'refused'; text: string }
   /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */
   | { type: 'fault'; kind: 'sim' | 'save' | 'autosave'; message: string; stack?: string };
