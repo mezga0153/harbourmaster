@@ -7,6 +7,7 @@ import {
   type Terms,
 } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
+import { paid } from './difficulty';
 
 // The Contracts panel's lists, signed and offered: what kind of company each
 // is, what it carries, what it is worth a day, how it is getting on, and the
@@ -63,8 +64,8 @@ export function cargoOf(t: Terms): Cargo {
 
 /** Rough money a day: what a line or shipper brings in, less what a haulier charges. */
 export function dailyValue(t: Terms): number {
-  if (t.kind === 'fishery') return fisheryDailyValue(t);
-  if (t.kind === 'shipper') return shipperDailyValue(t);
+  if (t.kind === 'fishery') return paid(fisheryDailyValue(t));
+  if (t.kind === 'shipper') return paid(shipperDailyValue(t));
   return -t.dailyFee;
 }
 

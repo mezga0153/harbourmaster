@@ -124,7 +124,9 @@ function handle(cmd: Command): void {
 /** A new port, a save file or (dev server) the debug bridge's game, in place of any being played. */
 function begin(cmd: Extract<Command, { type: 'newGame' | 'importSave' | 'loadSave' }>): void {
   if (cmd.type === 'newGame') {
-    start(World.create(cmd.seed ?? randomSeed()));
+    const w = World.create(cmd.seed ?? randomSeed());
+    w.difficulty = cmd.difficulty ?? 'hard';
+    start(w);
     save(false);
   } else if (cmd.type === 'importSave') {
     // Only a save this version can read; the game goes on as it was if not.
@@ -210,7 +212,7 @@ async function boot(): Promise<void> {
   const w = restored;
   ctx.postMessage({
     type: 'autosave',
-    save: w && { seed: w.seed, tick: w.tick, cash: w.cash, tier: w.tier },
+    save: w && { seed: w.seed, tick: w.tick, cash: w.cash, tier: w.tier, difficulty: w.difficulty },
   });
   booted = true;
   for (const cmd of queued.splice(0)) handle(cmd);

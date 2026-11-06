@@ -1,6 +1,7 @@
 // What the view sees of the game, in the frame the sim worker sends ten
 // times a second: everything the renderer draws and the panels show.
 
+import type { Difficulty } from '../sim/balance';
 import type { Cargo } from '../sim/cargo';
 import type { Terms } from '../sim/contracts';
 import type { Train } from '../sim/railway';
@@ -521,6 +522,8 @@ export interface Snapshot {
   cash: number;
   speed: number;
   seed: number;
+  /** How kind the game is: what cargo pays and penalties cost; see DIFFICULTIES. */
+  difficulty: Difficulty;
   staff: number;
   wages: number;
   people: StaffView[];

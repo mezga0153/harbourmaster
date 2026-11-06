@@ -1,4 +1,5 @@
 import type { Command } from '../protocol';
+import { DIFFICULTIES, DIFFICULTY_ORDER, type Difficulty } from '../sim/balance';
 import { TIERS } from '../sim/tiers';
 import { formatDate, money } from './format';
 
@@ -9,6 +10,7 @@ import { formatDate, money } from './format';
 const box = document.getElementById('loading');
 const bar = box?.querySelector<HTMLElement>('.bar');
 const menu = box?.querySelector<HTMLElement>('.menu');
+const levels = box?.querySelector<HTMLElement>('.levels');
 const note = box?.querySelector<HTMLElement>('.note');
 
 /** What the player picked, sent once the worker has said what is saved. */
@@ -39,7 +41,7 @@ export function assetsLoaded(): void {
  * first if there is a port to carry on with. `start` sends the pick.
  */
 export function titleMenu(
-  saved: { tick: number; cash: number; tier: number } | null,
+  saved: { tick: number; cash: number; tier: number; difficulty?: Difficulty } | null,
   start: (cmd: Command) => void,
 ): void {
   if (!box || !menu || box.classList.contains('failed')) return;
@@ -60,14 +62,17 @@ export function titleMenu(
   const where = saved && `${TIERS[saved.tier]?.name ?? 'Your port'} · ${formatDate(saved.tick)}`;
 
   carry.hidden = !saved;
-  if (saved) carry.querySelector('small')!.textContent = `${where} · ${money(saved.cash)}`;
+  if (saved) {
+    const sea = DIFFICULTIES[saved.difficulty ?? 'hard'].name;
+    carry.querySelector('small')!.textContent = `${where} · ${sea} · ${money(saved.cash)}`;
+  }
   fresh.classList.toggle('primary', !saved);
   carry.onclick = () => go({ type: 'continue' });
 
   // Over a saved port, a new one asks twice: the old one is set aside for good.
   let sure = !saved;
   fresh.onclick = () => {
-    if (sure) return go({ type: 'newGame' });
+    if (sure) return chooseSea(go);
     sure = true;
     fresh.querySelector('span')!.textContent = 'Yes, start afresh';
     setNote(
@@ -89,6 +94,36 @@ export function titleMenu(
 
   box.classList.add('menu-up');
   (saved ? carry : fresh).focus({ preventScroll: true });
+}
+
+/**
+ * A new port: how rough a sea, in place of the menu, each with what it
+ * means; Back goes back to the menu.
+ */
+function chooseSea(go: (cmd: Command) => void): void {
+  if (!box || !levels) return;
+  const list = levels.querySelector<HTMLElement>('.list')!;
+  list.replaceChildren(
+    ...DIFFICULTY_ORDER.map((d) => {
+      const b = document.createElement('button');
+      b.className = `go level ${d}`;
+      const name = document.createElement('span');
+      name.textContent = DIFFICULTIES[d].name;
+      const blurb = document.createElement('small');
+      blurb.textContent = DIFFICULTIES[d].blurb;
+      b.append(name, blurb);
+      b.onclick = () => go({ type: 'newGame', difficulty: d });
+      return b;
+    }),
+  );
+  levels.querySelector<HTMLButtonElement>('.back')!.onclick = () => {
+    box.classList.remove('levels-up');
+    setNote('');
+    menu?.querySelector<HTMLButtonElement>('[data-go="new"]')?.focus({ preventScroll: true });
+  };
+  setNote('');
+  box.classList.add('levels-up');
+  list.querySelector<HTMLButtonElement>('.medium')?.focus({ preventScroll: true });
 }
 
 /** The pick could not start a game (a save file it cannot read): the menu comes back, saying why. */

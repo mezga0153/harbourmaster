@@ -143,6 +143,38 @@ export const LOAN_MAX = 20000;
 export const LOAN_DAILY_RATE = 0.004; // charged on the outstanding loan each day
 export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the port
 
+/**
+ * How kind the game is, picked for a new port: what cargo pays (trucked out,
+ * shipped out and delivered in town) and what penalties cost (demurrage,
+ * cargo claims and walk-outs), against the numbers above. Force Nine is the
+ * game as it always was.
+ */
+export type Difficulty = 'easy' | 'medium' | 'hard';
+export const DIFFICULTIES: Record<
+  Difficulty,
+  { name: string; blurb: string; pay: number; penalties: number }
+> = {
+  easy: {
+    name: 'Millpond',
+    blurb: 'Flat calm. Cargo pays half as much again and the boats hardly ever send a bill.',
+    pay: 1.5,
+    penalties: 0.25,
+  },
+  medium: {
+    name: 'Fair Winds',
+    blurb: 'A friendly breeze. Cargo pays a quarter more and penalties are halved.',
+    pay: 1.25,
+    penalties: 0.5,
+  },
+  hard: {
+    name: 'Force Nine',
+    blurb: 'The harbour as it really is: tight margins, and every hour a boat waits is billed.',
+    pay: 1,
+    penalties: 1,
+  },
+};
+export const DIFFICULTY_ORDER: Difficulty[] = ['easy', 'medium', 'hard'];
+
 export const WALK_SPEED = 0.24; // tiles per tick on a footpath
 
 // Crowding: workers do not walk through each other.

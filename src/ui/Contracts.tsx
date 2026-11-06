@@ -11,6 +11,7 @@ import {
 } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './actions';
+import { fined, fineRate, paid } from './difficulty';
 import { duration, money } from './format';
 import { Icon } from './icons';
 import {
@@ -123,7 +124,7 @@ function Headline({ terms }: { terms: Terms }) {
           <strong>≈{Math.round(fisheryDailyCrates(terms))}</strong> {unit(terms)}/day
         </span>
         <span class="pos">
-          <strong>≈{money(fisheryDailyValue(terms))}</strong>/day
+          <strong>≈{money(paid(fisheryDailyValue(terms)))}</strong>/day
         </span>
       </div>
     );
@@ -135,7 +136,7 @@ function Headline({ terms }: { terms: Terms }) {
           <strong>≈{terms.perDay}</strong> {unit(terms)}/day out
         </span>
         <span class="pos">
-          <strong>≈{money(shipperDailyValue(terms))}</strong>/day
+          <strong>≈{money(paid(shipperDailyValue(terms)))}</strong>/day
         </span>
       </div>
     );
@@ -171,7 +172,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
     return [
       ['A truck', `every ${span(t.capacity / t.perDay)}`],
       ['Load', `${t.capacity} ${unit(t)}${of(t)}`],
-      ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)} on board`],
+      ['Pays', `${money(paid(t.fee))} a ${unit(t).slice(0, -1)} on board`],
       [
         'Needs',
         t.goods === 'ice'
@@ -208,7 +209,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
       `every ${span(t.boatEvery)}`,
     ],
     ['Load', `${t.cratesMin}–${t.cratesMax} ${unit(t)}${of(t)}`],
-    ['Pays', `${money(t.fee)} a ${unit(t).slice(0, -1)}`],
+    ['Pays', `${money(paid(t.fee))} a ${unit(t).slice(0, -1)}`],
     [
       'Needs',
       t.vessel === 'feeder'
@@ -652,7 +653,7 @@ export function offerChecks(
     }
   } else if (t.kind === 'fishery') {
     const after = cap.demand + Math.round(fisheryDailyCrates(t));
-    const payback = o.signingFee / Math.max(1, fisheryDailyValue(t));
+    const payback = o.signingFee / Math.max(1, paid(fisheryDailyValue(t)));
     const unloadOk = after <= cap.unloading;
     const truckOk = after <= cap.trucking;
     add(
@@ -1026,15 +1027,15 @@ function Rules() {
   const rows: [string, string][] = [
     [
       'A boat waits at anchor, or unloads or loads exports slowly',
-      `${money(B.DEMURRAGE_PER_DAY)} per boat per day`,
+      `${money(fined(B.DEMURRAGE_PER_DAY))} per boat per day`,
     ],
     [
       `A boat gives up after ${span(B.BOAT_GIVE_UP_TICKS / TICKS_PER_DAY)}`,
-      `${Math.round(B.LOST_CARGO_SHARE * 100)}% of the cargo still on board`,
+      `${Math.round(B.LOST_CARGO_SHARE * fineRate() * 100)}% of the cargo still on board`,
     ],
     [
       'A fishery or shipping line walks out',
-      `${B.BREACH_MULTIPLIER}× the signing fee, at least ${money(B.BREACH_MIN)}`,
+      `${B.BREACH_MULTIPLIER * fineRate()}× the signing fee, at least ${money(fined(B.BREACH_MIN))}`,
     ],
     ['You end a contract yourself', 'The signing fee'],
   ];
@@ -1096,9 +1097,9 @@ function Overview() {
     if (c.terms.kind !== 'fishery') continue;
     if (c.terms.vessel === 'feeder') boxes += fisheryDailyCrates(c.terms);
     else crates += fisheryDailyCrates(c.terms);
-    income += fisheryDailyValue(c.terms);
+    income += paid(fisheryDailyValue(c.terms));
   }
-  for (const c of ships) if (c.terms.kind === 'shipper') income += shipperDailyValue(c.terms);
+  for (const c of ships) if (c.terms.kind === 'shipper') income += paid(shipperDailyValue(c.terms));
   let fleet = 0;
   let fees = 0;
   for (const c of hauls) {

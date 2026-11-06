@@ -385,6 +385,8 @@ export class World {
   jam = { moving: 0, waiting: 0 };
   /** Index into TIERS. */
   tier = 0;
+  /** How kind the game is, picked for a new port; see DIFFICULTIES. */
+  difficulty: B.Difficulty = 'hard';
   loan = 0;
   today: Ledger = emptyLedger();
   yesterday: Ledger | null = null;
@@ -645,6 +647,7 @@ export class World {
     const map = extendMap(GameMap.fromData(s.map), s.seed);
     const world = new World(s.seed, map, new Rng(s.rng));
     world.tick = s.tick;
+    world.difficulty = s.difficulty ?? 'hard';
     world.cash = s.cash;
     world.speed = s.speed;
     world.nextId = s.nextId;
@@ -826,6 +829,7 @@ export class World {
     return structuredClone({
       version: SAVE_VERSION,
       seed: this.seed,
+      difficulty: this.difficulty,
       tick: this.tick,
       cash: this.cash,
       speed: this.speed,

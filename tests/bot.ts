@@ -315,8 +315,9 @@ function extendJetty(w: World): boolean {
   return m.build[next] === Build.Jetty;
 }
 
-export function playthrough(seed: number, days: number) {
+export function playthrough(seed: number, days: number, difficulty: B.Difficulty = 'hard') {
   const w = World.create(seed, undefined, false);
+  w.difficulty = difficulty;
   const log: string[] = [];
   for (let d = 1; d <= days && !w.bankrupt; d++) {
     for (let t = 0; t < TICKS_PER_DAY; t++) w.step();

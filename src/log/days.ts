@@ -232,6 +232,7 @@ export function dayRow(
     town: townNow(s),
     size,
     plots: ownedPlots(m),
+    difficulty: s.difficulty,
     port,
     capacity: {
       demand: c.demand,

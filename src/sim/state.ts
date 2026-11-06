@@ -600,6 +600,8 @@ export interface Bay {
 export interface SaveData {
   version: number;
   seed: number;
+  /** Saves from before there was a choice are Force Nine, the game as it was. */
+  difficulty?: B.Difficulty;
   tick: number;
   cash: number;
   speed: number;

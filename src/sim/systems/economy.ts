@@ -52,6 +52,16 @@ export function book(w: World, category: LedgerCategory, amount: number): void {
   w.today[category] += amount;
 }
 
+/** What cargo worth `amount` at the contract's rates pays at this difficulty. */
+export function payout(w: World, amount: number): number {
+  return Math.round(amount * B.DIFFICULTIES[w.difficulty].pay);
+}
+
+/** What a penalty of `amount` at the usual rates costs at this difficulty. */
+export function fine(w: World, amount: number): number {
+  return Math.round(amount * B.DIFFICULTIES[w.difficulty].penalties);
+}
+
 export function interestDue(w: World): number {
   return Math.round(w.loan * B.LOAN_DAILY_RATE);
 }
@@ -484,14 +494,14 @@ export function heldView(w: World, b: Boat): { heldBy?: string; heldFor?: number
 
 export function judgeVisit(w: World, b: Boat, gaveUp: boolean): void {
   const slowTicks = Math.max(0, b.mooredTicks - b.grace);
-  const demurrage = Math.round(((b.anchorTicks + slowTicks) / TICKS_PER_DAY) * B.DEMURRAGE_PER_DAY);
+  const demurrage = fine(w, ((b.anchorTicks + slowTicks) / TICKS_PER_DAY) * B.DEMURRAGE_PER_DAY);
   if (demurrage > 0) {
     penalty(w, demurrage, w.tileOf(b));
     w.demurrageToday.amount += demurrage;
     w.demurrageToday.ships++;
   }
   if (gaveUp && b.crates > 0) {
-    const claim = Math.round(b.crates * b.fee * B.LOST_CARGO_SHARE);
+    const claim = fine(w, b.crates * b.fee * B.LOST_CARGO_SHARE);
     penalty(w, claim, w.tileOf(b));
     message(
       w,
@@ -508,7 +518,7 @@ export function judgeVisit(w: World, b: Boat, gaveUp: boolean): void {
   c.satisfaction = Math.max(0, Math.min(Math.max(100, c.satisfaction), c.satisfaction + delta));
   if (c.satisfaction === 0) {
     w.contracts = w.contracts.filter((x) => x !== c);
-    const breach = breachPenalty(c);
+    const breach = fine(w, breachPenalty(c));
     penalty(w, breach, w.tileOf(b));
     message(
       w,

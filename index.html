@@ -241,7 +241,7 @@
         width: 100%;
         margin-top: 4px;
       }
-      #loading.menu-up:not(.picked):not(.failed) .menu {
+      #loading.menu-up:not(.picked):not(.failed):not(.levels-up) .menu {
         display: flex;
         animation: rise 0.35s ease-out;
       }
@@ -314,6 +314,79 @@
         font-size: 11.5px;
         font-weight: 500;
         opacity: 0.75;
+      }
+      /* A new port: how rough a sea, in place of the menu. */
+      #loading .levels {
+        display: none;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+      }
+      #loading.menu-up.levels-up:not(.picked):not(.failed) .levels {
+        display: flex;
+        animation: rise 0.35s ease-out;
+      }
+      #loading .levels-title {
+        color: #f5b83d;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-align: center;
+        text-transform: uppercase;
+      }
+      #loading .levels .list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #loading .go.level {
+        position: relative;
+        align-items: flex-start;
+        padding: 10px 64px 10px 16px;
+        text-align: left;
+        border-left: 4px solid var(--sea);
+      }
+      #loading .go.level small {
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      /* Waves, more of them the rougher the sea. */
+      #loading .go.level::after {
+        position: absolute;
+        top: 50%;
+        right: 14px;
+        transform: translateY(-50%);
+        color: var(--sea);
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.12em;
+      }
+      #loading .go.level:hover::after,
+      #loading .go.level:focus-visible::after {
+        animation: wobble 0.9s ease-in-out infinite;
+      }
+      @keyframes wobble {
+        50% {
+          transform: translate(3px, -50%) rotate(-6deg);
+        }
+      }
+      #loading .go.level.easy {
+        --sea: #7fdcc0;
+      }
+      #loading .go.level.easy::after {
+        content: '~';
+      }
+      #loading .go.level.medium {
+        --sea: #5fb8f0;
+      }
+      #loading .go.level.medium::after {
+        content: '~~';
+      }
+      #loading .go.level.hard {
+        --sea: #ff7a6b;
+      }
+      #loading .go.level.hard::after {
+        content: '~~~';
       }
       #loading .note {
         max-width: 100%;
@@ -470,6 +543,11 @@
           <button class="go quiet" data-go="file"><span>Load a save file</span></button>
           <input type="file" accept=".json,application/json" hidden />
         </nav>
+        <div class="levels" role="group" aria-labelledby="levels-title">
+          <div class="levels-title" id="levels-title">How rough a sea?</div>
+          <div class="list"></div>
+          <button class="go quiet back"><span>Back</span></button>
+        </div>
         <div class="note" role="status" hidden></div>
         <div
           class="bar"

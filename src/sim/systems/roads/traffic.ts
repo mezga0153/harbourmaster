@@ -48,7 +48,7 @@ import { BUSINESSES, HIGHWAY_X, landmarkDue, landmarkGoal } from '../../town';
 import type { Business } from '../../town';
 import { cargoName, cargoOf } from '../../cargo';
 import { openLandmark } from '../townBusiness';
-import { book } from '../economy';
+import { book, payout } from '../economy';
 import { moneyAt } from '../output';
 import { frontOf } from '../../rules/footprint';
 import { iceTruck } from '../cargo/stores';
@@ -802,7 +802,7 @@ export function truckLeave(w: World, t: Truck): void {
       w.town.goal += feesOn(w, t).filter((f) => cargoOf(f) === goal.cargo).length;
       openLandmark(w, landmarkDue(w.town, false, w.tier));
     }
-    const income = t.value;
+    const income = payout(w, t.value);
     book(w, t.boxes ? 'containers' : 'cargo', income);
     w.stats.earned += income;
     w.stats.trucks++;

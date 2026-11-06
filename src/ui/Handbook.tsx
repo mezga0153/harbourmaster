@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import * as B from '../sim/balance';
 import { TIERS } from '../sim/tiers';
 import { TICKS_PER_DAY } from '../sim/types';
+import { fined } from './difficulty';
 import { money } from './format';
 import { handbookTopic, panel } from './store';
 import { InfoHeader } from './widgets';
@@ -429,8 +430,8 @@ export const TOPICS: Record<TopicId, Topic> = {
           <li>
             Boats served promptly keep a company happy. Each is allowed time for what it unloads and
             the exports it takes on; kept waiting at anchor, or longer than that alongside, the
-            company charges demurrage ({money(B.DEMURRAGE_PER_DAY)} a day a boat), and an unhappy
-            company walks out and claims a breach penalty.
+            company charges demurrage ({money(fined(B.DEMURRAGE_PER_DAY))} a day a boat), and an
+            unhappy company walks out and claims a breach penalty.
           </li>
           <li>
             The bank lends up to {money(B.LOAN_MAX)}. After {B.BANKRUPT_DAYS} days in the red it

@@ -1,6 +1,7 @@
 // Messages between the main thread and the sim worker. See plan.md §11, Threads.
 
 import type { DebugView, DebugWant } from '../debug/types';
+import type { Difficulty } from '../sim/balance';
 import type { MapData } from '../sim/map';
 import type { SaveData } from '../sim/state';
 import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
@@ -48,7 +49,7 @@ export type Command =
   | { type: 'learnt'; tip: string }
   /** Carry on from the game saved in this browser (a new port if there is none): the title screen's pick. */
   | { type: 'continue' }
-  | { type: 'newGame'; seed?: number }
+  | { type: 'newGame'; seed?: number; difficulty?: Difficulty }
   | { type: 'save' }
   /**
    * The game as a save, for the player to keep in a file, or (forReport) to
@@ -110,7 +111,16 @@ export type WorkerMessage =
   /** The game as a save, to keep in a file; see exportSave. */
   | { type: 'exported'; save: SaveData; forReport?: boolean }
   /** What the game saved in this browser holds, for the title screen; null if there is none. */
-  | { type: 'autosave'; save: { seed: number; tick: number; cash: number; tier: number } | null }
+  | {
+      type: 'autosave';
+      save: {
+        seed: number;
+        tick: number;
+        cash: number;
+        tier: number;
+        difficulty: Difficulty;
+      } | null;
+    }
   /** A pick on the title screen that could not start a game (a save file it cannot read), and why. */
   | { type: 'refused'; text: string }
   /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */

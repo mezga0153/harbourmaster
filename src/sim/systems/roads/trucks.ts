@@ -2,7 +2,7 @@
 // the port and the town, and how they drive.
 
 import type { World } from '../../world';
-import { book, hauliers, smallTrucks } from '../economy';
+import { book, hauliers, payout, smallTrucks } from '../economy';
 import type { Agent, Bay, Truck } from '../../state';
 import { bayCap, boxesAt, boxLookOf, cratesAt, isMachine, wrapAngle } from '../../helpers';
 import * as B from '../../balance';
@@ -487,7 +487,7 @@ export function updateTruck(w: World, t: Truck): void {
       if (got < n && w.town) w.town.wants[code] = (w.town.wants[code] ?? 0) + n - got;
       const worth = t.boxes ? (t.value * n) / Math.max(1, t.cargo) : off.reduce((a, f) => a + f, 0);
       // The town pays a little extra for goods brought to its door.
-      const bonus = Math.round(worth * B.TOWN_DELIVERY_BONUS);
+      const bonus = payout(w, worth * B.TOWN_DELIVERY_BONUS);
       if (bonus > 0) {
         book(w, 'town', bonus);
         w.stats.earned += bonus;

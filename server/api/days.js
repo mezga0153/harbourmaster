@@ -3,7 +3,7 @@
 //   POST { days: [ { game, visit?, version?, seed, day, done, tier, cash, loan, income, spend, ledger,
 //                    inRed, bankrupt, earned, crates, containers, boats, trucks, exported,
 //                    penalties, staff, machines, contracts, canUp, townPop?, townStage?, town?,
-//                    size, plots?, port, capacity, problems, bad, actions, tips, seconds, paused, fast, fps? } ] }  -> 204
+//                    size, plots?, difficulty?, port, capacity, problems, bad, actions, tips, seconds, paused, fast, fps? } ] }  -> 204
 // A day under way (done false: the page put away) is replaced when it is sent
 // again, finished or not; a finished day is never replaced by one under way.
 
@@ -44,6 +44,7 @@ export const COLUMNS = [
   'town',
   'size',
   'plots',
+  'difficulty',
   'port',
   'capacity',
   'problems',
@@ -83,6 +84,7 @@ export function row(d, now) {
   if (d.townStage != null && !int(d.townStage, 0, 50)) return null;
   if (typeof d.canUp !== 'boolean' || !int(d.size, 0, 1e7)) return null;
   if (d.plots != null && !int(d.plots, 0, 1e5)) return null;
+  if (d.difficulty != null && !['easy', 'medium', 'hard'].includes(d.difficulty)) return null;
   const json = {
     ledger: numbers(d.ledger),
     machines: counts(d.machines, 10, 20),
@@ -135,6 +137,7 @@ export function row(d, now) {
     town: json.town,
     size: d.size,
     plots: d.plots ?? null,
+    difficulty: d.difficulty ?? null,
     port: json.port,
     capacity: json.capacity,
     problems: json.problems,

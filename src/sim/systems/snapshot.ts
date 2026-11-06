@@ -38,6 +38,7 @@ import {
   canUpgrade,
   capacity,
   dailyFees,
+  fine,
   interestDue,
   tierWaitsOn,
   truckingWith,
@@ -934,7 +935,7 @@ export function buildSnapshot(w: World): Snapshot {
     terms: c.terms,
     satisfaction: c.satisfaction,
     cancelFee: cancelFee(c),
-    breach: breachPenalty(c),
+    breach: fine(w, breachPenalty(c)),
     active:
       c.terms.kind === 'fishery'
         ? w.boats.filter((b) => b.contractId === c.id).length
@@ -954,6 +955,7 @@ export function buildSnapshot(w: World): Snapshot {
     cash: w.cash,
     speed: w.speed,
     seed: w.seed,
+    difficulty: w.difficulty,
     staff: w.people.length,
     wages: wageBill(w),
     people: staff,
@@ -1063,7 +1065,7 @@ export function buildSnapshot(w: World): Snapshot {
       terms: o.terms,
       signingFee: o.signingFee,
       expiresIn: o.expires - w.tick,
-      breach: breachPenalty(o),
+      breach: fine(w, breachPenalty(o)),
       truckingAfter: o.terms.kind === 'haulier' ? truckingWith(w, o.terms) : cap.trucking,
       checks:
         o.terms.kind === 'shipper' && !isIce(o.terms)

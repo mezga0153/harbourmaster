@@ -101,6 +101,16 @@ export const SECTIONS = [
           FROM d WHERE done GROUP BY from_day ORDER BY from_day`,
   },
   {
+    id: 'difficulty',
+    title: 'How kind the games are (picked for a new port; none before there was a choice)',
+    needs: ['days.difficulty'],
+    sql: `SELECT COALESCE(difficulty, 'hard (before the choice)') AS difficulty, COUNT(*) AS games,
+                 ROUND(AVG(last), 1) AS average_days, ROUND(AVG(top), 2) AS average_tier,
+                 ROUND(AVG(broke) * 100) AS bankrupt_pct
+          FROM (SELECT game, MAX(difficulty) AS difficulty, MAX(day) AS last, MAX(tier) AS top, MAX(bankrupt) AS broke FROM d GROUP BY game)
+          GROUP BY 1 ORDER BY games DESC`,
+  },
+  {
     id: 'money',
     title: 'Money trouble: games that ended days in the red, and went bankrupt',
     sql: `SELECT (SELECT COUNT(DISTINCT game) FROM d) AS games, (SELECT COUNT(DISTINCT game) FROM d WHERE in_red > 0) AS ever_in_red,

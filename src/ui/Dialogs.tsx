@@ -9,10 +9,15 @@ import { InfoHeader } from './widgets';
 
 export function NewGameDialog({ actions }: { actions: Actions }) {
   const [value, setValue] = useState(String(Math.floor(Math.random() * 1_000_000)));
+  const [level, setLevel] = useState<B.Difficulty>(snapshot.value?.difficulty ?? 'medium');
   const close = () => (newGameOpen.value = false);
   const start = () => {
     const n = Number.parseInt(value, 10);
-    actions.send({ type: 'newGame', seed: Number.isFinite(n) ? Math.abs(n) : undefined });
+    actions.send({
+      type: 'newGame',
+      seed: Number.isFinite(n) ? Math.abs(n) : undefined,
+      difficulty: level,
+    });
     close();
   };
   return (
@@ -45,6 +50,22 @@ export function NewGameDialog({ actions }: { actions: Actions }) {
             </button>
           </div>
         </label>
+        <div class="field">
+          <span class="field-label">Sea</span>
+          <div class="segmented" role="group" aria-label="Sea">
+            {B.DIFFICULTY_ORDER.map((d) => (
+              <button
+                key={d}
+                class={level === d ? 'on' : ''}
+                aria-pressed={level === d}
+                onClick={() => setLevel(d)}
+              >
+                {B.DIFFICULTIES[d].name}
+              </button>
+            ))}
+          </div>
+          <p class="muted">{B.DIFFICULTIES[level].blurb}</p>
+        </div>
         <button class="btn primary block" onClick={start}>
           Build a new port
         </button>

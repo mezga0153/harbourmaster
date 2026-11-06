@@ -50,7 +50,7 @@ the worker on a `debugView` command (or on the page in the dev lab);
 The published game (only the built one, never `npm run dev`, an automated
 browser or `?nolog`) tells how players get on, with nothing about who they
 are (random ids, no IP): `src/log/` sends each page load (`visit.ts`), each
-day of each game as it ends (`days.ts`: money, tier, the town, how much of
+day of each game as it ends (`days.ts`: money, tier, the difficulty, the town, how much of
 the port is built and which features are in use (`port.ts`), the plots of land
 it owns, what the player did, the red marks on the map, the messages in red,
 the advisor's tips, real

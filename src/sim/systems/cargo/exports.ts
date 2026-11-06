@@ -57,7 +57,7 @@ import {
 import { near } from '../boats/berthing';
 import { cargoOf, withCargo } from '../../cargo';
 import type { Cargo } from '../../cargo';
-import { book, shippers } from '../economy';
+import { book, payout, shippers } from '../economy';
 import { moneyAt, nag, tip } from '../output';
 import { landmarkDue, landmarkGoal } from '../../town';
 import { openLandmark } from '../townBusiness';
@@ -517,7 +517,10 @@ export function shipOut(w: World, b: Boat, load: (Crate | number)[], slot?: numb
   if (load.length === 0) return;
   const crates = load.map((c) => (typeof c === 'number' ? { fee: c, at: 0 } : c));
   const fees = feesOf(crates);
-  const total = fees.reduce((n, f) => n + f, 0);
+  const total = payout(
+    w,
+    fees.reduce((n, f) => n + f, 0),
+  );
   const cells = (b.loaded ??= []);
   for (const c of crates) {
     c.at = stamp(w.tick);
