@@ -3,12 +3,14 @@ import type { FisheryTerms } from '../sim/contracts';
 import { placementError } from '../sim/rules';
 import { anchorOf } from '../sim/rules/footprint';
 import type { Bay } from '../sim/state';
-import { spawnBoat } from '../sim/systems/boats/berthing';
+import { approachPath, route, spawnBoat } from '../sim/systems/boats/berthing';
+import { freeFairway, seaWay, takeFairway } from '../sim/systems/boats/traffic';
 import { setDown } from '../sim/systems/cargo/places';
 import { addContract } from '../sim/systems/economy';
 import { spawnDockhand } from '../sim/systems/workforce/dockhands';
 import { Build, type BuildKind } from '../sim/types';
 import { World } from '../sim/world';
+import * as B from '../sim/balance';
 import { bayCap, cratesAt } from '../sim/helpers';
 
 // Mini scenarios for the Scenes tab: a new game's map cleared down to its
@@ -27,8 +29,27 @@ export type LabStep =
   | { lab: 'crates'; tile: number; n: number; out?: boolean }
   /** A new dockhand standing at `tile`. */
   | { lab: 'dockhand'; tile: number }
-  /** A boat with `crates` aboard, coming in from just off the jetty to its berth. */
-  | { lab: 'boat'; vessel: 'smack' | 'coaster'; crates: number }
+  /**
+   * A boat with `crates` aboard, coming in from just off the jetty to its
+   * berth: the one the harbour master gives it, or `berth` off `dock`.
+   */
+  | { lab: 'boat'; vessel: 'smack' | 'coaster'; crates: number; berth?: number; dock?: number }
+  /**
+   * A boat lying alongside at `berth`, off the dock tile `dock`, its bow
+   * `facing` (0 +x, 1 +y, 2 -x, 3 -y), with `crates` still to unload: with
+   * none, it is ready to sail as soon as it has made fast, or `wait` ticks
+   * later. `dock` need not be a dock: a boat put down in open water lies
+   * there as if moored, and casts off away from it.
+   */
+  | {
+      lab: 'moored';
+      vessel: 'smack' | 'coaster';
+      berth: number;
+      dock: number;
+      facing: number;
+      crates: number;
+      wait?: number;
+    }
   /** Every bay may have a truck sent for its crates at once, rather than when next due. */
   | { lab: 'truck' };
 
@@ -185,7 +206,44 @@ export function apply(w: World, s: Step): string {
       const b = w.boats[n];
       if (!b) return 'No open sea to come in from';
       b.crates = s.crates;
+      if (s.berth !== undefined && s.dock !== undefined) {
+        freeFairway(w, b);
+        b.berth = s.berth;
+        b.jetty = s.dock;
+        const from = w.tileOf(b);
+        const path =
+          (B.VESSELS[b.vessel].length >= B.LINE_UP_LENGTH
+            ? approachPath(w, b, from, s.berth, s.dock)
+            : null) ?? route(w, b, from, s.berth, seaWay(w, b));
+        if (!path) return `No way in to (${m.xOf(s.berth)}, ${m.yOf(s.berth)})`;
+        if (b.berthing !== 'lead') takeFairway(w, b);
+        Object.assign(b, { path, goal: s.berth, state: 'arriving', best: Infinity });
+      }
       return `${s.vessel} #${b.id} coming in with ${s.crates} crates`;
+    }
+    case 'moored': {
+      const line = labLine(w, s.vessel);
+      const n = w.boats.length;
+      spawnBoat(w, line.id, line.terms);
+      const b = w.boats[n];
+      if (!b) return 'No open sea to come in from';
+      Object.assign(b, {
+        state: 'moored',
+        x: m.xOf(s.berth) + 0.5,
+        y: m.yOf(s.berth) + 0.5,
+        dir: (s.facing * Math.PI) / 2,
+        speed: 0,
+        path: [],
+        goal: s.berth,
+        berth: s.berth,
+        jetty: s.dock,
+        crates: s.crates,
+        anchorTicks: 0,
+        timer: -(s.wait ?? 0),
+        mooredAt: w.tick,
+      });
+      b.grace = B.MOORED_GRACE_TICKS + b.crates * B.MOORED_TICKS_PER_CRATE;
+      return `${s.vessel} #${b.id} moored at (${m.xOf(s.berth)}, ${m.yOf(s.berth)}) with ${s.crates} crates`;
     }
     case 'truck': {
       for (const b of [...w.bays.values(), ...w.yards.values()]) b.nextTruckTick = 0;
@@ -344,6 +402,51 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
       p.do({ at: 0, cmd: { type: 'buyMachine', kind: 'forklift', tile: p.at(-8, -3) } });
       p.do({ at: 0, lab: 'dockhand', tile: p.at(-1, 0) });
       p.do({ at: 0, lab: 'boat', vessel: 'smack', crates: 6 });
+      return p.steps;
+    },
+  },
+  {
+    id: 'pierEnd',
+    name: 'Two coasters off a pier’s end',
+    note: 'A pier four tiles wide with a jib crane at each corner of its end, and two coasters lying end to end off it, unloaded and ready to sail, the first with its bow towards the second. The first casts off and runs out bow first along the pier’s end, past the second, holding the lane while it does; the second waits for the lane. A fishing boat lying off the first’s side as it casts off puts it off easing out a whole tile, so it cannot pass the second, and it waits for the second while the second waits for the lane: as in a player’s port on day 2338, where they waited on each other for good.',
+    tier: 2,
+    steps: (w) => {
+      const p = new Plan(w);
+      p.do({ at: 0, cmd: { type: 'bulldoze', tiles: p.rect(1, 0, 3, 0) } });
+      // Out from the shore a row at a time, each joining the last.
+      for (let dx = 0; dx <= 5; dx++) p.build('quay', p.rect(dx, -3, dx, 0));
+      p.build('jibCrane', [p.at(5, -3)]);
+      p.build('jibCrane', [p.at(5, 0)]);
+      p.do({
+        at: 0,
+        lab: 'moored',
+        vessel: 'coaster',
+        berth: p.at(6, -3),
+        dock: p.at(5, -3),
+        facing: 1,
+        crates: 0,
+      });
+      p.do({
+        at: 0,
+        lab: 'moored',
+        vessel: 'coaster',
+        berth: p.at(6, 0),
+        dock: p.at(5, 0),
+        facing: 3,
+        crates: 0,
+      });
+      // A fishing boat lying just off the first's side as it casts off,
+      // then sailing: as one passing close by would.
+      p.do({
+        at: 0,
+        lab: 'moored',
+        vessel: 'smack',
+        berth: p.at(7, -3),
+        dock: p.at(6, -3),
+        facing: 1,
+        crates: 0,
+        wait: 150,
+      });
       return p.steps;
     },
   },

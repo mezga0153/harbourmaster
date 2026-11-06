@@ -92,4 +92,19 @@ describe('Mini scenarios', () => {
     for (let t = 0; t < TICKS_PER_DAY && cratesAt(bayAt(w, bay)!) > 0; t++) w.step();
     expect(cratesAt(bayAt(w, bay)!)).toBe(0);
   });
+
+  // The knot from a player's port (day 2338): the first coaster, put off
+  // easing out by the fishing boat beside it, runs out along the pier's end
+  // too close to the second to pass it, holding the lane the second needs.
+  // Fails while they wait on each other; a way of pathing that unties it
+  // makes this pass: take the .fails off then.
+  it.fails('gets both coasters off the pier’s end out to sea', () => {
+    const w = replay(preset('pierEnd'));
+    const coasters = w.boats.filter((b) => b.vessel === 'coaster').map((b) => b.id);
+    expect(coasters).toHaveLength(2);
+    for (let t = 0; t < TICKS_PER_DAY && w.boats.some((b) => coasters.includes(b.id)); t++) {
+      w.step();
+    }
+    expect(w.boats.filter((b) => coasters.includes(b.id))).toHaveLength(0);
+  });
 });
