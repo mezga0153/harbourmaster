@@ -29,6 +29,8 @@ export interface DebugOpts {
 }
 
 const KEY = 'hm-debug-overlays';
+/** The ship pathing is kept apart, so a pick from before Navigator was the default is dropped. */
+const PILOT_KEY = 'hm-debug-pilot';
 
 const DEFAULTS: DebugOpts = {
   open: false,
@@ -48,10 +50,12 @@ const DEFAULTS: DebugOpts = {
 function load(): DebugOpts {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const o = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<DebugOpts>) };
-      return isPilot(o.pilot) ? o : { ...o, pilot: DEFAULTS.pilot };
-    }
+    const pilot = localStorage.getItem(PILOT_KEY);
+    return {
+      ...DEFAULTS,
+      ...(raw ? (JSON.parse(raw) as Partial<DebugOpts>) : {}),
+      pilot: isPilot(pilot) ? pilot : DEFAULTS.pilot,
+    };
   } catch {
     // No storage here: the defaults.
   }
@@ -61,7 +65,9 @@ function load(): DebugOpts {
 export const opts = signal<DebugOpts>(load());
 opts.subscribe((o) => {
   try {
-    localStorage.setItem(KEY, JSON.stringify(o));
+    const { pilot, ...rest } = o;
+    localStorage.setItem(KEY, JSON.stringify(rest));
+    localStorage.setItem(PILOT_KEY, pilot);
   } catch {
     // Not kept, then.
   }
