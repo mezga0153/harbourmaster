@@ -8,6 +8,7 @@ import {
   replay,
 } from '../src/dev/scenario';
 import { cratesAt } from '../src/sim/helpers';
+import { PILOTS, type PilotId } from '../src/sim/systems/boats/pilots';
 import { TICKS_PER_DAY } from '../src/sim/types';
 
 // The dev lab's mini scenarios (src/dev/scenario.ts): each preset builds,
@@ -96,15 +97,26 @@ describe('Mini scenarios', () => {
   // The knot from a player's port (day 2338): the first coaster, put off
   // easing out by the fishing boat beside it, runs out along the pier's end
   // too close to the second to pass it, holding the lane the second needs.
-  // Fails while they wait on each other; a way of pathing that unties it
-  // makes this pass: take the .fails off then.
-  it.fails('gets both coasters off the pier’s end out to sea', () => {
-    const w = replay(preset('pierEnd'));
-    const coasters = w.boats.filter((b) => b.vessel === 'coaster').map((b) => b.id);
-    expect(coasters).toHaveLength(2);
-    for (let t = 0; t < TICKS_PER_DAY && w.boats.some((b) => coasters.includes(b.id)); t++) {
-      w.step();
-    }
-    expect(w.boats.filter((b) => coasters.includes(b.id))).toHaveLength(0);
-  });
+  // With the classic ship pathing they wait on each other for good (an
+  // expected failure: take the .fails off once the classic one unties it);
+  // each other way of pathing (pilots.ts) gets them both out.
+  for (const id of Object.keys(PILOTS) as PilotId[]) {
+    (id === 'classic' ? it.fails : it)(
+      `gets both coasters off the pier’s end out to sea, pathing ${id}`,
+      () => {
+        const w = replay(preset('pierEnd'));
+        w.pilot = id;
+        const coasters = w.boats.filter((b) => b.vessel === 'coaster').map((b) => b.id);
+        expect(coasters).toHaveLength(2);
+        for (
+          let t = 0;
+          t < 4 * TICKS_PER_DAY && w.boats.some((b) => coasters.includes(b.id));
+          t++
+        ) {
+          w.step();
+        }
+        expect(w.boats.filter((b) => coasters.includes(b.id))).toHaveLength(0);
+      },
+    );
+  }
 });

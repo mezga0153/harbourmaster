@@ -1,5 +1,6 @@
 import type { Command, WorkerMessage } from '../protocol';
 import { TICKS_PER_DAY } from '../sim/types';
+import type { PilotId } from '../sim/systems/boats/pilots';
 import { World } from '../sim/world';
 import { loadSave, writeSave } from './storage';
 
@@ -23,6 +24,8 @@ const queued: Command[] = [];
 let saveSoon: ReturnType<typeof setTimeout> | undefined;
 /** Dev server only: what the debug overlays want each frame, and what works it out; see src/debug/. */
 let debugWant: import('../debug/types').DebugWant | null = null;
+/** Dev server only: the ship pathing picked in the debug menu, kept for each game started. */
+let pilot: PilotId = 'classic';
 let debugCollect: typeof import('../debug/collect').collect | null = null;
 
 function randomSeed(): number {
@@ -32,6 +35,7 @@ function randomSeed(): number {
 function start(w: World): void {
   const first = !world;
   world = w;
+  if (import.meta.env.DEV) w.pilot = pilot;
   restored = null;
   ctx.postMessage({ type: 'init', map: w.map.toData(), seed: w.seed });
   // Clear the pending changes; the init message already carries them.
@@ -101,8 +105,10 @@ function handle(cmd: Command): void {
     ctx.postMessage({ type: 'exported', save: world.toSave(), forReport: cmd.forReport });
   } else if (cmd.type === 'debug') {
     // The published game takes only the million (Shift+M); the rest is dev only.
-    if (import.meta.env.DEV) world.debug(cmd);
-    else if (cmd.cash) world.debug({ type: 'debug', cash: 1_000_000 });
+    if (import.meta.env.DEV) {
+      world.debug(cmd);
+      pilot = cmd.pilot ?? pilot;
+    } else if (cmd.cash) world.debug({ type: 'debug', cash: 1_000_000 });
   } else if (cmd.type === 'dumpSave') {
     if (import.meta.env.DEV) ctx.postMessage({ type: 'dump', save: world.toSave() });
   } else if (cmd.type === 'debugView') {

@@ -28,12 +28,13 @@ import { footprint } from '../../rules/footprint';
 import { walkableAt } from '../../rules/placement';
 import { message, nag, tip } from '../output';
 import { sail } from './seamanship';
+import { pilot } from './pilots';
 import { tugReady } from '../tugs';
 import { landingReach, muster } from '../workforce/dockhands';
 import { exportsComing, stillLoading } from '../cargo/exports';
 import { jibStore } from '../cargo/stores';
 import { jibStores } from '../cranes';
-import { outAboard } from '../../helpers';
+import { hullGap, outAboard } from '../../helpers';
 
 export function spawnBoats(w: World): void {
   for (const c of fisheries(w)) {
@@ -924,6 +925,10 @@ export function planRunOut(w: World, b: Boat): void {
   // A tile off the dock, with plenty of room to swing if it can be had,
   // at least just enough; or where the water off the berth is too
   // shallow, straight along the dock from the berth itself.
+  // Lookout pathing: of those, the one furthest from any other hull on
+  // its way, the first of them when more than one is clear enough.
+  const lookout = pilot(w).lookout;
+  let best = -1;
   for (const [s, r, off] of [
     [ahead, v.length / 2 + 0.5, 1],
     [-ahead, v.length / 2 + 0.5, 1],
@@ -936,11 +941,55 @@ export function planRunOut(w: World, b: Boat): void {
     if (run < 0) continue;
     const x = m.xOf(b.berth) + ox * off;
     const y = m.yOf(b.berth) + oy * off;
+    const clear = lookout
+      ? Math.min(B.RUN_OUT_CLEAR, runOutGap(w, b, x, y, ax * s, ay * s, run))
+      : 0;
+    if (clear <= best) continue;
+    best = clear;
     b.lineEnd = m.idx(x, y);
     b.lineup = m.idx(x + ax * s * run, y + ay * s * run);
     b.berthing = 'out';
-    return;
+    if (!lookout || clear >= B.RUN_OUT_CLEAR) return;
   }
+}
+
+/**
+ * The least clear water between a ship running out and any other boat's
+ * hull, easing off its berth to the tile at x, y and then `run` tiles
+ * along the dock the way of (dx, dy).
+ */
+export function runOutGap(
+  w: World,
+  b: Boat,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+  run: number,
+): number {
+  const m = w.map;
+  const v = B.VESSELS[b.vessel];
+  const dir = Math.atan2(dy, dx);
+  const bx = m.xOf(b.berth) + 0.5;
+  const by = m.yOf(b.berth) + 0.5;
+  const sx = x + 0.5;
+  const sy = y + 0.5;
+  const at: [number, number][] = [];
+  const off = Math.hypot(sx - bx, sy - by);
+  for (let k = 0; k <= off; k += 0.25) {
+    const t = off > 0 ? k / off : 0;
+    at.push([bx + (sx - bx) * t, by + (sy - by) * t]);
+  }
+  for (let k = 0; k <= run; k += 0.25) at.push([sx + dx * k, sy + dy * k]);
+  let least = Infinity;
+  for (const o of w.boats) {
+    if (o === b) continue;
+    const ov = B.VESSELS[o.vessel];
+    for (const [px, py] of at) {
+      least = Math.min(least, hullGap(px, py, dir, v, o.x, o.y, o.dir, ov));
+    }
+  }
+  return least;
 }
 
 /**

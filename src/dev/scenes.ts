@@ -11,6 +11,7 @@ import { nextPrice, ownedPlots } from '../sim/land';
 import { GameMap } from '../sim/map';
 import { harbourCentre } from '../sim/rules/harbour';
 import { docks } from '../sim/systems/boats/berthing';
+import type { PilotId } from '../sim/systems/boats/pilots';
 import { TICKS_PER_DAY } from '../sim/types';
 import { World, type SaveData } from '../sim/world';
 import { App } from '../ui/App';
@@ -54,6 +55,8 @@ export class Runner {
   /** The debug overlays (src/debug/), and what they want of the sim each frame. */
   private debug: ReturnType<typeof startDebug>;
   private debugWant: DebugWant | null = null;
+  /** How ships find their way off their berths, picked in the debug menu; see pilots.ts. */
+  private pilot: PilotId = 'classic';
 
   constructor(game: HTMLElement, floaters: HTMLElement, hud: HTMLElement) {
     this.renderer = new Renderer(game, floaters);
@@ -88,6 +91,10 @@ export class Runner {
         this.debugWant = want;
         if (want && this.world) this.debug?.receive(collect(this.world, want));
       },
+      setPilot: (pilot) => {
+        this.pilot = pilot;
+        if (this.world) this.world.pilot = pilot;
+      },
     });
     const actions: Actions = {
       send: (cmd) => this.send(cmd),
@@ -105,6 +112,7 @@ export class Runner {
   /** Play this game from here. */
   start(w: World): void {
     this.world = w;
+    w.pilot = this.pilot;
     this.scenario = null;
     this.map = GameMap.fromData(w.map.toData());
     w.drainTileChanges();

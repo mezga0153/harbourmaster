@@ -253,6 +253,8 @@ export const STAND_ON_TICKS = 25;
 export const CAREFUL_LENGTH = 4;
 /** Boats at least this long run out along the dock to open water before turning to leave. */
 export const RUN_OUT_LENGTH = 2.5;
+/** Lookout pathing (pilots.ts): clear water to another hull that counts a way to run out as clear, in tiles. */
+export const RUN_OUT_CLEAR = 0.5;
 /** Ships at least this long line up along the dock well before a berth; see approachPath(). */
 export const LINE_UP_LENGTH = 4;
 /** Ticks a boat can be held up before it looks for another way. */

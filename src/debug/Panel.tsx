@@ -1,4 +1,5 @@
 import type { GameMap } from '../sim/map';
+import { PILOTS, type PilotId } from '../sim/systems/boats/pilots';
 import { Build } from '../sim/types';
 import { hover, selection } from '../ui/store';
 import { FINE } from './fine';
@@ -178,6 +179,17 @@ export function Panel({ map }: { map: () => GameMap | null }) {
       <Check k="cranes" label="Crane reach" />
       <Check k="plots" label="Land plots" />
       <Check k="hover" label="Tile under the pointer" />
+      <label class="dbg-row" title={PILOTS[o.pilot].note}>
+        Ship pathing
+        <select value={o.pilot} onChange={(e) => setOpt('pilot', e.currentTarget.value as PilotId)}>
+          {Object.entries(PILOTS).map(([id, p]) => (
+            <option key={id} value={id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div class="dbg-muted">{PILOTS[o.pilot].note}</div>
       <div class="dbg-legend">
         <span style="color:#3ddc68">■ ok</span> <span style="color:#f5c02a">■ costly</span>{' '}
         <span style="color:#ff3b30">■ blocked</span> <span style="color:#4fb3ff">■ crate</span>{' '}

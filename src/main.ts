@@ -222,6 +222,7 @@ if (import.meta.env.DEV) {
       map: () => map,
       ui: uiRoot,
       request: (want) => worker.postMessage({ type: 'debugView', want } satisfies Command),
+      setPilot: (pilot) => worker.postMessage({ type: 'debug', pilot } satisfies Command),
     });
     worker.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
       if (e.data.type === 'debugView') dbg.receive(e.data.view);

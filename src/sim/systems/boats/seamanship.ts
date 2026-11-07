@@ -24,6 +24,7 @@ import type { Boat } from '../../state';
 import * as B from '../../balance';
 import { clamp, wrapAngle } from '../../helpers';
 import { handiness } from '../tugs';
+import { pilot } from './pilots';
 import type { CostFn } from '../../path';
 import { Build, isBuoy } from '../../types';
 
@@ -573,7 +574,8 @@ export function runOut(
   const fwd = Math.cos(b.dir) * ux + Math.sin(b.dir) * uy >= 0;
   const ships = stillNear(w, b);
   const now = clips(w, b, b.x, b.y, b.dir, ships);
-  const way = giveWay(w, b);
+  // Lookout pathing (pilots.ts): running out stern first, it looks astern.
+  const way = giveWay(w, b, !fwd && pilot(w).lookout);
   const accel = v.speed * B.BOAT_ACCEL;
   const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed * (0.4 + 0.6 * handiness(w, b));
   const speed = clamp(
@@ -595,6 +597,21 @@ export function runOut(
   }
   b.speed = 0;
   b.sternway = 0;
+  // Drift back pathing (pilots.ts): held up, it still eases sideways onto
+  // its line, as it eased off the dock, out from the ship it is passing.
+  if (pilot(w).drift && Math.abs(side) > 0.02) {
+    const step = Math.min(Math.abs(side), v.speed * 0.2 * handiness(w, b)) * Math.sign(side);
+    const dx = uy * step;
+    const dy = -ux * step;
+    if (
+      navigable(w, b.x + dx, b.y + dy, boatCostFor(w, b.draft)) &&
+      clips(w, b, b.x + dx, b.y + dy, b.dir, ships) <= now &&
+      !crowds(w, b, b.x + dx, b.y + dy)
+    ) {
+      b.x += dx;
+      b.y += dy;
+    }
+  }
   return afterMove(w, b, 0, false, null, goal, cx, cy);
 }
 
@@ -816,6 +833,12 @@ export function castingOff(w: World, b: Boat, want: number): boolean {
     if (off < clear && room) {
       b.x += ax * step;
       b.y += ay * step;
+      b.speed = 0;
+      return true;
+    }
+    // Patient pathing (pilots.ts): a boat in the way, it waits a while for
+    // that one to move rather than run out short of its line.
+    if (off < clear && pilot(w).patient && (b.held = (b.held ?? 0) + 1) < B.HEAD_ON_TICKS * 3) {
       b.speed = 0;
       return true;
     }

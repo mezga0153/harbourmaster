@@ -41,7 +41,10 @@ machines, forklifts or trucks (green ok, amber costly, red blocked), a finer
 grid the view works out round the middle of the view (`fine.ts`, where a
 finer path-finding grid plugs in), the trucks' road graph as arrows, crate
 slots used and kept in bays and storage with bays cut off, crane reach, land
-plots and the tile under the pointer. The sim side is `collect.ts`, run in
+plots and the tile under the pointer. It also picks the ship pathing
+(`src/sim/systems/boats/pilots.ts`: classic, as the published game plays,
+or another way for ships to get off their berths), for the game and the
+dev lab alike; kept in the browser and sent to the sim, never saved. The sim side is `collect.ts`, run in
 the worker on a `debugView` command (or on the page in the dev lab);
 `window.__debug` sets it from a driver.
 

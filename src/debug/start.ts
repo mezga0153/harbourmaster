@@ -14,6 +14,7 @@ import { LineLayer, SquareLayer, gridSquares, slotSquares, type DebugPoint } fro
 import { Panel } from './Panel';
 import { lastView, opts, setOpt } from './state';
 import type { DebugView, DebugWant, PassKind } from './types';
+import type { PilotId } from '../sim/systems/boats/pilots';
 
 // Dev server only: the debug overlays, wired into a game (main.ts, the sim
 // in its worker) or the dev lab (src/dev/scenes.ts, the sim on the page).
@@ -26,6 +27,8 @@ export interface DebugHooks {
   /** Where the menu and the words over the map go. */
   ui: HTMLElement;
   request(want: DebugWant | null): void;
+  /** Have the sim's ships find their way off their berths so; see pilots.ts. */
+  setPilot(pilot: PilotId): void;
 }
 
 const PATH_COLOR: Record<string, number> = {
@@ -120,6 +123,8 @@ export function startDebug(hooks: DebugHooks): { receive(view: DebugView): void 
     const any = want.allPaths || want.selected !== null || want.pass || want.roads || want.slots;
     return any ? want : null;
   };
+
+  effect(() => hooks.setPilot(opts.value.pilot));
 
   effect(() => {
     const want = wantNow();

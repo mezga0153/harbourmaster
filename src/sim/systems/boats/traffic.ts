@@ -503,8 +503,11 @@ export function wakeOf(w: World, b: Boat): ReturnType<typeof hullOf> {
 export function giveWay(
   w: World,
   b: Boat,
+  /** Going astern: looking out over the stern, not the bow. */
+  astern = false,
 ): { speed: number; makeWay: number; still?: boolean; by?: Boat } {
-  const me = hullOf(w, b);
+  const hull = hullOf(w, b);
+  const me = astern ? { ...hull, hx: -hull.hx, hy: -hull.hy } : hull;
   const v = B.VESSELS[b.vessel];
   // Looks out as far as it takes to stop gently from full speed, so it
   // eases off early rather than pulling up short.

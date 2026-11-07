@@ -1,4 +1,5 @@
 import { signal } from '@preact/signals';
+import { isPilot, type PilotId } from '../sim/systems/boats/pilots';
 import type { DebugView, PassKind } from './types';
 
 // Dev server only: which debug overlays are on, kept in the browser from
@@ -23,6 +24,8 @@ export interface DebugOpts {
   plots: boolean;
   /** What is on the tile under the pointer. */
   hover: boolean;
+  /** How ships find their way off their berths, in the game and the lab; see pilots.ts. */
+  pilot: PilotId;
 }
 
 const KEY = 'hm-debug-overlays';
@@ -39,12 +42,16 @@ const DEFAULTS: DebugOpts = {
   cranes: false,
   plots: false,
   hover: true,
+  pilot: 'classic',
 };
 
 function load(): DebugOpts {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<DebugOpts>) };
+    if (raw) {
+      const o = { ...DEFAULTS, ...(JSON.parse(raw) as Partial<DebugOpts>) };
+      return isPilot(o.pilot) ? o : { ...o, pilot: DEFAULTS.pilot };
+    }
   } catch {
     // No storage here: the defaults.
   }

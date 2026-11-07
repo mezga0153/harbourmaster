@@ -4,6 +4,7 @@ import type { DebugView, DebugWant } from '../debug/types';
 import type { Difficulty } from '../sim/balance';
 import type { MapData } from '../sim/map';
 import type { SaveData } from '../sim/state';
+import type { PilotId } from '../sim/systems/boats/pilots';
 import type { BuildKind, MachineKind, StoreKind } from '../sim/types';
 import type { Snapshot } from './views';
 
@@ -69,6 +70,8 @@ export type Command =
       town?: number;
       /** Send the next train now. */
       train?: boolean;
+      /** How ships find their way off their berths; see pilots.ts. */
+      pilot?: PilotId;
     }
   /** Dev server only: post the whole game state back, for the debug bridge. */
   | { type: 'dumpSave' }

@@ -32,6 +32,7 @@ import {
 } from './contracts';
 import { ownBuilt } from './land';
 import { GameMap } from './map';
+import type { PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
@@ -387,6 +388,8 @@ export class World {
   tier = 0;
   /** How kind the game is, picked for a new port; see DIFFICULTIES. */
   difficulty: B.Difficulty = 'hard';
+  /** Dev server only: how ships find their way off their berths; see pilots.ts. Not saved. */
+  pilot: PilotId = 'classic';
   loan = 0;
   today: Ledger = emptyLedger();
   yesterday: Ledger | null = null;
@@ -983,6 +986,7 @@ export class World {
       t.wants = townWants(this.map);
     }
     if (cmd.train) this.rail.nextTrain = this.tick;
+    if (cmd.pilot) this.pilot = cmd.pilot;
     if (cmd.containers) {
       const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
       let line = false;
