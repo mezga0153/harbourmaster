@@ -11,7 +11,7 @@ import { nextPrice, ownedPlots } from '../sim/land';
 import { GameMap } from '../sim/map';
 import { harbourCentre } from '../sim/rules/harbour';
 import { docks } from '../sim/systems/boats/berthing';
-import type { PilotId } from '../sim/systems/boats/pilots';
+import { DEFAULT_PILOT, type PilotId } from '../sim/systems/boats/pilots';
 import { TICKS_PER_DAY } from '../sim/types';
 import { World, type SaveData } from '../sim/world';
 import { App } from '../ui/App';
@@ -56,7 +56,7 @@ export class Runner {
   private debug: ReturnType<typeof startDebug>;
   private debugWant: DebugWant | null = null;
   /** How ships find their way off their berths, picked in the debug menu; see pilots.ts. */
-  private pilot: PilotId = 'classic';
+  private pilot: PilotId = DEFAULT_PILOT;
 
   constructor(game: HTMLElement, floaters: HTMLElement, hud: HTMLElement) {
     this.renderer = new Renderer(game, floaters);

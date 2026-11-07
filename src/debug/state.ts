@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import { isPilot, type PilotId } from '../sim/systems/boats/pilots';
+import { DEFAULT_PILOT, isPilot, type PilotId } from '../sim/systems/boats/pilots';
 import type { DebugView, PassKind } from './types';
 
 // Dev server only: which debug overlays are on, kept in the browser from
@@ -42,7 +42,7 @@ const DEFAULTS: DebugOpts = {
   cranes: false,
   plots: false,
   hover: true,
-  pilot: 'classic',
+  pilot: DEFAULT_PILOT,
 };
 
 function load(): DebugOpts {

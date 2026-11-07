@@ -32,7 +32,7 @@ import {
 } from './contracts';
 import { ownBuilt } from './land';
 import { GameMap } from './map';
-import type { PilotId } from './systems/boats/pilots';
+import { DEFAULT_PILOT, type PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
@@ -388,8 +388,8 @@ export class World {
   tier = 0;
   /** How kind the game is, picked for a new port; see DIFFICULTIES. */
   difficulty: B.Difficulty = 'hard';
-  /** Dev server only: how ships find their way off their berths; see pilots.ts. Not saved. */
-  pilot: PilotId = 'classic';
+  /** Navigation policy; the debug menu can override it. Not saved. */
+  pilot: PilotId = DEFAULT_PILOT;
   loan = 0;
   today: Ledger = emptyLedger();
   yesterday: Ledger | null = null;
@@ -511,8 +511,10 @@ export class World {
   jibJobs = new WeakMap<Crane, JibJob>();
   buoyCache: Uint8Array | null = null;
   frontCache: Int32Array | null = null;
-  /** What routes pay to pass close to a jetty, quay or the shore; see shoreRing. */
+  /** What routes pay to pass close to a jetty, quay or the shore; see cornerRing. */
   ringCache: Float32Array | null = null;
+  /** Wider corner/shore clearances for longer hulls, by extra turning room. */
+  wideRingCache = new Map<number, Float32Array>();
   coordinated = new Set<number>();
   /** Dock tile → its dock's key (the dock's lowest tile), with docks(). */
   dockKey = new Map<number, number>();
@@ -884,6 +886,7 @@ export class World {
     this.anchorageTile = -1;
     this.frontCache = null;
     this.ringCache = null;
+    this.wideRingCache.clear();
     this.spotCache.clear();
     this.laneCache = null;
     this.railCache = null;

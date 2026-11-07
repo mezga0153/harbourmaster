@@ -25,6 +25,7 @@ import * as B from '../../balance';
 import { clamp, wrapAngle } from '../../helpers';
 import { handiness } from '../tugs';
 import { pilot } from './pilots';
+import { planDeparture, separateHull } from './navigation';
 import type { CostFn } from '../../path';
 import { Build, isBuoy } from '../../types';
 
@@ -40,6 +41,9 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
   const w = world.map.w;
   const cx = (i: number) => (i % w) + 0.5;
   const cy = (i: number) => Math.floor(i / w) + 0.5;
+  if (pilot(world).adaptive && separateHull(world, b)) {
+    return afterMove(world, b, 0, true, moor, b.goal, cx, cy);
+  }
   const accel = v.speed * B.BOAT_ACCEL;
   let speed = b.speed ?? 0;
   if (b.path.length === 0) b.path = [b.goal];
@@ -164,9 +168,11 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
       step = Math.max(0, was - Math.hypot(gx - b.x, gy - b.y));
     } else {
       const clear =
-        (b.held ?? 0) > 60 ||
+        ((b.held ?? 0) > 60 && !pilot(world).adaptive) ||
         clips(world, b, b.x, b.y, turned, ships) <= clips(world, b, b.x, b.y, b.dir, ships);
-      const swingInto = crowds(world, b, b.x, b.y, turned) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER;
+      const swingInto =
+        crowds(world, b, b.x, b.y, turned) &&
+        (pilot(world).adaptive || (b.held ?? 0) <= B.BOAT_WEDGED_AFTER);
       if (clear && !swingInto) b.dir = turned;
       b.held = (b.held ?? 0) + 1;
       if (left > 1e-6) {
@@ -180,7 +186,7 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
           (intoClaimed(world, b, nx, ny) && (b.held ?? 0) <= B.BOAT_WEDGED_AFTER);
         const slide =
           !crowded &&
-          ((b.held ?? 0) > 150 ||
+          (((b.held ?? 0) > 150 && !pilot(world).adaptive) ||
             clips(world, b, nx, ny, b.dir, ships) <= clips(world, b, b.x, b.y, b.dir, ships));
         if (slide) {
           b.x = nx;
@@ -220,14 +226,32 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
     (cap: number): CostFn =>
     (i) => {
       const w = i === goal ? 0 : wide(i);
-      return avoid(i) - w === 1 && w <= cap ? 1 : Infinity;
+      return Math.abs(avoid(i) - w - 1) < 1e-6 && w <= cap + 1e-6 ? 1 : Infinity;
     };
   // A boat has moored across the route since it was planned: find a way
   // round it, rather than brush past its bow or stern.
   const across = b.path.slice(0, 3).some((i) => i !== goal && !Number.isFinite(avoid(i)));
-  if (across && !b.berthing && !b.undock && (world.tick + b.id) % 10 === 0) {
-    const round = route(world, b, world.tileOf(b), goal, avoid);
+  const crowded =
+    pilot(world).adaptive &&
+    b.path
+      .slice(0, 6)
+      .some(
+        (i) =>
+          i !== goal && i !== b.lineup && wide(i) >= B.CORNER_CLOSE_COST + B.MOORED_CLEAR_COST / 2,
+      );
+  const approaching = b.berthing === 'lead';
+  if (
+    (across || crowded) &&
+    (!b.berthing || approaching) &&
+    !b.undock &&
+    (world.tick + b.id) % (across ? 10 : B.BOAT_REROUTE_AFTER) === 0
+  ) {
+    const old = { lineup: b.lineup, lineEnd: b.lineEnd, berthing: b.berthing };
+    const round = approaching
+      ? approachPath(world, b, world.tileOf(b), b.berth, b.jetty)
+      : route(world, b, world.tileOf(b), goal, avoid);
     if (round && round.length > 0) b.path = round;
+    else if (approaching) Object.assign(b, old);
   }
   let ahead = 0;
   // Coming in to a berth, keep to the approach line along the dock: never
@@ -306,8 +330,9 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
   }
   // The rules of the road, out on open water: look ahead for boats on a
   // collision course.
-  const road = free && !b.squeeze ? rulesOfTheRoad(world, b) : { bias: 0, slow: 1 };
-  if (!free || b.squeeze) world.keepingClear.delete(b);
+  const squeezing = !!b.squeeze && !pilot(world).adaptive;
+  const road = free && !squeezing ? rulesOfTheRoad(world, b) : { bias: 0, slow: 1 };
+  if (!free || squeezing) world.keepingClear.delete(b);
   const course = wrapAngle(want + road.bias);
   let err = wrapAngle(course - b.dir);
   // Coming round off the dock the way it planned to: the long way round if
@@ -475,10 +500,11 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
       adir = Math.abs(wrapAngle(moor - b.dir)) > Math.PI / 2 ? wrapAngle(moor + Math.PI) : moor;
     }
     if (b.berthing === 'lead' && b.lineup !== undefined && b.path.includes(b.lineup)) {
-      // Heading out to the start of the approach line: just get there.
-      ax = cx(b.lineup);
-      ay = cy(b.lineup);
-      adir = Math.atan2(ay - b.y, ax - b.x);
+      // Reach the alignment point along the planned route. Aiming straight
+      // at it would cut inside the arc around every intervening pier/hull.
+      ax = tx;
+      ay = ty;
+      adir = course;
     }
     // Held up by a boat lying still in its way, it does not go on at it:
     // it swings round where it lies, or backs off, towards the next turn
@@ -533,9 +559,13 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
     const crawl = Math.min(d, v.speed * 0.2);
     speed = 0;
     if (d > 1e-6 && way.speed > 0.05) {
-      b.x += (px / d) * crawl;
-      b.y += (py / d) * crawl;
-      speed = crawl;
+      const x = b.x + (px / d) * crawl;
+      const y = b.y + (py / d) * crawl;
+      if (!pilot(world).adaptive || fits(x, y, b.dir)) {
+        b.x = x;
+        b.y = y;
+        speed = crawl;
+      }
     }
   } else speed = 0;
   return afterMove(world, b, speed, backed, moor, goal, cx, cy);
@@ -556,6 +586,15 @@ export function runOut(
   cy: (i: number) => number,
 ): 'moving' | 'blocked' {
   const v = B.VESSELS[b.vessel];
+  if (
+    pilot(w).adaptive &&
+    (b.held ?? 0) >= B.BOAT_REROUTE_AFTER &&
+    (b.held ?? 0) % B.BOAT_REROUTE_AFTER === 0 &&
+    planDeparture(w, b)
+  ) {
+    end = b.lineup!;
+    start = b.lineEnd!;
+  }
   const ex = cx(end);
   const ey = cy(end);
   const len = Math.hypot(ex - cx(start), ey - cy(start));
@@ -574,26 +613,48 @@ export function runOut(
   const fwd = Math.cos(b.dir) * ux + Math.sin(b.dir) * uy >= 0;
   const ships = stillNear(w, b);
   const now = clips(w, b, b.x, b.y, b.dir, ships);
+  const side = -(b.x - cx(start)) * uy + (b.y - cy(start)) * ux;
+  // Follow the two legs that Navigator checked: reach the passing lane
+  // before running along it. A diagonal shortcut can clip a neighbour's
+  // stern even though both planned legs are clear.
+  if (pilot(w).adaptive && Math.abs(side) > 0.02) {
+    const step = Math.min(Math.abs(side), v.speed * 0.2 * handiness(w, b)) * Math.sign(side);
+    const x = b.x + uy * step;
+    const y = b.y - ux * step;
+    const moved =
+      navigable(w, x, y, boatCostFor(w, b.draft)) &&
+      clips(w, b, x, y, b.dir, ships) <= now &&
+      !crowds(w, b, x, y);
+    if (moved) {
+      b.x = x;
+      b.y = y;
+    }
+    b.sternway = 0;
+    return afterMove(w, b, 0, moved, null, goal, cx, cy);
+  }
   // Lookout pathing (pilots.ts): running out stern first, it looks astern.
   const way = giveWay(w, b, !fwd && pilot(w).lookout);
   const accel = v.speed * B.BOAT_ACCEL;
   const top = (fwd ? 0.75 : 0.5) * v.speed * way.speed * (0.4 + 0.6 * handiness(w, b));
   const speed = clamp(
-    (b.speed ?? 0) + accel,
+    (fwd ? (b.speed ?? 0) : (b.sternway ?? 0)) + accel,
     0,
     Math.min(top, Math.sqrt(2 * accel * (len - gone)) + 0.004),
   );
   // Along the line, easing back onto it if it has drifted.
-  const side = -(b.x - cx(start)) * uy + (b.y - cy(start)) * ux;
   const x = b.x + ux * speed - -uy * side * 0.05;
   const y = b.y + uy * speed - ux * side * 0.05;
-  if (speed > 0 && clips(w, b, x, y, b.dir, ships) <= now) {
+  if (speed > 0 && clips(w, b, x, y, b.dir, ships) <= now && !crowds(w, b, x, y)) {
     b.x = x;
     b.y = y;
     b.speed = fwd ? speed : 0;
     b.sternway = fwd ? 0 : speed;
     b.astern = !fwd;
-    return afterMove(w, b, speed, true, null, goal, cx, cy);
+    // A positive speed may be floating-point dust from giveWay's stopping
+    // distance. Count it as held up, including astern, so replanning can run.
+    const result = afterMove(w, b, speed, speed >= v.speed * 0.1, null, goal, cx, cy);
+    b.speed = fwd ? speed : 0;
+    return result;
   }
   b.speed = 0;
   b.sternway = 0;
@@ -636,7 +697,7 @@ export function lineUp(
   const now = clips(w, b, b.x, b.y, b.dir, ships);
   const hand = handiness(w, b);
   const swung = wrapAngle(b.dir + clamp(wrapAngle(along - b.dir), -v.turn * hand, v.turn * hand));
-  if (clips(w, b, b.x, b.y, swung, ships) <= now) {
+  if (clips(w, b, b.x, b.y, swung, ships) <= now && !crowds(w, b, b.x, b.y, swung)) {
     b.dir = swung;
     b.speed = 0;
     return afterMove(w, b, 0, true, moor, goal, cx, cy);
@@ -659,7 +720,7 @@ export function lineUp(
     const d = wrapAngle(b.dir + plan.helm * v.turn * (plan.astern ? 0.25 : 0.5));
     const x = b.x + Math.cos(d) * step;
     const y = b.y + Math.sin(d) * step;
-    if (clips(w, b, x, y, d, ships) > now) continue;
+    if (clips(w, b, x, y, d, ships) > now || crowds(w, b, x, y, d)) continue;
     b.dir = d;
     b.x = x;
     b.y = y;
@@ -694,7 +755,8 @@ export function nip(
   // Squeezing past as a last resort, it may brush the dock too. Else its
   // hull comes no nearer another boat's, under way or not, once close.
   const fits = (x: number, y: number, d: number) =>
-    ((b.squeeze ?? 0) > 0 || (navigable(w, x, y, cost) && clips(w, b, x, y, d, ships) <= now)) &&
+    (((b.squeeze ?? 0) > 0 && !pilot(w).adaptive) ||
+      (navigable(w, x, y, cost) && clips(w, b, x, y, d, ships) <= now)) &&
     !crowds(w, b, x, y, d);
   // Take any sternway off before going ahead again.
   if ((b.sternway ?? 0) > 0) {

@@ -2,10 +2,8 @@ import type { World } from '../../world';
 
 // Ways a ship can find its way off its berth, to try against each other
 // (dev server only: Debug overlays > Ship pathing, or the dev lab's
-// Scenes tab). The game plays with the classic one; the others change
-// what a ship does at a few points where the classic one can leave two
-// ships waiting on each other for good (the dev lab's mini scenario "Two
-// coasters off a pier's end"). Not saved: a game loads with the classic one.
+// Scenes tab). Navigator is the game's default; the older pilots remain
+// available for comparisons. The choice is not part of a save.
 
 export interface Pilot {
   name: string;
@@ -27,15 +25,18 @@ export interface Pilot {
    * stern first, looks out astern for what is in its way.
    */
   lookout: boolean;
+  /** Check the whole departure, reconsider blocked exits, and keep collision checks during recovery. */
+  adaptive: boolean;
 }
 
 export const PILOTS = {
   classic: {
     name: 'Classic',
-    note: 'As the game plays: bow first along the dock, easing out until anything is in the way.',
+    note: 'Original pilot: bow first along the dock, easing out until anything is in the way.',
     drift: false,
     patient: false,
     lookout: false,
+    adaptive: false,
   },
   drift: {
     name: 'Drift back',
@@ -43,6 +44,7 @@ export const PILOTS = {
     drift: true,
     patient: false,
     lookout: false,
+    adaptive: false,
   },
   patient: {
     name: 'Patient',
@@ -50,6 +52,7 @@ export const PILOTS = {
     drift: true,
     patient: true,
     lookout: false,
+    adaptive: false,
   },
   lookout: {
     name: 'Lookout',
@@ -57,13 +60,23 @@ export const PILOTS = {
     drift: true,
     patient: true,
     lookout: true,
+    adaptive: false,
+  },
+  navigator: {
+    name: 'Navigator',
+    note: 'Checks the whole hull along both exits and wider passing lanes, replans blocked departures, and keeps clear while recovering.',
+    drift: true,
+    patient: true,
+    lookout: true,
+    adaptive: true,
   },
 } satisfies Record<string, Pilot>;
 
 export type PilotId = keyof typeof PILOTS;
+export const DEFAULT_PILOT: PilotId = 'navigator';
 
 export function isPilot(id: unknown): id is PilotId {
-  return typeof id === 'string' && id in PILOTS;
+  return typeof id === 'string' && Object.hasOwn(PILOTS, id);
 }
 
 /** The ship pathing the world plays with. */

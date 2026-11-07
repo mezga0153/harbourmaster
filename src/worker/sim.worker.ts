@@ -1,6 +1,6 @@
 import type { Command, WorkerMessage } from '../protocol';
 import { TICKS_PER_DAY } from '../sim/types';
-import type { PilotId } from '../sim/systems/boats/pilots';
+import { DEFAULT_PILOT, type PilotId } from '../sim/systems/boats/pilots';
 import { World } from '../sim/world';
 import { loadSave, writeSave } from './storage';
 
@@ -25,7 +25,7 @@ let saveSoon: ReturnType<typeof setTimeout> | undefined;
 /** Dev server only: what the debug overlays want each frame, and what works it out; see src/debug/. */
 let debugWant: import('../debug/types').DebugWant | null = null;
 /** Dev server only: the ship pathing picked in the debug menu, kept for each game started. */
-let pilot: PilotId = 'classic';
+let pilot: PilotId = DEFAULT_PILOT;
 let debugCollect: typeof import('../debug/collect').collect | null = null;
 
 function randomSeed(): number {

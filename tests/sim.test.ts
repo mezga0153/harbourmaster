@@ -4316,8 +4316,9 @@ describe('Container Port tier', () => {
     expect(ring[m.idx(tx + 1, r)]).toBe(B.CORNER_NEAR_COST);
     expect(ring[m.idx(tx - 2, r - 1)]).toBe(0);
     // From one side of it round to the other.
-    const from = m.idx(tx, r - 3);
-    const to = m.idx(tx, r + 3);
+    const off = Math.ceil(B.CORNER_CLOSE) + 1;
+    const from = m.idx(tx, r - off);
+    const to = m.idx(tx, r + off);
     const path = findPath(m.w, m.h, from, to, seaWayFor(world, B.BOAT_DRAFT, to, null), true)!;
     expect(path).not.toBeNull();
     const nearest = Math.min(...path.map((i) => Math.hypot(m.xOf(i) - tx, m.yOf(i) - r)));

@@ -7,7 +7,8 @@ import type { Boat } from '../../state';
 import * as B from '../../balance';
 import { clamp, hullGap, wrapAngle } from '../../helpers';
 import { clips } from './seamanship';
-import { tugged } from '../tugs';
+import { pilot } from './pilots';
+import { handiness, tugged } from '../tugs';
 import type { CostFn } from '../../path';
 import { Build, isBuoy, isDock } from '../../types';
 import { judgeVisit } from '../economy';
@@ -67,7 +68,7 @@ export function startSqueeze(w: World, b: Boat): void {
 
 /** Squeezing past this boat, one it was wedged against; see startSqueeze. */
 export function squeezingPast(_w: World, b: Boat, o: Boat): boolean {
-  return (b.squeeze ?? 0) > 0 && !!b.squeezePast?.includes(o.id);
+  return !pilot(_w).adaptive && (b.squeeze ?? 0) > 0 && !!b.squeezePast?.includes(o.id);
 }
 
 /** Boats lying still near this one, that its hull must keep clear of. */
@@ -160,7 +161,10 @@ export function plotCourses(w: World): void {
     // it lies, or backing out of another's way, is plotted lying there
     // until it gets going ahead again: it is not coming on along its way.
     const v = B.VESSELS[b.vessel];
-    const moving = (b.speed ?? 0) > v.speed * 0.1 && !b.astern;
+    const runOut = b.berthing === 'out';
+    const moving =
+      (runOut ? Math.max(b.speed ?? 0, b.sternway ?? 0) : (b.speed ?? 0)) > v.speed * 0.1 &&
+      (!b.astern || runOut);
     const still = moving ? 0 : (w.stillFor.get(b) ?? 0) + 1;
     w.stillFor.set(b, still);
     w.plots.set(b, plot(w, b, still > 10 ? 0 : (w.keepingClear.get(b)?.pace ?? 1)));
@@ -184,6 +188,24 @@ export function plot(world: World, b: Boat, pace: number): Float64Array {
   const xs = [b.x];
   const ys = [b.y];
   const runOut = b.berthing === 'out' && b.lineup !== undefined;
+  const reverse =
+    runOut &&
+    Math.cos(b.dir) * ((b.lineup! % w) + 0.5 - b.x) +
+      Math.sin(b.dir) * (Math.floor(b.lineup! / w) + 0.5 - b.y) <
+      0;
+  let sliding = false;
+  if (runOut && !b.undock && pilot(world).adaptive && b.lineEnd !== undefined) {
+    const sx = (b.lineEnd % w) + 0.5;
+    const sy = Math.floor(b.lineEnd / w) + 0.5;
+    const alongX = b.lineEnd % w !== b.lineup! % w;
+    const px = alongX ? b.x : sx;
+    const py = alongX ? sy : b.y;
+    if (Math.hypot(px - b.x, py - b.y) > 0.02) {
+      xs.push(px);
+      ys.push(py);
+      sliding = true;
+    }
+  }
   const route = b.undock ? [] : runOut ? [b.lineup!] : b.path;
   for (const i of route) {
     xs.push((i % w) + 0.5);
@@ -196,7 +218,9 @@ export function plot(world: World, b: Boat, pace: number): Float64Array {
   let x = b.x;
   let y = b.y;
   let d = b.dir;
-  let speed = Math.max(0, (b.speed ?? 0) - (b.sternway ?? 0));
+  let speed = runOut
+    ? Math.max(b.speed ?? 0, b.sternway ?? 0)
+    : Math.max(0, (b.speed ?? 0) - (b.sternway ?? 0));
   let leg = 1;
   let left = 0;
   for (let k = 1; k < xs.length; k++) left += Math.hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1]);
@@ -212,7 +236,13 @@ export function plot(world: World, b: Boat, pace: number): Float64Array {
     const ly = ys[leg] - y;
     const reach = Math.hypot(lx, ly);
     const along = Math.atan2(ly, lx);
-    let desired = v.speed * (runOut ? 0.75 : 1);
+    let desired =
+      v.speed *
+      (runOut
+        ? sliding && leg === 1
+          ? 0.2 * handiness(world, b)
+          : (reverse ? 0.5 : 0.75) * (0.4 + 0.6 * handiness(world, b))
+        : 1);
     if (!runOut) {
       // Swings round onto the leg as it goes, slowing to turn.
       const err = wrapAngle(along - d);
@@ -602,7 +632,10 @@ export function giveWay(
         // rate, plus however fast the other is drawing away.
         const away = still
           ? 0
-          : Math.max(0, ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir));
+          : Math.max(
+              0,
+              ((o.speed ?? 0) - (o.sternway ?? 0)) * Math.cos(o.dir - b.dir) * (astern ? -1 : 1),
+            );
         const safe = away + Math.sqrt(2 * accel * Math.max(0, gap - room));
         const slow = clamp(safe / v.speed, 0, 1);
         if (slow < speed) by = o;
@@ -784,24 +817,45 @@ export function seaWayFor(
  * boat lies off the corner, rather than shave them.
  */
 export function wideOf(world: World, self: Boat | null): CostFn {
-  const ring = cornerRing(world);
-  const moored = world.boats
-    .filter((o) => o !== self && o.state === 'moored')
+  const length = self ? B.VESSELS[self.vessel].length : B.RUN_OUT_LENGTH;
+  const extra = Math.max(0, (length - B.RUN_OUT_LENGTH) / 2);
+  const caution = Math.min(1, length / B.CAREFUL_LENGTH);
+  const ring = cornerRing(world, extra);
+  const hulls = world.boats
+    .filter((o) => {
+      if (o === self) return false;
+      if (o.state === 'moored' || o.state === 'anchored' || pullingOut(world, o)) return true;
+      // A ship close to coming alongside needs passing room too. Ordinary
+      // traffic out at sea is handled by the predictive traffic rules.
+      return (
+        o.state === 'arriving' &&
+        o.berth >= 0 &&
+        Math.hypot(o.x - world.map.xOf(o.berth) - 0.5, o.y - world.map.yOf(o.berth) - 0.5) <
+          B.VESSELS[o.vessel].length * 1.5
+      );
+    })
     .map((o) => hullOf(world, o));
   const w = world.map.w;
   return (i) => {
     const x = (i % w) + 0.5;
     const y = Math.floor(i / w) + 0.5;
-    for (const h of moored) {
+    let occupied = 0;
+    for (const h of hulls) {
       const rx = x - h.x;
       const ry = y - h.y;
       const fwd = Math.abs(rx * h.hx + ry * h.hy);
       const side = Math.abs(-rx * h.hy + ry * h.hx);
-      if (fwd < h.half + 0.6 + B.MOORED_CLEAR && side < h.beam + 0.8 + B.MOORED_CLEAR) {
-        return ring[i] + B.MOORED_CLEAR_COST;
-      }
+      // Distance to the capsule's hull, rather than a fixed rectangle
+      // around its centre. Leave room for our own bow/stern to swing past
+      // theirs, tapering the cost so routes favour the wider arc.
+      const gap = Math.hypot(Math.max(0, fwd - (h.half - h.beam)), side) - h.beam;
+      const room = B.MOORED_CLEAR * caution + length / 2;
+      occupied = Math.max(
+        occupied,
+        B.MOORED_CLEAR_COST * caution * Math.max(0, 1 - gap / room) ** 2,
+      );
     }
-    return ring[i];
+    return ring[i] + occupied;
   };
 }
 
@@ -813,8 +867,9 @@ export function wideOf(world: World, self: Boat | null): CostFn {
  * along a dock, nor in a corner between two. Derived from the map, so
  * not saved.
  */
-export function cornerRing(w: World): Float32Array {
-  if (w.ringCache) return w.ringCache;
+export function cornerRing(w: World, extra = 0): Float32Array {
+  const cached = extra === 0 ? w.ringCache : w.wideRingCache.get(extra);
+  if (cached) return cached;
   const m = w.map;
   const out = new Float32Array(m.build.length);
   const hard = (x: number, y: number) => {
@@ -823,7 +878,7 @@ export function cornerRing(w: World): Float32Array {
     return m.isLand(i) || (m.build[i] !== Build.None && !isBuoy(m.build[i]));
   };
   const water = (x: number, y: number) => m.inBounds(x, y) && m.ocean[m.idx(x, y)] && !hard(x, y);
-  const r = Math.ceil(B.CORNER_CLOSE);
+  const r = Math.ceil(B.CORNER_CLOSE + extra);
   for (let y = 0; y < m.h; y++) {
     for (let x = 0; x < m.w; x++) {
       const b = m.build[m.idx(x, y)];
@@ -836,7 +891,11 @@ export function cornerRing(w: World): Float32Array {
           if (!water(x + dx, y + dy)) continue;
           const d = Math.hypot(dx, dy);
           const c =
-            d < B.CORNER_NEAR ? B.CORNER_NEAR_COST : d < B.CORNER_CLOSE ? B.CORNER_CLOSE_COST : 0;
+            d < B.CORNER_NEAR + extra
+              ? B.CORNER_NEAR_COST
+              : d < B.CORNER_CLOSE + extra
+                ? B.CORNER_CLOSE_COST
+                : 0;
           const j = m.idx(x + dx, y + dy);
           out[j] = Math.max(out[j], c);
         }
@@ -849,7 +908,7 @@ export function cornerRing(w: World): Float32Array {
     const i = m.idx(x, y);
     return m.isLand(i) && !isDock(m.build[i]);
   };
-  const reach = Math.ceil(B.SHORE_CLOSE);
+  const reach = Math.ceil(B.SHORE_CLOSE + extra);
   for (let y = 0; y < m.h; y++) {
     for (let x = 0; x < m.w; x++) {
       if (!water(x, y)) continue;
@@ -864,12 +923,19 @@ export function cornerRing(w: World): Float32Array {
           );
         }
       }
-      const c = d < B.SHORE_NEAR ? B.SHORE_NEAR_COST : d < B.SHORE_CLOSE ? B.SHORE_CLOSE_COST : 0;
+      const c =
+        d < B.SHORE_NEAR + extra
+          ? B.SHORE_NEAR_COST
+          : d < B.SHORE_CLOSE + extra
+            ? B.SHORE_CLOSE_COST
+            : 0;
       const j = m.idx(x, y);
       out[j] = Math.max(out[j], c);
     }
   }
-  return (w.ringCache = out);
+  if (extra === 0) w.ringCache = out;
+  else w.wideRingCache.set(extra, out);
+  return out;
 }
 
 /**

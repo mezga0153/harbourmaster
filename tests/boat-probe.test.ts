@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { TICKS_PER_DAY } from '../src/sim/types';
 import { World } from '../src/sim/world';
+import { DEFAULT_PILOT, isPilot } from '../src/sim/systems/boats/pilots';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -12,7 +13,8 @@ declare const process: { env: Record<string, string | undefined> };
  * on several times, each sending boats at different times, and averages.
  * Skipped unless asked for:
  *
- *   HM_PROBE=1 [HM_DAYS=5] [HM_RUNS=6] npx vitest run tests/boat-probe.test.ts --silent=false
+ *   HM_PROBE=1 [HM_PILOTS=classic,lookout,navigator] [HM_DAYS=5] [HM_RUNS=6]
+ *     npx vitest run tests/boat-probe.test.ts --silent=false
  */
 const saves = import.meta.glob('../.debug/save.json', { eager: true, import: 'default' });
 const save = Object.values(saves)[0];
@@ -56,6 +58,8 @@ function gap(a: Boat, b: Boat): number {
 }
 
 function measure(world: World, ticks: number): Record<string, number> {
+  const initialDepartures = world.boats.filter((b) => b.state === 'leaving').map((b) => b.id);
+  const initialRunOuts = world.boats.filter((b) => b.berthing === 'out').map((b) => b.id);
   const under = (q: Boat) => q.state !== 'moored' && q.state !== 'anchored';
   // What each boat was doing when it touched another: squeezing past,
   // lying still, handling at a berth, or free on open water.
@@ -64,6 +68,16 @@ function measure(world: World, ticks: number): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (k: string, n = 1) => (out[k] = (out[k] ?? 0) + n);
   const touched = new Set<string>();
+  const initial = new Set<string>();
+  for (let i = 0; i < world.boats.length; i++) {
+    for (let j = i + 1; j < world.boats.length; j++) {
+      const a = world.boats[i];
+      const b = world.boats[j];
+      if (gap(a, b) < 0) initial.add(`${a.id}-${b.id}`);
+    }
+  }
+  out.initialTouchingPairs = initial.size;
+  out.newTouchingPairs = 0;
   const close = new Set<string>();
   const seen = new Set<number>();
   let held = 0;
@@ -92,6 +106,7 @@ function measure(world: World, ticks: number): Record<string, number> {
         if (g < 0 && !touched.has(key)) {
           touched.add(key);
           add('touchingPairs');
+          if (!initial.has(key)) add('newTouchingPairs');
           add(`touching:${[tag(a), tag(c)].sort().join('+')}`);
         } else if (g >= 0 && g < 0.3 && under(a) && under(c) && !close.has(key)) {
           close.add(key);
@@ -102,6 +117,16 @@ function measure(world: World, ticks: number): Record<string, number> {
   }
   out.heldShare = held / Math.max(1, moving);
   out.asternShare = astern / Math.max(1, moving);
+  // Aggregate throughput can improve while the same old ships stay stuck.
+  // Report those present at the start separately from new arrivals.
+  out.initialDepartures = initialDepartures.length;
+  out.initialDeparturesRemaining = world.boats.filter((b) =>
+    initialDepartures.includes(b.id),
+  ).length;
+  out.initialRunOuts = initialRunOuts.length;
+  out.remainingRunOuts = world.boats.filter(
+    (b) => initialRunOuts.includes(b.id) && b.berthing === 'out',
+  ).length;
   return out;
 }
 
@@ -110,14 +135,25 @@ describe.skipIf(!process.env.HM_PROBE)('Boat traffic probe', () => {
     expect(save, 'no .debug/save.json: is the game open on the dev server?').toBeDefined();
     const days = Number(process.env.HM_DAYS ?? 5);
     const runs = Number(process.env.HM_RUNS ?? 6);
-    const total: Record<string, number> = {};
-    for (let r = 0; r < runs; r++) {
-      const world = World.fromSave(save as Parameters<typeof World.fromSave>[0]);
-      world.rng.state = (world.rng.state + r * 7919) | 0;
-      for (const [k, v] of Object.entries(measure(world, days * TICKS_PER_DAY))) {
-        total[k] = (total[k] ?? 0) + v / runs;
+    for (const id of (process.env.HM_PILOTS ?? DEFAULT_PILOT).split(',')) {
+      if (!isPilot(id)) throw new Error(`Unknown pilot: ${id}`);
+      const total: Record<string, number> = {};
+      for (let r = 0; r < runs; r++) {
+        const world = World.fromSave(save as Parameters<typeof World.fromSave>[0]);
+        world.pilot = id;
+        world.rng.state = (world.rng.state + r * 7919) | 0;
+        for (const [k, v] of Object.entries(measure(world, days * TICKS_PER_DAY))) {
+          total[k] = (total[k] ?? 0) + v / runs;
+        }
       }
+      console.log(
+        id,
+        Object.fromEntries(
+          Object.entries(total)
+            .sort()
+            .map(([k, v]) => [k, +v.toFixed(3)]),
+        ),
+      );
     }
-    for (const k of Object.keys(total).sort()) console.log(`${k}: ${+total[k].toFixed(3)}`);
   }, 600_000);
 });

@@ -42,8 +42,8 @@ grid the view works out round the middle of the view (`fine.ts`, where a
 finer path-finding grid plugs in), the trucks' road graph as arrows, crate
 slots used and kept in bays and storage with bays cut off, crane reach, land
 plots and the tile under the pointer. It also picks the ship pathing
-(`src/sim/systems/boats/pilots.ts`: classic, as the published game plays,
-or another way for ships to get off their berths), for the game and the
+(`src/sim/systems/boats/pilots.ts`: Navigator by default, or the older
+classic, drift, patient and lookout pilots for comparison), for the game and the
 dev lab alike; kept in the browser and sent to the sim, never saved. The sim side is `collect.ts`, run in
 the worker on a `debugView` command (or on the page in the dev lab);
 `window.__debug` sets it from a driver.
@@ -114,7 +114,8 @@ shows the game's parts on their own, `src/dev/`:
   a storage tile and a truck, a jib crane at a quay, two coasters off a
   pier's end that wait on each other for good (a knot from a player's port,
   to try ways of pathing on); `tests/scenario.test.ts` checks they do what
-  they say, the knot as an expected failure until it is untied. `window.__scenario` drives them.
+  they say, retaining the classic pilot's knot as an expected failure.
+  `window.__scenario` drives them.
 - Sounds: the sound lab (`src/audio/lab.ts`, also `sounds.html`).
 
 `window.__lab` (the gallery's stage and item) and `window.__scene` (the
@@ -128,6 +129,32 @@ Run the game's simulation in a Node process (vitest, as above, or a script
 that loads a save into `World`), never by starting Chrome or another browser.
 Only drive a browser when asked to fix animations or what the game looks
 like, where screenshots of the drawn game are needed.
+
+Ship navigation uses the existing water-grid routes, predictive traffic rules
+and hull-aware steering. Pier corners have wider cost bands for longer hulls;
+occupied berths and ships handling nearby add a tapered passing-room cost.
+Large ships follow their curved approach route to the alignment point instead
+of aiming straight at it. The lead can replan when another hull occupies its
+route, while keeping the final alignment along the dock. These cases are in
+`tests/boat-clearance.test.ts`, including the approach to (37,92) past (52,89).
+Navigator adds sampled whole-hull departure planning
+(`src/sim/systems/boats/navigation.ts`): it checks both directions and passing
+lanes up to three tiles off the berth, follows the sideways and along-dock legs
+in order, and replans from the ship's current position when held up. Recovery
+keeps collision checks; old saves with intersecting hulls are separated by
+reducing total penetration without making new contacts. Pilot selection is a
+debug override, not saved; new and restored games default to Navigator.
+
+`tests/boat-navigation.test.ts` covers exits, replanning, sternway, collision
+checks, old-save recovery and the pier-end scenario with several blocker
+timings, including saved-game departures creeping at negligible speeds while
+holding the next ship's fairway. Compare pilots against the same mirrored save and RNG seeds with
+`HM_PROBE=1 HM_PILOTS=classic,lookout,navigator HM_DAYS=2 HM_RUNS=2 npx vitest run tests/boat-probe.test.ts --silent=false`.
+The probe reports departures, held-up time, near misses and contacts, including
+which contacts were already present in the save. It is opt-in because the save
+is local and long runs are expensive.
+It also tracks unfinished departures and run-outs that were present at the
+start, so new boats getting through cannot hide an existing deadlock.
 
 ## Progression
 

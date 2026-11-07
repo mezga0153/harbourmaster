@@ -29,6 +29,7 @@ import { walkableAt } from '../../rules/placement';
 import { message, nag, tip } from '../output';
 import { sail } from './seamanship';
 import { pilot } from './pilots';
+import { planDeparture } from './navigation';
 import { tugReady } from '../tugs';
 import { landingReach, muster } from '../workforce/dockhands';
 import { exportsComing, stillLoading } from '../cargo/exports';
@@ -885,6 +886,7 @@ export function approachPath(
   const length = B.VESSELS[boat.vessel].length;
   const sea = seaWay(w, boat);
   let best: number[] | null = null;
+  let bestCost = Infinity;
   boat.lineup = boat.lineEnd = boat.berthing = undefined;
   for (const s of [1, -1]) {
     const run = openAlong(w, boat, berth, jetty, s, length / 2);
@@ -896,8 +898,18 @@ export function approachPath(
     const lead = route(w, boat, from, line[0], sea);
     if (!lead) continue;
     const path = [...lead, ...line.slice(1), berth];
-    if (!best || path.length < best.length) {
+    // Comparing waypoint counts would undo the planner's preference for a
+    // wider approach when another hull lies off a pier's end.
+    let score = line.length;
+    let at = from;
+    for (const i of lead) {
+      const distance = Math.hypot(m.xOf(i) - m.xOf(at), m.yOf(i) - m.yOf(at));
+      score += sea(i, at) * distance;
+      at = i;
+    }
+    if (!best || score < bestCost) {
       best = path;
+      bestCost = score;
       boat.lineup = line[0];
       boat.lineEnd = line[line.length - 1];
       boat.berthing = 'lead';
@@ -915,6 +927,7 @@ export function planRunOut(w: World, b: Boat): void {
   b.lineup = b.lineEnd = b.berthing = undefined;
   const v = B.VESSELS[b.vessel];
   if (v.length < B.RUN_OUT_LENGTH) return;
+  if (pilot(w).adaptive && planDeparture(w, b)) return;
   const m = w.map;
   const ox = m.xOf(b.berth) - m.xOf(b.jetty);
   const oy = m.yOf(b.berth) - m.yOf(b.jetty);

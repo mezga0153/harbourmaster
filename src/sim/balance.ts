@@ -488,13 +488,13 @@ export const BUOY_DETOUR = 8;
  * tiles, centre to centre, costs routes this much more than open water,
  * and nearer than CORNER_CLOSE this much.
  */
-export const CORNER_NEAR = 1.5;
-export const CORNER_NEAR_COST = 3;
-export const CORNER_CLOSE = 2.3;
-export const CORNER_CLOSE_COST = 1;
-/** And they keep this much further again off a boat lying at its berth, at this much more. */
-export const MOORED_CLEAR = 1.3;
-export const MOORED_CLEAR_COST = 3;
+export const CORNER_NEAR = 2;
+export const CORNER_NEAR_COST = 8;
+export const CORNER_CLOSE = 3.5;
+export const CORNER_CLOSE_COST = 2;
+/** Preferred long-ship hull gap round occupied berths; scaled down for small craft, plus half the passing ship's length. */
+export const MOORED_CLEAR = 3;
+export const MOORED_CLEAR_COST = 12;
 /**
  * Boats keep off the bare shore: water whose middle lies nearer the land's
  * edge than SHORE_NEAR tiles (the tile beside it) costs routes this much
