@@ -15,6 +15,7 @@ import { ROTATABLE } from './sim/rules';
 import type { BuildKind } from './sim/types';
 import {
   hover,
+  guide,
   isRoadTool,
   isStoreTool,
   landOffer,
@@ -131,7 +132,15 @@ export class Input {
   }
 
   private key(e: KeyboardEvent): void {
-    if (e.target instanceof HTMLInputElement) return;
+    if (
+      e.target instanceof HTMLElement &&
+      (e.target.matches('input, textarea, select') || e.target.isContentEditable)
+    )
+      return;
+    if (guide.value && !guide.value.practice) {
+      if (e.key === 'Escape') guide.value = null;
+      return;
+    }
     const a = keyAction(e, snapshot.value?.progress.tier ?? 0, import.meta.env.DEV);
     if (!a) return;
     switch (a.type) {

@@ -22,7 +22,7 @@ describe('Guides', () => {
     const s = { cranes: [{ idx: 7, kind: 'jib', fix: 'storage' }] } as unknown as Snapshot;
     const problem = { type: 'crane', idx: 7, x: 0, y: 0, h: 1, text: '' } as ProblemView;
     expect(selectionAt(null, s, 7, { problem, entity: null })).toEqual({ type: 'crane', idx: 7 });
-    expect(guide.value).toEqual({ id: 'jib', step: stepFor('jib', 'storage') });
+    expect(guide.value).toEqual({ id: 'jib', step: stepFor('jib', 'storage'), target: 7 });
     // Any other mark opens none.
     guide.value = null;
     selectionAt(null, s, 7, { problem: { ...problem, type: 'depot' }, entity: null });

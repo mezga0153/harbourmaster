@@ -6,6 +6,7 @@ import { BUILDABLES } from '../sim/rules';
 import type { BuildKind } from '../sim/types';
 import { money } from './format';
 import { Icon } from './icons';
+import { TOOL_HELP } from './toolHelp';
 import {
   land,
   lockedTools,
@@ -46,7 +47,7 @@ function toolInfo(t: ToolDef) {
     : t.upkeep
       ? `${money(t.upkeep)}/day to run`
       : null;
-  return { hint, price, upkeep };
+  return { hint, price, upkeep, help: TOOL_HELP[t.tool] };
 }
 
 function ToolButton({ t, active }: { t: ToolDef; active: boolean }) {
@@ -172,7 +173,24 @@ function CategoryTray({ cat }: { cat: Category }) {
                 {about.key && <kbd>{about.key}</kbd>}
               </span>
             </div>
-            <p class="muted">{info.hint}</p>
+            {info.help ? (
+              <>
+                <dl class="tool-help">
+                  <dt>What it does</dt>
+                  <dd>{info.help.what}</dd>
+                  <dt>Where it goes</dt>
+                  <dd>{info.help.where}</dd>
+                  <dt>What it needs</dt>
+                  <dd>{info.help.needs}</dd>
+                </dl>
+                <details key={about.tool} class="tool-details">
+                  <summary>More details</summary>
+                  <p class="muted">{info.hint}</p>
+                </details>
+              </>
+            ) : (
+              <p class="muted">{info.hint}</p>
+            )}
             {lockedTools.value[about.tool] && (
               <p class="tray-locked">{lockedTools.value[about.tool]}</p>
             )}
@@ -285,9 +303,18 @@ export function BuildBar() {
       if (n !== shown) setShown(n);
     };
     fit();
-    const watch = new ResizeObserver(fit);
+    // State updates change the bar's size. Apply them after the observer's
+    // delivery cycle so narrowing the viewport cannot trigger resize-loop errors.
+    let frame = 0;
+    const watch = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    });
     watch.observe(el);
-    return () => watch.disconnect();
+    return () => {
+      watch.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [compact, shown, categories.length]);
   // Picking a tool, a panel or a menu from it puts it away again.
   useEffect(() => setMore(false), [current, panel.value, openCategory.value]);

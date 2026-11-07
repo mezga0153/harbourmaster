@@ -41,7 +41,7 @@ export function selectionAt(
     const c = s?.cranes.find((c) => c.idx === picked.problem!.idx);
     if (c) {
       const id = craneGuide(c.kind);
-      openGuide(id, stepFor(id, c.fix));
+      openGuide(id, stepFor(id, c.fix), c.idx);
     }
   }
   if (picked.problem) return { type: picked.problem.type, idx: picked.problem.idx };

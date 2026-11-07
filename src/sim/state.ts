@@ -495,6 +495,8 @@ export interface Stand {
 export interface Crate {
   /** What it pays when it leaves on a truck, and what it holds; see cargoOf. */
   fee: number;
+  /** Came off a coaster; kept through storage and truck loading for the learning milestone. */
+  coaster?: boolean;
   /** Going out on a ship, not come in off one. */
   out?: boolean;
   /** The tick it was set down where it is, to tell the older from the newer. */
@@ -642,6 +644,7 @@ export interface SaveData {
   scenery?: number;
   /** Advisor tips already given; see tip(). */
   tips?: string[];
+  learning?: LearningProgress;
   /** Boats that have left the port so far, for the advisor; see departTips. */
   departed?: number;
   /** When container ships lately finished unloading; see unloadedAt. */
@@ -777,4 +780,12 @@ export interface CargoStats {
 export interface CargoSample {
   tick: number;
   cargo: CargoStats;
+}
+
+/** Help acknowledged and real learning milestones, saved with this port. */
+export interface LearningProgress {
+  tips: string[];
+  readTips: string[];
+  marks: string[];
+  guideSteps: Record<string, number>;
 }

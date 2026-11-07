@@ -370,6 +370,29 @@ export function craneTrouble(w: World, c: Crane): string | null {
   return berthTrouble(w, c) ?? jibTrouble(w, c);
 }
 
+/** Independent geometry checks keep later requirements visible while an office is still missing. */
+export function craneSite(
+  w: World,
+  c: Crane,
+): NonNullable<import('../../protocol/views').CraneView['site']> {
+  const m = w.map;
+  const feeder = c.kind !== 'jib';
+  const cost = boatCostFor(w, feeder ? B.FEEDER_DRAFT : B.BOAT_DRAFT);
+  const site = { water: false, wide: false, room: false, depth: false };
+  for (const j of feeder ? craneFront(w, c) : [c.idx]) {
+    for (const n of m.neighbors4(j)) {
+      if (m.ocean[n] !== 1 || m.build[n] !== Build.None) continue;
+      site.water = true;
+      if (feeder && !wideQuay(w, j, n)) continue;
+      site.wide = true;
+      if (!mooredTiles(w, n, j, boatHalf(w, feeder))) continue;
+      site.room = true;
+      if (cost(n) === 1) site.depth = true;
+    }
+  }
+  return site;
+}
+
 /** What is wrong with a crane as a thing to put right, for the guide that shows how (see CraneFix). */
 export function craneFix(w: World, c: Crane): CraneFix | undefined {
   return berthIssue(w, c)?.fix ?? (jibTrouble(w, c) ? 'storage' : undefined);
@@ -425,7 +448,7 @@ function berthIssue(w: World, c: Crane): { fix: CraneFix; text: string } | null 
   if (!office) {
     return {
       fix: 'office',
-      text: 'No ship will come: this quay is not run by a harbour office. Build one nearby.',
+      text: 'No ship will come: this quay is not run by a harbour office. Build another office to coordinate more docks.',
     };
   }
   if (!wide)
@@ -974,6 +997,19 @@ export function buildSnapshot(w: World): Snapshot {
   }));
   const cap = capacity(w);
   return {
+    learning: {
+      ...structuredClone(w.learning),
+      seenTips: [...w.learning.tips],
+      reached: [...w.bays.values(), ...w.yards.values()]
+        .filter((b) => b.tiles && !b.shut && w.loadingDocks(b).length > 0)
+        .map((b) => b.idx),
+      usableDepots: depotViews(w)
+        .filter((d) => !depotDoorTrouble(w.map, d.idx, w.map.orient[d.idx] & 3))
+        .map((d) => d.idx),
+      hut: w.map.build.includes(Build.BreakHut),
+      gate: w.map.build.includes(Build.Gate),
+      customs: hasCustomsOffice(w),
+    },
     tick: w.tick,
     cash: w.cash,
     speed: w.speed,
@@ -1057,6 +1093,7 @@ export function buildSnapshot(w: World): Snapshot {
     cranes: [...w.cranes.values()].map((c) => ({
       idx: c.idx,
       kind: c.kind,
+      site: craneSite(w, c),
       ...servedStack(w, c, moved(c).set),
       max: craneStack(c),
       angle: c.angle,

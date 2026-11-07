@@ -52,7 +52,7 @@ import { book, payout } from '../economy';
 import { moneyAt } from '../output';
 import { frontOf } from '../../rules/footprint';
 import { iceTruck } from '../cargo/stores';
-import { feesOn } from '../cargo/beds';
+import { feesOn, onBoard } from '../cargo/beds';
 
 /** Loading at the kerb, unloading in town, parked or away on the highway: off the road. */
 export function onRoad(_w: World, o: Truck): boolean {
@@ -806,6 +806,12 @@ export function truckLeave(w: World, t: Truck): void {
     book(w, t.boxes ? 'containers' : 'cargo', income);
     w.stats.earned += income;
     w.stats.trucks++;
+    for (const mark of [
+      ...(t.boxes ? ['containerDelivery'] : ['crateDelivery']),
+      ...(!t.boxes && onBoard(w, t).some((c) => c.coaster) ? ['coasterDelivery'] : []),
+    ]) {
+      if (!w.learning.marks.includes(mark)) w.learning.marks.push(mark);
+    }
     moneyAt(w, income, w.tileOf(t));
     if (deliverInTown(w, t)) return;
   }

@@ -18,6 +18,7 @@ import { SettingsPanel } from './Settings';
 import { StaffPanel } from './Staff';
 import { StatsPanel } from './Stats';
 import {
+  guide,
   menuOpen,
   narrow,
   newGameOpen,
@@ -46,7 +47,7 @@ export function App({ actions }: { actions: Actions }) {
       ) : panel.value === 'port' ? (
         <PortPanel actions={actions} />
       ) : panel.value === 'handbook' ? (
-        <HandbookPanel />
+        <HandbookPanel actions={actions} />
       ) : panel.value === 'settings' ? (
         <SettingsPanel actions={actions} />
       ) : panel.value === 'feedback' ? (
@@ -56,14 +57,16 @@ export function App({ actions }: { actions: Actions }) {
       )}
       <PreviewTip />
       <HoverTip />
-      {!(narrow.value && (panel.value || selection.value || menuOpen.value)) && <Advisor />}
+      {!guide.value && !(narrow.value && (panel.value || selection.value || menuOpen.value)) && (
+        <Advisor actions={actions} />
+      )}
       <ReportButton />
       <MapControls actions={actions} />
       <BuildBar />
       <MobileMenu actions={actions} />
       {snapshot.value?.bankrupt && !newGameOpen.value && <BankruptDialog />}
       {newGameOpen.value && <NewGameDialog actions={actions} />}
-      <GuideDialog />
+      <GuideDialog actions={actions} />
       <LandDialog send={actions.send} />
       <PhoneNotice />
     </>

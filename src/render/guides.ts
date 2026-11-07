@@ -7,7 +7,7 @@ import {
   PlaneGeometry,
   Vector3,
 } from 'three';
-import type { BayView, CellsView } from '../protocol';
+import type { BayView, CellsView, YardView } from '../protocol';
 import { CRATES_PER_STORE_TILE } from '../sim/balance';
 import type { GameMap } from '../sim/map';
 import { bestFacing, footprint } from '../sim/rules';
@@ -40,6 +40,8 @@ interface Prop {
 interface Stock {
   tiles: number[];
   n: number;
+  boxes?: boolean;
+  outgoing?: boolean;
 }
 
 interface Beat {
@@ -88,7 +90,7 @@ function quay(m: GameMap, x0: number, x1: number, y0: number, y1: number): numbe
   return lay(m, Build.Quay, block(m, x0, y0, x1, y1));
 }
 
-function store(m: GameMap, tiles: number[], kind = Store.Crates): number[] {
+function store(m: GameMap, tiles: number[], kind: number = Store.Crates): number[] {
   for (const t of tiles) m.store[t] = kind;
   return tiles;
 }
@@ -145,7 +147,149 @@ function put(kind: BuildKind, x: number, y: number): Beat[] {
 const coaster = (load: number): Prop => ({ kind: 'coaster', x: 7.75, y: 3.5, turn: S, load });
 const feeder = (load: number): Prop => ({ kind: 'feeder', x: 8, y: 6, turn: S, load });
 
-const PICTURES: Record<string, Picture> = {
+const PICTURES = {
+  firstBoat: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [3, 1, 10, 5],
+    beats: [
+      {
+        build: (m) => {
+          lay(m, Build.Jetty, row(m, 3, 5, 8));
+          lay(m, Build.Footpath, row(m, 3, 3, 4));
+        },
+        props: [{ kind: 'smack', x: 9, y: 4.4, load: 8 }],
+      },
+      { hand: { x: 8, y: 4 }, props: [{ kind: 'smack', x: 8, y: 4, load: 8 }] },
+      { hand: { x: 8, y: 4, down: true }, props: [{ kind: 'smack', x: 8, y: 4, load: 8 }] },
+    ],
+  },
+  firstDelivery: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 2, 9, 6],
+    beats: [
+      {
+        build: (m) => {
+          lay(m, Build.Jetty, row(m, 3, 5, 8));
+          lay(m, Build.Footpath, block(m, 4, 3, 4, 5));
+          lay(m, Build.Road, row(m, 5, 0, 3));
+        },
+        props: [
+          { kind: 'smack', x: 8, y: 4, load: 8 },
+          { kind: 'person', x: 7, y: 3.5, load: 1 },
+        ],
+      },
+      {
+        props: [
+          { kind: 'person', x: 4.5, y: 4.5, load: 1 },
+          { kind: 'truck', x: 2.5, y: 5.5 },
+        ],
+      },
+      {
+        props: [
+          { kind: 'person', x: 3.8, y: 5.3 },
+          { kind: 'truck', x: 2.5, y: 5.5, load: 4 },
+        ],
+      },
+      { props: [{ kind: 'truck', x: 0.5, y: 5.5, load: 4, turn: Math.PI }] },
+    ],
+  },
+  breakHut: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [1, 1, 7, 5],
+    beats: [
+      {
+        build: (m) => {
+          lay(m, Build.Footpath, row(m, 3, 1, 5));
+          lay(m, Build.Jetty, row(m, 3, 6, 8));
+        },
+      },
+      ...put('breakHut', 3, 2),
+      { props: [{ kind: 'person', x: 3.5, y: 3.5 }] },
+    ],
+  },
+  customs: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [1, 1, 7, 5],
+    beats: [{ build: wharf }, ...put('customs', 2, 3)],
+  },
+  parking: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 1, 5, 6],
+    beats: [
+      { build: (m) => void lay(m, Build.Road, block(m, 1, 1, 4, 6)) },
+      ...drag(2, 2, 4, (m, t) => void lay(m, Build.Parking, t), 3),
+      { props: [{ kind: 'truck', x: 2.8, y: 3.5, turn: E }] },
+      { props: [{ kind: 'truck', x: 4.5, y: 4.5, turn: N }] },
+    ],
+  },
+  outStorage: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [3, 1, 8, 5],
+    beats: [
+      { build: wharf },
+      ...drag(5, 2, 4, (m, t) => void store(m, t, Store.CratesOut)),
+      {
+        props: [{ kind: 'truck', x: 4.5, y: 3.5 }],
+        stock: (m) => [{ tiles: block(m, 5, 2, 5, 4), n: 20, outgoing: true }],
+      },
+      {
+        props: [coaster(8), { kind: 'person', x: 6.5, y: 3.5, load: 1 }],
+        stock: (m) => [{ tiles: block(m, 5, 2, 5, 4), n: 8, outgoing: true }],
+      },
+    ],
+  },
+  containerDepot: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [1, 1, 7, 6],
+    beats: [
+      { build: wharf },
+      ...put('depot', 2, 2),
+      { props: [{ kind: 'stacker', x: 3.5, y: 2.5, turn: E }] },
+      { props: [{ kind: 'stacker', x: 4.5, y: 4.5, turn: N }] },
+    ],
+  },
+  containerYard: {
+    w: W,
+    h: LONG,
+    coast: COAST,
+    view: [2, 1, 10, 10],
+    beats: [
+      {
+        build: (m) => {
+          quay(m, 5, 6, 0, 11);
+          lay(m, Build.PortRoad, block(m, 2, 0, 4, 11));
+          place(m, 'harbourCrane', at(m, 6, 5));
+        },
+      },
+      ...drag(3, 2, 4, (m, t) => void store(m, t, Store.Boxes)),
+      {
+        props: [feeder(30), { kind: 'stacker', x: 4.5, y: 5.5, turn: N, load: 1 }],
+        stock: (m) => [{ tiles: block(m, 3, 2, 3, 4), n: 5, boxes: true }],
+      },
+      {
+        props: [
+          { kind: 'stacker', x: 4.5, y: 3.5, turn: Math.PI },
+          { kind: 'truck', x: 2.5, y: 3.5, turn: S },
+        ],
+        hints: (m) => [{ kind: 'spot', tiles: block(m, 2, 2, 2, 4) }],
+        stock: (m) => [{ tiles: block(m, 3, 2, 3, 4), n: 10, boxes: true }],
+      },
+    ],
+  },
   quay: {
     w: W,
     h: H,
@@ -348,7 +492,7 @@ const PICTURES: Record<string, Picture> = {
       { props: [feeder(28), { kind: 'stacker', x: 4.5, y: 6, turn: N }] },
     ],
   },
-};
+} satisfies Record<string, Picture>;
 
 export type PictureId = keyof typeof PICTURES;
 
@@ -380,10 +524,34 @@ function drawn(pic: Picture, k: number): { content: Group; map: GameMap } {
   }
   const structures = new Structures(map, true);
   structures.setBays(
-    stock.map(
-      (s) =>
-        ({ idx: s.tiles[0], tiles: s.tiles, stock: s.n, exports: 0, cells: cells(s) }) as BayView,
-    ),
+    stock
+      .filter((s) => !s.boxes)
+      .map(
+        (s) =>
+          ({
+            idx: s.tiles[0],
+            tiles: s.tiles,
+            stock: s.outgoing ? 0 : s.n,
+            exports: s.outgoing ? s.n : 0,
+            cells: cells(s),
+          }) as BayView,
+      ),
+  );
+  structures.setYards(
+    stock
+      .filter((s) => s.boxes)
+      .map(
+        (s) =>
+          ({
+            idx: s.tiles[0],
+            tiles: s.tiles,
+            boxes: s.n,
+            exports: 0,
+            cells: Array.from({ length: s.tiles.length * 6 }, (_, i) =>
+              i < s.n ? { look: i + 1 } : null,
+            ),
+          }) as YardView,
+      ),
   );
   const water = new Mesh(
     new PlaneGeometry(pic.w - pic.coast + 40, pic.h + 40),
@@ -423,7 +591,7 @@ function cells(s: Stock): CellsView {
     const tile = Math.floor(i / 4) % s.tiles.length;
     const place = Math.floor(i / (4 * s.tiles.length)) * 4 + (i % 4);
     if (place < CRATES_PER_STORE_TILE)
-      out[tile * CRATES_PER_STORE_TILE + place] = { cargo: 'fish' };
+      out[tile * CRATES_PER_STORE_TILE + place] = { cargo: s.outgoing ? 'canned' : 'fish' };
   }
   return out;
 }
@@ -442,7 +610,7 @@ export function guideFrames(id: PictureId): Promise<Frame[]> {
   let got = cache.get(id);
   if (!got) {
     got = (async () => {
-      const pic = PICTURES[id];
+      const pic: Picture = PICTURES[id];
       const [x0, y0, x1, y1] = pic.view;
       const cam = viewOf(new Box3(new Vector3(x0, 0, y0), new Vector3(x1 + 1, 1.4, y1 + 1)), SIZE);
       const frames: Frame[] = [];

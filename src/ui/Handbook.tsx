@@ -4,8 +4,12 @@ import { TIERS } from '../sim/tiers';
 import { TICKS_PER_DAY } from '../sim/types';
 import { fined } from './difficulty';
 import { money } from './format';
-import { handbookTopic, panel } from './store';
+import { handbookTopic, panel, snapshot, openGuide } from './store';
 import { InfoHeader } from './widgets';
+import type { Actions } from './actions';
+import { GUIDES, checkStep, type GuideId, type Guide } from './guides';
+import { TipHistory } from './Advisor';
+import { SPEEDS } from '../input/keys';
 
 /** Game hours, from ticks. */
 function hours(ticks: number): number {
@@ -13,6 +17,9 @@ function hours(ticks: number): number {
 }
 
 export type TopicId =
+  | 'lessons'
+  | 'controls'
+  | 'tips'
   | 'start'
   | 'boats'
   | 'dockhands'
@@ -29,7 +36,7 @@ export type TopicId =
 
 interface Topic {
   title: string;
-  body: () => ComponentChildren;
+  body: (actions: Actions) => ComponentChildren;
 }
 
 /**
@@ -37,11 +44,87 @@ interface Topic {
  * from the balance settings, so the pages stay true as the game is tuned.
  */
 export const TOPICS: Record<TopicId, Topic> = {
+  lessons: { title: 'Lessons', body: (actions) => <LessonLibrary actions={actions} /> },
+  controls: {
+    title: 'Controls',
+    body: () => (
+      <>
+        <p>
+          Pause whenever you need time to inspect or build. Reading a full lesson pauses the game;
+          practicing in your port restores your previous speed.
+        </p>
+        <table class="help-controls">
+          <tbody>
+            <tr>
+              <th>Move the view</th>
+              <td>
+                Drag the map while Select is active, drag with the right or middle mouse button, or
+                hold W A S D.
+              </td>
+            </tr>
+            <tr>
+              <th>Zoom</th>
+              <td>Scroll, or use + and −.</td>
+            </tr>
+            <tr>
+              <th>Turn the view</th>
+              <td>Q / E</td>
+            </tr>
+            <tr>
+              <th>Pause / resume</th>
+              <td>Space, or the play / pause button at the top.</td>
+            </tr>
+            <tr>
+              <th>Speed</th>
+              <td>{SPEEDS.map((s) => `${s.key} = ${s.label}`).join(' · ')}</td>
+            </tr>
+            <tr>
+              <th>Build</th>
+              <td>
+                Choose a tool, then click to place a building or drag to lay roads, quay and
+                storage.
+              </td>
+            </tr>
+            <tr>
+              <th>Turn a building</th>
+              <td>Right-click before placing it. Check where its door faces.</td>
+            </tr>
+            <tr>
+              <th>Put a tool away</th>
+              <td>Esc, or right-click when the tool cannot be turned.</td>
+            </tr>
+            <tr>
+              <th>Inspect</th>
+              <td>
+                With Select active, click a boat, worker, vehicle, building or storage area. Red
+                warning marks explain what needs attention.
+              </td>
+            </tr>
+            <tr>
+              <th>Open help</th>
+              <td>? or the book button at the top.</td>
+            </tr>
+            <tr>
+              <th>Phone / tablet</th>
+              <td>
+                Pinch to zoom. Drag with two fingers to move the view. Use the on-screen buttons to
+                turn the view or a building.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </>
+    ),
+  },
+  tips: { title: 'Advice history', body: (actions) => <TipHistory actions={actions} /> },
   start: {
     title: 'How the port works',
     body: () => (
       <>
-        <p>Every crate and container goes the same way, from boat to truck:</p>
+        <p>
+          <b>Imports</b> arrive by boat and leave by truck. Start by following one crate through
+          your port:
+        </p>
         <ol>
           <li>
             <b>Lifted off the boat</b> by dockhands or a crane.
@@ -61,6 +144,15 @@ export const TOPICS: Record<TopicId, Topic> = {
             <b>Trucked away</b> by the hauliers you sign. You are paid when a truck leaves with it.
           </li>
         </ol>
+        <p>
+          <b>Exports</b> travel the other way: truck → outgoing storage → ship. You are paid as
+          exports go aboard.
+        </p>
+        <p>
+          A <b>haulier</b> is a trucking company. A <b>shipper</b> sends exports. A <b>quay</b> is a
+          concrete dock; a <b>jetty</b> is a wooden pier. <b>Demurrage</b> is the charge for keeping
+          a boat waiting too long.
+        </p>
         <p>
           The Contracts panel shows how much each step can handle a day and which one holds things
           up. Select anything on the map to see what it is doing, and why when it is stuck.
@@ -89,8 +181,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           </li>
         </ul>
         <p>
-          Up to {B.FREE_DOCKS} jetties work on their own. Any more, and every quay, need a harbour
-          office: each one coordinates {B.DOCKS_PER_OFFICE} docks.
+          Up to {B.FREE_DOCKS} jetties work on their own. More wooden docks can be coordinated by
+          harbourmaster’s huts, each handling {B.JETTIES_PER_HUT} additional docks. Every quay needs
+          a harbour office, each coordinating {B.DOCKS_PER_OFFICE} docks across the port. Connected
+          jetty and quay tiles count as one dock.
         </p>
         <p>
           The harbour master sends boats to a berth under a jib crane first, if it has room in crate
@@ -106,13 +200,14 @@ export const TOPICS: Record<TopicId, Topic> = {
     body: () => (
       <>
         <p>
-          Dockhands lift cargo off the boats, the only staff who can, and carry each crate straight
-          into crate storage or a truck bay: never down on the quay. With nowhere in reach with
-          room, the boat waits, and says why. Crate storage marked out near the berths keeps their
-          walk short.
+          Dockhands lift crates off boats by hand and carry each straight into crate storage or a
+          truck bay: never down on the quay. With nowhere in reach with room, the boat waits, and
+          says why. Crate storage marked out near the berths keeps their walk short.
         </p>
         <ul>
-          <li>They walk on port paths, port roads, jetties and quays, never grass or roads.</li>
+          <li>
+            They walk on port paths, port roads, jetties and quays, never grass or public roads.
+          </li>
           <li>
             They keep off machines-only ground, including the ground round every crane, so a boat
             under a crane is the crane's to unload.
@@ -496,7 +591,70 @@ export const TOPICS: Record<TopicId, Topic> = {
   },
 };
 
-export function HandbookPanel() {
+function LessonLibrary({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  if (!s) return null;
+  return (
+    <>
+      <p>
+        Learn a working setup, one step at a time. Each lesson has an animated example, tool
+        shortcuts and checks against your own port. You can leave and resume any lesson.
+      </p>
+      {(Object.entries(GUIDES) as [GuideId, Guide][]).map(([id, def]) => {
+        const locked = s.progress.tier < def.tier;
+        const completed = s.learning.marks.includes(`guide:${id}`);
+        const checked = def.steps.filter(
+          (st) =>
+            checkStep(
+              st,
+              s,
+              undefined,
+              id === 'jib' || id === 'harbour' || id === 'gantry' ? id : undefined,
+            )?.done,
+        ).length;
+        const saved = s.learning.guideSteps[id];
+        return (
+          <div class="card" key={id}>
+            <strong>{def.title}</strong>
+            <span class="muted">
+              {def.kicker} · {checked} of {def.steps.length} checks ready
+              {completed ? ' · Completed' : ''}
+            </span>
+            <div class="actions">
+              <button class="btn" disabled={locked} onClick={() => openGuide(id)}>
+                {locked
+                  ? `Unlocks at ${def.kicker}`
+                  : saved === undefined
+                    ? 'Start lesson'
+                    : 'Resume lesson'}
+              </button>
+              {!locked && saved !== undefined && (
+                <button class="link" onClick={() => openGuide(id, 0)}>
+                  Read from start
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <p>
+        Reaching a delivery milestone completes its check even if the lesson was closed. Use
+        Statistics to inspect cargo waiting along the way.
+      </p>
+      <button
+        class="link"
+        onClick={() => {
+          actions.send({ type: 'learnt', tip: 'screens' });
+          panel.value = 'stats';
+        }}
+      >
+        Open statistics ›
+      </button>
+    </>
+  );
+}
+
+export function HandbookPanel({ actions }: { actions: Actions }) {
   const topic = handbookTopic.value as TopicId;
   const page = TOPICS[topic] ?? TOPICS.start;
   return (
@@ -513,7 +671,7 @@ export function HandbookPanel() {
           </button>
         ))}
       </nav>
-      <div class="handbook-page">{page.body()}</div>
+      <div class="handbook-page">{page.body(actions)}</div>
     </aside>
   );
 }

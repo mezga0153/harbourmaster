@@ -3,7 +3,7 @@ import * as B from '../sim/balance';
 import { Terrain } from '../sim/types';
 import { money } from './format';
 import { Icon } from './icons';
-import { hover, messages, openCategory, preview, snapshot } from './store';
+import { hover, messages, narrow, openCategory, preview, snapshot } from './store';
 
 /** How long a message shows before it fades. */
 const MESSAGE_MS = 9000;
@@ -69,7 +69,9 @@ export function PreviewTip() {
       <div class={`tip preview bad ${openCategory.value ? 'raised' : ''}`}>
         <Icon name="alert" />
         {p.error}
-        {p.rotatable && <span class="muted">Right-click to rotate</span>}
+        {p.rotatable && (
+          <span class="muted">{narrow.value ? 'Use Turn to rotate' : 'Right-click to rotate'}</span>
+        )}
       </div>
     );
   }
@@ -82,7 +84,9 @@ export function PreviewTip() {
         </span>
       )}
       <strong class={p.value < 0 ? 'neg' : 'pos'}>{money(p.value)}</strong>
-      {p.rotatable && <span class="muted">Right-click to rotate</span>}
+      {p.rotatable && (
+        <span class="muted">{narrow.value ? 'Use Turn to rotate' : 'Right-click to rotate'}</span>
+      )}
       {p.note && <span class="muted">{p.note}</span>}
     </div>
   );

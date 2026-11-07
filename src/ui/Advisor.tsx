@@ -2,8 +2,11 @@ import * as B from '../sim/balance';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { PictureId } from '../render/guides';
 import { FlipBook } from './Guide';
-import type { GuideId } from './guides';
-import { advice, openGuide, openHandbook } from './store';
+import type { GuideId, GuideAction } from './guides';
+import type { Snapshot } from '../protocol';
+import type { Actions } from './actions';
+import { availableAction, runHelpAction } from './learning';
+import { advice, openGuide, openHandbook, snapshot } from './store';
 import { Icon } from './icons';
 
 interface Tip {
@@ -23,11 +26,12 @@ const hours = (ticks: number) => Math.round((ticks * 24) / TICKS_PER_DAY);
  * What the advisor says the first time each thing comes up in a game. The
  * sim decides when (see World.tip); this is what is said.
  */
-const TIPS: Record<string, Tip> = {
+export const TIPS: Record<string, Tip> = {
   welcome: {
     title: 'Welcome, harbourmaster',
-    text: 'Boats bring crates to your jetty. Dockhands lift them off and heap them at the end of the road, and the hauliers’ pickups pull up there to take them away: you are paid as each leaves. Select anything to see what it is doing.',
+    text: 'Your jetty is ready. Dockhands carry crates off the boats, and hauliers—trucking companies—collect them in pickups. You earn money when a loaded truck leaves. Press Space to pause, or try the first-delivery lesson.',
     topic: 'start',
+    guide: ['start', 0],
   },
   truckBays: {
     title: 'Truck bays',
@@ -36,12 +40,12 @@ const TIPS: Record<string, Tip> = {
   },
   hut: {
     title: 'Somewhere to rest',
-    text: 'A dockhand is tired. With nowhere to rest they sit down where they are, which is slow and bad for morale. Build a break hut near the jetty: Buildings, then Break hut (K).',
+    text: 'A dockhand is tired. Build a break hut connected to the jetty by a port path so the crew can rest and recover morale.',
     topic: 'dockhands',
   },
   speed: {
     title: 'Speeding things up',
-    text: 'The first boat has gone. Waiting for the next? Speed the game up with 2×, 4× and 8× at the top (keys 1 to 4), and pause it with Space.',
+    text: 'Waiting for the next boat? Keys 1, 2, 3 and 4 set 1×, 2×, 4× and 8× speed. Space pauses and resumes the game.',
     topic: 'start',
   },
   jetty: {
@@ -67,21 +71,21 @@ const TIPS: Record<string, Tip> = {
   },
   quayStorage: {
     title: 'Storage on the quay',
-    text: 'Boats are kept waiting while the dockhands walk each crate off them a long way to storage or a truck bay. Mark out crate storage for cargo coming in, and crate storage for cargo going out, on the quay right by the berths, so they carry each a few steps rather than across the port. Trucks load beside it, or forklifts move the crates on to the truck bays.',
+    text: 'Dockhands spend too long carrying crates away from the boats. Mark incoming crate storage near the berths to shorten their walk. Leave an unmarked lane beside it for trucks.',
     topic: 'storage',
     picture: 'storage',
     guide: ['wharf', 2],
   },
   cranes: {
     title: 'Machines only round a crane',
-    text: `The ground round a crane, shown in red, is for port machines only: dockhands and the hauliers’ trucks keep off. A jib crane swings crates only into crate storage for cargo coming in right next to it, in that red ground: mark some out there, or it unloads nothing. What a container crane lands, reach stackers take on.`,
+    text: 'A crane’s red ground is reserved for port machines. For a jib crane, mark incoming crate storage on its blue highlighted tiles, then connect a forklift to move the crates onward.',
     topic: 'cranes',
     picture: 'jib',
     guide: ['jib', 2],
   },
   forklifts: {
     title: 'Forklifts',
-    text: `Forklifts carry ${B.FORKLIFT_CAPACITY} crates a trip but cannot unload boats: dockhands carry the crates off themselves. Forklifts empty storage the trucks cannot reach, like that by a jib crane, to the bays and other storage, and load crate trucks.`,
+    text: 'Forklifts move crates from storage the trucks cannot reach to bays or accessible storage, and load trucks. Connect their depot and both storage areas with port roads or quay. Dockhands or a jib crane unload the boats.',
     topic: 'machines',
   },
   stackers: {
@@ -96,12 +100,12 @@ const TIPS: Record<string, Tip> = {
   },
   landed: {
     title: 'Cargo left on the quay',
-    text: 'Crates an older game left on the quay are taken on to storage by the forklifts, or the dockhands. Nothing sets crates down there now: dockhands carry each straight into storage or a truck bay.',
+    text: 'Some crates are waiting on the quay. Connect dockhands or forklifts to move them into storage. Incoming storage near the berth keeps the journey short.',
     topic: 'dockhands',
   },
   storage: {
     title: 'Crate storage',
-    text: `Trucks load from inside the port, on a port road or quay beside storage, shown in yellow, one at a time for every ${B.STORE_TILES_PER_TRUCK} tiles. A jib crane right next to it fills it straight from the boats; where no truck can get to it, forklifts take its crates on. Storage is for cargo coming in or going out, never both.`,
+    text: 'Trucks load beside incoming storage from inside the port. Join the loading lane to a public road through a port gate. Select storage to see its loading spots in yellow.',
     topic: 'storage',
     picture: 'storage',
     guide: ['wharf', 2],
@@ -128,27 +132,27 @@ const TIPS: Record<string, Tip> = {
   },
   customsOffice: {
     title: 'A customs office',
-    text: `A line on the contracts board brings cargo customs must clear: timber or goods off the coasters, containers off the feeders, or crates of goods or the cannery's canned fish going out, inspected for export. It cannot be signed till the port has a customs office: build one from Buildings, on open ground or a port path in the port's land, its door facing a port path or road. One does for the whole port, for $${B.CUSTOMS_OFFICE_COST.toLocaleString('en-US')}.`,
+    text: 'A contract needs a customs office before you can sign it. Build one with its door facing a port path or road. One office handles customs and export inspection for the whole port.',
     topic: 'storage',
   },
   papers: {
     title: 'Export papers',
-    text: `Crates of goods and canned fish wait in the outgoing crate storage about ${hours(B.EXPORT_PAPERS_TICKS)} hours to be inspected before they may go on board, so a coaster takes only what is ready. Give the outgoing storage room for half a day of them, or the shippers' trucks wait outside with their loads.`,
+    text: `Canned fish and goods wait about ${hours(B.EXPORT_PAPERS_TICKS)} game hours in outgoing storage for export inspection. Select the storage to see the countdown. Leave enough room for half a day of arrivals.`,
     topic: 'exports',
   },
   noHands: {
     title: 'Nobody to unload by hand',
-    text: 'With no dockhands, boats only take berths under a jib crane with room in crate storage in its reach, and wait at anchor for one. Hire dockhands, mark out more storage by the cranes, or build more jib cranes.',
+    text: 'Boats are waiting because no dockhands can unload them. Hire a dockhand, or provide a jib crane with free incoming storage in reach.',
     topic: 'boats',
   },
   roundTrip: {
     title: 'Trucks on their rounds',
-    text: `A truck that leaves is away about ${hours(B.TRUCK_ROUND_TRIP)} hours before its haulier can send it again, so cargo waits in the bays and storage meanwhile. More trucks, or bigger ones, take more away.`,
+    text: 'The haulier’s trucks are away making deliveries. Cargo waits until they return. Sign another haulier if the fleet cannot keep up with arrivals.',
     topic: 'trucks',
   },
   parking: {
     title: 'Parking for the shippers',
-    text: `A shipper's trucks park outside the port for about ${hours(B.PAPERWORK_TICKS)} hours of paperwork before they come in. Mark truck parking out on a public road: a strip of it one or two tiles wide, with road left along both sides for trucks to drive across it, or they do not come.`,
+    text: 'Shippers need working parking outside the port. Mark a strip on a public road with road along both long sides. Container trucks wait here for paperwork; canned fish and goods are inspected later in outgoing storage.',
     topic: 'exports',
   },
   exports: {
@@ -163,7 +167,7 @@ const TIPS: Record<string, Tip> = {
   },
   exits: {
     title: 'A new highway exit',
-    text: 'Trucks come in off whichever end of the highway is nearer and take the exit nearest where they are going, so an exit beside a busy yard takes them off the port’s own roads. Out on the highway they drive fast and pass through each other: it never jams.',
+    text: 'A new highway exit can bring trucks closer to a busy loading area. Build a public road up to the highway or choose Highway exit, then connect it to your port gate.',
     topic: 'trucks',
   },
   oneWay: {
@@ -183,13 +187,14 @@ const TIPS: Record<string, Tip> = {
   },
   restaurant: {
     title: 'The seafood restaurant',
-    text: 'Visitors come for the seafood, and the town may grow to 400. Once it has 300 people, upgrade the port to a Coastal Wharf in the Port panel (P): the town’s next landmark, a cannery, wants more fish than fishing boats bring, 30 crates a day for 2 days running, and only coasters at a quay bring that much.',
+    text: 'The restaurant is open and the town can grow to 400 people. At 300 people, upgrade to a Coastal Wharf in the Port panel. Then supply 30 fish crates a day for 2 days to open the cannery.',
     topic: 'growth',
   },
   cannery: {
     title: 'The cannery',
-    text: 'The town has its cannery, and may grow to 500. The cannery’s offer is on the contracts board: its trucks bring canned fish to the port, to go out on the coasters. It can be signed once the port has a customs office (Buildings), for the export papers. Its trucks need three things. 1: truck parking outside the port, marked out on a public road with road along both its long sides, where they wait their turn. 2: a port gate, with port roads inside it on to crate storage marked out for cargo going out, where they unload. 3: a shipping line’s coasters calling, to take it on board. Next the town wants a builders’ yard: put 25 crates of canned fish on board ships.',
+    text: 'The cannery is open. To export its canned fish, prepare a customs office, outside truck parking and outgoing crate storage connected through a port gate. Keep a coaster line active. The export lesson walks through each step.',
     topic: 'exports',
+    guide: ['exports', 0],
   },
   buildersYard: {
     title: 'The builders’ yard',
@@ -221,15 +226,94 @@ const TIPS: Record<string, Tip> = {
     title: 'Container Port',
     text: 'Feeder ships bring containers. Cranes lift them, reach stackers take them to container yards, and after customs, container trucks take them away.',
     topic: 'containers',
+    guide: ['harbour', 0],
   },
 };
 
-/** The advisor's card, one tip at a time, until each is read. */
-export function Advisor() {
-  const id = advice.value.find((t) => t in TIPS);
+const TIP_ACTIONS: Record<string, GuideAction> = {
+  hut: { label: 'Choose break hut', tool: 'breakHut' },
+  truckBays: { label: 'Choose truck bay', tool: 'truckBay' },
+  jetty: { label: 'Choose jetty', tool: 'jetty' },
+  contract: { label: 'Open fishery offers', offers: 'fishery' },
+  screens: { label: 'Open finance', panel: 'finance' },
+  forklifts: { label: 'Choose forklift', tool: 'forklift' },
+  stackers: { label: 'Choose reach stacker', tool: 'stacker' },
+  tractors: { label: 'Choose terminal tractor', tool: 'tractor' },
+  customsOffice: { label: 'Choose customs office', tool: 'customs' },
+  crateCustoms: { label: 'Show storage', inspect: 'storage' },
+  papers: { label: 'Open contracts', panel: 'contracts' },
+  noHands: { label: 'Open staff', panel: 'staff' },
+  roundTrip: { label: 'Open haulier offers', offers: 'haulier' },
+  parking: { label: 'Choose truck parking', tool: 'parking' },
+  yardGantry: { label: 'Choose yard gantry', tool: 'yardGantry' },
+  yards: { label: 'Choose incoming yard', tool: 'boxStore' },
+  land: { label: 'Choose land', tool: 'land' },
+};
+
+/** Blockers come before background lessons; preserve arrival order within a priority. */
+export function tipPriority(id: string, s: Snapshot | null): number {
+  if (!s) return 0;
+  if (id === 'noHands' && !s.people.some((p) => p.kind === 'dockhand')) return 100;
+  if (id === 'parking' && s.contracts.some((c) => c.trouble?.bad)) return 90;
+  if (id === 'cranes' && s.cranes.some((c) => c.trouble)) return 90;
+  if (id === 'customsOffice' && !s.learning.customs) return 80;
+  if (id === 'hut' && !s.learning.hut) return 80;
+  if (id === 'quayStorage') return 70;
+  return 0;
+}
+
+function TipActions({ id, actions }: { id: string; actions: Actions }) {
+  const tip = TIPS[id];
+  const action = TIP_ACTIONS[id];
+  const read = () => {
+    actions.send({ type: 'readTip', id });
+    advice.value = advice.value.filter((t) => t !== id);
+  };
+  return (
+    <div class="actions">
+      {tip.guide ? (
+        <button
+          class="btn primary"
+          onClick={() => {
+            read();
+            openGuide(...tip.guide!);
+          }}
+        >
+          Show me how
+        </button>
+      ) : action && availableAction(action) ? (
+        <button
+          class="btn primary"
+          onClick={() => {
+            read();
+            runHelpAction(action, actions);
+          }}
+        >
+          {action.label}
+        </button>
+      ) : null}
+      <button
+        class="link"
+        onClick={() => {
+          read();
+          openHandbook(tip.topic);
+        }}
+      >
+        Read more
+      </button>
+      <button class="link" onClick={read}>
+        Got it
+      </button>
+    </div>
+  );
+}
+
+export function Advisor({ actions }: { actions: Actions }) {
+  const id = advice.value
+    .filter((t) => Object.hasOwn(TIPS, t))
+    .sort((a, b) => tipPriority(b, snapshot.value) - tipPriority(a, snapshot.value))[0];
   if (!id) return null;
   const tip = TIPS[id];
-  const done = () => (advice.value = advice.value.filter((t) => t !== id));
   return (
     <div class="advisor panel" role="status">
       <div class="advisor-head">
@@ -240,32 +324,34 @@ export function Advisor() {
       <strong>{tip.title}</strong>
       <p>{tip.text}</p>
       {tip.picture && <FlipBook id={tip.picture} small />}
-      <div class="actions">
-        {tip.guide ? (
-          <button
-            class="btn"
-            onClick={() => {
-              openGuide(...tip.guide!);
-              done();
-            }}
-          >
-            Show me how
-          </button>
-        ) : (
-          <button
-            class="btn"
-            onClick={() => {
-              openHandbook(tip.topic);
-              done();
-            }}
-          >
-            Read more
-          </button>
-        )}
-        <button class="btn primary" onClick={done}>
-          Got it
-        </button>
-      </div>
+      <TipActions id={id} actions={actions} />
+      <button class="link" onClick={() => openHandbook('tips')}>
+        Revisit advice ›
+      </button>
     </div>
+  );
+}
+
+export function TipHistory({ actions }: { actions: Actions }) {
+  const s = snapshot.value;
+  const seen = s?.learning.seenTips.filter((id) => Object.hasOwn(TIPS, id)) ?? [];
+  return (
+    <>
+      <p>
+        Advice for this port stays here, including cards you have dismissed. Unread cards are saved
+        with your game.
+      </p>
+      {seen.length === 0 && <p>Your advisor’s messages will appear here as you play.</p>}
+      {seen.map((id) => (
+        <details key={id} class="help-history">
+          <summary>
+            {TIPS[id].title}
+            {!s?.learning.readTips.includes(id) ? ' · Unread' : ''}
+          </summary>
+          <p>{TIPS[id].text}</p>
+          <TipActions id={id} actions={actions} />
+        </details>
+      ))}
+    </>
   );
 }

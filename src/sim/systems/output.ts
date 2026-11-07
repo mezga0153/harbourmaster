@@ -35,6 +35,7 @@ export function nag(w: World, key: string, text: string, tone: 'info' | 'good' |
 export function tip(w: World, id: string): void {
   if (w.tipsSeen.has(id)) return;
   w.tipsSeen.add(id);
+  if (!w.learning.tips.includes(id)) w.learning.tips.push(id);
   w.events.push({ kind: 'tip', id });
 }
 

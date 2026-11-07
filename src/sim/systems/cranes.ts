@@ -95,7 +95,14 @@ export function updateCrane(w: World, c: Crane): void {
     // Into the place kept for it, on a tile of it in reach.
     const s = c.setInto?.store === store.idx ? c.setInto.slot : -1;
     c.setInto = undefined;
-    setDown(w, store, [boat.fee], false, undefined, { at: [s] });
+    setDown(
+      w,
+      store,
+      [{ fee: boat.fee, at: w.tick, coaster: boat.vessel === 'coaster' }],
+      false,
+      undefined,
+      { at: [s] },
+    );
     w.stats.cratesHandled++;
     return;
   }

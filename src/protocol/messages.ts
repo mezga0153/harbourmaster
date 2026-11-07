@@ -48,6 +48,9 @@ export type Command =
   | { type: 'setSpeed'; speed: number }
   /** The player has found out for themselves what this advisor tip would teach them. */
   | { type: 'learnt'; tip: string }
+  | { type: 'readTip'; id: string }
+  | { type: 'inspect'; kind: 'boat' | 'dockhand' }
+  | { type: 'help'; id: string; action: 'open' | 'step' | 'complete' | 'dismiss'; step: number }
   /** Carry on from the game saved in this browser (a new port if there is none): the title screen's pick. */
   | { type: 'continue' }
   | { type: 'newGame'; seed?: number; difficulty?: Difficulty }

@@ -7,6 +7,7 @@ export interface Actions {
   togglePause(): void;
   /** Point the camera at a tile. */
   focus(x: number, y: number): void;
+  focusTile(tile: number): void;
   /** Turn the view a quarter round, as Q and E do. */
   rotateView(dir: 1 | -1): void;
   /** Zoom the view: below 1 in, above 1 out. */

@@ -1,7 +1,7 @@
 import { computed, effect, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { Preview } from '../preview/types';
-import type { GuideId } from './guides';
+import { GUIDES, type GuideId } from './guides';
 import type { Tool } from './tools';
 
 // The UI's shared state: what the sim last sent, what the player has in
@@ -61,10 +61,20 @@ export const rotation = signal<number | null>(null);
 export const newGameOpen = signal(false);
 
 /** The guide open over the game (Guide.tsx), and the step it is on. */
-export const guide = signal<{ id: GuideId; step: number } | null>(null);
+export const guide = signal<{
+  id: GuideId;
+  step: number;
+  practice?: boolean;
+  target?: number;
+} | null>(null);
 
-export function openGuide(id: GuideId, step = 0): void {
-  guide.value = { id, step };
+export function openGuide(id: GuideId, step?: number, target?: number): void {
+  if (!Object.hasOwn(GUIDES, id)) return;
+  const at = Math.max(
+    0,
+    Math.min(GUIDES[id].steps.length - 1, step ?? snapshot.peek()?.learning.guideSteps[id] ?? 0),
+  );
+  guide.value = { id, step: at, ...(target === undefined ? {} : { target }) };
 }
 /** The port's land: plots owned, and what the next plot of land and of seabed costs. */
 export const land = signal<{
@@ -181,7 +191,7 @@ effect(() => {
 });
 
 /** The handbook page open; see Handbook.tsx. */
-export const handbookTopic = signal('start');
+export const handbookTopic = signal('lessons');
 
 export function openHandbook(topic: string): void {
   handbookTopic.value = topic;
@@ -218,7 +228,9 @@ export const advice = signal<string[]>([]);
 export function advise(id: string): void {
   if (!advice.value.includes(id)) advice.value = [...advice.value, id];
   // The port has become a Coastal Wharf: how to build one, step by step.
+  if (id === 'welcome') openGuide('start');
   if (id === 'tier1') openGuide('wharf');
+  if (id === 'tier2') openGuide('harbour');
 }
 
 let nextMessageId = 1;

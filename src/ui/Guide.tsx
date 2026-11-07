@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { guideFrames, type Frame, type PictureId } from '../render/guides';
-import { GUIDES, type GuideStep } from './guides';
-import { guide } from './store';
+import { checkStep, GUIDES } from './guides';
+import type { Actions } from './actions';
+import { availableAction, runHelpAction } from './learning';
+import { guide, openCategory, panel, snapshot, tool } from './store';
 import { InfoHeader } from './widgets';
 
 // A guide over the game: its steps one at a time, each with its picture
@@ -61,62 +63,211 @@ export function FlipBook({ id, small }: { id: PictureId; small?: boolean }) {
   );
 }
 
-/** The open guide, a step at a time. */
-export function GuideDialog() {
+/** Read a lesson while paused, or keep one compact step beside the working port. */
+export function GuideDialog({ actions }: { actions: Actions }) {
   const g = guide.value;
-  if (!g) return null;
+  const s = snapshot.value;
+  const box = useRef<HTMLDivElement>(null);
+  const previousGuide = useRef<string | null>(null);
+  useEffect(() => {
+    if (!g) {
+      previousGuide.current = null;
+      return;
+    }
+    actions.send({
+      type: 'help',
+      id: g.id,
+      action: previousGuide.current === g.id ? 'step' : 'open',
+      step: g.step,
+    });
+    previousGuide.current = g.id;
+  }, [g?.id, g?.step]);
+  useEffect(() => {
+    if (!g || g.practice) return;
+    const previous = document.activeElement;
+    box.current?.querySelector<HTMLElement>('.guide-primary')?.focus();
+    return () => {
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [!!g, g?.practice]);
+  if (!g || !s) return null;
   const def = GUIDES[g.id];
-  const steps = def.steps as GuideStep[];
-  const step = steps[g.step];
-  const close = () => (guide.value = null);
-  const go = (n: number) => (guide.value = { id: g.id, step: n });
-  const last = g.step === steps.length - 1;
-  return (
-    <div class="backdrop" onClick={close}>
-      <div
-        class="dialog panel guide"
-        role="dialog"
-        aria-labelledby="guide-title"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowRight' && !last) go(g.step + 1);
-          if (e.key === 'ArrowLeft' && g.step > 0) go(g.step - 1);
-          if (e.key === 'Escape') close();
-        }}
-      >
-        <InfoHeader kicker={def.kicker} title={def.title} onClose={close} />
-        <FlipBook id={step.picture} />
-        <div class="guide-step">
-          <div class="guide-count">
-            Step {g.step + 1} of {steps.length}
-          </div>
-          <strong id="guide-title">{step.title}</strong>
-          {step.how && <div class="guide-how">{step.how}</div>}
-          <p>{step.text}</p>
-        </div>
-        <div class="guide-nav">
-          <div class="guide-dots" role="tablist" aria-label="Steps">
-            {steps.map((s, n) => (
-              <button
-                key={n}
-                role="tab"
-                aria-selected={n === g.step}
-                aria-label={s.title}
-                class={n === g.step ? 'on' : ''}
-                onClick={() => go(n)}
-              />
-            ))}
-          </div>
-          {g.step > 0 && (
-            <button class="btn" onClick={() => go(g.step - 1)}>
-              Back
-            </button>
-          )}
-          <button class="btn primary" autoFocus onClick={() => (last ? close() : go(g.step + 1))}>
-            {last ? 'Got it' : 'Next'}
-          </button>
-        </div>
+  if (!def) return null;
+  const step = def.steps[g.step] ?? def.steps[0];
+  const statuses = def.steps.map((step) =>
+    checkStep(
+      step,
+      s,
+      g.target,
+      g.id === 'jib' || g.id === 'harbour' || g.id === 'gantry' ? g.id : undefined,
+    ),
+  );
+  const current = statuses[g.step];
+  const done = statuses.every((c) => !c || c.done);
+  const count = statuses.filter((c) => c?.done).length;
+  const last = g.step === def.steps.length - 1;
+  const close = (complete = false) => {
+    actions.send({
+      type: 'help',
+      id: g.id,
+      action: complete ? 'complete' : 'dismiss',
+      step: g.step,
+    });
+    guide.value = null;
+  };
+  const go = (step: number) => {
+    guide.value = { ...g, step };
+  };
+  const toggle = () => {
+    if (!g.practice) {
+      panel.value = null;
+      openCategory.value = null;
+    }
+    tool.value = 'select';
+    guide.value = { ...g, practice: !g.practice };
+  };
+  const content = (
+    <div
+      ref={box}
+      class={`panel guide ${g.practice ? `guide-coach ${openCategory.value ? 'raised' : ''}` : 'dialog'}`}
+      role={g.practice ? 'region' : 'dialog'}
+      aria-modal={g.practice ? undefined : true}
+      aria-labelledby="guide-title"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          close();
+        }
+        if (!g.practice && e.key === 'ArrowRight' && !last) {
+          e.preventDefault();
+          go(g.step + 1);
+        }
+        if (!g.practice && e.key === 'ArrowLeft' && g.step > 0) {
+          e.preventDefault();
+          go(g.step - 1);
+        }
+        if (!g.practice && e.key === 'Tab') {
+          const controls = [
+            ...(box.current?.querySelectorAll<HTMLElement>(
+              'button:not(:disabled), select, summary, [href]',
+            ) ?? []),
+          ].filter((el) => el.getClientRects().length);
+          const first = controls[0],
+            end = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            end?.focus();
+          }
+          if (!e.shiftKey && document.activeElement === end) {
+            e.preventDefault();
+            first?.focus();
+          }
+        }
+      }}
+    >
+      <InfoHeader kicker={def.kicker} title={def.title} onClose={() => close()} />
+      <div class="guide-mode">
+        <span class="muted">
+          {g.practice ? 'Practice in your port' : 'Game paused while you read'}
+        </span>
+        <button class="link" onClick={toggle}>
+          {g.practice ? 'Read with example' : 'Try in my port'}
+        </button>
       </div>
+      {g.practice ? (
+        <details class="guide-example">
+          <summary>See animated example</summary>
+          <FlipBook id={step.picture} />
+        </details>
+      ) : (
+        <FlipBook id={step.picture} />
+      )}
+      <div class="guide-step">
+        <div class="guide-count">
+          Step {g.step + 1} of {def.steps.length}
+        </div>
+        <strong id="guide-title">{step.title}</strong>
+        {step.how && <div class="guide-how">{step.how}</div>}
+        <p>{step.text}</p>
+      </div>
+      {current && (
+        <p class={`guide-check ${current.done ? 'pos' : ''}`} role="status">
+          {current.done ? '✓' : '○'} {current.label}
+        </p>
+      )}
+      <div class="actions guide-actions">
+        {step.actions?.map((a) => (
+          <button
+            key={a.label}
+            class="btn"
+            disabled={!availableAction(a)}
+            onClick={() => runHelpAction(a, actions)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <details class="guide-checklist">
+        <summary>
+          {count} of {statuses.filter(Boolean).length} checks complete
+        </summary>
+        <ol>
+          {def.steps.map((st, n) => (
+            <li key={st.title}>
+              <button
+                class={`link ${statuses[n]?.done ? 'pos' : ''}`}
+                aria-current={n === g.step ? 'step' : undefined}
+                onClick={() => go(n)}
+              >
+                {statuses[n]?.done ? '✓ ' : ''}
+                {st.title}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </details>
+      <div class="guide-nav">
+        {g.step > 0 && (
+          <button class="btn" onClick={() => go(g.step - 1)}>
+            Back
+          </button>
+        )}
+        <button
+          class="btn primary guide-primary"
+          disabled={last && !done}
+          onClick={() => (last ? close(true) : go(g.step + 1))}
+        >
+          {last ? 'Finish lesson' : 'Next'}
+        </button>
+        <button class="link" onClick={() => close()}>
+          Save for later
+        </button>
+      </div>
+      {last && !done && (
+        <p class="muted">
+          Complete the checks in your port to finish. You can revisit any step or save the lesson
+          for later.
+        </p>
+      )}
+      {g.id === 'wharf' && last && done && (
+        <button
+          class="link"
+          onClick={() => {
+            close(true);
+            guide.value = { id: 'jib', step: 0 };
+          }}
+        >
+          Next: speed up with a jib crane ›
+        </button>
+      )}
+    </div>
+  );
+  return g.practice ? (
+    content
+  ) : (
+    <div class="backdrop" onClick={() => close()}>
+      {content}
     </div>
   );
 }

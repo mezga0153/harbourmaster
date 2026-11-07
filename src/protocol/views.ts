@@ -164,6 +164,7 @@ export interface HandAt {
 export interface CraneView {
   idx: number;
   kind: 'jib' | 'harbour' | 'gantry';
+  site?: { water: boolean; wide: boolean; room: boolean; depth: boolean };
   stack: number;
   /** Container cranes: exports set down for it to lift on board. */
   out: number;
@@ -528,6 +529,15 @@ export interface ProblemView {
 }
 
 export interface Snapshot {
+  /** Learning state and the buildings needed by the guides. */
+  learning: import('../sim/state').LearningProgress & {
+    seenTips: string[];
+    reached: number[];
+    usableDepots: number[];
+    hut: boolean;
+    gate: boolean;
+    customs: boolean;
+  };
   tick: number;
   cash: number;
   speed: number;

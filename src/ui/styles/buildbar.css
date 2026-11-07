@@ -418,3 +418,47 @@
     width: calc(100vw - 16px);
   }
 }
+.tool-help {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 3px 10px;
+  margin: 6px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.tool-help dt {
+  color: var(--text);
+  font-weight: 600;
+}
+.tool-help dd {
+  margin: 0;
+  color: var(--text-2);
+}
+.tool-details {
+  font-size: 12px;
+}
+.tool-details summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+.tool-details p {
+  max-height: 100px;
+  overflow-y: auto;
+}
+@media (max-width: 760px) {
+  .tool-help {
+    grid-template-columns: 80px 1fr;
+    font-size: 11px;
+  }
+}
+.tray-about {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.tray-about .tool-details p {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow-y: auto;
+  margin-top: 5px;
+}

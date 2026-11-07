@@ -45,8 +45,7 @@ plots and the tile under the pointer. It also picks the ship pathing
 (`src/sim/systems/boats/pilots.ts`: Navigator by default, or the older
 classic, drift, patient and lookout pilots for comparison), for the game and the
 dev lab alike; kept in the browser and sent to the sim, never saved. The sim side is `collect.ts`, run in
-the worker on a `debugView` command (or on the page in the dev lab);
-`window.__debug` sets it from a driver.
+the worker on a `debugView`command (or on the page in the dev lab);`window.__debug` sets it from a driver.
 
 ## Players' games: the play log
 
@@ -194,13 +193,23 @@ when changing tiers, town growth, contracts or what unlocks what.
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
   `entities/` and `motion.ts` for moving things, `util/` for shared maths,
   `keyed.ts` for keeping keyed objects (and disposing what they own).
-- The guides (`src/ui/Guide.tsx`, steps in `src/ui/guides.ts`): a few
-  steps over the game, each with a picture the game's own renderer draws
-  of a bit of port built up a beat at a time (`src/render/guides.ts`,
-  on `thumbs.ts`'s patches), played as a flip book with a hand showing
-  where to click and drag. The Coastal Wharf's opens on the upgrade; a
-  crane's when its red mark is clicked, on the step for its `fix`.
-  `__hm.openGuide('wharf', 2)` opens one on the dev server.
+- The lessons (`src/ui/Guide.tsx`, steps and live checks in `src/ui/guides.ts`)
+  open on a new port, a tier upgrade, or a crane warning. Reading pauses the
+  game; practicing restores the previous speed and keeps a compact step beside
+  the map. `src/ui/learning.ts` opens the exact tool tab, focuses things to
+  inspect and manages reading pauses. The Handbook contains the lesson library,
+  controls and advice history. `__hm.openGuide('wharf', 2)` opens a lesson on
+  the dev server; crane repairs pass their tile as a third argument so another
+  crane cannot satisfy their checks.
+- Lesson pictures use the game's renderer (`src/render/guides.ts`, on
+  `thumbs.ts`'s patches), played as flip books. Learning progress, issued and
+  acknowledged advice, and delivery milestones live in `World.learning` and
+  the save's optional `learning` field. Older saves treat their old tips as read.
+  Coaster crates retain a `coaster` provenance flag through storage and trucks;
+  the delivery milestone is recorded when a truck actually leaves. The play
+  log records help interactions and `milestone:*` outcomes in its action tallies.
+- Build instructions (`src/ui/toolHelp.ts`) separate purpose, placement and
+  requirements; the build menu keeps the full rules under More details.
 - The UI: one file a panel in `src/ui/`, styles by area in `src/ui/styles/`,
   input in `src/input/`, build previews as pure functions in `src/preview/`,
   `main.ts` wiring only.

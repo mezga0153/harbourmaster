@@ -25,3 +25,30 @@
 .handbook-page b {
   color: var(--text);
 }
+.help-controls {
+  width: 100%;
+  border-collapse: collapse;
+}
+.help-controls th,
+.help-controls td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.help-controls th {
+  width: 32%;
+  color: var(--text);
+}
+.help-history {
+  margin: 10px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.help-history summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.help-history p {
+  margin-top: 8px;
+}

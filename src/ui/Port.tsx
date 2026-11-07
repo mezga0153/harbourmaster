@@ -80,8 +80,8 @@ export function PortPanel({ actions }: { actions: Actions }) {
               ))}
             </ul>
             {TIER_TOPIC[k] && !t.comingSoon && <More topic={TIER_TOPIC[k]} label="How it works" />}
-            {k === 1 && (
-              <button class="link" onClick={() => openGuide('wharf')}>
+            {(k === 1 || k === 2) && (
+              <button class="link" onClick={() => openGuide(k === 1 ? 'wharf' : 'harbour')}>
                 Show me how to build it ›
               </button>
             )}

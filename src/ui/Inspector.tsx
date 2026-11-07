@@ -278,7 +278,7 @@ function ParkingInfo({ lot, onClose: close }: { lot: Lot; onClose: () => void })
         Trucks drive in off the road on one side, stand at an angle across the strip, and drive out
         onto the road on the other side: always forwards, never backing out.{' '}
         {lot.outside
-          ? 'Outside the port, shippers’ trucks wait here for their paperwork.'
+          ? 'Outside the port, shippers wait here before entering. Container trucks complete paperwork here; crate exports are inspected in outgoing storage.'
           : 'Inside the port, trucks queue here for a free loading spot.'}{' '}
         <More topic="trucks" />
       </p>
@@ -387,7 +387,7 @@ function CraneInfo({ crane: c, onClose: close }: { crane: Crane; onClose: () => 
           {c.trouble}{' '}
           <button
             class="link"
-            onClick={() => openGuide(craneGuide(c.kind), stepFor(craneGuide(c.kind), c.fix))}
+            onClick={() => openGuide(craneGuide(c.kind), stepFor(craneGuide(c.kind), c.fix), c.idx)}
           >
             Show me how ›
           </button>

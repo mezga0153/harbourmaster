@@ -26,7 +26,7 @@
   --blur: blur(14px) saturate(140%);
   /* The build bar along the bottom edge, and the build menu above it. */
   --bar: 48px;
-  --tray: 216px;
+  --tray: 278px;
   /* Spacing and type scales, for rules to pick from. */
   --space-1: 4px;
   --space-2: 6px;

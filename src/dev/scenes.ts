@@ -15,11 +15,12 @@ import { DEFAULT_PILOT, type PilotId } from '../sim/systems/boats/pilots';
 import { TICKS_PER_DAY } from '../sim/types';
 import { World, type SaveData } from '../sim/world';
 import { App } from '../ui/App';
+import { guidePause } from '../ui/learning';
 import type { Actions } from '../ui/actions';
 import { downloadSave } from '../ui/download';
 import { wireOverlays } from '../ui/mapOverlays';
 import { graphics } from '../ui/prefs';
-import { advise, land, pushMessage, seed, selection, snapshot } from '../ui/store';
+import { advice, advise, guide, land, pushMessage, seed, selection, snapshot } from '../ui/store';
 import { button, defaults, el, paramPanel, select, toggle, type Params } from './controls';
 import { RECORDED, type Scenario } from './scenario';
 import { scenarioSection } from './scenarioPanel';
@@ -34,6 +35,7 @@ const LOOP_MS = 100;
 
 export class Runner {
   world: World | null = null;
+  private readingPause = guidePause((speed) => this.input.setSpeed(speed));
   map: GameMap | null = null;
   readonly renderer: Renderer;
   private input: Input;
@@ -97,6 +99,10 @@ export class Runner {
       },
     });
     const actions: Actions = {
+      focusTile: (i) => {
+        if (this.world)
+          this.renderer.cam.target.set(this.world.map.xOf(i) + 0.5, 0, this.world.map.yOf(i) + 0.5);
+      },
       send: (cmd) => this.send(cmd),
       setSpeed: (s) => this.input.setSpeed(s),
       togglePause: () => this.input.togglePause(),
@@ -105,12 +111,24 @@ export class Runner {
       zoom: (f) => this.renderer.cam.zoom(f),
       rotateBuilding: () => this.input.rotate(),
     };
+    guide.subscribe((g) => {
+      if (this.active) this.readingPause.update(!!g && !g.practice, this.world?.speed ?? 0);
+    });
+    selection.subscribe((sel) => {
+      if (!this.active || sel?.type !== 'entity') return;
+      const e = snapshot.peek()?.entities.find((e) => e.id === sel.id);
+      if (e?.kind === 'boat' || e?.kind === 'dockhand')
+        this.send({ type: 'inspect', kind: e.kind });
+    });
     render(h(App, { actions }), hud);
     setInterval(() => this.loop(), LOOP_MS);
   }
 
   /** Play this game from here. */
   start(w: World): void {
+    this.readingPause.reset();
+    guide.value = null;
+    advice.value = [];
     this.world = w;
     w.pilot = this.pilot;
     this.scenario = null;
@@ -159,7 +177,9 @@ export class Runner {
       return;
     }
     if (cmd.type === 'debug') return w.debug(cmd);
+    if (cmd.type === 'setSpeed') this.readingPause.requested(cmd.speed);
     w.command(cmd);
+    this.readingPause.observed(w.speed);
     if (this.scenario && RECORDED.has(cmd.type)) {
       this.scenario.steps.push({ at: w.tick, cmd: structuredClone(cmd) });
       this.onRecord?.();
@@ -218,6 +238,9 @@ export class Runner {
     if (tiles.length > 0) this.overlays.onTiles();
     this.renderer.applySnapshot(s);
     snapshot.value = s;
+    advice.value = this.scenario
+      ? []
+      : s.learning.seenTips.filter((id) => !s.learning.readTips.includes(id));
     this.overlays.onSnapshot();
     this.drawCourses(s);
     if (this.debugWant) this.debug.receive(collect(w, this.debugWant));

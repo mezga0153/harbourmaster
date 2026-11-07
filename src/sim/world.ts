@@ -520,6 +520,12 @@ export class World {
   dockKey = new Map<number, number>();
   /** Advisor tips already given, so each comes once a game. */
   tipsSeen = new Set<string>();
+  learning: import('./state').LearningProgress = {
+    tips: [],
+    readTips: [],
+    marks: [],
+    guideSteps: {},
+  };
   /** Boats that have left the port so far, for the advisor; see departTips. */
   departed = 0;
   /** When each container ship lately finished unloading, by id, for customs. */
@@ -737,6 +743,9 @@ export class World {
     }
     if (s.scenery !== undefined) world.scenery.state = s.scenery;
     world.tipsSeen = new Set(s.tips ?? []);
+    world.learning = structuredClone(
+      s.learning ?? { tips: s.tips ?? [], readTips: s.tips ?? [], marks: [], guideSteps: {} },
+    );
     world.departed = s.departed ?? 0;
     // A game from before the advisor taught these is well past them.
     if (s.departed === undefined) for (const id of FIRST_STEPS) world.tipsSeen.add(id);
@@ -868,6 +877,7 @@ export class World {
       rail: this.rail,
       scenery: this.scenery.state,
       tips: [...this.tipsSeen],
+      learning: this.learning,
       departed: this.departed,
       unloaded: [...this.unloadedAt],
       lotNames: lots(this).map((l) => [l.tiles[0], l.name!] as [number, string]),
@@ -957,6 +967,22 @@ export class World {
       case 'setSpeed':
         if (SPEEDS.includes(cmd.speed)) this.speed = cmd.speed;
         if (this.speed > 1) this.tipsSeen.add('speed');
+        return;
+      case 'readTip':
+        if (this.tipsSeen.has(cmd.id) && !this.learning.readTips.includes(cmd.id))
+          this.learning.readTips.push(cmd.id);
+        return;
+      case 'inspect': {
+        const mark = cmd.kind === 'boat' ? 'inspectBoat' : 'inspectWorker';
+        if (!this.learning.marks.includes(mark)) this.learning.marks.push(mark);
+        return;
+      }
+      case 'help':
+        if (cmd.id.length < 40 && Number.isInteger(cmd.step) && cmd.step >= 0 && cmd.step < 50) {
+          this.learning.guideSteps[cmd.id] = cmd.step;
+          if (cmd.action === 'complete' && !this.learning.marks.includes(`guide:${cmd.id}`))
+            this.learning.marks.push(`guide:${cmd.id}`);
+        }
         return;
       case 'learnt':
         this.tipsSeen.add(cmd.tip);

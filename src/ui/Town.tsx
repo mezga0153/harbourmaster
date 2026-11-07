@@ -4,7 +4,7 @@ import { TIERS } from '../sim/tiers';
 import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './actions';
 import { money } from './format';
-import { selection, snapshot } from './store';
+import { openGuide, selection, snapshot } from './store';
 import { InfoHeader, Meter, PortTownTabs } from './widgets';
 
 const BLURBS = [
@@ -72,6 +72,11 @@ function NextStep() {
         )}
       </div>
       <p>{n.aim}.</p>
+      {t.opened.includes('Cannery') && (
+        <button class="link" onClick={() => openGuide('exports')}>
+          Show me how to export canned fish ›
+        </button>
+      )}
       {n.hint && <p class="note bad">{n.hint}.</p>}
       {!n.waiting && (
         <>

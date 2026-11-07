@@ -203,7 +203,11 @@ export function takeFromSource(w: World, p: Dockhand): Crate[] {
   boat.reserved = Math.max(0, boat.reserved - p.planned);
   const n = Math.min(p.planned, boat.crates);
   boat.crates -= n;
-  return Array.from({ length: n }, () => ({ fee: boat.fee, at: w.tick }));
+  return Array.from({ length: n }, () => ({
+    fee: boat.fee,
+    at: w.tick,
+    coaster: boat.vessel === 'coaster',
+  }));
 }
 
 /**

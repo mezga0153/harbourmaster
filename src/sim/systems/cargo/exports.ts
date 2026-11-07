@@ -532,6 +532,12 @@ export function shipOut(w: World, b: Boat, load: (Crate | number)[], slot?: numb
     slot = undefined;
   }
   b.loadIdle = 0;
+  if (
+    fees.some((f) => cargoOf(f, 'goods') === 'canned') &&
+    !w.learning.marks.includes('cannedExport')
+  )
+    w.learning.marks.push('cannedExport');
+  if (!w.learning.marks.includes('exportDelivery')) w.learning.marks.push('exportDelivery');
   book(w, 'exports', total);
   w.stats.earned += total;
   w.stats.exported = (w.stats.exported ?? 0) + fees.length;
@@ -650,7 +656,7 @@ export function spawnShipments(w: World): void {
       nag(
         w,
         'parking',
-        `${c.terms.name}'s trucks need parking outside the port, by a public road, to do their paperwork.`,
+        `${c.terms.name}'s trucks need parking outside the port, by a public road, ${c.terms.cargo === 'container' ? 'to complete their paperwork' : 'to wait their turn'}.`,
         'bad',
       );
       continue;

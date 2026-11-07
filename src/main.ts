@@ -19,6 +19,8 @@ import { graphics } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
 import {
   advise,
+  advice,
+  guide,
   land,
   openGuide,
   panel,
@@ -29,13 +31,16 @@ import {
   tool,
 } from './ui/store';
 import './ui/style.css';
+import { guidePause } from './ui/learning';
 import { applyView, readView, trackView } from './view-url';
 
 // Wiring: the worker that runs the sim, the renderer, the input, the sound,
 // the UI and the play log, joined up; what each does is in its own place.
 
+const readingPause = guidePause((speed) => input.setSpeed(speed));
 const worker = new Worker(new URL('./worker/sim.worker.ts', import.meta.url), { type: 'module' });
 const send = (cmd: Command) => {
+  if (cmd.type === 'setSpeed') readingPause.requested(cmd.speed);
   logCommand(cmd);
   worker.postMessage(cmd);
 };
@@ -95,10 +100,19 @@ const actions: Actions = {
   setSpeed: (s) => input.setSpeed(s),
   togglePause: () => input.togglePause(),
   focus: (x, y) => renderer.cam.target.set(x, 0, y),
+  focusTile: (i) => {
+    if (map) renderer.cam.target.set(map.xOf(i) + 0.5, 0, map.yOf(i) + 0.5);
+  },
   rotateView: (dir) => renderer.cam.rotate(dir),
   zoom: (factor) => renderer.cam.zoom(factor),
   rotateBuilding: () => input.rotate(),
 };
+guide.subscribe((g) => readingPause.update(!!g && !g.practice, snapshot.peek()?.speed ?? 0));
+selection.subscribe((sel) => {
+  if (sel?.type !== 'entity') return;
+  const e = snapshot.peek()?.entities.find((e) => e.id === sel.id);
+  if (e?.kind === 'boat' || e?.kind === 'dockhand') send({ type: 'inspect', kind: e.kind });
+});
 render(h(App, { actions }), hud);
 {
   const g = graphics.peek();
@@ -159,6 +173,9 @@ function handle(msg: WorkerMessage): void {
   }
   if (msg.type === 'fault') return report(msg.kind, msg.message, msg.stack);
   if (msg.type === 'init') {
+    readingPause.reset();
+    guide.value = null;
+    advice.value = [];
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;
     logInit();
@@ -195,6 +212,10 @@ function handle(msg: WorkerMessage): void {
   if (msg.tiles.length > 0) overlays.onTiles();
   renderer.applySnapshot(msg.snapshot);
   snapshot.value = msg.snapshot;
+  readingPause.observed(msg.snapshot.speed);
+  advice.value = msg.snapshot.learning.seenTips.filter(
+    (id) => !msg.snapshot.learning.readTips.includes(id),
+  );
   loaded();
   sound.onSnapshot(msg.snapshot);
   logFrame(msg.snapshot, msg.events, map);

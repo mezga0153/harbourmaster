@@ -48,6 +48,7 @@ let latest: Snapshot | null = null;
 let map: GameMap | null = null;
 let lastFrame = 0;
 let frames = 0;
+let learningSeen = new Set<string>();
 
 const dayOf = (tick: number) => Math.floor(tick / TICKS_PER_DAY) + 1;
 export const fresh = (g: string, d: number): Tallies => ({
@@ -101,6 +102,7 @@ function begin(s: Snapshot): void {
   keep(GAME_KEY, { id: game, seed: s.seed, day });
   const kept = recall<Tallies>(DAY_KEY);
   t = kept && kept.game === game && kept.day === day ? kept : fresh(game, day);
+  learningSeen = new Set(s.learning?.marks ?? []);
   visitGame(game, s.seed, day, games > 1);
 }
 
@@ -137,9 +139,19 @@ export function logFrame(s: Snapshot, events: SimEvent[], m: GameMap): void {
       else if (ev.kind === 'tip' && !t.tips.includes(ev.id) && t.tips.length < 40)
         t.tips.push(ev.id);
     }
+    trackLearning(t, s.learning?.marks ?? [], learningSeen);
     latest = s;
   } catch {
     // The game goes on regardless.
+  }
+}
+
+/** Real outcomes, including deliveries made with the lesson closed, use the existing action tallies. */
+export function trackLearning(t: Tallies, marks: string[], seen: Set<string>): void {
+  for (const mark of marks) {
+    if (seen.has(mark)) continue;
+    seen.add(mark);
+    tally(t.actions, `milestone:${mark}`, 120);
   }
 }
 
@@ -148,13 +160,19 @@ export function logCommand(cmd: Command): void {
   if (!LOG_ON || !t || NOT_ACTIONS.has(cmd.type)) return;
   if (cmd.type === 'exportSave' && cmd.forReport) return;
   const what =
-    cmd.type === 'build'
-      ? `build:${cmd.kind}`
-      : cmd.type === 'buyMachine'
-        ? `buy:${cmd.kind}`
-        : cmd.type === 'setSpeed'
-          ? `speed:${cmd.speed}`
-          : cmd.type;
+    cmd.type === 'help'
+      ? `help:${cmd.id}:${cmd.action}:${cmd.step}`
+      : cmd.type === 'readTip'
+        ? `help:read:${cmd.id}`
+        : cmd.type === 'inspect'
+          ? `learn:inspect:${cmd.kind}`
+          : cmd.type === 'build'
+            ? `build:${cmd.kind}`
+            : cmd.type === 'buyMachine'
+              ? `buy:${cmd.kind}`
+              : cmd.type === 'setSpeed'
+                ? `speed:${cmd.speed}`
+                : cmd.type;
   tally(t.actions, what, 120);
   visitAction();
 }
