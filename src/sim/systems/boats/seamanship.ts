@@ -788,14 +788,24 @@ export function nip(
   const step = Math.min(d, v.speed * 0.2);
   if (d <= 1e-6 || way <= 0.05) return 0;
   const turned = wrapAngle(b.dir + turn);
-  for (const dir of [turned, b.dir]) {
-    const nx = b.x + (px / d) * step;
-    const ny = b.y + (py / d) * step;
-    if (!fits(nx, ny, dir)) continue;
-    b.dir = dir;
-    b.x = nx;
-    b.y = ny;
-    return step;
+  // Between a pier and a shore corner, the diagonal towards the waypoint
+  // can be blocked even though easing sideways first clears the hull.
+  // Try each component after the direct crawl, keeping the same hull checks.
+  const ways = [[px, py]];
+  if (pilot(w).adaptive && (b.held ?? 0) >= B.HELD_STILL_TICKS) ways.push([px, 0], [0, py]);
+  for (const [dx, dy] of ways) {
+    const reach = Math.hypot(dx, dy);
+    if (reach < 1e-6) continue;
+    const move = Math.min(step, reach);
+    const nx = b.x + (dx / reach) * move;
+    const ny = b.y + (dy / reach) * move;
+    for (const dir of [turned, b.dir]) {
+      if (!fits(nx, ny, dir)) continue;
+      b.dir = dir;
+      b.x = nx;
+      b.y = ny;
+      return move;
+    }
   }
   return 'boxed';
 }

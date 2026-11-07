@@ -4,13 +4,13 @@ import { hullGap } from '../src/sim/helpers';
 import type { Boat } from '../src/sim/state';
 import { planDeparture, separateHull } from '../src/sim/systems/boats/navigation';
 import { isPilot, DEFAULT_PILOT } from '../src/sim/systems/boats/pilots';
-import { runOut } from '../src/sim/systems/boats/seamanship';
+import { clips, runOut } from '../src/sim/systems/boats/seamanship';
 import { crowds, plot, plotCourses, underWay } from '../src/sim/systems/boats/traffic';
 import { Build, Terrain } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { patch, presetScenario, replay, SCENARIO_PRESETS } from '../src/dev/scenario';
-import { updateBoat } from '../src/sim/systems/boats/berthing';
-import { depart, takeFairway } from '../src/sim/systems/boats/traffic';
+import { route, updateBoat } from '../src/sim/systems/boats/berthing';
+import { depart, seaWay, takeFairway } from '../src/sim/systems/boats/traffic';
 
 function harbour() {
   const w = World.create(7, 96);
@@ -59,6 +59,50 @@ function harbour() {
 }
 
 describe('Navigator', () => {
+  it('eases clear of a shore corner beside a jetty so an arriving boat no longer backs away for it', () => {
+    const { w, m, boat, gap } = harbour();
+    for (const x of [69, 70, 71]) m.build[m.idx(x, 41)] = Build.Jetty;
+    const island = m.idx(70, 39);
+    m.terrain[island] = Terrain.Sand;
+    m.depth[island] = 0;
+    m.ocean[island] = 0;
+    w.forget();
+    // The player's boats at (48.8,140.3) and (53.3,135.1), translated.
+    const out = boat({
+      vessel: 'smack',
+      draft: B.BOAT_DRAFT,
+      x: 70.79345484121995,
+      y: 40.326593905619,
+      dir: -0.7812376499870166,
+      held: 100,
+      goal: m.idx(88, 40),
+      castOff: m.idx(70, 40),
+      castDock: m.idx(70, 41),
+    });
+    const incoming = boat({
+      vessel: 'smack',
+      draft: B.BOAT_DRAFT,
+      state: 'arriving',
+      x: 75.31159408348003,
+      y: 35.05563577772602,
+      dir: 1.545493198102893,
+      held: 50,
+      crates: 12,
+      goal: m.idx(69, 42),
+      berth: m.idx(69, 42),
+      jetty: m.idx(69, 41),
+    });
+    for (const b of w.boats) b.path = route(w, b, w.tileOf(b), b.goal, seaWay(w, b))!;
+    for (let t = 0; t < 600 && (w.boats.includes(out) || incoming.state !== 'moored'); t++) {
+      w.tick++;
+      for (const b of [...w.boats]) updateBoat(w, b);
+      for (const b of w.boats) expect(clips(w, b, b.x, b.y, b.dir, [])).toBe(0);
+      if (w.boats.includes(out)) expect(gap(out, incoming)).toBeGreaterThanOrEqual(0);
+    }
+    expect(w.boats).not.toContain(out);
+    expect(incoming.state).toBe('moored');
+  });
+
   it('clears a loaded-game departure stalled by a fishing boat while another coaster needs its fairway', () => {
     const w = replay(presetScenario(SCENARIO_PRESETS.find((p) => p.id === 'pierEnd')!));
     const { shore, row } = patch(w);
