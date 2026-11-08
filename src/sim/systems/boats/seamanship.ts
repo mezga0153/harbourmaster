@@ -558,10 +558,13 @@ export function sail(world: World, b: Boat, moor: number | null): 'moving' | 'ar
     const d = Math.hypot(px, py);
     const crawl = Math.min(d, v.speed * 0.2);
     speed = 0;
-    if (d > 1e-6 && way.speed > 0.05) {
+    if (d > 1e-6 && (way.speed > 0.05 || pilot(world).adaptive)) {
       const x = b.x + (px / d) * crawl;
       const y = b.y + (py / d) * crawl;
-      if (!pilot(world).adaptive || fits(x, y, b.dir)) {
+      if (
+        !pilot(world).adaptive ||
+        (fits(x, y, b.dir) && navigable(world, x, y, boatCostFor(world, b.draft)))
+      ) {
         b.x = x;
         b.y = y;
         speed = crawl;
@@ -771,22 +774,32 @@ export function nip(
     b.sternway = moved ? back : 0;
     return null;
   }
-  for (const share of [1, 0.5, 0]) {
-    const d = wrapAngle(b.dir + turn * share);
-    const nx = b.x + Math.cos(d) * speed;
-    const ny = b.y + Math.sin(d) * speed;
-    if (navigable(w, nx + Math.cos(d) * 0.3, ny + Math.sin(d) * 0.3, cost) && fits(nx, ny, d)) {
-      b.dir = d;
-      b.x = nx;
-      b.y = ny;
-      return speed;
+  const wedged =
+    pilot(w).adaptive && ((b.held ?? 0) >= B.BOAT_REROUTE_AFTER || (b.squeeze ?? 0) > 0);
+  // A zero-speed, zero-turn step always fits. Once wedged, it must not
+  // short-circuit the collision-checked crawl below for every tick.
+  if (speed > 1e-6 || !wedged) {
+    for (const share of [1, 0.5, 0]) {
+      const d = wrapAngle(b.dir + turn * share);
+      const nx = b.x + Math.cos(d) * speed;
+      const ny = b.y + Math.sin(d) * speed;
+      if (navigable(w, nx + Math.cos(d) * 0.3, ny + Math.sin(d) * 0.3, cost) && fits(nx, ny, d)) {
+        b.dir = d;
+        b.x = nx;
+        b.y = ny;
+        return speed;
+      }
     }
   }
   const px = tx - b.x;
   const py = ty - b.y;
   const d = Math.hypot(px, py);
   const step = Math.min(d, v.speed * 0.2);
-  if (d <= 1e-6 || way <= 0.05) return 0;
+  // In a traffic knot, the lookout's box can cover a boat beside the bow
+  // even when this waypoint leads away from its actual hull. Once held
+  // up, try the crawl under the exact hull checks instead of waiting on
+  // that same coarse lookout forever.
+  if (d <= 1e-6 || (way <= 0.05 && !wedged)) return 0;
   const turned = wrapAngle(b.dir + turn);
   // Between a pier and a shore corner, the diagonal towards the waypoint
   // can be blocked even though easing sideways first clears the hull.
