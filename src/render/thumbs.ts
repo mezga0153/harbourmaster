@@ -22,10 +22,12 @@ import { Build, Store, Terrain, type BuildKind } from '../sim/types';
 import { forklift, stacker, tractor } from './machines';
 import { boat } from './model';
 import { Structures } from './structures';
+import { C } from './palette';
+import { box } from './parts';
 import { BulkLayer } from './bulk';
 import type { BulkView } from '../protocol';
 import { ON_QUAY, RAILS } from '../sim/orient';
-import { buildLand, surfaceY } from './terrain';
+import { landTop, surfaceY } from './terrain';
 import { solidBounds } from './util/mesh';
 
 /**
@@ -62,6 +64,32 @@ export function patch(w = W, h = H, coast = COAST): GameMap {
 }
 
 export const at = (m: GameMap, x: number, y: number) => m.idx(x, y);
+
+/** How far the patch's ground runs on past its edges, in tiles, so no picture shows its end. */
+const BEYOND = 20;
+
+/**
+ * The patch's shore, plain: a slab of sand up to the coast, its face down
+ * into the water, running on past the patch's edges; a dozen triangles
+ * where the game's own ground (buildLand) shapes every tile's beach.
+ */
+function flatLand(m: GameMap): Group {
+  const g = new Group();
+  const top = landTop(Terrain.Sand);
+  const coast =
+    Array.from({ length: m.w }, (_, x) => x).find(
+      (x) => m.terrain[m.idx(x, 0)] === Terrain.Water,
+    ) ?? m.w;
+  const w = coast + BEYOND;
+  const d = m.h + 2 * BEYOND;
+  const x = coast - w / 2;
+  const z = m.h / 2;
+  // The bank below, and the sand on top: one above the other, no faces shared.
+  g.add(box(w, top + 0.39, d, C.sandSide, x, -0.4, z));
+  g.add(box(w, 0.01, d, C.sand, x, top - 0.01, z));
+  for (const o of g.children) o.receiveShadow = true;
+  return g;
+}
 
 export function lay(m: GameMap, code: number, tiles: number[]): number[] {
   for (const t of tiles) m.build[t] = code;
@@ -417,7 +445,7 @@ export function stage(tool: string): Staged | null {
       structures.setYards([{ tiles, boxes: n, exports: 0, looks: [] } as unknown as YardView]);
     else structures.setBays([{ tiles, stock: n, exports: 0 } as unknown as BayView]);
   }
-  const land = buildLand(p.map);
+  const land = flatLand(p.map);
   const water = new Mesh(
     new PlaneGeometry(W - COAST + 40, H + 40),
     new MeshLambertMaterial({ color: 0x3f8fc9 }),
