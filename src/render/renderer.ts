@@ -22,7 +22,7 @@ import { Entities } from './entities';
 import { KeyedObjects } from './keyed';
 import { alertMarker } from './models';
 import { Overlay } from './overlay';
-import { daylightAt, newDaylight, noon } from './daylight';
+import { DAY_NIGHT, daylightAt, newDaylight, noon } from './daylight';
 import { setNight } from './util/mesh';
 import { Structures } from './structures';
 import { Designations } from './structures/labels';
@@ -463,7 +463,7 @@ export class Renderer {
   private daylight(): void {
     const l = this.light;
     const ticks = (this.layers?.entities.gameTime ?? 0) * TICKS_PER_SECOND;
-    if (this.graphics.daylight === 'day') noon(l);
+    if (!DAY_NIGHT || this.graphics.daylight === 'day') noon(l);
     else daylightAt(ticks, l);
     this.sun.color.copy(l.color);
     this.sun.intensity = l.intensity;

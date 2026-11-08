@@ -10,8 +10,8 @@ import { glowAtNight, nightLight } from './util/mesh';
 
 export const LIGHT = {
   /** A ship's sidelights: red to port (its left, -z), green to starboard. */
-  port: 0xe8322a,
-  starboard: 0x2ccf5c,
+  port: 0xe0201a,
+  starboard: 0x0fae3a,
   /** Masthead and stern lights, and floodlights. */
   white: 0xfffaf0,
   /** On top of a crane, blinking slowly. */
@@ -22,8 +22,9 @@ export const LIGHT = {
   tail: 0xd8261e,
 } as const;
 
-glowAtNight(LIGHT.port, 0xff3a2a, 2);
-glowAtNight(LIGHT.starboard, 0x3aff6a, 2);
+// The sidelights shine by day too, so which way a ship is heading shows.
+glowAtNight(LIGHT.port, 0xff1000, 1.4, 0, 0.75);
+glowAtNight(LIGHT.starboard, 0x00ff3c, 1.4, 0, 0.45);
 glowAtNight(LIGHT.white, 0xfff2d0, 1.8);
 glowAtNight(LIGHT.warning, 0xff2a1a, 2.2, 0.5);
 glowAtNight(LIGHT.beacon, 0xffa51f, 2.2, 1.6);

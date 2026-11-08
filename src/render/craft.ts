@@ -161,8 +161,10 @@ function windows(root: Group, x0: number, x1: number, y: number, z: number, n: n
 
 /**
  * A cabin with windows on the front and both sides; the wheelhouse, with
- * `lights`, carries the sidelights, red to port and green to starboard,
- * and the white masthead light on its roof.
+ * `lights`, carries the sidelights, red to port and green to starboard
+ * (see sidelights), and the white masthead light on its roof; a ship's
+ * bridge, with 'mast', only the masthead light, its sidelights out on the
+ * ends of its bridge wings.
  */
 function cabin(
   root: Group,
@@ -173,16 +175,10 @@ function cabin(
   hgt: number,
   color: number,
   roof: number,
-  lights = true,
+  lights: boolean | 'mast' = true,
 ): void {
   root.add(box(len, hgt, wid, color, x, y, 0));
   root.add(box(len + 0.03, 0.025, wid + 0.03, roof, x, y + hgt, 0));
-  if (lights) {
-    const fore = x + len / 2 - 0.04;
-    root.add(lamp(LIGHT.port, 0.03, fore, y + hgt * 0.8, -(wid / 2 + 0.015)));
-    root.add(lamp(LIGHT.starboard, 0.03, fore, y + hgt * 0.8, wid / 2 + 0.015));
-    root.add(lamp(LIGHT.white, 0.03, x, y + hgt + 0.045, 0));
-  }
   // Front windows face the bow (+x).
   root.add(box(0.012, 0.05, wid * 0.8, C.window, x + len / 2 + 0.002, y + hgt * 0.62, 0));
   for (const s of [-1, 1]) {
@@ -195,6 +191,18 @@ function cabin(
       Math.max(1, Math.round(len / 0.12)),
     );
   }
+  if (lights === true) sidelights(root, x + len / 2 - 0.04, y + hgt * 0.75, wid / 2, 0.05);
+  if (lights) root.add(lamp(LIGHT.white, 0.03, x, y + hgt + 0.045, 0));
+}
+
+/**
+ * A ship's sidelights at x, y, `out` either side of the middle: red to
+ * port (-z) and green to starboard, shining by day too so which way a
+ * ship is heading shows; `size` across.
+ */
+function sidelights(root: Group, x: number, y: number, out: number, size: number): void {
+  root.add(lamp(LIGHT.port, size, x, y, -(out + size / 2)));
+  root.add(lamp(LIGHT.starboard, size, x, y, out + size / 2));
 }
 
 function slotGrid(
@@ -436,12 +444,13 @@ export function coasterShip(seed: number, company: number, crate: Crate): Model 
       0.16,
       white,
       k === decks - 1 ? accent : white,
-      k === decks - 1,
+      k === decks - 1 && 'mast',
     );
     y += 0.185;
   }
   // Bridge wings and a funnel in company colours with a band.
   root.add(box(0.12, 0.02, beam + 0.04, white, -0.86, y - 0.04, 0));
+  sidelights(root, -0.86, y - 0.02 + 0.035, beam / 2 + 0.02, 0.07);
   root.add(cyl(0.07, 0.26, accent, -1.22, deck + 0.2));
   root.add(cyl(0.072, 0.05, C.chassis, -1.22, deck + 0.42));
   // Hold coaming, and the deck lights on over it at night.
@@ -579,12 +588,13 @@ export function feederShip(seed: number, company: number, container: Box): Model
       0.17,
       white,
       k === 5 ? accent : white,
-      k === 5,
+      k === 5 && 'mast',
     );
     y += 0.19;
   }
   // Bridge wings across the full beam.
   root.add(box(0.14, 0.025, beam + 0.06, white, bx + 0.12, y - 0.05, 0));
+  sidelights(root, bx + 0.12, y - 0.025 + 0.04, beam / 2 + 0.03, 0.08);
   // Funnel: company colour with a black top and a white band.
   const fx = midBridge ? -2.45 : bx - 0.3;
   const fy = deck + (midBridge ? 0 : 0.8);

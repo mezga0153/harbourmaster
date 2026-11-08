@@ -22,7 +22,7 @@ const materials = new Map<number, MeshLambertMaterial>();
  * Colours that light up at night, windows and lamps, with the light they
  * give, how much, and how many times a second they flash, if they do.
  */
-const glows = new Map<number, { light: number; strength: number; flash: number }>();
+const glows = new Map<number, { light: number; strength: number; flash: number; always: number }>();
 /** Light thrown on the ground at night, by colour and strength; see nightLight. */
 const pools = new Map<string, { m: MeshBasicMaterial; strength: number }>();
 /** How far into the night it is, 0 to 1, and the time in seconds, for flashing; see setNight. */
@@ -42,10 +42,17 @@ export function mat(color: number): MeshLambertMaterial {
 
 /**
  * Everything drawn in `color` shines `light` at night, `strength` at its
- * brightest, flashing `flash` times a second if it is a beacon.
+ * brightest, flashing `flash` times a second if it is a beacon; and by
+ * day too, `always` as bright, if it is to be seen then.
  */
-export function glowAtNight(color: number, light: number, strength: number, flash = 0): void {
-  glows.set(color, { light, strength, flash });
+export function glowAtNight(
+  color: number,
+  light: number,
+  strength: number,
+  flash = 0,
+  always = 0,
+): void {
+  glows.set(color, { light, strength, flash, always });
   const m = materials.get(color);
   if (m) shine(color, m);
 }
@@ -95,7 +102,7 @@ function shine(color: number, m: MeshLambertMaterial): void {
   if (!g) return;
   m.emissive.set(g.light);
   const on = g.flash > 0 && (clock * g.flash) % 1 >= 0.5 ? 0.12 : 1;
-  m.emissiveIntensity = g.strength * night * on;
+  m.emissiveIntensity = Math.max(g.always, g.strength * night) * on;
 }
 
 function pool(p: { m: MeshBasicMaterial; strength: number }): void {

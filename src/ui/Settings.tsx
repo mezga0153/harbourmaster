@@ -5,6 +5,7 @@ import { Icon } from './icons';
 import { graphics, soundSettings, type SoundSettings } from './prefs';
 import { newGameOpen, panel, pushMessage } from './store';
 import { InfoHeader } from './widgets';
+import { DAY_NIGHT } from '../render/daylight';
 
 /** One graphics setting: what it is, and its choices side by side. */
 function Choice<K extends keyof Graphics>({
@@ -141,15 +142,17 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
           ['sharp', 'Sharp'],
         ]}
       />
-      <Choice
-        name="daylight"
-        label="Day and night"
-        hint="The sun going round with each game day, and a moonlit night at its end"
-        options={[
-          ['cycle', 'Day and night'],
-          ['day', 'Always day'],
-        ]}
-      />
+      {DAY_NIGHT && (
+        <Choice
+          name="daylight"
+          label="Day and night"
+          hint="The sun going round with each game day, and a moonlit night at its end"
+          options={[
+            ['cycle', 'Day and night'],
+            ['day', 'Always day'],
+          ]}
+        />
+      )}
       <p class="muted">
         Lower settings run more smoothly on a slow computer. They are kept in this browser.
       </p>

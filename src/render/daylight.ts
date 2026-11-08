@@ -12,6 +12,12 @@ export const LAMP = 0xfff2b0;
 // dawn and the next day. Mostly day: a game day starts in the morning,
 // and the night is a fifth of it.
 
+/**
+ * Whether day and night go round at all: off for now, when it is always
+ * day whatever the player's setting, and the setting is not offered.
+ */
+export const DAY_NIGHT = false;
+
 /** How the scene is lit at a moment of the day. */
 export interface Daylight {
   /** Towards the sun, or the moon at night, from the ground. */
