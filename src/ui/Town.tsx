@@ -5,6 +5,7 @@ import { TOWN_STAGES } from '../sim/town';
 import type { Actions } from './actions';
 import { money } from './format';
 import { openGuide, selection, snapshot } from './store';
+import type { PortTrainState } from '../sim/railway';
 import { InfoHeader, Meter, PortTownTabs } from './widgets';
 
 const BLURBS = [
@@ -243,18 +244,29 @@ export function TownPanel({ actions }: { actions: Actions }) {
   );
 }
 
+/** What a port train is doing, in words. */
+const PORT_STATES: Record<PortTrainState, string> = {
+  due: 'waiting for the line to clear',
+  in: 'pulling into its siding',
+  standing: 'standing in its siding',
+  out: 'backing out of its siding',
+  away: 'on its way',
+};
+
 export function RailwayPanel() {
   const s = snapshot.value;
   if (!s) return null;
-  const train = s.train;
+  const train = s.trains.find((t) => !t.port);
   const wagons = train ? train.cars.length - 1 : 0;
   const passenger = train?.cars.includes('coach');
+  const calling = s.trains.filter((t) => t.port);
   return (
     <aside class="side panel" aria-label="Railway">
       <InfoHeader kicker="Railway" title="Main line" onClose={() => (selection.value = null)} />
       <p class="muted">
         The main line runs past inland. Freight and passenger trains pass now and then, more as the
-        town grows. A siding into the port will come later.
+        town grows. Once the town has its railway station the port may lay sidings off it, for
+        trains of its own: one train is under way on the line at a time, and the others wait.
       </p>
       <p class="status">
         <span class={`dot ${train ? 'live' : ''}`} />
@@ -262,6 +274,12 @@ export function RailwayPanel() {
           ? `A ${passenger ? 'passenger' : 'freight'} train is passing, ${wagons} ${passenger ? 'coaches' : 'wagons'}`
           : 'The line is quiet'}
       </p>
+      {calling.map((t) => (
+        <p class="status" key={t.id}>
+          <span class={`dot ${t.port!.state === 'standing' ? 'live' : ''}`} />
+          {`A port train of ${t.cars.length - 1} wagons is ${PORT_STATES[t.port!.state]}`}
+        </p>
+      ))}
       <p class="muted">
         Trucks wait at level crossings while the barriers are down. A public road built across the
         line makes a new crossing for {money(B.CROSSING_COST)}.

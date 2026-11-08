@@ -1,5 +1,6 @@
 import type { Snapshot } from '../protocol';
 import { TOWN_STAGES } from '../sim/town';
+import { pointAt } from '../sim/railway';
 import { TICKS_PER_DAY } from '../sim/types';
 
 // A plain-text picture of a running game, for reading outside the browser:
@@ -41,10 +42,13 @@ export function report(s: Snapshot, x: ReportExtras): string {
         `delivered in town ${t.supplied}/day; still wants ${t.wants.crates} crates, ${t.wants.boxes} containers)`,
     );
   }
-  if (s.train) {
-    const t = s.train;
+  for (const t of s.trains) {
+    const p = pointAt(t.way, t.at);
+    const what = t.port
+      ? `port train ${t.port.state}, siding at switch ${t.port.switch}`
+      : 'passing';
     lines.push(
-      `Train: ${t.cars.join(' ')} heading ${t.dir > 0 ? '+y' : '-y'}, front at y=${t.head.toFixed(1)}`,
+      `Train ${t.id}: ${what}, ${t.cars.join(' ')}${t.back ? ' (backing)' : ''}, front at (${p.x.toFixed(1)},${p.y.toFixed(1)}) ${t.speed.toFixed(2)} tiles/tick`,
     );
   }
 

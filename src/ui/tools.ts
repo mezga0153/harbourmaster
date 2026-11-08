@@ -116,6 +116,7 @@ export const CATEGORIES: Category[] = [
       { tool: 'footpath', icon: 'footpath', label: 'Port path', key: 'F', group: 'Roads' },
       { tool: 'portRoad', icon: 'portRoad', label: 'Port road', group: 'Roads' },
       { tool: 'portGate', icon: 'gate', label: 'Port gate', group: 'Roads' },
+      { tool: 'siding', icon: 'train', label: 'Rail siding', group: 'Railway' },
       { tool: 'parking', icon: 'parking', label: 'Truck parking', group: 'Areas' },
       {
         tool: 'forkliftOnly',

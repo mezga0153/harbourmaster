@@ -1,6 +1,7 @@
 import type { EntityView, Snapshot } from '../protocol';
 import type { GameMap } from '../sim/map';
 import { Terrain } from '../sim/types';
+import { moving, pointAt, trainSpot } from '../sim/railway';
 
 // What the port should sound like from where the camera is: pure sums over
 // the snapshot, so they can be tested without Web Audio. sound.ts plays it.
@@ -170,12 +171,13 @@ export function bed(s: Snapshot, l: Listener, w: number, trainX: number): Bed {
     if (near > 0) winch.push({ w: near, pan: panOf(l, p.x, p.y) });
   }
   let train: Source = { gain: 0, pan: 0 };
-  if (s.train && trainX >= 0) {
+  // The nearest train under way rumbles; one standing in a siding is quiet.
+  for (const t of s.trains) {
+    if (!moving(t) || trainX < 0) continue;
     const range = hearing(l) * 1.6;
-    train = {
-      gain: attenuate(l, trainX, s.train.head, range),
-      pan: panOf(l, trainX, s.train.head, range),
-    };
+    const p = trainSpot(t);
+    const gain = attenuate(l, p.x, p.y, range);
+    if (gain > train.gain) train = { gain, pan: panOf(l, p.x, p.y, range) };
   }
   return {
     diesels: {
@@ -249,7 +251,7 @@ interface CraneSeen {
 export class CueTracker {
   private ents = new Map<number, Seen>();
   private cranes = new Map<number, CraneSeen>();
-  private train = false;
+  private trains = new Set<number>();
   private primed = false;
 
   constructor(private rand: () => number = Math.random) {}
@@ -317,11 +319,14 @@ export class CueTracker {
     }
     this.cranes = cranes;
 
-    const train = s.train !== null;
-    if (train && !this.train && !first && trainX >= 0) {
-      out.push({ kind: 'trainHorn', x: trainX, y: s.train!.head });
+    // A horn from its front as each train sets off along the line.
+    const under = new Set(s.trains.filter(moving).map((t) => t.id));
+    for (const t of s.trains) {
+      if (!under.has(t.id) || this.trains.has(t.id) || first || trainX < 0) continue;
+      const p = pointAt(t.way, t.at);
+      out.push({ kind: 'trainHorn', x: p.x, y: p.y });
     }
-    this.train = train;
+    this.trains = under;
     return out;
   }
 }

@@ -144,6 +144,14 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
       !is(t.m, t.i, 0, 1, Build.Rail, Build.Crossing) &&
         !is(t.m, t.i, 0, -1, Build.Rail, Build.Crossing),
     );
+    // A switch onto a siding beside it, curving off for trains from either way.
+    for (const side of [1, -1] as const) {
+      if (is(t.m, t.i, side, 0, Build.Siding)) switchCurves(t.g, t.top, side);
+    }
+    return t.g;
+  },
+  [Build.Siding]: (t) => {
+    sidingTrack(t.m, t.g, t.i, t.top);
     return t.g;
   },
   [Build.Crossing]: (t) => {
@@ -628,6 +636,72 @@ function track(g: Group, top: number, alongX = false): void {
   put(0.64, 0.05, 1, BALLAST, 0.5, top, 0.5);
   for (const z of [0.17, 0.5, 0.83]) put(0.54, 0.025, 0.11, C.woodDark, 0.5, top + 0.05, z);
   for (const x of [0.35, 0.65]) put(0.03, 0.03, 1, STEEL, x, top + 0.075, 0.5);
+}
+
+/**
+ * A siding's track along its row, from the main line out to its buffer
+ * stop. The first tile carries track only from its middle out: the
+ * switch's curves come in to its middle.
+ */
+function sidingTrack(m: GameMap, g: Group, i: number, top: number): void {
+  const out = m.xOf(i) > railColumn(m) ? 1 : -1;
+  const first = is(m, i, -out, 0, Build.Rail);
+  const last = !is(m, i, out, 0, Build.Siding);
+  // Along x: `u` runs across the track (z), `v` along it (x).
+  const put = (w: number, h: number, d: number, color: number, u: number, y: number, v: number) =>
+    g.add(box(d, h, w, color, v, y, u));
+  const from = first ? 0.5 : 0;
+  const len = 1 - from;
+  const mid = out > 0 ? from + len / 2 : 1 - from - len / 2;
+  put(0.64, 0.05, len, BALLAST, 0.5, top, mid);
+  for (const v of [0.17, 0.5, 0.83]) {
+    if (!first || (out > 0 ? v >= 0.5 : v <= 0.5))
+      put(0.54, 0.025, 0.11, C.woodDark, 0.5, top + 0.05, v);
+  }
+  for (const u of [0.35, 0.65]) put(0.03, 0.03, len, STEEL, u, top + 0.075, mid);
+  if (last) {
+    // The buffer stop: a frame across the end with red-and-white beams.
+    const v = out > 0 ? 0.9 : 0.1;
+    for (const u of [0.35, 0.65]) put(0.05, 0.16, 0.05, STEEL, u, top + 0.075, v);
+    put(0.5, 0.07, 0.06, 0xd6453d, 0.5, top + 0.18, v);
+    put(0.16, 0.071, 0.061, 0xf4f4f0, 0.5, top + 0.18, v);
+  }
+}
+
+/**
+ * A switch's curves off the main line onto a siding on side `side` (+1
+ * east): a quarter circle of a tile's radius from the line, a tile before
+ * this one, round to the middle of the siding's first tile; one from the
+ * north and one from the south.
+ */
+function switchCurves(g: Group, top: number, side: 1 | -1): void {
+  const steps = 8;
+  for (const north of [true, false]) {
+    // The circle's middle, in the tile's own x and z.
+    const cx = 0.5 + side;
+    const cz = north ? -0.5 : 1.5;
+    for (let k = 0; k < steps; k++) {
+      // From the line (angle 0) round to the siding (a quarter turn).
+      const a = ((k + 0.5) / steps) * (Math.PI / 2);
+      const dx = -side * Math.cos(a);
+      const dz = north ? Math.sin(a) : -Math.sin(a);
+      // Along the curve, the way a train from the line runs.
+      const heading = Math.atan2(side * Math.sin(a), north ? Math.cos(a) : -Math.cos(a));
+      const piece = (Math.PI / 2 / steps) * 1.04;
+      for (const r of [0.85, 1.15]) {
+        const rail = box(0.03, 0.03, r * piece, STEEL, 0, 0, 0);
+        rail.position.set(cx + dx * r, top + 0.09, cz + dz * r);
+        rail.rotation.y = heading;
+        g.add(rail);
+      }
+      if (k % 2 === 0) {
+        const sleeper = box(0.54, 0.025, 0.11, C.woodDark, 0, 0, 0);
+        sleeper.position.set(cx + dx, top + 0.0625, cz + dz);
+        sleeper.rotation.y = heading;
+        g.add(sleeper);
+      }
+    }
+  }
 }
 
 /**

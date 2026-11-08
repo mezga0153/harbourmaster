@@ -99,6 +99,7 @@ import {
   takesImports,
 } from './cargo/stores';
 import { bedCap, bedView, trailerLooks } from './cargo/beds';
+import { sidingsOpen, sidingsShutWhy } from './trains';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
 import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
@@ -1113,6 +1114,7 @@ export function buildSnapshot(w: World): Snapshot {
       canUpgrade: canUpgrade(w),
       waitsOn: tierWaitsOn(w),
       baysWhy: baysOpen(w) ? undefined : baysShutWhy(w),
+      sidingsWhy: w.tier >= 2 && !sidingsOpen(w) ? sidingsShutWhy(w) : undefined,
     },
     cranes: [...w.cranes.values()].map((c) => ({
       idx: c.idx,
@@ -1144,7 +1146,7 @@ export function buildSnapshot(w: World): Snapshot {
       x: w.map.xOf(w.town.centre),
       y: w.map.yOf(w.town.centre),
     },
-    train: w.rail.train && { ...w.rail.train, cars: [...w.rail.train.cars] },
+    trains: w.rail.trains.map((t) => structuredClone(t)),
     offers: w.offers.map((o) => ({
       id: o.id,
       terms: o.terms,

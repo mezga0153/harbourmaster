@@ -73,6 +73,8 @@ export type Command =
       town?: number;
       /** Send the next train now. */
       train?: boolean;
+      /** Send a train to each of the port's sidings that has none. */
+      portTrain?: boolean;
       /** How ships find their way off their berths; see pilots.ts. */
       pilot?: PilotId;
     }

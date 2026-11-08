@@ -447,6 +447,15 @@ export const ALONGSIDE_TICKS = 10;
 export const CONTAINER_TRUCK_CAPACITY = 2; // at most; some carry one
 export const TREE_CLEAR_COST = 10;
 export const CROSSING_COST = 150; // a public road over the railway, with barriers
+export const SIDING_COST = 80; // a tile of the port's siding track
+/** Rows of plain main line kept between a siding's switch and another, or a crossing. */
+export const SWITCH_GAP = 3;
+/** A port train's top speed, in tiles a tick: slower than the trains passing through. */
+export const PORT_TRAIN_SPEED = 0.5;
+/** Ticks a port train stands in its siding, at most, to be worked. */
+export const TRAIN_STAND_TICKS = 300;
+/** Wagons behind a port train's locomotive, at most, however long its siding. */
+export const TRAIN_MAX_WAGONS = 10;
 /** Marking a port road or quay tile for port machines only, or back. */
 export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;

@@ -97,6 +97,12 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
     needs:
       'Truck access through a gate. Reach stackers or terminal tractors bring containers from the quay cranes.',
   },
+  siding: {
+    what: 'Track off the main line where the port’s trains stand to be loaded and unloaded.',
+    where: `Straight out from beside the main line along a row, on the port’s land, ${B.SWITCH_GAP} rows from another switch or a level crossing.`,
+    needs:
+      'The town’s railway station. A container yard beside it, worked by reach stackers, and track as long as the trains.',
+  },
   crateStore: {
     what: `Stores incoming cargo, ${B.CRATES_PER_STORE_TILE} crates per tile.`,
     where: 'Drag over port road or quay near the berth.',

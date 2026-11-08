@@ -139,6 +139,14 @@ function scene(tool: string): Patch | null {
       const g = place(m, 'yardGantry', at(m, 3, mid));
       return { map: m, focus: [...tiles, ...g], stock: { tiles, boxes: true } };
     }
+    case 'siding': {
+      lay(
+        m,
+        Build.Rail,
+        Array.from({ length: H }, (_, y) => at(m, 0, y)),
+      );
+      return { map: m, focus: lay(m, Build.Siding, row(m, mid, 1, COAST - 1)) };
+    }
     case 'jetty':
       lay(m, Build.Road, row(m, mid, 0, COAST - 1));
       return { map: m, focus: lay(m, Build.Jetty, row(m, mid, COAST, COAST + 2)) };
@@ -211,6 +219,7 @@ export const PICTURED: readonly string[] = [
   'boxStore',
   'boxOutStore',
   'yardGantry',
+  'siding',
   'jetty',
   'quay',
   'buoyIn',

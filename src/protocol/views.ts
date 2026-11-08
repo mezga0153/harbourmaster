@@ -239,6 +239,8 @@ export interface TierProgress {
   waitsOn?: string;
   /** Why the port may not build truck bays yet, while it may not; see baysOpen. */
   baysWhy?: string;
+  /** Why the port may not lay sidings yet, while it may not. */
+  sidingsWhy?: string;
 }
 
 export interface StaffView {
@@ -625,6 +627,6 @@ export interface Snapshot {
     idle: number[];
   };
   town: TownView | null;
-  /** The train passing along the main line, if one is. */
-  train: Train | null;
+  /** The trains on the line and in the port's sidings. */
+  trains: Train[];
 }

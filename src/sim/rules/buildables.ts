@@ -111,6 +111,13 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
+  siding: {
+    code: Build.Siding,
+    label: 'Rail siding',
+    cost: B.SIDING_COST,
+    hint: `Track off the main line for the port's trains. Lay it straight out from beside the main line along a row, on the port's land, ending at a buffer stop; it leaves the line by a switch, ${B.SWITCH_GAP} rows at least from another switch or a level crossing. A train stands along it to be loaded and unloaded, so make it as long as the trains: a container yard beside it is worked by reach stackers. Take it up from the buffer stop back`,
+    drag: true,
+  },
   breakHut: {
     code: Build.BreakHut,
     label: 'Break hut',

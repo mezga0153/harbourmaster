@@ -39,6 +39,7 @@ export interface CrossingParts {
   arms: { arm: Object3D; sign: number }[];
   /** Red lamps, flashing in turn while the barriers are down. */
   lamps: Object3D[];
+  x: number;
   y: number;
   angle: number;
 }
@@ -57,7 +58,7 @@ export function animateFurniture(
   dt: number,
   time: number,
   tick: number,
-  train: Train | null,
+  trains: readonly Train[],
 ): void {
   for (const [i, l] of f.lights) {
     const green = greenAt(i, tick);
@@ -69,7 +70,7 @@ export function animateFurniture(
     }
   }
   for (const c of f.crossings.values()) {
-    const closed = crossingClosed(train, c.y);
+    const closed = crossingClosed(trains, c.x, c.y);
     c.angle += ((closed ? 0 : 1.45) - c.angle) * Math.min(1, dt * 3);
     for (const { arm, sign } of c.arms) arm.rotation.x = sign * c.angle;
     const blink = Math.floor(time * 3) % 2;
@@ -185,7 +186,7 @@ export function crossing(m: GameMap, g: Group, i: number, top: number, parts: Ti
     g.add(arm);
     arms.push({ arm, sign });
   }
-  parts.crossing = { arms, lamps, y: m.yOf(i), angle: 1.45 };
+  parts.crossing = { arms, lamps, x: m.xOf(i), y: m.yOf(i), angle: 1.45 };
 }
 
 /**

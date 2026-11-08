@@ -64,7 +64,12 @@ export function selectionAt(
   if (map?.build[i] === Build.YardGantry) return { type: 'yardGantry', idx: i };
   if (s?.yards.some((y) => y.idx === i)) return { type: 'yard', idx: i };
   if (map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) return { type: 'town' };
-  if (map && (map.build[i] === Build.Rail || map.build[i] === Build.Crossing)) {
+  if (
+    map &&
+    (map.build[i] === Build.Rail ||
+      map.build[i] === Build.Crossing ||
+      map.build[i] === Build.Siding)
+  ) {
     return { type: 'railway' };
   }
   return null;

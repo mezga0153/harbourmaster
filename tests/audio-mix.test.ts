@@ -32,7 +32,22 @@ function snap(entities: EntityView[], cranes: Partial<CraneView>[] = [], train =
   return {
     entities,
     cranes,
-    train: train ? { head: 50, dir: 1, speed: 0.3, cars: ['loco'], variant: 0 } : null,
+    trains: train
+      ? [
+          {
+            id: 1,
+            way: [
+              [30.5, -44],
+              [30.5, 176],
+            ],
+            at: 94,
+            speed: 0.3,
+            top: 0.3,
+            cars: ['loco'],
+            variant: 0,
+          },
+        ]
+      : [],
     speed: 1,
   } as unknown as Snapshot;
 }

@@ -56,7 +56,7 @@ describe('Railway', () => {
     let wasRunning = false;
     for (let t = 0; t < TICKS_PER_DAY * 3; t++) {
       world.step();
-      const running = world.rail.train !== null;
+      const running = world.rail.trains.length > 0;
       if (running && !wasRunning) seen++;
       wasRunning = running;
     }
@@ -73,9 +73,9 @@ describe('Railway', () => {
     let waited = 0;
     for (let t = 0; t < TICKS_PER_DAY * 8; t++) {
       // One train after another, so trucks are bound to meet one.
-      if (!world.rail.train) world.rail.nextTrain = world.tick;
+      if (world.rail.trains.length === 0) world.rail.nextTrain = world.tick;
       world.step();
-      const closed = crossingClosed(world.rail.train, ey);
+      const closed = crossingClosed(world.rail.trains, x, ey);
       for (const truck of world.trucks) {
         const at = m.idx(Math.floor(truck.x), Math.floor(truck.y));
         // Never drives onto the crossing with the barriers down…

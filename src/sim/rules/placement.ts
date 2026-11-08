@@ -28,6 +28,7 @@ import {
 } from './footprint';
 import { BUILDABLES, ROTATABLE } from './buildables';
 import { STORE_COST, forkliftOnly, parkingError, storeKindAt } from './marking';
+import { sidingBulldozeError, sidingError } from './rails';
 
 /**
  * Static placement check. `pending` holds tiles of the same kind already
@@ -109,6 +110,7 @@ export function placementError(
   if (isHighway(map.build[i]))
     return 'The highway runs here: open an exit off it with the exit tool';
   if (kind === 'parking') return parkingError(map, i);
+  if (kind === 'siding') return sidingError(map, i, pending);
   // A public road crosses the railway on the level.
   if (map.build[i] === Build.Rail) {
     if (kind !== 'road') return 'The railway is in the way';
@@ -365,6 +367,7 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (i === map.entry) return 'The main road cannot be removed';
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
+  if (map.build[i] === Build.Siding) return sidingBulldozeError(map, i);
   return null;
 }
 

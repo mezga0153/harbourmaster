@@ -1,6 +1,6 @@
 import { Group, Mesh, type Object3D } from 'three';
 import type { GameMap } from '../sim/map';
-import { CAR_LENGTH, railColumn, type CarKind, type Train } from '../sim/railway';
+import { CAR_LENGTH, pointAt, wayLength, type CarKind, type Train } from '../sim/railway';
 import { TICKS_PER_SECOND } from '../sim/types';
 import { KeyedObjects } from './keyed';
 import { container } from './models';
@@ -8,8 +8,8 @@ import { C } from './palette';
 import { box, cyl } from './parts';
 import { landTop } from './terrain';
 
-// The train passing along the main line, carried on between sim snapshots
-// at its own steady speed.
+// The trains on the main line and in the port's sidings, carried on between
+// sim snapshots at their own speed, each car following the curves.
 
 const LIVERIES = [
   { body: 0xc8372d, trim: 0xf2c230 },
@@ -84,59 +84,85 @@ export function trainCar(kind: CarKind, v: number, k: number): Object3D {
   return g;
 }
 
+/** A train's model and the view of it it was built from. */
+interface Shown {
+  view: Train;
+  model: Group;
+  cars: Object3D[];
+}
+
 export class Trains {
   readonly group = new Group();
-  private x: number;
-  private ground: number;
-  private view: Train | null = null;
-  /** The one train, under its key: a new make-up of cars or way is a new model. */
-  private models = new KeyedObjects<string, Group>((m) => this.group.remove(m));
-  private model: Group | null = null;
+  private map: GameMap;
+  /** Each train under its key: a new make-up of cars, way or direction is a new model. */
+  private models = new KeyedObjects<string, Shown>((m) => this.group.remove(m.model));
+  private shown: Shown[] = [];
   /** When the last snapshot came in, and how many ticks a millisecond the sim was running. */
   private at = 0;
   private rate = 0;
-  private now: Train | null = null;
 
   constructor(map: GameMap) {
-    this.x = railColumn(map);
-    this.ground = this.x >= 0 ? landTop(map.terrain[map.idx(this.x, 0)]) : 0;
+    this.map = map;
   }
 
-  push(train: Train | null, speed: number, now: number): void {
-    this.view = train;
+  push(trains: readonly Train[], speed: number, now: number): void {
     this.at = now;
     this.rate = (speed * TICKS_PER_SECOND) / 1000;
-    const key = train && this.x >= 0 ? `${train.dir}:${train.variant}:${train.cars.join()}` : '';
-    this.models.sync(key ? [key] : [], () => this.build(train!));
-    this.model = key ? this.models.get(key)! : null;
-  }
-
-  /** Move the train on to where it is now; returns it, for the crossings. */
-  update(now: number): Train | null {
-    const t = this.view;
-    if (!t || !this.model) return null;
-    // Carry on at the train's speed, at most a few snapshots past the last.
-    const ticks = Math.min(now - this.at, 400) * this.rate;
-    const head = t.head + t.dir * t.speed * ticks;
-    this.model.position.z = head;
-    this.now = { ...t, head };
-    return this.now;
-  }
-
-  private build(train: Train): Group {
-    const m = new Group();
-    m.position.set(this.x + 0.5, this.ground + RAIL_TOP, train.head);
-    train.cars.forEach((kind, k) => {
-      const c = trainCar(kind, train.variant, k);
-      // Cars trail behind the head; the locomotive faces the way it is going.
-      c.position.z = -train.dir * (k + 0.5) * CAR_LENGTH;
-      if (train.dir < 0) c.rotation.y = Math.PI;
-      m.add(c);
+    const keyOf = (t: Train) =>
+      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}`;
+    const byKey = new Map(trains.map((t) => [keyOf(t), t]));
+    this.models.sync([...byKey.keys()], (k) => this.build(byKey.get(k)!));
+    this.shown = [...byKey].map(([k, t]) => {
+      const m = this.models.get(k)!;
+      m.view = t;
+      return m;
     });
-    m.traverse((o) => {
+  }
+
+  /** Move the trains on to where they are now; returns them, for the crossings. */
+  update(now: number): Train[] {
+    // Carry on at each train's speed, at most a few snapshots past the last.
+    const ticks = Math.min(now - this.at, 400) * this.rate;
+    return this.shown.map((m) => {
+      const t = m.view;
+      let at = t.at + t.speed * ticks;
+      if (t.stops) at = Math.min(at, wayLength(t.way));
+      const now = { ...t, at };
+      this.place(m, now);
+      return now;
+    });
+  }
+
+  /** Each car between its bogies' points along the way, so they follow the curves. */
+  private place(m: Shown, t: Train): void {
+    const map = this.map;
+    m.cars.forEach((c, k) => {
+      const front = pointAt(t.way, t.at - k * CAR_LENGTH - 0.25);
+      const rear = pointAt(t.way, t.at - (k + 1) * CAR_LENGTH + 0.25);
+      const x = (front.x + rear.x) / 2;
+      const y = (front.y + rear.y) / 2;
+      const tx = Math.min(map.w - 1, Math.max(0, Math.floor(x)));
+      const ty = Math.min(map.h - 1, Math.max(0, Math.floor(y)));
+      c.position.set(x, landTop(map.terrain[map.idx(tx, ty)]) + RAIL_TOP, y);
+      // Facing the way it runs; a locomotive backing faces back.
+      const flip = t.back && t.cars[k] === 'loco' ? Math.PI : 0;
+      c.rotation.y = Math.atan2(front.x - rear.x, front.y - rear.y) + flip;
+    });
+  }
+
+  private build(train: Train): Shown {
+    const model = new Group();
+    const cars = train.cars.map((kind, k) => {
+      const c = trainCar(kind, train.variant, k);
+      model.add(c);
+      return c;
+    });
+    model.traverse((o) => {
       if (o instanceof Mesh) o.castShadow = true;
     });
-    this.group.add(m);
+    this.group.add(model);
+    const m = { view: train, model, cars };
+    this.place(m, train);
     return m;
   }
 }

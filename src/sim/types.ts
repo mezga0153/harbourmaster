@@ -89,6 +89,8 @@ export const Build = {
   College: 46,
   /** The town's railway station, beside the main line. */
   Station: 47,
+  /** The port's siding track off the main line; see rules/rails.ts. */
+  Siding: 48,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -139,7 +141,8 @@ export type BuildKind =
   | 'portGate'
   | 'parking'
   | 'buoyIn'
-  | 'buoyOut';
+  | 'buoyOut'
+  | 'siding';
 
 export type MachineKind = 'forklift' | 'stacker' | 'tractor';
 

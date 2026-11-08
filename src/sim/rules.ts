@@ -10,3 +10,4 @@ export * from './rules/placement';
 export * from './rules/harbour';
 export * from './rules/truckNav';
 export * from './rules/parking';
+export * from './rules/rails';

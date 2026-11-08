@@ -102,6 +102,7 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   gantryCrane: 2,
   tugBerth: 1,
   yardGantry: 2,
+  siding: 2,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {

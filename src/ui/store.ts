@@ -101,8 +101,10 @@ export const tier = computed(() => snapshot.value?.progress.tier ?? 0);
 /** Tools the port has come to but may not use yet, with why: truck bays at first. */
 export const lockedTools = computed(() => {
   const why = snapshot.value?.progress.baysWhy;
+  const rails = snapshot.value?.progress.sidingsWhy;
   const out: Record<string, string> = {};
   if (why) out.truckBay = why;
+  if (rails) out.siding = rails;
   return out;
 });
 /** The town up the coast, once there is one. */

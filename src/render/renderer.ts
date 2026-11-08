@@ -239,7 +239,7 @@ export class Renderer {
   applySnapshot(s: Snapshot): void {
     if (!this.layers) return;
     this.layers.entities.push(s.entities, performance.now(), s.tick);
-    this.layers.trains.push(s.train, s.speed, performance.now());
+    this.layers.trains.push(s.trains, s.speed, performance.now());
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
     this.layers.structures.setSpeed(s.speed);
@@ -422,7 +422,7 @@ export class Renderer {
       this.layers.entities.update(now, time);
       this.layers.water.setWakes(this.layers.entities.wakes());
       this.layers.water.setStirs(this.layers.entities.stirs());
-      this.layers.structures.setTrain(this.layers.trains.update(now));
+      this.layers.structures.setTrains(this.layers.trains.update(now));
       this.layers.structures.update(dt, time);
       // The red marks bob above what is wrong.
       for (const mark of this.marks.children) {

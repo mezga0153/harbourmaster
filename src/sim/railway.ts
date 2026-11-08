@@ -3,7 +3,9 @@ import type { Rng } from './rng';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from './types';
 
 // The main line: a railway running the length of the map, inland, that
-// trains pass along now and then. One day the port gets a siding off it.
+// trains pass along now and then, and the port's own trains turn off into
+// its sidings (systems/trains.ts). Each train runs along a way, a line of
+// points; one at a time is under way, while those in sidings stand.
 
 /** How far beyond the map ends trains start and finish, in tiles. */
 export const RAIL_RUN = 44;
@@ -16,23 +18,52 @@ export const CROSSING_CLEAR = 1.5;
 
 export type CarKind = 'loco' | 'coach' | 'box' | 'tank' | 'hopper' | 'flat';
 
-export interface Train {
-  /** The front of the train, in tiles along the line (y for a north–south line). */
-  head: number;
-  /** +1 runs towards +y, -1 towards -y. */
+/** A point in tiles, x then y: a tile's middle is its index plus a half. */
+export type Point = [number, number];
+
+/** What a port train is doing on its visit; see systems/trains.ts. */
+export type PortTrainState = 'due' | 'in' | 'standing' | 'out' | 'away';
+
+export interface PortVisit {
+  /** The main line's tile its siding's switch is on. */
+  switch: number;
+  state: PortTrainState;
+  /** The way along the main line it came, +1 towards +y; it goes on that way. */
   dir: 1 | -1;
-  /** Tiles a tick. */
-  speed: number;
-  /** Locomotive first. */
+  /** Ticks it stands in the siding to be worked. */
+  stand: number;
+  /** The tick it pulls out again, once standing. */
+  leaves: number;
+}
+
+export interface Train {
+  id: number;
+  /** In the order they run, the front first; the locomotive at the back when it backs. */
   cars: CarKind[];
   /** Paint scheme. */
   variant: number;
+  /** Tiles a tick, now. */
+  speed: number;
+  /** Tiles a tick at most. */
+  top: number;
+  /** Where it runs, from where it set out; on past the ends in straight lines. */
+  way: Point[];
+  /** How far along `way` its front is, in tiles; the cars trail behind. */
+  at: number;
+  /** Backing, the locomotive at the back. */
+  back?: boolean;
+  /** Stops at the end of its way rather than running on off the map. */
+  stops?: boolean;
+  /** A train calling at the port, rather than passing along the main line. */
+  port?: PortVisit;
 }
 
 export interface RailState {
-  train: Train | null;
-  /** Tick the next train sets out. */
+  trains: Train[];
+  /** Tick the next train along the main line may set out. */
   nextTrain: number;
+  /** Ids for new trains. */
+  nextId: number;
 }
 
 export function trainLength(t: Train): number {
@@ -128,13 +159,88 @@ function continueLine(map: GameMap, x: number): number[] {
   return changed;
 }
 
-/** Whether a crossing at row `y` has its barriers down for the train. */
-export function crossingClosed(train: Train | null, y: number, ahead = 0): boolean {
-  if (!train) return false;
-  // Positions measured along the way the train is going: `ahead` ticks on.
-  const head = train.dir * train.head + train.speed * ahead;
-  const at = train.dir * (y + 0.5);
-  return head >= at - CROSSING_WARN && head - trainLength(train) <= at + CROSSING_CLEAR;
+/** The length of each leg of a way, and all of it. */
+function legs(way: Point[]): { len: number[]; total: number } {
+  const len: number[] = [];
+  let total = 0;
+  for (let k = 1; k < way.length; k++) {
+    const d = Math.hypot(way[k][0] - way[k - 1][0], way[k][1] - way[k - 1][1]);
+    len.push(d);
+    total += d;
+  }
+  return { len, total };
+}
+
+/** How long a way is, in tiles. */
+export function wayLength(way: Point[]): number {
+  return legs(way).total;
+}
+
+/**
+ * The point `s` tiles along a way, and the way it runs there (a unit
+ * step); before its start and past its end, on in a straight line.
+ */
+export function pointAt(way: Point[], s: number): { x: number; y: number; dx: number; dy: number } {
+  const { len } = legs(way);
+  let k = 0;
+  let rest = s;
+  while (k < len.length - 1 && rest > len[k]) {
+    rest -= len[k];
+    k++;
+  }
+  const [ax, ay] = way[k];
+  const [bx, by] = way[k + 1];
+  const d = len[k] || 1;
+  const dx = (bx - ax) / d;
+  const dy = (by - ay) / d;
+  return { x: ax + dx * rest, y: ay + dy * rest, dx, dy };
+}
+
+/** How far along a way the point nearest (x, y) is, when the way passes within `near` of it. */
+export function along(way: Point[], x: number, y: number, near = 0.3): number | null {
+  const { len } = legs(way);
+  let s = 0;
+  let best: number | null = null;
+  let bestD = near;
+  for (let k = 0; k < len.length; k++) {
+    const [ax, ay] = way[k];
+    const [bx, by] = way[k + 1];
+    const d = len[k];
+    if (d > 0) {
+      const t = Math.max(0, Math.min(d, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / d));
+      const off = Math.hypot(ax + ((bx - ax) * t) / d - x, ay + ((by - ay) * t) / d - y);
+      if (off <= bestD) {
+        bestD = off;
+        best = s + t;
+      }
+    }
+    s += d;
+  }
+  return best;
+}
+
+/**
+ * Whether the train is under way: one waiting off the map to come in, or
+ * standing in a siding, holds no line.
+ */
+export function moving(t: Train): boolean {
+  return t.port?.state !== 'standing' && t.port?.state !== 'due';
+}
+
+/**
+ * Whether the crossing on tile (x, y) has its barriers down for any of the
+ * trains: from when one is CROSSING_WARN tiles off till its last car is
+ * past, `ahead` ticks on.
+ */
+export function crossingClosed(trains: readonly Train[], x: number, y: number, ahead = 0): boolean {
+  for (const t of trains) {
+    if (!moving(t)) continue;
+    const at = along(t.way, x + 0.5, y + 0.5);
+    if (at === null) continue;
+    const head = t.at + t.speed * ahead;
+    if (head >= at - CROSSING_WARN && head - trainLength(t) <= at + CROSSING_CLEAR) return true;
+  }
+  return false;
 }
 
 /** Days between trains; a bigger town gets more of them. */
@@ -142,7 +248,15 @@ function trainGap(rng: Rng, stage: number): number {
   return Math.round((TICKS_PER_DAY * rng.range(0.35, 0.9)) / (1 + stage * 0.2));
 }
 
-function makeTrain(rng: Rng, mapH: number, stage: number): Train {
+/** The main line's whole length, the way `dir` runs, from past one end of the map to past the other. */
+export function mainWay(column: number, mapH: number, dir: 1 | -1): Point[] {
+  const x = column + 0.5;
+  const a: Point = [x, -RAIL_RUN];
+  const b: Point = [x, mapH + RAIL_RUN];
+  return dir > 0 ? [a, b] : [b, a];
+}
+
+function makeTrain(rng: Rng, id: number, column: number, mapH: number, stage: number): Train {
   const dir = rng.next() < 0.5 ? 1 : -1;
   const passenger = rng.next() < 0.25 + stage * 0.12;
   const cars: CarKind[] = ['loco'];
@@ -158,36 +272,83 @@ function makeTrain(rng: Rng, mapH: number, stage: number): Train {
       cars.push(kind);
     }
   }
+  const speed = passenger ? 1.1 : 0.8;
   return {
-    head: dir > 0 ? -RAIL_RUN : mapH + RAIL_RUN,
-    dir,
-    speed: passenger ? 1.1 : 0.8,
+    id,
     cars,
     variant: rng.int(0, 3),
+    speed,
+    top: speed,
+    way: mainWay(column, mapH, dir),
+    at: 0,
   };
 }
 
 export function newRail(rng: Rng): RailState {
-  return { train: null, nextTrain: trainGap(rng, 0) };
+  return { trains: [], nextTrain: trainGap(rng, 0), nextId: 1 };
 }
 
-/** Run trains along the line, one at a time. */
-export function stepRail(
+/** A railway kept by an older save, which ran one train at a time. */
+export function railFromSave(r: RailState | { train?: unknown; nextTrain: number }): RailState {
+  if ('trains' in r && Array.isArray(r.trains)) return structuredClone(r);
+  return { trains: [], nextTrain: r.nextTrain, nextId: 1 };
+}
+
+/** Port trains slow to a stop by this much a tick, and gather speed by half as much. */
+const BRAKE = 0.006;
+
+/** Move a train on a tick: up to its top speed, slowing to stop at the end of its way if it stops. */
+export function runTrain(t: Train): void {
+  if (!moving(t)) {
+    t.speed = 0;
+    return;
+  }
+  let v = Math.min(t.top, t.speed + BRAKE / 2);
+  if (t.stops) {
+    const left = wayLength(t.way) - t.at;
+    v = Math.min(v, Math.max(0.02, Math.sqrt(2 * BRAKE * Math.max(0, left))));
+    if (left <= v) {
+      t.at += Math.max(0, left);
+      t.speed = 0;
+      return;
+    }
+  }
+  t.speed = v;
+  t.at += v;
+}
+
+/** The middle of a train, in tiles. */
+export function trainSpot(t: Train): { x: number; y: number } {
+  return pointAt(t.way, t.at - trainLength(t) / 2);
+}
+
+/** Whether a train that stops has come to the end of its way. */
+export function arrived(t: Train): boolean {
+  return !!t.stops && t.at >= wayLength(t.way) - 1e-6;
+}
+
+/**
+ * Run the trains passing along the main line, one at a time and only while
+ * no other train is under way (`busy`): a port train pulling in or out
+ * has the line, and the next waits for it.
+ */
+export function stepThrough(
   rail: RailState,
   rng: Rng,
   tick: number,
+  column: number,
   mapH: number,
   stage: number,
+  busy: boolean,
 ): void {
-  const t = rail.train;
-  if (!t) {
-    if (tick >= rail.nextTrain) rail.train = makeTrain(rng, mapH, stage);
-    return;
+  for (const t of [...rail.trains]) {
+    if (t.port) continue;
+    runTrain(t);
+    if (t.at - trainLength(t) > wayLength(t.way)) {
+      rail.trains.splice(rail.trains.indexOf(t), 1);
+      rail.nextTrain = tick + trainGap(rng, stage);
+    }
   }
-  t.head += t.dir * t.speed;
-  const tail = t.head - t.dir * trainLength(t);
-  if ((t.dir > 0 && tail > mapH + RAIL_RUN) || (t.dir < 0 && tail < -RAIL_RUN)) {
-    rail.train = null;
-    rail.nextTrain = tick + trainGap(rng, stage);
-  }
+  if (column < 0 || busy || tick < rail.nextTrain || rail.trains.some(moving)) return;
+  rail.trains.push(makeTrain(rng, rail.nextId++, column, mapH, stage));
 }

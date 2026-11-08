@@ -36,7 +36,9 @@ import { GameMap } from './map';
 import { DEFAULT_PILOT, type PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
-import { crossingClosed, layRailway, newRail, stepRail, type RailState } from './railway';
+import { crossingClosed, layRailway, newRail, railFromSave, type RailState } from './railway';
+import { sendPortTrain, stepTrains } from './systems/trains';
+import { sidings } from './rules/rails';
 import {
   clearTown,
   foundTown,
@@ -756,7 +758,7 @@ export class World {
     // A game from before the advisor taught these is well past them.
     if (s.departed === undefined) for (const id of FIRST_STEPS) world.tipsSeen.add(id);
     world.unloadedAt = new Map(s.unloaded ?? []);
-    if (s.rail) world.rail = structuredClone(s.rail);
+    if (s.rail) world.rail = railFromSave(s.rail);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
     // The highway runs down the map itself since it was laid on it.
@@ -1022,6 +1024,7 @@ export class World {
       t.wants = townWants(this.map);
     }
     if (cmd.train) this.rail.nextTrain = this.tick;
+    if (cmd.portTrain) for (const s of sidings(this.map)) sendPortTrain(this, s);
     if (cmd.pilot) this.pilot = cmd.pilot;
     if (cmd.containers) {
       const taken = new Set([...this.contracts, ...this.offers].map((c) => c.terms.name));
@@ -1082,7 +1085,7 @@ export class World {
     for (const t of [...this.trucks]) updateTruck(this, t);
     for (const y of this.yards.values())
       if (y.gantryHeld && liftDone(this, y)) settleGantry(this, y);
-    stepRail(this.rail, this.scenery, this.tick, this.map.h, this.town?.stage ?? 0);
+    stepTrains(this);
     if (this.town && this.tick % B.TOWN_BUILD_TICKS === 0) buildTown(this, this.town);
   }
 
@@ -1128,7 +1131,7 @@ export class World {
   level = (i: number): boolean =>
     this.map.build[i] !== Build.Crossing ||
     // As the barriers will be by the end of this tick: the train moves after the trucks.
-    !crossingClosed(this.rail.train, this.map.yOf(i), 1);
+    !crossingClosed(this.rail.trains, this.map.xOf(i), this.map.yOf(i), 1);
 
   /** Each vehicle's tile, and the one it came onto it from, by id; see noteTiles. Not saved. */
   cameFrom = new Map<number, { tile: number; from: number }>();

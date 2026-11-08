@@ -66,7 +66,7 @@ export class Structures {
   private countAt = new Vector3();
   /** Game speed, so a gantry's lift takes as long as it does in the game. */
   private speed = 1;
-  private train: Train | null = null;
+  private trains: readonly Train[] = [];
   /** What lies in storage, on the quay and on the cranes' stacks. */
   private stock: Stock;
   /** What the tile builders and the cranes' runners ask of the port. */
@@ -247,9 +247,9 @@ export class Structures {
     }
   }
 
-  /** Where the train is this frame, for the level crossings' barriers. */
-  setTrain(train: Train | null): void {
-    this.train = train;
+  /** Where the trains are this frame, for the level crossings' barriers. */
+  setTrains(trains: readonly Train[]): void {
+    this.trains = trains;
   }
 
   /** The game's tick, which the traffic lights change by as they do in the game. */
@@ -269,7 +269,7 @@ export class Structures {
       dt,
       time,
       this.tick,
-      this.train,
+      this.trains,
     );
     for (const [, g] of this.each('yardGantry')) runYardGantry(this.craneSite, g, dt);
     for (const [, c] of this.each('crane')) {
