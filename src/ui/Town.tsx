@@ -271,7 +271,7 @@ export function RailwayPanel() {
       <p class="status">
         <span class={`dot ${train ? 'live' : ''}`} />
         {train
-          ? `A ${passenger ? 'passenger' : 'freight'} train is passing, ${wagons} ${passenger ? 'coaches' : 'wagons'}`
+          ? `A ${passenger ? 'passenger' : 'freight'} train${train.from ? ` from ${train.from}` : ''} is passing, ${wagons} ${passenger ? 'coaches' : 'wagons'}`
           : 'The line is quiet'}
       </p>
       {calling.map((t) => (

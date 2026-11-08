@@ -31,7 +31,8 @@ import { book, payout } from './economy';
 import { message, moneyAt } from './output';
 import { boxLookOf } from '../helpers';
 import type { GameMap } from '../map';
-import { placeById, served } from './region';
+import { placeById, placeName, served } from './region';
+import type { PlaceKind } from '../region';
 
 /** Where the town's railway station comes in LANDMARKS. */
 const STATION = LANDMARKS.findIndex((l) => l.code === Build.Station);
@@ -240,6 +241,7 @@ export function stepTrains(w: World): void {
     waiting || !clear(),
     stationRow(w, column),
   );
+  for (const t of rail.trains) if (!t.port && t.from === undefined) t.from = whence(w, t);
 }
 
 /**
@@ -417,4 +419,23 @@ export function sidingTrouble(w: World, s: Siding): string | undefined {
     return 'No reach stacker to unload and load the wagons: buy one at a depot';
   }
   return undefined;
+}
+
+/**
+ * Where along the line a train passing through comes from: a place past
+ * the end it comes in at, one that would send what it carries.
+ */
+function whence(w: World, t: Train): string {
+  const side = t.way[0][1] < 0 ? -1 : 1;
+  const wagons = new Set(t.cars);
+  const kinds: PlaceKind[] = wagons.has('coach')
+    ? ['city']
+    : wagons.has('hopper')
+      ? ['colliery', 'mine', 'farms']
+      : wagons.has('tank')
+        ? ['power', 'steelworks']
+        : ['city', 'steelworks'];
+  const near = w.region.places.filter((p) => p.side === side);
+  const p = near.find((q) => kinds.includes(q.kind)) ?? near[0];
+  return p ? placeName(p) : '';
 }

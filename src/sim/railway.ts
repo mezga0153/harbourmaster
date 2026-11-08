@@ -75,6 +75,8 @@ export interface Train {
   dwell?: number;
   /** A train calling at the port, rather than passing along the main line. */
   port?: PortVisit;
+  /** A train passing along the main line: the region's place it comes from, in words. */
+  from?: string;
 }
 
 export interface RailState {

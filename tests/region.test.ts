@@ -83,6 +83,22 @@ describe('The region', () => {
     expect(world.snapshot().progress.region).toBe(world.regionSize());
   });
 
+  it('sends the trains passing along the line from places past the end they come in at', () => {
+    const world = World.create(7, 96);
+    let seen = 0;
+    for (let t = 0; t < 2000 && seen < 3; t++) {
+      if (world.rail.trains.length === 0) world.rail.nextTrain = world.tick;
+      world.step();
+      const tr = world.rail.trains.find((q) => !q.port && q.at < 1);
+      if (!tr) continue;
+      seen++;
+      const side = tr.way[0][1] < 0 ? -1 : 1;
+      const names = world.region.places.filter((p) => p.side === side).map((p) => p.name);
+      expect(names.some((n) => tr.from!.startsWith(n))).toBe(true);
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
   it('is kept in saves, and laid out from the seed for older ones', () => {
     const world = stationTown();
     cities(world)[0].steps = 2;

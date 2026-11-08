@@ -391,8 +391,8 @@ tonnes tile by tile; the town keeps its landmarks.
    station.
 3. **The region** (first version in: two cities sending container trains,
    their steps and growth, the works waiting for bulk, the Region tab, the
-   Bulk Terminal gated on the region's size; still to come: through trains
-   and hauliers named for the places, the works' own steps with bulk)
+   Bulk Terminal gated on the region's size; trains passing through come from
+   the places; still to come: hauliers named for the places, the works' own steps with bulk)
    (`src/sim/region.ts`): places from the map's seed, each
    with a kind, distance along the line, size, what it needs and supplies,
    and steps like `LANDMARKS`. The region's size gates the tiers from Bulk
