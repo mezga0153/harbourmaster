@@ -253,6 +253,22 @@ export interface Tug extends Agent {
   plan: number;
 }
 
+/**
+ * A harbourmaster, who comes with a harbourmaster's hut: walks out along
+ * the jetties near it and points out the boats. For show only; see
+ * harbourmasters.ts.
+ */
+export interface Harbourmaster extends Agent {
+  name: string;
+  /** Their hut. */
+  home: number;
+  state: 'walk' | 'watch';
+  /** Ticks left watching before they walk on. */
+  timer: number;
+  /** The boat they are pointing out, or -1. */
+  boat: number;
+}
+
 export interface Boat extends Agent {
   /** Sails in to the anchorage, waits there if needed, then moors at a jetty. */
   state: 'approaching' | 'anchored' | 'arriving' | 'moored' | 'leaving';
@@ -633,6 +649,8 @@ export interface SaveData {
   boats: Boat[];
   /** Older saves have none. */
   tugs?: Tug[];
+  /** Older saves have none. */
+  harbourmasters?: Harbourmaster[];
   trucks: Truck[];
   bays: Bay[];
   yards?: Bay[];

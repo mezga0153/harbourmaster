@@ -34,7 +34,7 @@ import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from 
 import { modelFor } from './model';
 import { alertMarker, CRATE, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
 import { aboutAt, driveTo, FORK_KEEP, slide, turnAbout, type About, type Pose } from './motion';
-import { breakAt, doze, fidget, fidgetAt, pee, pose, sit } from './people';
+import { breakAt, doze, fidget, fidgetAt, pee, pointOut, pose, sit } from './people';
 import { surfaceY } from './terrain';
 import { ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
 import type { Trailer } from './vehicles';
@@ -427,6 +427,11 @@ export class Entities {
           this.standAbout(e, time);
         }
         this.toPlace(e, down);
+      }
+      if (cur.kind === 'harbourmaster') {
+        // An unhurried stroll, and stood still pointing out the boats.
+        pose(e.model, cur.moving, false, time * 9 + id);
+        if (cur.pointing && !cur.moving) pointOut(e.model, id, time);
       }
       if (e.alert) {
         e.alert.visible = cur.alert;

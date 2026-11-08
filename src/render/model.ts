@@ -4,7 +4,7 @@ import { coasterShip, feederShip, fishingBoat, lobsterBoat, tugBoat } from './cr
 import type { Owns } from './keyed';
 import { forklift, stacker, tractor, type Reach } from './machines';
 import { container, crate } from './models';
-import { worker, type Limbs } from './people';
+import { harbourmaster, worker, type Limbs } from './people';
 import { truckModel, type Trailer } from './vehicles';
 
 // The one shape every moving thing drawn has: boats and ships (craft.ts),
@@ -81,6 +81,8 @@ export function modelFor(v: EntityView): Model {
       return stacker();
     case 'tractor':
       return tractor();
+    case 'harbourmaster':
+      return harbourmaster(v.id);
     case 'boat':
       return boat(v.variant, v.vessel, v.id, v.catch === 'lobster');
     default:

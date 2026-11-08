@@ -6,6 +6,7 @@ import { anchorOf } from '../sim/rules';
 import { Build } from '../sim/types';
 import { CONTAINERS, ROCKS, template, TREES } from '../render/assets';
 import { forklift, stacker, tractor } from '../render/machines';
+import { harbourmaster, pointOut, pose } from '../render/people';
 import { boat, person, truck, type Model } from '../render/model';
 import {
   alertMarker,
@@ -369,6 +370,27 @@ const dockhand: Item = {
   },
 };
 
+const harbourmasterItem: Item = {
+  group: 'People',
+  name: 'Harbourmaster',
+  note: 'Comes with a harbourmaster’s hut',
+  params: [
+    { ...SEED, max: 60 },
+    { key: 'pointing', label: 'Pointing out a boat', kind: 'toggle', value: true, live: true },
+  ],
+  make(p) {
+    const m = harbourmaster(p.seed as number);
+    const s = model(m);
+    let pointing = p.pointing as boolean;
+    const live = (q: Params) => (pointing = q.pointing as boolean);
+    const update = (t: number) => {
+      pose(m, !pointing, false, t * 9);
+      if (pointing) pointOut(m, 0, t);
+    };
+    return { ...s, live, update };
+  },
+};
+
 const crowd: Item = {
   group: 'People',
   name: 'A crowd of dockhands',
@@ -403,6 +425,7 @@ export function modelItems(): Item[] {
     haulage('Articulated flatbed', 8, false),
     haulage('Container truck', 2, true),
     dockhand,
+    harbourmasterItem,
     crowd,
     machine('Forklift', forklift, 4),
     machine('Reach stacker', stacker, 1),

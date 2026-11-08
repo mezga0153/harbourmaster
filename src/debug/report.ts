@@ -62,7 +62,15 @@ export function report(s: Snapshot, x: ReportExtras): string {
     }),
   );
 
-  const kinds = ['boat', 'truck', 'dockhand', 'forklift', 'stacker', 'tractor'] as const;
+  const kinds = [
+    'boat',
+    'truck',
+    'dockhand',
+    'forklift',
+    'stacker',
+    'tractor',
+    'harbourmaster',
+  ] as const;
   for (const kind of kinds) {
     const es = s.entities.filter((e) => e.kind === kind);
     section(

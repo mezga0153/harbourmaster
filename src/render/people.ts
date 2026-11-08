@@ -144,6 +144,97 @@ export function worker(seed: number, crate: (size: number) => Object3D): Model {
   return { root, crates: [load], body, limbs: { legL, legR, armL, armR }, stream, snore };
 }
 
+/** Harbourmasters' beards, mostly grey or white with years at sea. */
+const BEARD = [0x9a9a9a, 0xd8d8d0, 0xd8d8d0, 0x5a3a22, 0xa0412d];
+const COAT = 0x2a4f9e;
+const BRASS = 0xd9b84a;
+
+/**
+ * A harbourmaster: a long blue coat with brass buttons, a full beard and a
+ * peaked cap; built from their id like a dock worker, see worker().
+ */
+export function harbourmaster(seed: number): Model {
+  const rng = new Rng(seed * 2654435761 + 29);
+  const skin = rng.pick(SKIN);
+  const beard = rng.pick(BEARD);
+  const broad = rng.range(1, 1.15);
+
+  const root = new Group();
+  const body = new Group();
+  root.add(body);
+  root.scale.setScalar(rng.range(0.98, 1.08));
+
+  const leg = (z: number) => {
+    const hip = new Group();
+    hip.position.set(0, 0.15, z);
+    hip.add(box(0.055, 0.12, 0.05, 0x1f2a44, 0, -0.12, 0));
+    hip.add(box(0.07, 0.035, 0.055, 0x1a1a1a, 0.008, -0.15, 0));
+    body.add(hip);
+    return hip;
+  };
+  const legL = leg(-0.034 * broad);
+  const legR = leg(0.034 * broad);
+
+  // The coat, down over the tops of the legs, with two rows of buttons
+  // and the white shirt collar showing at the neck. Boxes stand on their y.
+  const tw = 0.135 * broad;
+  body.add(box(0.095, 0.22, tw, COAT, 0, 0.08, 0));
+  body.add(box(0.01, 0.035, 0.035, 0xf4f4f0, 0.048, 0.262, 0));
+  for (const y of [0.235, 0.195, 0.155]) {
+    for (const z of [-0.025, 0.025]) body.add(box(0.01, 0.014, 0.014, BRASS, 0.048, y, z));
+  }
+
+  const arm = (z: number) => {
+    const shoulder = new Group();
+    shoulder.position.set(0, 0.285, z);
+    shoulder.add(box(0.05, 0.11, 0.045, COAT, 0, -0.1, 0));
+    shoulder.add(box(0.04, 0.035, 0.038, skin, 0, -0.13, 0));
+    body.add(shoulder);
+    return shoulder;
+  };
+  const armL = arm(-(tw / 2 + 0.024));
+  const armR = arm(tw / 2 + 0.024);
+
+  // Head, a full beard and moustache, and a peaked cap with its badge.
+  body.add(box(0.03, 0.02, 0.03, skin, 0, 0.295, 0));
+  body.add(box(0.085, 0.09, 0.085, skin, 0, 0.31, 0));
+  for (const z of [-0.018, 0.018]) body.add(box(0.006, 0.012, 0.01, 0x1a1a1a, 0.043, 0.36, z));
+  body.add(box(0.025, 0.06, 0.092, beard, 0.034, 0.285, 0));
+  body.add(box(0.07, 0.045, 0.094, beard, -0.004, 0.3, 0));
+  body.add(box(0.012, 0.012, 0.05, beard, 0.047, 0.338, 0));
+  body.add(box(0.04, 0.04, 0.09, beard, -0.026, 0.35, 0));
+  body.add(box(0.092, 0.03, 0.092, 0x1f2a44, 0, 0.395, 0));
+  body.add(box(0.105, 0.022, 0.105, 0xf4f4f0, -0.004, 0.425, 0));
+  body.add(box(0.05, 0.008, 0.085, 0x1a1a1a, 0.06, 0.395, 0));
+  body.add(box(0.008, 0.016, 0.02, BRASS, 0.047, 0.402, 0));
+
+  return { root, crates: [], body, limbs: { legL, legR, armL, armR } };
+}
+
+/**
+ * A harbourmaster pointing out a boat ahead of them with their right arm,
+ * a jab now and then, and in between a hand up shading their eyes to look.
+ */
+export function pointOut(w: { body?: Object3D; limbs?: Limbs }, id: number, t: number): void {
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  const k = (t + id * 1.3) % 7;
+  const ease = (a: number) => {
+    const f = clamp01(a);
+    return f * f * (3 - 2 * f);
+  };
+  if (k < 4) {
+    const f = ease(Math.min(k, 4 - k) / 0.4);
+    l.armR.rotation.z = (1.75 + Math.max(0, Math.sin(t * 5)) * 0.15) * f;
+    w.body.rotation.z += 0.05 * f;
+  } else {
+    const f = ease(Math.min(k - 4, 7 - k) / 0.4);
+    l.armL.rotation.z = 2.5 * f;
+    l.armL.rotation.x = 0.35 * f;
+    w.body.rotation.y = Math.sin(t * 0.8) * 0.3 * f;
+  }
+}
+
 /** Hips above the feet sat on the break hut's bench, and the legs out from it. */
 const SEAT = 0.09;
 const KNEES = 0.95;

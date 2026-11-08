@@ -66,3 +66,54 @@ describe("Harbourmaster's hut", () => {
     expect(world.snapshot().docks.huts).toBe(1);
   });
 });
+
+describe('The harbourmaster', () => {
+  /** A hut as near the fishing jetty as one will go. */
+  function hutByJetty(world: World): number {
+    const m = world.map;
+    const jetty = m.build.findIndex((b) => b === Build.Jetty);
+    const near = (i: number) =>
+      Math.abs(m.xOf(i) - m.xOf(jetty)) + Math.abs(m.yOf(i) - m.yOf(jetty));
+    const spot = Array.from(m.build, (_, i) => i)
+      .filter((i) => !placementError(m, 'harbourHut', i))
+      .sort((a, b) => near(a) - near(b))[0];
+    world.command({ type: 'build', kind: 'harbourHut', tiles: [spot] });
+    expect(m.build[spot]).toBe(Build.HarbourHut);
+    return spot;
+  }
+
+  it('comes with the hut, walks the jetties and points out the boats', () => {
+    const world = World.create(7, 96);
+    world.cash = 50_000;
+    const hut = hutByJetty(world);
+    let onJetty = false;
+    let pointed = false;
+    for (let t = 0; t < 3000; t++) {
+      world.step();
+      const [h] = world.harbourmasters;
+      if (!h) continue;
+      if (world.map.build[world.tileOf(h)] === Build.Jetty) onJetty = true;
+      if (h.boat >= 0) pointed = true;
+    }
+    expect(world.harbourmasters).toHaveLength(1);
+    expect(world.harbourmasters[0].home).toBe(hut);
+    expect(onJetty).toBe(true);
+    expect(pointed).toBe(true);
+    // Not one of the staff, so no one waits on them and they wait on no one.
+    expect(world.people.some((p) => p.id === world.harbourmasters[0].id)).toBe(false);
+    const view = world.snapshot().entities.find((e) => e.kind === 'harbourmaster');
+    expect(view?.name).toMatch(/^Harbourmaster /);
+  });
+
+  it('is kept in the save, and goes with the hut', () => {
+    const world = World.create(7, 96);
+    world.cash = 50_000;
+    const hut = hutByJetty(world);
+    for (let t = 0; t < 200; t++) world.step();
+    const again = World.fromSave(JSON.parse(JSON.stringify(world.toSave())));
+    expect(again.harbourmasters).toEqual(world.harbourmasters);
+    again.command({ type: 'bulldoze', tiles: [hut] });
+    again.step();
+    expect(again.harbourmasters).toHaveLength(0);
+  });
+});

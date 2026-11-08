@@ -50,6 +50,7 @@ import {
 } from './economy';
 import { businessViews, landmarkView, wantsView } from './townBusiness';
 import { tugged } from './tugs';
+import { harbourmasterActivity } from './harbourmasters';
 import {
   craneHeld,
   craneWork,
@@ -890,6 +891,23 @@ export function buildSnapshot(w: World): Snapshot {
       capacity: 0,
       alert: false,
       vessel: 'tug',
+    });
+  }
+  for (const h of w.harbourmasters) {
+    entities.push({
+      id: h.id,
+      kind: 'harbourmaster',
+      x: h.x,
+      y: h.y,
+      dir: h.dir,
+      load: 0,
+      moving: h.path.length > 0,
+      pointing: h.boat >= 0 && h.path.length === 0 ? true : undefined,
+      name: h.name,
+      activity: harbourmasterActivity(w, h),
+      variant: 0,
+      capacity: 0,
+      alert: false,
     });
   }
   for (const t of w.trucks) {

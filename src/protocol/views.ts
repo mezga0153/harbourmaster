@@ -9,7 +9,8 @@ import type { Candidate, Trait } from '../sim/staff';
 import type { CargoSample, CargoStats, FinanceDay, Ledger, Stats } from '../sim/state';
 import type { MachineKind } from '../sim/types';
 
-export type EntityKind = 'dockhand' | 'forklift' | 'stacker' | 'tractor' | 'boat' | 'truck';
+export type EntityKind =
+  'dockhand' | 'forklift' | 'stacker' | 'tractor' | 'boat' | 'truck' | 'harbourmaster';
 
 export interface EntityView {
   id: number;
@@ -35,6 +36,8 @@ export interface EntityView {
   catch?: Cargo;
   /** Dockhands on a break: sat on the bench outside the break hut. */
   sitting?: boolean;
+  /** Harbourmasters: pointing out a boat, the way they face. */
+  pointing?: boolean;
   name: string;
   activity: string;
   /** Per-entity paint colour index (trucks, boats). */
