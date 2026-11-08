@@ -30,6 +30,7 @@ import {
 import { addContract, offerBlocked } from '../src/sim/systems/economy';
 import { boxesIn, putBox } from '../src/sim/systems/cargo/stores';
 import type { RailTerms } from '../src/sim/contracts';
+import { GUIDES, checkStep } from '../src/ui/guides';
 import { gantryOverSiding } from '../src/sim/systems/cargo/wagons';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -418,6 +419,11 @@ describe('A yard gantry over a siding', () => {
     expect(boxesIn(yardOut, true)).toHaveLength(2);
     // The second wagon's two, in its reach; the third it wanted is not.
     expect(boxesIn(yardIn)).toHaveLength(4);
+    // The railway lesson's checks pass, the last as the train left with containers.
+    const snap = world.snapshot();
+    for (const step of GUIDES.railway.steps) {
+      expect(checkStep(step, snap)?.done, step.title).toBe(true);
+    }
     // Taken up, the track stays.
     world.command({ type: 'bulldoze', tiles: second });
     expect(m.build[second[0]]).toBe(Build.Siding);

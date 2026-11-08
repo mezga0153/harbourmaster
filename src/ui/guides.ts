@@ -33,13 +33,18 @@ export type GuideCheck =
   | 'parking'
   | 'outStorage'
   | 'outAccess'
-  | 'shipper';
+  | 'shipper'
+  | 'siding'
+  | 'sidingYards'
+  | 'sidingWorked'
+  | 'railLine'
+  | 'trainDelivery';
 export interface GuideAction {
   label: string;
   tool?: Tool;
   panel?: PanelName;
   inspect?: 'boat' | 'dockhand' | 'truck' | 'storage' | 'crane';
-  offers?: 'fishery' | 'coaster' | 'feeder' | 'haulier' | 'shipper';
+  offers?: 'fishery' | 'coaster' | 'feeder' | 'haulier' | 'shipper' | 'rail';
 }
 export interface GuideStep {
   title: string;
@@ -182,7 +187,7 @@ const harbourStart: GuideStep = {
   ],
 };
 
-export type GuideId = 'start' | 'wharf' | 'jib' | 'harbour' | 'gantry' | 'exports';
+export type GuideId = 'start' | 'wharf' | 'jib' | 'harbour' | 'gantry' | 'exports' | 'railway';
 
 export const GUIDES: Record<GuideId, Guide> = {
   start: {
@@ -368,6 +373,57 @@ export const GUIDES: Record<GuideId, Guide> = {
       },
     ],
   },
+  railway: {
+    kicker: 'Container Port',
+    title: 'Your first container train',
+    tier: 2,
+    steps: [
+      {
+        title: 'Lay a siding off the main line',
+        how: 'Roads › Railway › Rail siding',
+        text: `Once the town has its railway station, drag a siding straight out from beside the main line along a row, on land the port owns, as long as the trains: a tile and a third a wagon, ${B.WAGON_BOXES} containers each. Its switch needs ${B.SWITCH_GAP} rows of plain line from another switch or a level crossing. Port roads may cross it.`,
+        picture: 'siding',
+        check: 'siding',
+        actions: [{ label: 'Choose rail siding', tool: 'siding' }],
+      },
+      {
+        title: 'Mark container yards beside it',
+        how: 'Cargo › Storage › Container yard: in, then out',
+        text: `Mark a yard for containers coming in a row or two off the track, where the trains load the cleared containers off the feeders, and one for containers going out, where they unload what they bring. Run them along the siding where the wagons stand.`,
+        picture: 'sidingYards',
+        check: 'sidingYards',
+        actions: [
+          { label: 'Choose incoming yard', tool: 'boxStore' },
+          { label: 'Choose outgoing yard', tool: 'boxOutStore' },
+        ],
+      },
+      {
+        title: 'Give the wagons a crane or a stacker',
+        how: 'Machines › Reach stacker (Z), or Cargo › Cranes › Yard gantry',
+        text: 'Reach stackers lift the containers between the yards and the wagons, a container a trip, from beside the stacks. Or build a yard gantry on the siding beside a yard: its rails run along the track, and it works every wagon along the yard itself. Select the siding to see what it still needs.',
+        picture: 'sidingGantry',
+        check: 'sidingWorked',
+        actions: [
+          { label: 'Choose reach stacker', tool: 'stacker' },
+          { label: 'Choose yard gantry', tool: 'yardGantry' },
+        ],
+      },
+      {
+        title: 'Sign the rail line',
+        text: 'The railway’s offer stays on the contracts board till it is signed. Its trains bring containers to go out on the feeders, paid for as they go on board, and take containers off the feeders inland, paid for as each train leaves. The railway charges a daily fee.',
+        picture: 'sidingTrain',
+        check: 'railLine',
+        actions: [{ label: 'Open rail offers', offers: 'rail' }],
+      },
+      {
+        title: 'See the first train worked',
+        text: 'A train waits off the map for the main line to clear, pulls into the siding and stands while its wagons are unloaded and loaded. It leaves once that is done, or after a day at most. This lesson finishes when a train leaves with containers on board.',
+        picture: 'sidingTrain',
+        check: 'trainDelivery',
+        actions: [{ label: 'Open contracts', panel: 'contracts' }],
+      },
+    ],
+  },
 };
 export function craneGuide(kind: 'jib' | 'harbour' | 'gantry'): GuideId {
   return kind;
@@ -466,6 +522,14 @@ export function checkStep(
         s.contracts.some((c) => c.terms.kind === 'shipper' && c.terms.goods === 'canned'),
       'Cannery shipper and coaster line signed',
     ],
+    siding: [s.sidings.some((x) => x.cars >= 2), 'A siding long enough for a train'],
+    sidingYards: [
+      s.sidings.some((x) => x.yardsIn > 0 && x.yardsOut > 0),
+      'Yards in and out beside a siding',
+    ],
+    sidingWorked: [s.sidings.some((x) => x.yards > 0 && !x.why), 'Something to work the wagons'],
+    railLine: [s.contracts.some((c) => c.terms.kind === 'rail'), 'Rail line signed'],
+    trainDelivery: [marks.includes('trainDelivery'), 'A train left with containers'],
   };
   const [done, label] = checks[key];
   return { done, label };

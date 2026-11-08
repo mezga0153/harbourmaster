@@ -198,6 +198,9 @@ when changing tiers, town growth, contracts or what unlocks what.
   across a siding stays port road with the `RAILS` bit (`orient.ts`): no
   one steps onto it while a train is on it or coming (`trackHeld`, in
   `World.move`), and paths go round one standing across it (`trainOver`).
+  A yard gantry built on siding track keeps the `RAILS` bit, its rails run
+  along the track, and it lifts between its yard and the wagons
+  (`gantryWagons`, with `gantryOn` minus the train's id).
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
   `entities/` and `motion.ts` for moving things, `util/` for shared maths,
   `keyed.ts` for keeping keyed objects (and disposing what they own).

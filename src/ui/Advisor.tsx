@@ -224,7 +224,8 @@ export const TIPS: Record<string, Tip> = {
   station: {
     title: 'The railway station',
     text: 'Trains stop at the town’s new station, and the town may grow on without limit, towards a city. The railway offers container trains: lay a rail siding straight out from the main line (Roads, then Rail siding), mark container yards in and out a row or two off it, and reach stackers unload what each train brings and load it with containers off the feeders.',
-    topic: 'growth',
+    topic: 'containers',
+    guide: ['railway', 0],
   },
   land: {
     title: 'The port’s land',

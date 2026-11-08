@@ -13,6 +13,9 @@ import type { GameMap } from '../sim/map';
 import { bestFacing, footprint } from '../sim/rules';
 import { Build, Store, type BuildKind } from '../sim/types';
 import { FORKS_EMPTY, FORKS_LOADED, forklift, stacker } from './machines';
+import { trainCar } from './trains';
+import { CAR_LENGTH } from '../sim/railway';
+import { RAILS } from '../sim/orient';
 import { boat, person, truck, type Model } from './model';
 import { Overlay, type Hints } from './overlay';
 import { Structures } from './structures';
@@ -29,7 +32,8 @@ import { at, block, lay, patch, place, row, shoot, viewOf } from './thumbs';
 
 /** A boat, truck, machine or person stood somewhere in a beat; `turn` from facing +x, `load` crates aboard. */
 interface Prop {
-  kind: 'smack' | 'coaster' | 'feeder' | 'forklift' | 'stacker' | 'truck' | 'person';
+  /** A train: its locomotive's front at (x, y), wagons trailing back along -x, `load` containers on them. */
+  kind: 'smack' | 'coaster' | 'feeder' | 'forklift' | 'stacker' | 'truck' | 'person' | 'train';
   x: number;
   y: number;
   turn?: number;
@@ -131,6 +135,46 @@ function drag(
   return out;
 }
 
+/** A drag along a row of tiles, from column x0 to x1, as hand-down beats every two, then let go. */
+function dragRow(
+  y: number,
+  x0: number,
+  x1: number,
+  make: (m: GameMap, tiles: number[]) => void,
+): Beat[] {
+  const out: Beat[] = [];
+  for (let x = x0; ; x = Math.min(x1, x + 2)) {
+    const to = x;
+    out.push({ hand: { x: to, y, down: true }, ghost: (m) => row(m, y, x0, to) });
+    if (x === x1) break;
+  }
+  out.push({ hand: { x: x1, y }, build: (m) => make(m, row(m, y, x0, x1)) });
+  return out;
+}
+
+/** The main line down column 0. */
+function mainLine(m: GameMap): void {
+  lay(
+    m,
+    Build.Rail,
+    Array.from({ length: H }, (_, y) => at(m, 0, y)),
+  );
+}
+
+/** A siding along row 3 off the main line, port roads either side, and a yard for containers in below it and out above. */
+function railYards(m: GameMap): void {
+  mainLine(m);
+  lay(m, Build.Siding, row(m, 3, 1, 6));
+  lay(m, Build.PortRoad, [
+    ...row(m, 4, 2, 6),
+    ...row(m, 5, 1, 6),
+    ...row(m, 2, 2, 6),
+    ...row(m, 1, 1, 6),
+  ]);
+  store(m, row(m, 4, 2, 6), Store.Boxes);
+  store(m, row(m, 2, 2, 6), Store.BoxesOut);
+}
+
 /** A building put down on tile (x, y): the hand points, presses with the game's preview under it, and lets go. */
 function put(kind: BuildKind, x: number, y: number): Beat[] {
   const where = (m: GameMap) => {
@@ -148,6 +192,112 @@ const coaster = (load: number): Prop => ({ kind: 'coaster', x: 7.75, y: 3.5, tur
 const feeder = (load: number): Prop => ({ kind: 'feeder', x: 8, y: 6, turn: S, load });
 
 const PICTURES = {
+  siding: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 1, 6, 5],
+    beats: [
+      { build: mainLine },
+      ...dragRow(3, 1, 6, (m, t) => void lay(m, Build.Siding, t)),
+      { props: [{ kind: 'train', x: 6.85, y: 3.5, load: 4 }] },
+    ],
+  },
+  sidingYards: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 0, 6, 6],
+    beats: [
+      {
+        build: (m) => {
+          mainLine(m);
+          lay(m, Build.Siding, row(m, 3, 1, 6));
+          lay(m, Build.PortRoad, [...row(m, 4, 2, 6), ...row(m, 5, 1, 6), ...row(m, 2, 2, 6)]);
+        },
+      },
+      ...dragRow(4, 2, 6, (m, t) => void store(m, t, Store.Boxes)),
+      ...dragRow(2, 2, 6, (m, t) => void store(m, t, Store.BoxesOut)),
+      {
+        props: [{ kind: 'stacker', x: 4.5, y: 5.5, turn: N }],
+        stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 8, boxes: true }],
+      },
+    ],
+  },
+  sidingTrain: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 0, 6, 6],
+    beats: [
+      {
+        build: railYards,
+        stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 8, boxes: true }],
+        props: [{ kind: 'train', x: 6.85, y: 3.5, load: 4 }],
+      },
+      {
+        props: [
+          { kind: 'train', x: 6.85, y: 3.5, load: 3 },
+          { kind: 'stacker', x: 5.5, y: 1.5, turn: S, load: 1 },
+        ],
+        stock: (m) => [
+          { tiles: row(m, 4, 2, 6), n: 8, boxes: true },
+          { tiles: row(m, 2, 2, 6), n: 1, boxes: true },
+        ],
+      },
+      {
+        props: [
+          { kind: 'train', x: 6.85, y: 3.5, load: 2 },
+          { kind: 'stacker', x: 3.5, y: 5.5, turn: N, load: 1 },
+        ],
+        stock: (m) => [
+          { tiles: row(m, 4, 2, 6), n: 6, boxes: true },
+          { tiles: row(m, 2, 2, 6), n: 4, boxes: true },
+        ],
+      },
+      {
+        props: [{ kind: 'train', x: 6.85, y: 3.5, load: 6 }],
+        stock: (m) => [
+          { tiles: row(m, 4, 2, 6), n: 2, boxes: true },
+          { tiles: row(m, 2, 2, 6), n: 4, boxes: true },
+        ],
+      },
+    ],
+  },
+  sidingGantry: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 0, 6, 6],
+    beats: [
+      {
+        build: (m) => {
+          mainLine(m);
+          lay(m, Build.Siding, row(m, 3, 1, 6));
+          lay(m, Build.PortRoad, row(m, 4, 2, 6));
+          store(m, row(m, 4, 2, 6), Store.Boxes);
+        },
+        stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 8, boxes: true }],
+      },
+      // Over the track, which runs on under it.
+      ...put('yardGantry', 2, 3).map((b) =>
+        b.build
+          ? {
+              ...b,
+              build: (m: GameMap) => {
+                b.build!(m);
+                m.orient[at(m, 2, 3)] |= RAILS;
+              },
+            }
+          : b,
+      ),
+      { props: [{ kind: 'train', x: 6.85, y: 3.5, load: 2 }] },
+      {
+        props: [{ kind: 'train', x: 6.85, y: 3.5, load: 6 }],
+        stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 4, boxes: true }],
+      },
+    ],
+  },
   firstBoat: {
     w: W,
     h: H,
@@ -496,7 +646,23 @@ const PICTURES = {
 
 export type PictureId = keyof typeof PICTURES;
 
+/** A port train standing in a siding along +x: its locomotive first, then flat wagons with `load` containers. */
+function train(p: Prop, map: GameMap): Group {
+  const g = new Group();
+  const wagons = 3;
+  let left = p.load ?? 0;
+  for (let k = 0; k <= wagons; k++) {
+    const looks = k === 0 ? undefined : [0, 1].map((s) => (left-- > 0 ? k * 2 + s : null));
+    const car = trainCar(k === 0 ? 'loco' : 'flat', 1, k, looks);
+    car.rotation.y = Math.PI / 2;
+    car.position.set(p.x - (k + 0.5) * CAR_LENGTH, surfaceY(map, p.x, p.y) + 0.105, p.y);
+    g.add(car);
+  }
+  return g;
+}
+
 function prop(p: Prop, map: GameMap): Model {
+  if (p.kind === 'train') return { root: train(p, map), crates: [] } as unknown as Model;
   const model =
     p.kind === 'forklift'
       ? forklift()
