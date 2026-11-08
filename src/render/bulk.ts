@@ -1,4 +1,4 @@
-import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
+import { CylinderGeometry, Group, Mesh, type Object3D } from 'three';
 import type { BulkView } from '../protocol';
 import * as B from '../sim/balance';
 import type { BulkKind } from '../sim/bulk';
@@ -20,9 +20,14 @@ export const BULK_COLOUR: Record<BulkKind, number> = {
   ore: 0x8a4b32,
 };
 
-const heapGeo = new ConeGeometry(0.62, 1, 4, 1);
+/**
+ * A heap: a square frustum a unit across at its foot and high, its top a
+ * ridge-like flat a third as wide, scaled to fit the stockpile it lies on.
+ */
+const heapGeo = new CylinderGeometry(Math.SQRT1_2 / 3, Math.SQRT1_2, 1, 4, 1);
 heapGeo.rotateY(Math.PI / 4);
 heapGeo.translate(0, 0.5, 0);
+heapGeo.computeVertexNormals();
 
 /** A grab crane's moving parts: the house that slews, and the grab hanging from its jib. */
 interface Grab {
@@ -55,7 +60,10 @@ export class BulkLayer {
     const m = this.map;
     this.rate = speed;
     const seen = new Set<number>();
+    // One heap over each stockpile, as high as it is full; see heaps.
+    for (const k of this.heaps(view, seen)) seen.add(k);
     for (const [i, kind, t] of view.at) {
+      if (m.build[i] === Build.Stockpile) continue;
       seen.add(i);
       let mesh = this.loads.get(i);
       const b = m.build[i];
@@ -72,11 +80,7 @@ export class BulkLayer {
       const x = m.xOf(i) + 0.5;
       const z = m.yOf(i) + 0.5;
       const y = this.top(i);
-      if (b === Build.Stockpile) {
-        const f = Math.min(1, t / B.STOCKPILE_TILE);
-        mesh.scale.set(0.4 + 0.6 * Math.sqrt(f), 0.04 + 0.62 * f, 0.4 + 0.6 * Math.sqrt(f));
-        mesh.position.set(x, y + 0.02, z);
-      } else if (b === Build.Belt) {
+      if (b === Build.Belt) {
         const f = Math.min(1, t / B.BELT_CAP);
         mesh.scale.set(0.24, 0.02 + 0.07 * f, 0.24);
         mesh.position.set(x, y + 0.13, z);
@@ -114,6 +118,75 @@ export class BulkLayer {
       this.group.remove(c.root);
       this.grabs.delete(i);
     }
+  }
+
+  /**
+   * A heap over each stockpile with anything on it, keyed by its first
+   * tile: across the stockpile's tiles, or each square run of them where
+   * it is not square, and as high as the whole of it is full.
+   */
+  private heaps(view: BulkView, seen: Set<number>): number[] {
+    const m = this.map;
+    const load = new Map<number, { kind: BulkKind; t: number }>();
+    for (const [i, kind, t] of view.at)
+      if (m.build[i] === Build.Stockpile) load.set(i, { kind, t });
+    const done = new Set<number>();
+    const keys: number[] = [];
+    for (const start of load.keys()) {
+      if (done.has(start)) continue;
+      // The stockpile's tiles, all that touch.
+      const area = [start];
+      done.add(start);
+      for (let k = 0; k < area.length; k++) {
+        for (const n of m.neighbors4(area[k])) {
+          if (done.has(n) || m.build[n] !== Build.Stockpile) continue;
+          done.add(n);
+          area.push(n);
+        }
+      }
+      let t = 0;
+      let kind: BulkKind = 'coal';
+      for (const i of area) {
+        const l = load.get(i);
+        if (l) {
+          t += l.t;
+          kind = l.kind;
+        }
+      }
+      const xs = area.map((i) => m.xOf(i));
+      const ys = area.map((i) => m.yOf(i));
+      const x0 = Math.min(...xs);
+      const y0 = Math.min(...ys);
+      const w = Math.max(...xs) - x0 + 1;
+      const d = Math.max(...ys) - y0 + 1;
+      // A square stockpile heaps up as one; any other shape, a heap a tile.
+      const square = w * d === area.length;
+      const parts = square
+        ? [{ x: x0, y: y0, w, d, tiles: area }]
+        : area.map((i) => ({ x: m.xOf(i), y: m.yOf(i), w: 1, d: 1, tiles: [i] }));
+      for (const p of parts) {
+        const key = Math.min(...p.tiles);
+        const tt = square ? t : (load.get(p.tiles[0])?.t ?? 0);
+        const f = Math.min(1, tt / (p.tiles.length * B.STOCKPILE_TILE));
+        if (f <= 0.002) continue;
+        keys.push(key);
+        let mesh = this.loads.get(key);
+        if (!mesh) {
+          mesh = new Mesh(heapGeo, mat(BULK_COLOUR[kind]));
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          this.loads.set(key, mesh);
+          this.group.add(mesh);
+        }
+        mesh.material = mat(BULK_COLOUR[kind]);
+        // It spreads out to the walls as it fills, and rises.
+        const spread = 0.55 + 0.4 * Math.sqrt(f);
+        mesh.scale.set(p.w * spread, 0.04 + 0.42 * f * Math.min(p.w, p.d, 2), p.d * spread);
+        mesh.position.set(p.x + p.w / 2, this.top(key) + 0.02, p.y + p.d / 2);
+        mesh.visible = true;
+      }
+    }
+    return keys.filter((k) => !seen.has(k));
   }
 
   /** A grab crane on tile `i`: a pedestal, a house that slews, a jib, and the grab on its wire. */
