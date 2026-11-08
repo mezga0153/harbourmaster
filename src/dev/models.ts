@@ -6,7 +6,16 @@ import { anchorOf } from '../sim/rules';
 import { Build } from '../sim/types';
 import { CONTAINERS, ROCKS, template, TREES } from '../render/assets';
 import { forklift, stacker, tractor } from '../render/machines';
-import { checkPapers, customsOfficer, harbourmaster, pointOut, pose } from '../render/people';
+import {
+  berthingMaster,
+  binoculars,
+  checkPapers,
+  customsOfficer,
+  harbourmaster,
+  pointOut,
+  pose,
+  waveIn,
+} from '../render/people';
 import { boat, person, truck, type Model } from '../render/model';
 import {
   alertMarker,
@@ -412,6 +421,39 @@ const customsItem: Item = {
   },
 };
 
+const berthingItem: Item = {
+  group: 'People',
+  name: 'Berthing master',
+  note: 'Comes with a harbour office',
+  params: [
+    { ...SEED, max: 60 },
+    {
+      key: 'doing',
+      label: 'Doing',
+      kind: 'select',
+      options: [
+        ['wave', 'Waving a ship in'],
+        ['look', 'Watching through binoculars'],
+        ['walk', 'Walking'],
+      ],
+      value: 'wave',
+      live: true,
+    },
+  ],
+  make(p) {
+    const m = berthingMaster(p.seed as number);
+    const s = model(m);
+    let doing = p.doing as string;
+    const live = (q: Params) => (doing = q.doing as string);
+    const update = (t: number) => {
+      pose(m, doing === 'walk', false, t * 9);
+      if (doing === 'wave') waveIn(m, t);
+      else if (doing === 'look') binoculars(m, t);
+    };
+    return { ...s, live, update };
+  },
+};
+
 const crowd: Item = {
   group: 'People',
   name: 'A crowd of dockhands',
@@ -448,6 +490,7 @@ export function modelItems(): Item[] {
     dockhand,
     harbourmasterItem,
     customsItem,
+    berthingItem,
     crowd,
     machine('Forklift', forklift, 4),
     machine('Reach stacker', stacker, 1),

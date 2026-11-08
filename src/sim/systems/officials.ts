@@ -1,7 +1,9 @@
 // The port's officials, one to each building that has one: a harbourmaster
 // to each harbourmaster's hut, strolling out along the jetties near it and
-// pointing out the boats coming and going, and a customs officer to each
-// customs office, going down to the ships alongside to check their papers.
+// pointing out the boats coming and going; a berthing master to each
+// harbour office, out at the berths waving the ships in alongside; and a
+// customs officer to each customs office, going down to the ships
+// alongside to check their papers.
 // They are for show: they walk through everyone and everything is free to
 // walk through them, and they never touch the game's random numbers.
 
@@ -24,6 +26,13 @@ const ROLES: Record<
     names: ['Gunn', 'Mackie', 'Penrose', 'Tregarthen', 'Bligh', 'Haddock', 'Fairweather', 'Quayle'],
     beat: B.HARBOURMASTER_BEAT,
     stops: (c) => c === Build.Jetty,
+  },
+  berthing: {
+    home: Build.Office,
+    title: 'Berthing master',
+    names: ['Rowe', 'Calder', 'Moffat', 'Pengelly', 'Strand', 'Inglis', 'Baird', 'Trevan'],
+    beat: B.CUSTOMS_BEAT,
+    stops: isDock,
   },
   customs: {
     home: Build.Customs,
@@ -99,13 +108,14 @@ function hire(w: World, role: OfficialRole, home: number, at: number): Official 
   return h;
 }
 
-/** Of `tiles`, the one nearest the boat, and how far it is from it. */
-function nearestTo(w: World, tiles: number[], b: Boat): [number, number] {
+/** Of `tiles`, the one nearest the boat (or the tile `at`), and how far it is from it. */
+function nearestTo(w: World, tiles: number[], b: Boat, at = -1): [number, number] {
   const m = w.map;
+  const [x, y] = at >= 0 ? [m.xOf(at) + 0.5, m.yOf(at) + 0.5] : [b.x, b.y];
   let best = -1;
   let bestD = Infinity;
   for (const j of tiles) {
-    const d = Math.hypot(m.xOf(j) + 0.5 - b.x, m.yOf(j) + 0.5 - b.y);
+    const d = Math.hypot(m.xOf(j) + 0.5 - x, m.yOf(j) + 0.5 - y);
     if (d < bestD) [best, bestD] = [j, d];
   }
   return [best, bestD];
@@ -152,12 +162,42 @@ function customsStop(w: World, h: Official, stops: number[], door: number): numb
   return door;
 }
 
+/**
+ * A berthing master's next stop: the dock a ship is coming in to, to wave
+ * it in alongside; or now and then any dock on their beat, or the door.
+ */
+function berthingStop(w: World, h: Official, stops: number[], door: number): number {
+  const coming = w.boats.filter(
+    (b) => (b.state === 'arriving' || b.state === 'anchored') && b.jetty >= 0,
+  );
+  for (const b of coming) {
+    const [best, d] = nearestTo(w, stops, b, b.jetty);
+    if (best >= 0 && d < 3) return best;
+  }
+  if (stops.length > 0 && roll(h, w.tick) < 0.5) {
+    return stops[Math.floor(roll(h, w.tick + 3) * stops.length)];
+  }
+  return door;
+}
+
+/** The ship a berthing master is waving in: one coming in to a dock beside them. */
+export function guiding(w: World, h: Official): Boat | undefined {
+  const m = w.map;
+  return w.boats.find(
+    (b) =>
+      b.state === 'arriving' &&
+      b.jetty >= 0 &&
+      Math.abs(m.xOf(b.jetty) + 0.5 - h.x) + Math.abs(m.yOf(b.jetty) + 0.5 - h.y) <= 2,
+  );
+}
+
 /** Somewhere on the beat to walk to next, or -1 to stay put. */
 function nextStop(w: World, h: Official): number {
   const here = w.tileOf(h);
   const door = doorStep(w, h.home);
   const stops = door >= 0 ? beat(w, h, door).filter((j) => j !== here) : [];
   if (h.role === 'customs') return customsStop(w, h, stops, door);
+  if (h.role === 'berthing') return berthingStop(w, h, stops, door);
   return stops.length > 0 ? harbourmasterStop(w, h, stops) : -1;
 }
 
@@ -172,13 +212,18 @@ function update(w: World, h: Official): void {
     h.boat = -1;
   }
   // A harbourmaster turns to the nearest boat about, pointing it out; a
-  // customs officer to the ship beside them, going through its papers.
+  // berthing master to the ship coming in beside them, waving it in, or
+  // the nearest one about, watching it through binoculars; a customs
+  // officer to the ship beside them, going through its papers.
   const reach = h.role === 'customs' ? B.CUSTOMS_REACH : B.HARBOURMASTER_SIGHT;
-  const [b] = inSight(w, h.x, h.y, reach).filter(
-    (q) => h.role !== 'customs' || q.state === 'moored',
-  );
+  const [b] =
+    h.role === 'berthing' && guiding(w, h)
+      ? [guiding(w, h)!]
+      : inSight(w, h.x, h.y, reach).filter((q) => h.role !== 'customs' || q.state === 'moored');
   h.boat = b ? b.id : -1;
   if (b) h.dir = Math.atan2(b.y - h.y, b.x - h.x);
+  // Waving a ship in, they stay till it is alongside.
+  if (h.role === 'berthing' && b?.state === 'arriving' && guiding(w, h)) return;
   if (--h.timer > 0) return;
   const goal = nextStop(w, h);
   const path =
@@ -206,7 +251,9 @@ export function updateOfficials(w: World): void {
           ? 'harbourmaster'
           : m.build[i] === Build.Customs
             ? 'customs'
-            : null;
+            : m.build[i] === Build.Office
+              ? 'berthing'
+              : null;
       if (!role || w.officials.some((h) => h.home === i)) continue;
       const at = doorStep(w, i);
       if (at >= 0) w.officials.push(hire(w, role, i, at));
@@ -238,6 +285,15 @@ export function officialActivity(w: World, h: Official): string {
         : 'Going back to the office';
     }
     return b ? `Checking the papers of ${what(b)}` : 'Waiting for a ship to come alongside';
+  }
+  if (h.role === 'berthing') {
+    if (h.state === 'walk') {
+      return isDock(w.map.build[h.goal]) ? 'Going out to the berths' : 'Going back to the office';
+    }
+    if (!b) return 'Keeping an eye on the berths';
+    return b.state === 'arriving' && guiding(w, h)
+      ? `Waving ${what(b)} in alongside`
+      : `Watching ${what(b)} through binoculars`;
   }
   if (h.state === 'walk') return 'Walking out along the jetties';
   if (!b) return 'Keeping an eye on the harbour';

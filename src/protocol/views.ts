@@ -17,7 +17,8 @@ export type EntityKind =
   | 'boat'
   | 'truck'
   | 'harbourmaster'
-  | 'customsOfficer';
+  | 'customsOfficer'
+  | 'berthingMaster';
 
 export interface EntityView {
   id: number;
@@ -45,9 +46,12 @@ export interface EntityView {
   sitting?: boolean;
   /**
    * Harbourmasters: pointing out a boat, the way they face. Customs
-   * officers: checking the papers of the ship they face.
+   * officers: checking the papers of the ship they face. Berthing
+   * masters: watching the ship they face through binoculars.
    */
   pointing?: boolean;
+  /** Berthing masters: waving the ship they face in alongside. */
+  guiding?: boolean;
   name: string;
   activity: string;
   /** Per-entity paint colour index (trucks, boats). */

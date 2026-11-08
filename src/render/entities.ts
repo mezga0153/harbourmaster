@@ -34,7 +34,19 @@ import { CARRY_LOW, FORKS_EMPTY, FORKS_LOADED, STACKER_REACH, TRAILER_AT } from 
 import { modelFor } from './model';
 import { alertMarker, CRATE, paintLoad, setCrateIcon, showDeck, showLoad } from './models';
 import { aboutAt, driveTo, FORK_KEEP, slide, turnAbout, type About, type Pose } from './motion';
-import { breakAt, checkPapers, doze, fidget, fidgetAt, pee, pointOut, pose, sit } from './people';
+import {
+  binoculars,
+  breakAt,
+  checkPapers,
+  doze,
+  fidget,
+  fidgetAt,
+  pee,
+  pointOut,
+  pose,
+  sit,
+  waveIn,
+} from './people';
 import { surfaceY } from './terrain';
 import { ease, headingOf, lerpAngle, turnOf, wrapAngle } from './util/math';
 import type { Trailer } from './vehicles';
@@ -428,13 +440,19 @@ export class Entities {
         }
         this.toPlace(e, down);
       }
-      if (cur.kind === 'harbourmaster' || cur.kind === 'customsOfficer') {
-        // An unhurried stroll, and stood still pointing out the boats or
-        // going through a ship's papers.
+      if (
+        cur.kind === 'harbourmaster' ||
+        cur.kind === 'customsOfficer' ||
+        cur.kind === 'berthingMaster'
+      ) {
+        // An unhurried stroll, and stood still pointing out the boats,
+        // waving one in or watching it, or going through a ship's papers.
         pose(e.model, cur.moving, false, time * 9 + id);
         if (cur.pointing && !cur.moving) {
           if (cur.kind === 'harbourmaster') pointOut(e.model, id, time);
-          else checkPapers(e.model, id, time);
+          else if (cur.kind === 'customsOfficer') checkPapers(e.model, id, time);
+          else if (cur.guiding) waveIn(e.model, time);
+          else binoculars(e.model, time);
         }
       }
       if (e.alert) {

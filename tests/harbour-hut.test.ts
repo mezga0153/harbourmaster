@@ -67,8 +67,8 @@ describe("Harbourmaster's hut", () => {
   });
 });
 
-/** A hut or customs office as near the fishing jetty as one will go. */
-function byJetty(world: World, kind: 'harbourHut' | 'customs'): number {
+/** A hut, harbour office or customs office as near the fishing jetty as one will go. */
+function byJetty(world: World, kind: 'harbourHut' | 'customs' | 'office'): number {
   const m = world.map;
   const jetty = m.build.findIndex((b) => b === Build.Jetty);
   const near = (i: number) => Math.abs(m.xOf(i) - m.xOf(jetty)) + Math.abs(m.yOf(i) - m.yOf(jetty));
@@ -76,7 +76,9 @@ function byJetty(world: World, kind: 'harbourHut' | 'customs'): number {
     .filter((i) => !placementError(m, kind, i))
     .sort((a, b) => near(a) - near(b))[0];
   world.command({ type: 'build', kind, tiles: [spot] });
-  expect(m.build[spot]).toBe(kind === 'customs' ? Build.Customs : Build.HarbourHut);
+  expect(m.build[spot]).toBe(
+    { customs: Build.Customs, office: Build.Office, harbourHut: Build.HarbourHut }[kind],
+  );
   return spot;
 }
 
@@ -158,5 +160,30 @@ describe('The customs officer', () => {
     world.command({ type: 'bulldoze', tiles: [office] });
     world.step();
     expect(world.officials).toHaveLength(0);
+  });
+});
+
+describe('The berthing master', () => {
+  it('comes with the harbour office and waves the boats in alongside', () => {
+    const world = World.create(7, 96);
+    world.tier = 1;
+    world.cash = 50_000;
+    const office = byJetty(world, 'office');
+    let waved = false;
+    for (let t = 0; t < 2400; t++) {
+      world.step();
+      const [h] = world.officials;
+      if (!h) continue;
+      const view = world.snapshot().entities.find((e) => e.id === h.id)!;
+      if (!view.guiding) continue;
+      expect(world.boats.find((b) => b.id === h.boat)?.state).toBe('arriving');
+      waved = true;
+    }
+    expect(world.officials).toHaveLength(1);
+    expect(world.officials[0].role).toBe('berthing');
+    expect(world.officials[0].home).toBe(office);
+    expect(waved).toBe(true);
+    const view = world.snapshot().entities.find((e) => e.kind === 'berthingMaster');
+    expect(view?.name).toMatch(/^Berthing master /);
   });
 });

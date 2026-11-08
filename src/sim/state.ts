@@ -253,12 +253,13 @@ export interface Tug extends Agent {
   plan: number;
 }
 
-export type OfficialRole = 'harbourmaster' | 'customs';
+export type OfficialRole = 'harbourmaster' | 'berthing' | 'customs';
 
 /**
  * One of the port's officials, who comes with their building: a
  * harbourmaster with a harbourmaster's hut, walking out along the jetties
- * near it and pointing out the boats, or a customs officer with a customs
+ * near it and pointing out the boats, a berthing master with a harbour
+ * office, waving the ships in alongside, or a customs officer with a customs
  * office, going down to the ships alongside to check their papers. For
  * show only; see officials.ts.
  */

@@ -71,6 +71,7 @@ export function report(s: Snapshot, x: ReportExtras): string {
     'tractor',
     'harbourmaster',
     'customsOfficer',
+    'berthingMaster',
   ] as const;
   for (const kind of kinds) {
     const es = s.entities.filter((e) => e.kind === kind);

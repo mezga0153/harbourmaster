@@ -317,6 +317,93 @@ export function checkPapers(w: { body?: Object3D; limbs?: Limbs }, id: number, t
   w.body.rotation.z += -0.12 * (1 - up) + 0.08 * up;
 }
 
+/**
+ * A berthing master: an orange hi-vis jacket over navy, a white hard hat,
+ * a radio clipped to their chest and binoculars in their right hand; built
+ * from their id like a dock worker, see worker().
+ */
+export function berthingMaster(seed: number): Model {
+  const rng = new Rng(seed * 2654435761 + 53);
+  const skin = rng.pick(SKIN);
+  const hair = rng.pick(HAIR);
+  const broad = rng.range(0.95, 1.1);
+
+  const root = new Group();
+  const body = new Group();
+  root.add(body);
+  root.scale.setScalar(rng.range(0.94, 1.06));
+
+  const leg = (z: number) => {
+    const hip = new Group();
+    hip.position.set(0, 0.15, z);
+    hip.add(box(0.055, 0.12, 0.05, 0x1f2a44, 0, -0.12, 0));
+    hip.add(box(0.07, 0.035, 0.055, BOOTS, 0.008, -0.15, 0));
+    body.add(hip);
+    return hip;
+  };
+  const legL = leg(-0.034 * broad);
+  const legR = leg(0.034 * broad);
+
+  // The hi-vis jacket with its bands, and the radio on the chest.
+  const tw = 0.135 * broad;
+  const jacket = 0xff8a1f;
+  body.add(box(0.095, 0.17, tw, jacket, 0, 0.125, 0));
+  for (const y of [0.17, 0.225]) body.add(box(0.097, 0.012, tw + 0.004, REFLECT, 0, y, 0));
+  body.add(box(0.015, 0.04, 0.022, 0x1a1a1a, 0.052, 0.235, -0.03));
+  body.add(box(0.004, 0.03, 0.004, 0x1a1a1a, 0.052, 0.275, -0.038));
+
+  const arm = (z: number) => {
+    const shoulder = new Group();
+    shoulder.position.set(0, 0.285, z);
+    shoulder.add(box(0.045, 0.1, 0.04, jacket, 0, -0.1, 0));
+    shoulder.add(box(0.047, 0.01, 0.042, REFLECT, 0, -0.07, 0));
+    shoulder.add(box(0.04, 0.035, 0.038, skin, 0, -0.13, 0));
+    body.add(shoulder);
+    return shoulder;
+  };
+  const armL = arm(-(tw / 2 + 0.022));
+  const armR = arm(tw / 2 + 0.022);
+  // Binoculars, in the hand: up to their eyes when they look through them.
+  armR.add(box(0.03, 0.045, 0.05, 0x1a1a1a, 0.02, -0.17, -0.02));
+
+  // Head, hair, and the hard hat.
+  body.add(box(0.03, 0.02, 0.03, skin, 0, 0.295, 0));
+  body.add(box(0.085, 0.09, 0.085, skin, 0, 0.31, 0));
+  for (const z of [-0.018, 0.018]) body.add(box(0.006, 0.012, 0.01, 0x1a1a1a, 0.043, 0.36, z));
+  body.add(box(0.05, 0.05, 0.09, hair, -0.022, 0.35, 0));
+  body.add(cyl(0.055, 0.04, C_WHITE, 0, 0.395, 0, 8));
+  body.add(box(0.13, 0.008, 0.11, C_WHITE, 0.01, 0.395, 0));
+
+  return { root, crates: [], body, limbs: { legL, legR, armL, armR } };
+}
+
+/**
+ * A berthing master waving a ship in alongside: both arms up, beckoning it
+ * on over and over, as a marshaller would.
+ */
+export function waveIn(w: { body?: Object3D; limbs?: Limbs }, t: number): void {
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  const k = Math.sin(t * 4);
+  l.armL.rotation.x = 2.5;
+  l.armR.rotation.x = -2.5;
+  l.armL.rotation.z = 0.2 + k * 0.45;
+  l.armR.rotation.z = 0.2 + k * 0.45;
+  w.body.rotation.z += 0.05;
+}
+
+/** A berthing master watching a ship through their binoculars, turning slowly to follow it. */
+export function binoculars(w: { body?: Object3D; limbs?: Limbs }, t: number): void {
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  l.armR.rotation.z = 2.25;
+  l.armR.rotation.x = -0.3;
+  l.armL.rotation.z = 2.25;
+  l.armL.rotation.x = 0.3;
+  w.body.rotation.z += 0.06;
+  w.body.rotation.y = Math.sin(t * 0.4) * 0.12;
+}
+
 /** Hips above the feet sat on the break hut's bench, and the legs out from it. */
 const SEAT = 0.09;
 const KNEES = 0.95;
