@@ -104,7 +104,8 @@ export interface Landmark {
    * rather than trucked out.
    */
   goal: {
-    cargo: Cargo;
+    /** A kind of crate, or containers. */
+    cargo: Cargo | 'container';
     perDay?: number;
     days?: number;
     total?: number;
@@ -187,8 +188,39 @@ export const LANDMARKS: Landmark[] = [
     goal: { cargo: 'goods', total: 60 },
     aim: 'Truck out 60 crates of goods',
     opens: 'The town gets its charter: it grows past 800, so the port may become a Container Port',
-    cap: Infinity,
+    cap: 1000,
     tier: 1,
+  },
+  // The Container Port's: the factory's containers, then the railway.
+  {
+    code: Build.Hospital,
+    name: 'Hospital',
+    // In all: a feeder brings a load every day or two, not every day.
+    goal: { cargo: 'container', total: 40 },
+    aim: 'Truck out 40 containers',
+    opens:
+      'The factory takes on more hands and sends its goods out in containers: its offer is on the contracts board',
+    cap: 1300,
+    tier: 2,
+  },
+  {
+    code: Build.College,
+    name: 'Technical college',
+    goal: { cargo: 'container', total: 40, aboard: true },
+    aim: 'Put 40 containers on board ships',
+    opens: 'Engineers and clerks settle, and the railway company plans a station for the town',
+    cap: 1600,
+    tier: 2,
+  },
+  {
+    code: Build.Station,
+    name: 'Railway station',
+    // More than one feeder line brings in a few days.
+    goal: { cargo: 'container', total: 100 },
+    aim: 'Truck out 100 containers',
+    opens: 'Trains stop in town, and it grows on without limit, towards a city',
+    cap: Infinity,
+    tier: 2,
   },
 ];
 
@@ -454,6 +486,32 @@ function streetPlans(t: Town, map: GameMap): StreetPlan[] {
 }
 
 /**
+ * Where the town's railway station goes: open land beside the main line,
+ * near the square and on a street if it can be, facing the line. None when
+ * the line runs nowhere near.
+ */
+function stationSite(
+  t: Town,
+  map: GameMap,
+  spread: number,
+): { tile: number; facing: number } | undefined {
+  let best: { tile: number; facing: number } | undefined;
+  let bestScore = spread + 8;
+  for (let i = 0; i < map.build.length; i++) {
+    if (!free(map, i)) continue;
+    const facing = [0, 1, 2, 3].find((f) => map.build[step(map, i, f)] === Build.Rail);
+    if (facing === undefined) continue;
+    const street = [0, 1, 2, 3].some((f) => isTownStreet(map, step(map, i, f)));
+    const score = reach(map, t, i) - (street ? 3 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = { tile: i, facing };
+    }
+  }
+  return best;
+}
+
+/**
  * The builders' next job: put up a business the town is missing, rebuild
  * a home taller near the centre, put up a new one on a street, or lay a new
  * stretch of street so there is room to build. Returns false when the town
@@ -508,7 +566,11 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
     ...WANTED[t.stage],
   ];
   const missing = wanted.find(([code, n]) => (have.get(code) ?? 0) < n);
-  if (missing && plot) {
+  const station = missing?.[0] === Build.Station ? stationSite(t, map, spread) : undefined;
+  if (station) {
+    // Its platform onto the main line.
+    place(map, station.tile, Build.Station, station.facing, touch);
+  } else if (missing && plot) {
     // Shops in the middle of town; works out on its edge, but not beyond it.
     const def = BUSINESSES[missing[0]];
     const site = def?.industry ? (plots.filter((p) => p.score <= edge + 1).pop() ?? plot) : plot;

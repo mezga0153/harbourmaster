@@ -57,6 +57,8 @@ export interface ShipperTerms {
   fee: number;
   /** What its crates hold: goods unless said otherwise. */
   goods?: 'ice' | 'goods' | 'canned';
+  /** The town's factory, whose offer the hospital brings. */
+  factory?: boolean;
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms;
@@ -495,6 +497,36 @@ export function makeCannedOffer(
 }
 
 /**
+ * The town's factory's offer, put on the board as the hospital opens: its
+ * trucks bring containers of what it makes, to go out on the feeders.
+ */
+export function makeFactoryOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+  town?: string,
+): Offer | null {
+  const free = [...(town ? [`${town} Works`] : []), ...CONTAINER_SHIPPERS].filter(
+    (n) => !takenNames.has(n),
+  );
+  if (free.length === 0) return null;
+  const terms: ShipperTerms = {
+    kind: 'shipper',
+    name: free[0],
+    color: rng.int(0, 4),
+    cargo: 'container',
+    perDay: rng.int(6, 9),
+    capacity: B.CONTAINER_TRUCK_CAPACITY,
+    fee: rng.int(150, 210),
+    factory: true,
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
+  const signingFee = Math.round((shipperDailyValue(terms) * 1.5) / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
+/**
  * A shipping line whose coasters bring the town something it wants, put on
  * the board as a landmark opens: timber for the builders' yard, or goods
  * for the department store. Each is the first of its names not taken.
@@ -526,9 +558,13 @@ export function makeTownLineOffer(
   return { id, terms, signingFee, expires };
 }
 
+/** What a town landmark's offer brings; see townTrade. */
+export type TownTrade = 'canned' | 'timber' | 'goods' | 'factory';
+
 /** An offer or contract the town's landmarks bring: kept on the board till signed. */
-export function townTrade(t: Terms): 'canned' | 'timber' | 'goods' | null {
+export function townTrade(t: Terms): TownTrade | null {
   if (t.kind === 'shipper' && t.goods === 'canned') return 'canned';
+  if (t.kind === 'shipper' && t.factory) return 'factory';
   if (t.kind === 'fishery' && (t.catch === 'timber' || t.catch === 'goods')) return t.catch;
   return null;
 }

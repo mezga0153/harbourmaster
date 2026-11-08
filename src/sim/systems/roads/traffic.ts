@@ -796,10 +796,12 @@ export function truckLeave(w: World, t: Truck): void {
       if (t.boxes) sent.container = (sent.container ?? 0) + t.cargo;
       else for (const f of feesOn(w, t)) sent[cargoOf(f)] = (sent[cargoOf(f)] ?? 0) + 1;
     }
-    // Towards the town's next landmark, crates of what it wants sent out.
+    // Towards the town's next landmark, crates of what it wants sent out, or containers.
     const goal = w.town && landmarkGoal(w.town, w.tier)?.goal;
-    if (goal && !goal.aboard && !t.boxes && w.town) {
-      w.town.goal += feesOn(w, t).filter((f) => cargoOf(f) === goal.cargo).length;
+    if (goal && !goal.aboard && w.town && t.boxes === (goal.cargo === 'container')) {
+      w.town.goal += t.boxes
+        ? t.cargo
+        : feesOn(w, t).filter((f) => cargoOf(f) === goal.cargo).length;
       openLandmark(w, landmarkDue(w.town, false, w.tier));
     }
     const income = payout(w, t.value);

@@ -11,6 +11,9 @@ const LANDMARK_TIPS: Partial<Record<number, string>> = {
   [Build.BuildersYard]: 'buildersYard',
   [Build.School]: 'school',
   [Build.TownHall]: 'townHall',
+  [Build.Hospital]: 'hospital',
+  [Build.College]: 'college',
+  [Build.Station]: 'station',
 };
 import { BUSINESSES, LANDMARKS, growTown, sentTo, townCap, townHomes, townStageUp } from '../town';
 import type { Landmark, Town } from '../town';
@@ -20,7 +23,7 @@ import { cargoName } from '../cargo';
 import { customsTip, fisheries, hasCustomsOffice, hauliers, townTradeOffers } from './economy';
 import { TIERS } from '../tiers';
 import * as B from '../balance';
-import { needsCustomsOffice, townTrade } from '../contracts';
+import { needsCustomsOffice, townTrade, type TownTrade } from '../contracts';
 import { Build } from '../types';
 import { bayRoom } from '../helpers';
 import { berthCount } from './boats/berthing';
@@ -111,12 +114,11 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
   }
   const coasters = fisheries(w).some((c) => c.terms.vessel === 'coaster');
   const berth = berthCount(w, B.COASTER_DRAFT, true) > 0;
-  const signed = (trade: 'canned' | 'timber' | 'goods') =>
-    w.contracts.some((c) => townTrade(c.terms) === trade);
-  const offer = (trade: 'canned' | 'timber' | 'goods') =>
+  const signed = (trade: TownTrade) => w.contracts.some((c) => townTrade(c.terms) === trade);
+  const offer = (trade: TownTrade) =>
     w.offers.find((o) => townTrade(o.terms) === trade)?.terms.name;
   // A line customs clears needs a customs office before it may be signed.
-  const sign = (trade: 'canned' | 'timber' | 'goods', what: string) => {
+  const sign = (trade: TownTrade, what: string) => {
     const o = w.offers.find((x) => townTrade(x.terms) === trade);
     if (o && needsCustomsOffice(o.terms) && !hasCustomsOffice(w)) {
       return `Build a customs office (Buildings) so you can sign ${o.terms.name}'s offer: ${trade === 'canned' ? 'the canned fish needs export papers' : `customs clears the ${trade}`}`;
@@ -124,6 +126,11 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
     return `Sign ${offer(trade) ?? what}'s offer on the contracts board (C)`;
   };
   const noBerth = `Coasters need a berth: build a quay 2 wide, in ${B.COASTER_DRAFT} m of water`;
+  const feeders = fisheries(w).some((c) => c.terms.vessel === 'feeder');
+  const noFeeders = 'Needs feeder ships: sign a container line on the contracts board (C)';
+  const boxHauliers = hauliers(w).some((c) => c.terms.cargo === 'container');
+  const noBoxHauliers =
+    'Needs container hauliers to truck the containers out: sign one on the contracts board (C)';
   let held: string | undefined;
   switch (l.code) {
     case Build.Cannery:
@@ -146,6 +153,17 @@ export function landmarkHint(w: World, l: Landmark): string | undefined {
       if (!berth) return noBerth;
       held = storeHint(w, false);
       break;
+    case Build.Hospital:
+    case Build.Station:
+      if (!feeders) return noFeeders;
+      if (!boxHauliers) return noBoxHauliers;
+      return undefined;
+    case Build.College:
+      if (!w.contracts.some((c) => c.terms.kind === 'shipper' && c.terms.cargo === 'container')) {
+        return sign('factory', 'the factory');
+      }
+      if (!feeders) return 'The containers go out on feeder ships: sign a container line (C)';
+      return undefined;
   }
   // Storage full of crates still in customs, or none at all.
   if (held) return held;

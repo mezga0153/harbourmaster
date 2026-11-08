@@ -29,6 +29,7 @@ import {
   fisheryDailyCrates,
   isIce,
   makeCannedOffer,
+  makeFactoryOffer,
   makeIceOffer,
   makeLobsterOffer,
   makeOffer,
@@ -36,7 +37,14 @@ import {
   needsCustomsOffice,
   townTrade,
 } from '../contracts';
-import type { Contract, FisheryTerms, HaulierTerms, ShipperTerms, Terms } from '../contracts';
+import type {
+  Contract,
+  FisheryTerms,
+  HaulierTerms,
+  ShipperTerms,
+  Terms,
+  TownTrade,
+} from '../contracts';
 import { Rng } from '../rng';
 import type { BoatVisit, Capacity } from '../../protocol/views';
 import { berthCount, dockInUse, pickTile } from './boats/berthing';
@@ -300,17 +308,19 @@ export function refreshOffers(w: World): void {
 }
 
 /**
- * What the Coastal Wharf's landmarks bring, each on the board from the
- * day it opens till one is signed: the cannery's canned fish, then the
- * timber coasters for the builders' yard, then coasters of goods for the
- * department store that comes with the school.
+ * What the town's landmarks bring, each on the board from the day it opens
+ * till one is signed: the cannery's canned fish, then the timber coasters
+ * for the builders' yard, then coasters of goods for the department store
+ * that comes with the school; in the Container Port, the factory's
+ * containers with the hospital.
  */
 export function townTradeOffers(w: World): void {
   const opened = w.town?.landmarks ?? 0;
-  const trades: ['canned' | 'timber' | 'goods', number][] = [
+  const trades: [TownTrade, number][] = [
     ['canned', Build.Cannery],
     ['timber', Build.BuildersYard],
     ['goods', Build.School],
+    ['factory', Build.Hospital],
   ];
   trades.forEach(([trade, code], k) => {
     const at = LANDMARKS.findIndex((l) => l.code === code);
@@ -324,7 +334,9 @@ export function townTradeOffers(w: World): void {
     const offer =
       trade === 'canned'
         ? makeCannedOffer(rng, id, w.tick, taken, w.town?.name)
-        : makeTownLineOffer(rng, id, w.tick, taken, trade);
+        : trade === 'factory'
+          ? makeFactoryOffer(rng, id, w.tick, taken, w.town?.name)
+          : makeTownLineOffer(rng, id, w.tick, taken, trade);
     if (offer) w.offers.push(offer);
   });
 }

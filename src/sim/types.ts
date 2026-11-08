@@ -84,6 +84,11 @@ export const Build = {
   TownHall: 43,
   /** A customs office: clears timber, goods, containers and export papers; see needsCustomsOffice. */
   Customs: 44,
+  // The Container Port's landmarks; see LANDMARKS in town.ts.
+  Hospital: 45,
+  College: 46,
+  /** The town's railway station, beside the main line. */
+  Station: 47,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -147,7 +152,8 @@ export function isBuoy(code: number): boolean {
 export function isTownBuilding(code: number): boolean {
   return (
     (code >= Build.Cottage && code <= Build.Factory) ||
-    (code >= Build.IceHouse && code <= Build.TownHall)
+    (code >= Build.IceHouse && code <= Build.TownHall) ||
+    (code >= Build.Hospital && code <= Build.Station)
   );
 }
 

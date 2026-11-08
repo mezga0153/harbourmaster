@@ -357,11 +357,58 @@ models (CC0) for boats, ships, trucks, people, trees, rocks and containers. Next
 - Feeder ships with bay plans (simplified), demurrage.
 - Water depth per berth; ships need a pilot.
 
-### M5 — Tier 3: Bulk
+### M5 — Tier 3: Bulk, the railway and the region
 
-- Conveyor belts, hoppers, stockpiles, silos, grab crane, stacker-reclaimer.
-- Rail siding and trains.
-- Flow overlay and bottleneck visualisation.
+From the Container Port on the port serves a **region**, not only the town:
+places along the main line past the map's north and south ends (a colliery,
+farms with a grain co-op, an ore mine, a power station, a steelworks, an
+inland container depot, other towns), each growing as the port serves it.
+The town up the coast is one of them and keeps opening its own landmarks.
+The railway is what joins them to the port. Decided (8 Nov 2026): the
+region's places live off the map (the Region panel and the trains show
+them); rail comes in the Container Port, before bulk; belts carry real
+tonnes tile by tile; the town keeps its landmarks.
+
+1. **The Container Port's landmarks** (progression.md): containers trucked
+   out and put on board, ending at the town's **railway station**, which
+   opens rail.
+2. **Rail at the port, for containers.** A switch off the main line and
+   siding track the player drags out on owned land, crossing port roads on
+   the level (`src/sim/rules/rails.ts`, a track graph like the trucks' road
+   graph, with a debug overlay). `railway.ts` goes from one `train` to a
+   list, with blocks one train holds at a time and signals: through trains
+   wait while a port train pulls on or off the main line; port trains run
+   to their contract's timetable. A loading track marked out on a siding,
+   with a container yard beside it worked by reach stackers or a yard
+   gantry; wagons hold crates in cells as truck beds do (`cargo/wagons.ts`).
+   Rail operator contracts: more boxes a trip than trucks, a fixed loading
+   window, penalties for a late train. Passenger trains stop at the town's
+   station.
+3. **The region** (`src/sim/region.ts`): places from the map's seed, each
+   with a kind, distance along the line, size, what it needs and supplies,
+   and steps like `LANDMARKS`. The region's size gates the tiers from Bulk
+   Terminal on (in place of the town's). A Region panel beside the Town
+   panel: the line as a strip, a card a place with its next step and a red !
+   when the port lets it down. Trains and hauliers come from real places.
+   Old saves get a region and count what they have done.
+4. **The Bulk Terminal.** Bulk is tonnes in buffers, not crates (ship's
+   hold → hopper → belt → stockpile or silo → wagon or truck), its own
+   kinds (coal, grain, ore) beside `CARGO`. Bulk quay (deep water), grab
+   crane onto a hopper, directional conveyor belts dragged out with a
+   throughput per tick, stockpiles (marked ground, one kind each), silos,
+   a rail loadout over the track, a wagon unloader, a shiploader, a truck
+   loading hopper. Handysize bulk carriers on a long berth. Red ! marks for
+   a belt backed up, a stockpile full or of the wrong kind, a loadout with
+   no train, a hopper overflowing; an overlay of flow on the belts.
+5. **Bulk chains that grow the region.** Coal in, by train to the power
+   station; grain out from the farms in harvest rushes, through the silo;
+   ore and coal in for the steelworks, whose steel goes out in containers.
+   The steelworks' last step gates the Liquid Terminal.
+6. **Polish.** Models (grab crane, silo, belts, loadout, bulk carrier),
+   sounds, lessons for rail and bulk, dev lab presets (a bare siding, a
+   bulk berth and belt), tests (no through train meets a port train, belt
+   throughput, old saves get a region, the playthrough bot reaches the Bulk
+   Terminal), play log columns.
 
 ### M6 — Tier 4: Liquids
 

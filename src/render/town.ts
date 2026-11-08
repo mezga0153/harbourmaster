@@ -507,6 +507,117 @@ function townHall(g: Group, y: number) {
   }
 }
 
+function hospital(g: Group, y: number) {
+  // White blocks of wards, a red cross over the entrance under its canopy,
+  // an ambulance bay in front and a helipad on the roof.
+  const white = 0xf2f2ee;
+  const trim = 0x9fb8c8;
+  g.add(box(0.86, 0.46, 0.44, white, 0.5, y, 0.32));
+  g.add(box(0.88, 0.03, 0.46, trim, 0.5, y + 0.46, 0.32));
+  g.add(box(0.4, 0.18, 0.2, white, 0.5, y, 0.62));
+  g.add(box(0.44, 0.02, 0.24, trim, 0.5, y + 0.18, 0.64));
+  // Bands of windows on three floors, front and back.
+  for (const wy of [0.06, 0.2, 0.33]) {
+    for (const x of [0.12, 0.22, 0.78, 0.88]) {
+      g.add(box(0.07, 0.07, 0.012, C.window, x, y + wy, 0.545));
+      g.add(box(0.07, 0.07, 0.012, C.window, x, y + wy, 0.095));
+    }
+  }
+  for (const x of [0.38, 0.5, 0.62]) {
+    g.add(box(0.07, 0.07, 0.012, C.window, x, y + 0.33, 0.545));
+  }
+  g.add(box(0.16, 0.13, 0.012, GLASS[1], 0.5, y, 0.721));
+  // The red cross over the door.
+  g.add(box(0.1, 0.03, 0.012, 0xd6453d, 0.5, y + 0.27, 0.547));
+  g.add(box(0.03, 0.1, 0.012, 0xd6453d, 0.5, y + 0.235, 0.547));
+  // Ambulance bay: tarmac, a white ambulance with its red stripe.
+  g.add(box(0.5, 0.012, 0.2, C.asphalt, 0.5, y, 0.86));
+  g.add(box(0.1, 0.07, 0.16, white, 0.3, y + 0.012, 0.86));
+  g.add(box(0.102, 0.015, 0.162, 0xd6453d, 0.3, y + 0.045, 0.86));
+  g.add(box(0.03, 0.012, 0.03, 0x2f6fd0, 0.3, y + 0.082, 0.81));
+  // The helipad: a dark square with its H.
+  g.add(box(0.28, 0.01, 0.28, C.chassis, 0.62, y + 0.49, 0.3));
+  g.add(box(0.02, 0.004, 0.12, C.marking, 0.58, y + 0.5, 0.3));
+  g.add(box(0.02, 0.004, 0.12, C.marking, 0.66, y + 0.5, 0.3));
+  g.add(box(0.08, 0.004, 0.02, C.marking, 0.62, y + 0.5, 0.3));
+  g.add(box(0.12, 0.08, 0.12, trim, 0.2, y + 0.49, 0.3));
+}
+
+function college(g: Group, y: number) {
+  // Red brick halls round a lawn, a glass-fronted workshop wing, and a
+  // stubby tower with a weathervane.
+  const brick = 0xa9583f;
+  const stone = 0xe6dcc4;
+  g.add(box(0.3, 0.36, 0.86, brick, 0.2, y, 0.5));
+  g.add(gable(0.32, 0.12, 0.88, ROOFS[1], 0.2, y + 0.36, 0.5, true));
+  g.add(box(0.5, 0.26, 0.3, brick, 0.6, y, 0.2));
+  g.add(gable(0.52, 0.1, 0.32, ROOFS[1], 0.6, y + 0.26, 0.2));
+  for (const z of [0.18, 0.34, 0.5, 0.66, 0.82]) {
+    for (const wy of [0.06, 0.22]) {
+      g.add(box(0.012, 0.09, 0.06, C.window, 0.352, y + wy, z));
+    }
+  }
+  // The workshop: glass on a steel frame, a saw-tooth roof.
+  g.add(box(0.44, 0.2, 0.26, 0xd9dde0, 0.62, y, 0.68));
+  g.add(box(0.42, 0.14, 0.012, GLASS[0], 0.62, y + 0.03, 0.811));
+  for (const x of [0.48, 0.62, 0.76]) {
+    const tooth = box(0.14, 0.012, 0.26, C.chassis, x, y + 0.23, 0.68);
+    tooth.rotation.z = 0.35;
+    g.add(tooth);
+  }
+  // The lawn with a path and a bench.
+  g.add(box(0.44, 0.01, 0.16, 0x7fb069, 0.62, y, 0.44));
+  g.add(box(0.06, 0.012, 0.16, PAVING, 0.62, y, 0.44));
+  g.add(box(0.08, 0.025, 0.025, C.wood, 0.75, y + 0.02, 0.44));
+  // The tower, a clock and the weathervane.
+  g.add(box(0.14, 0.56, 0.14, brick, 0.2, y, 0.16));
+  g.add(box(0.16, 0.03, 0.16, stone, 0.2, y + 0.56, 0.16));
+  clock(g, 0.04, 0.2, y + 0.45, 0.232);
+  g.add(cone(0.1, 0.12, ROOFS[1], 0.2, y + 0.59, 0.16));
+  g.add(cyl(0.006, 0.1, C.chassis, 0.2, y + 0.7, 0.16, 4));
+  g.add(box(0.06, 0.01, 0.01, C.chassis, 0.2, y + 0.77, 0.16));
+}
+
+function station(g: Group, y: number) {
+  // A brick station house with a slate roof and its clock, and in front,
+  // onto the line, a platform under a canopy on iron posts, with a bench,
+  // the station's sign and a lamp.
+  const brick = 0xc98f5e;
+  const stone = 0xe6dcc4;
+  const green = 0x2f6b4f;
+  g.add(box(0.7, 0.3, 0.34, brick, 0.5, y, 0.26));
+  g.add(box(0.74, 0.025, 0.38, stone, 0.5, y + 0.3, 0.26));
+  g.add(gable(0.76, 0.14, 0.4, ROOFS[1], 0.5, y + 0.325, 0.26));
+  for (const x of [0.22, 0.36, 0.64, 0.78]) {
+    g.add(box(0.07, 0.13, 0.012, C.window, x, y + 0.08, 0.435));
+    g.add(box(0.08, 0.02, 0.016, stone, x, y + 0.21, 0.435));
+    g.add(box(0.07, 0.13, 0.012, C.window, x, y + 0.08, 0.085));
+  }
+  g.add(box(0.12, 0.2, 0.012, DOOR, 0.5, y, 0.435));
+  g.add(box(0.12, 0.2, 0.012, DOOR, 0.5, y, 0.085));
+  clock(g, 0.045, 0.5, y + 0.38, 0.4);
+  g.add(box(0.035, 0.12, 0.035, brick, 0.3, y + 0.38, 0.22));
+  // The platform, its white edge onto the line.
+  g.add(box(1, 0.06, 0.54, PAVING, 0.5, y, 0.73));
+  g.add(box(1, 0.004, 0.04, C.marking, 0.5, y + 0.06, 0.96));
+  // The canopy over it on green iron posts.
+  for (const x of [0.14, 0.5, 0.86]) {
+    g.add(box(0.02, 0.26, 0.02, green, x, y + 0.06, 0.78));
+  }
+  const roof = box(0.96, 0.02, 0.36, green, 0.5, y + 0.32, 0.7);
+  roof.rotation.x = -0.12;
+  g.add(roof);
+  g.add(box(0.96, 0.03, 0.012, 0xf4efe4, 0.5, y + 0.29, 0.885));
+  // A bench, the name board and a lamp.
+  g.add(box(0.14, 0.03, 0.04, C.wood, 0.32, y + 0.08, 0.66));
+  for (const x of [0.26, 0.38]) g.add(box(0.012, 0.03, 0.03, C.chassis, x, y + 0.06, 0.66));
+  for (const x of [0.62, 0.74]) g.add(box(0.012, 0.12, 0.012, C.chassis, x, y + 0.06, 0.62));
+  g.add(box(0.16, 0.05, 0.012, 0x2f4f8f, 0.68, y + 0.18, 0.62));
+  g.add(box(0.12, 0.012, 0.014, C.marking, 0.68, y + 0.2, 0.62));
+  g.add(cyl(0.01, 0.26, C.chassis, 0.95, y + 0.06, 0.62, 4));
+  g.add(box(0.04, 0.03, 0.04, 0xfff2b0, 0.95, y + 0.32, 0.62));
+}
+
 function store(g: Group, y: number, v: number) {
   // A department store: a glass ground floor, two storeys of windows, its name on the roof.
   const wall = pick([0xe8d9c4, 0xd9e6ee, 0xf2d7c9], v);
@@ -623,6 +734,15 @@ export function townBuilding(
       break;
     case Build.TownHall:
       townHall(g, top);
+      break;
+    case Build.Hospital:
+      hospital(g, top);
+      break;
+    case Build.College:
+      college(g, top);
+      break;
+    case Build.Station:
+      station(g, top);
       break;
     case Build.Store:
       store(g, top, v);

@@ -126,11 +126,40 @@ does not speed customs up. Lines signed with no office (saves from before
 it, or the office pulled down since) go on as they are, with a note on
 their contract card that no other like them can be signed.
 
-## Container Port and on (sketch)
+## Container Port: large town to city (cap 1000 → no limit)
 
-The same shape: a factory that wants containers, a railway station, a
-hospital, a stadium... each with a goal the port meets. To be worked out
-when the container port's own goods chain is.
+The town hall now lets the town grow to 1,000, past the 800 the Container
+Port needs; the Container Port's own steps take it on. Their goals count
+containers (`cargo: 'container'` on the goal): trucked out by container
+hauliers, or put on board feeders. Totals rather than days running, as a
+feeder brings its load every day or two. None counts till the port is a
+Container Port. The town's factory (one from 800 people, two from 2,000,
+`WANTED` in `src/sim/town.ts`) takes some of the containers trucked out.
+
+| #   | Landmark              | Goal                                | Opens                                                                                                                                          | Cap after |
+| --- | --------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 8   | **Hospital**          | containers trucked out, 40 in all   | the factory's offer (`factory` on its `ShipperTerms`, `makeFactoryOffer`): its trucks bring **containers going out**, on the board till signed | 1300      |
+| 9   | **Technical college** | containers put on board feeders, 40 | the railway company plans a station                                                                                                            | 1600      |
+| 10  | **Railway station**   | containers trucked out, 100 in all  | trains stop in town, which grows on without limit towards a city (2,000, which the Bulk Terminal will need)                                    | no limit  |
+
+The station goes up on open land beside the main line, facing it, near the
+square (`stationSite` in `src/sim/town.ts`). The Next step card asks for a
+feeder line and container hauliers, or for the factory's offer to be
+signed. Saves from before count the steps a town is past by its size, as
+for the Coastal Wharf's.
+
+## The region and the Bulk Terminal (planned)
+
+See M5 in `plan.md`. The railway station opens rail at the port (a siding
+off the main line, container trains). From then the port serves a
+**region**: places along the main line past the map's ends (a colliery,
+farms, an ore mine, a power station, a steelworks, an inland container
+depot, other towns), each with its own steps like the town's landmarks.
+The region's size, not the town's alone, gates the Bulk Terminal and the
+tiers after it; the town stays one place in the region and keeps its
+landmarks. Bulk chains grow the region: coal by train to the power station,
+grain from the farms out through silos, ore and coal for the steelworks,
+whose last step opens the Liquid Terminal.
 
 ## What the player sees
 

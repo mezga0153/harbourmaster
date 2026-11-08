@@ -4779,7 +4779,7 @@ describe('The Coastal Wharf’s landmarks', () => {
     } as never);
   }
 
-  it('come after the restaurant, each lifting the cap, the last letting the town grow past 800', () => {
+  it('come after the restaurant, each lifting the cap, the town hall letting the town grow past 800', () => {
     const codes = LANDMARKS.slice(at(Build.Restaurant)).map((l) => l.code);
     expect(codes).toEqual([
       Build.Restaurant,
@@ -4787,11 +4787,15 @@ describe('The Coastal Wharf’s landmarks', () => {
       Build.BuildersYard,
       Build.School,
       Build.TownHall,
+      Build.Hospital,
+      Build.College,
+      Build.Station,
     ]);
     const caps = LANDMARKS.map((l) => l.cap);
     for (let k = 1; k < caps.length; k++) expect(caps[k]).toBeGreaterThan(caps[k - 1]);
     expect(caps[at(Build.Restaurant)]).toBe(400);
     expect(caps[at(Build.School)]).toBeLessThan(TIERS[2].town);
+    expect(caps[at(Build.TownHall)]).toBeGreaterThanOrEqual(TIERS[2].town);
     expect(caps.at(-1)).toBe(Infinity);
   });
 
@@ -4917,5 +4921,110 @@ describe('The Coastal Wharf’s landmarks', () => {
     const small = World.create(5, 96);
     const s2 = small.toSave();
     expect(World.fromSave({ ...s2, town: { ...s2.town!, landmarks: 2 } }).town!.landmarks).toBe(2);
+  });
+});
+
+describe('The Container Port’s landmarks', () => {
+  const at = (code: number) => LANDMARKS.findIndex((l) => l.code === code);
+
+  /** A Container Port whose town has opened its first `n` landmarks. */
+  function boxTown(n: number): World {
+    const world = World.create(7, 96);
+    world.tier = 2;
+    world.cash = 100_000;
+    const t = world.town!;
+    t.landmarks = n;
+    for (const l of LANDMARKS.slice(0, n)) {
+      if (!world.map.build.includes(l.code)) growTown(t, world.map, () => {});
+    }
+    return world;
+  }
+
+  /** As a container truck leaving the port with `n` containers. */
+  function boxesOut(world: World, n: number): void {
+    truckLeave(world, {
+      id: 999_999,
+      contractId: -1,
+      company: 'Test',
+      capacity: n,
+      x: 0,
+      y: 0,
+      dir: 0,
+      path: [],
+      goal: 0,
+      state: 'leaving',
+      bayIdx: -1,
+      cargo: n,
+      value: 200 * n,
+      boxes: true,
+      idle: 0,
+      timer: 0,
+      variant: 0,
+    } as never);
+  }
+
+  it('wait for the Container Port, then open the hospital on containers trucked out', () => {
+    const world = boxTown(at(Build.Hospital));
+    const t = world.town!;
+    world.tier = 1;
+    boxesOut(world, 10);
+    expect(t.goal).toBe(0);
+    world.tier = 2;
+    // Without feeders the panel says so.
+    expect(world.snapshot().town!.next!.hint).toMatch(/feeder/i);
+    const need = LANDMARKS[at(Build.Hospital)].goal.total!;
+    boxesOut(world, need - 1);
+    expect(t.landmarks).toBe(at(Build.Hospital));
+    boxesOut(world, 1);
+    expect(t.landmarks).toBe(at(Build.Hospital) + 1);
+    expect(townCap(t)).toBe(LANDMARKS[at(Build.Hospital)].cap);
+    expect(world.map.build.includes(Build.Hospital)).toBe(true);
+    // The factory's containers, going out, on the board till signed.
+    const offer = world.offers.find((o) => townTrade(o.terms) === 'factory')!;
+    expect(offer.terms.kind === 'shipper' && offer.terms.cargo).toBe('container');
+    expect(world.snapshot().town!.next!.hint).toMatch(new RegExp(offer.terms.name));
+    world.offers = world.offers.filter((o) => o !== offer);
+    refreshOffers(world);
+    expect(world.offers.some((o) => townTrade(o.terms) === 'factory')).toBe(true);
+  });
+
+  it('open the technical college on containers put on board feeders', () => {
+    const world = boxTown(at(Build.College));
+    const t = world.town!;
+    const need = LANDMARKS[at(Build.College)].goal.total!;
+    // Crates on a coaster do not count.
+    shipOut(world, { vessel: 'coaster', berth: world.map.entry } as never, [
+      withCargo(15, 'goods'),
+    ]);
+    expect(t.goal).toBe(0);
+    const feeder = { vessel: 'feeder', berth: world.map.entry } as never;
+    shipOut(world, feeder, Array(need - 1).fill(180));
+    expect(t.landmarks).toBe(at(Build.College));
+    shipOut(world, feeder, [180]);
+    expect(t.landmarks).toBe(at(Build.College) + 1);
+    expect(world.map.build.includes(Build.College)).toBe(true);
+  });
+
+  it('put the railway station up beside the main line, and let the town grow on', () => {
+    const world = boxTown(at(Build.Station));
+    boxesOut(world, LANDMARKS[at(Build.Station)].goal.total!);
+    const t = world.town!;
+    expect(t.landmarks).toBe(LANDMARKS.length);
+    expect(townCap(t)).toBe(Infinity);
+    const m = world.map;
+    const st = m.build.indexOf(Build.Station);
+    expect(st).toBeGreaterThanOrEqual(0);
+    expect(m.neighbors4(st).some((n) => m.build[n] === Build.Rail)).toBe(true);
+  });
+
+  it('are counted from an older save whose town grew past the town hall', () => {
+    const world = World.create(5, 96);
+    world.debug({ type: 'debug', town: 1400 });
+    const save = world.toSave();
+    const loaded = World.fromSave({
+      ...save,
+      town: { ...save.town!, landmarks: at(Build.TownHall) + 1 },
+    });
+    expect(loaded.town!.landmarks).toBe(at(Build.College));
   });
 });

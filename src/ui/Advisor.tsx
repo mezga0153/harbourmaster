@@ -208,7 +208,22 @@ export const TIPS: Record<string, Tip> = {
   },
   townHall: {
     title: 'The town hall',
-    text: 'The town has its charter, and may grow on past 800 people: then the harbour authority lets the port become a Container Port. See the Port panel (P).',
+    text: 'The town has its charter, and may grow to 1,000 people: past 800 the harbour authority lets the port become a Container Port. See the Port panel (P). Then the town wants a hospital: truck out 40 containers.',
+    topic: 'growth',
+  },
+  hospital: {
+    title: 'The hospital',
+    text: 'The hospital is open and the town may grow to 1,300. The factory sends its goods out in containers now: sign its offer, and its trucks wait in the parking outside for their paperwork, then the containers go on board the feeders. Next the town wants a technical college: put 40 containers on board ships.',
+    topic: 'growth',
+  },
+  college: {
+    title: 'The technical college',
+    text: 'The technical college is open and the town may grow to 1,600. The railway company plans a station for the town: truck out 100 containers and it opens.',
+    topic: 'growth',
+  },
+  station: {
+    title: 'The railway station',
+    text: 'Trains stop at the town’s new station, and the town may grow on without limit, towards a city.',
     topic: 'growth',
   },
   land: {

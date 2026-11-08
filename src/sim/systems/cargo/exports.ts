@@ -542,11 +542,16 @@ export function shipOut(w: World, b: Boat, load: (Crate | number)[], slot?: numb
   w.stats.earned += total;
   w.stats.exported = (w.stats.exported ?? 0) + fees.length;
   moneyAt(w, total, b.berth);
-  // Ice on board a fishing boat, towards the town's ice house, or canned
-  // fish on a coaster, towards its builders' yard.
+  // Ice on board a fishing boat, towards the town's ice house, canned fish
+  // on a coaster, towards its builders' yard, or containers on a feeder.
   const goal = w.town && landmarkGoal(w.town, w.tier)?.goal;
   if (goal?.aboard && w.town) {
-    w.town.goal += fees.filter((f) => cargoOf(f, 'goods') === goal.cargo).length;
+    w.town.goal +=
+      goal.cargo === 'container'
+        ? b.vessel === 'feeder'
+          ? fees.length
+          : 0
+        : fees.filter((f) => cargoOf(f, 'goods') === goal.cargo).length;
     openLandmark(w, landmarkDue(w.town, false, w.tier));
   }
 }

@@ -234,6 +234,9 @@ const TOWN: [string, number][] = [
   ['Builders’ yard', Build.BuildersYard],
   ['School', Build.School],
   ['Town hall', Build.TownHall],
+  ['Hospital', Build.Hospital],
+  ['Technical college', Build.College],
+  ['Railway station', Build.Station],
   ['Store', Build.Store],
   ['Factory', Build.Factory],
 ];
