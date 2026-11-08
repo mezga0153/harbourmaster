@@ -275,11 +275,15 @@ export const DROP_TICKS = 5;
 export const FREE_DOCKS = 2; // jetties that work without a harbour office (never quays)
 export const DOCKS_PER_OFFICE = 6;
 export const JETTIES_PER_HUT = 3; // jetties (never quays) a harbourmaster's hut looks after
-// The harbourmaster who comes with a hut, strolling the jetties: see harbourmasters.ts.
+// The harbourmaster who comes with a hut, strolling the jetties, and the
+// customs officer who comes with a customs office: see officials.ts.
 export const HARBOURMASTER_SPEED = 0.12; // tiles per tick, an unhurried stroll
 export const HARBOURMASTER_BEAT = 24; // tiles' walk from their hut's door to the jetties they go out on
 export const HARBOURMASTER_SIGHT = 14; // tiles off a boat can be and still be pointed out
 export const HARBOURMASTER_WATCH = 60; // ticks at least stood watching at each stop
+export const CUSTOMS_BEAT = 40; // tiles' walk from the office door to the docks they go down to
+export const CUSTOMS_REACH = 4; // tiles off a ship alongside can be from where they check its papers
+export const CUSTOMS_INSPECT = 120; // ticks at least going through a ship's papers
 export const MAX_JETTY_DEPTH = 3.5; // wooden piles only reach so far
 export const MAX_QUAY_DEPTH = 8;
 export const QUAY_COST_LAND = 120;

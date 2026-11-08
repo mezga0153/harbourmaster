@@ -6,7 +6,7 @@ import { anchorOf } from '../sim/rules';
 import { Build } from '../sim/types';
 import { CONTAINERS, ROCKS, template, TREES } from '../render/assets';
 import { forklift, stacker, tractor } from '../render/machines';
-import { harbourmaster, pointOut, pose } from '../render/people';
+import { checkPapers, customsOfficer, harbourmaster, pointOut, pose } from '../render/people';
 import { boat, person, truck, type Model } from '../render/model';
 import {
   alertMarker,
@@ -391,6 +391,27 @@ const harbourmasterItem: Item = {
   },
 };
 
+const customsItem: Item = {
+  group: 'People',
+  name: 'Customs officer',
+  note: 'Comes with a customs office',
+  params: [
+    { ...SEED, max: 60 },
+    { key: 'checking', label: 'Checking a ship’s papers', kind: 'toggle', value: true, live: true },
+  ],
+  make(p) {
+    const m = customsOfficer(p.seed as number);
+    const s = model(m);
+    let checking = p.checking as boolean;
+    const live = (q: Params) => (checking = q.checking as boolean);
+    const update = (t: number) => {
+      pose(m, !checking, false, t * 9);
+      if (checking) checkPapers(m, 0, t);
+    };
+    return { ...s, live, update };
+  },
+};
+
 const crowd: Item = {
   group: 'People',
   name: 'A crowd of dockhands',
@@ -426,6 +447,7 @@ export function modelItems(): Item[] {
     haulage('Container truck', 2, true),
     dockhand,
     harbourmasterItem,
+    customsItem,
     crowd,
     machine('Forklift', forklift, 4),
     machine('Reach stacker', stacker, 1),

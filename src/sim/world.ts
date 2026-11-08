@@ -6,7 +6,7 @@ import type {
   Crane,
   Crate,
   Dockhand,
-  Harbourmaster,
+  Official,
   JibJob,
   SaveData,
   Truck,
@@ -102,7 +102,7 @@ import {
 } from './systems/building';
 import { buildTown } from './systems/townBusiness';
 import { buyTug, updateTugs } from './systems/tugs';
-import { updateHarbourmasters } from './systems/harbourmasters';
+import { updateOfficials } from './systems/officials';
 import { craneCells, putOnCrane, updateCrane } from './systems/cranes';
 import { boatCostFor, near, spawnBoat, spawnBoats, updateBoat } from './systems/boats/berthing';
 import { docks } from './systems/boats/berthing';
@@ -413,7 +413,7 @@ export class World {
   people: Dockhand[] = [];
   boats: Boat[] = [];
   tugs: Tug[] = [];
-  harbourmasters: Harbourmaster[] = [];
+  officials: Official[] = [];
   /** Ticks each tug has been held up, see steerTug. Not saved. */
   tugHeld = new WeakMap<Tug, number>();
   trucks: Truck[] = [];
@@ -704,7 +704,9 @@ export class World {
     );
     world.boats = s.boats.map((b) => loadBoat({ ...b, path: [...b.path] }));
     world.tugs = (s.tugs ?? []).map((t) => ({ ...t, path: [...t.path] }));
-    world.harbourmasters = (s.harbourmasters ?? []).map((h) => ({ ...h, path: [...h.path] }));
+    world.officials = (
+      s.officials ?? (s.harbourmasters ?? []).map((h) => ({ ...h, role: 'harbourmaster' as const }))
+    ).map((h) => ({ ...h, path: [...h.path] }));
     world.trucks = s.trucks.map((t) => loadBed({ ...t, path: [...t.path] }));
     // Older saves had warehouses and container yards as buildings: now they
     // are storage marked out on the port road or quay they stood on.
@@ -873,7 +875,7 @@ export class World {
       people: this.people,
       boats: this.boats,
       tugs: this.tugs,
-      harbourmasters: this.harbourmasters,
+      officials: this.officials,
       trucks: this.trucks,
       bays: [...this.bays.values()],
       yards: [...this.yards.values()],
@@ -1070,7 +1072,7 @@ export class World {
     spawnBoats(this);
     for (const b of [...this.boats]) updateBoat(this, b);
     updateTugs(this);
-    updateHarbourmasters(this);
+    updateOfficials(this);
     for (const c of this.cranes.values()) updateCrane(this, c);
     countOccupancy(this);
     for (const p of this.people) updateDockhand(this, p);

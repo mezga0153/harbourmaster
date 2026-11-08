@@ -253,19 +253,24 @@ export interface Tug extends Agent {
   plan: number;
 }
 
+export type OfficialRole = 'harbourmaster' | 'customs';
+
 /**
- * A harbourmaster, who comes with a harbourmaster's hut: walks out along
- * the jetties near it and points out the boats. For show only; see
- * harbourmasters.ts.
+ * One of the port's officials, who comes with their building: a
+ * harbourmaster with a harbourmaster's hut, walking out along the jetties
+ * near it and pointing out the boats, or a customs officer with a customs
+ * office, going down to the ships alongside to check their papers. For
+ * show only; see officials.ts.
  */
-export interface Harbourmaster extends Agent {
+export interface Official extends Agent {
+  role: OfficialRole;
   name: string;
-  /** Their hut. */
+  /** Their hut or office. */
   home: number;
   state: 'walk' | 'watch';
   /** Ticks left watching before they walk on. */
   timer: number;
-  /** The boat they are pointing out, or -1. */
+  /** The boat they are pointing out, or whose papers they check, or -1. */
   boat: number;
 }
 
@@ -650,7 +655,9 @@ export interface SaveData {
   /** Older saves have none. */
   tugs?: Tug[];
   /** Older saves have none. */
-  harbourmasters?: Harbourmaster[];
+  officials?: Official[];
+  /** Saves from before customs officers: the harbourmasters, then all the officials there were. */
+  harbourmasters?: Omit<Official, 'role'>[];
   trucks: Truck[];
   bays: Bay[];
   yards?: Bay[];

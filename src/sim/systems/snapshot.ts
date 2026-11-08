@@ -50,7 +50,7 @@ import {
 } from './economy';
 import { businessViews, landmarkView, wantsView } from './townBusiness';
 import { tugged } from './tugs';
-import { harbourmasterActivity } from './harbourmasters';
+import { officialActivity } from './officials';
 import {
   craneHeld,
   craneWork,
@@ -893,10 +893,10 @@ export function buildSnapshot(w: World): Snapshot {
       vessel: 'tug',
     });
   }
-  for (const h of w.harbourmasters) {
+  for (const h of w.officials) {
     entities.push({
       id: h.id,
-      kind: 'harbourmaster',
+      kind: h.role === 'customs' ? 'customsOfficer' : 'harbourmaster',
       x: h.x,
       y: h.y,
       dir: h.dir,
@@ -904,7 +904,7 @@ export function buildSnapshot(w: World): Snapshot {
       moving: h.path.length > 0,
       pointing: h.boat >= 0 && h.path.length === 0 ? true : undefined,
       name: h.name,
-      activity: harbourmasterActivity(w, h),
+      activity: officialActivity(w, h),
       variant: 0,
       capacity: 0,
       alert: false,

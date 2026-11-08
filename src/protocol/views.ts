@@ -10,7 +10,14 @@ import type { CargoSample, CargoStats, FinanceDay, Ledger, Stats } from '../sim/
 import type { MachineKind } from '../sim/types';
 
 export type EntityKind =
-  'dockhand' | 'forklift' | 'stacker' | 'tractor' | 'boat' | 'truck' | 'harbourmaster';
+  | 'dockhand'
+  | 'forklift'
+  | 'stacker'
+  | 'tractor'
+  | 'boat'
+  | 'truck'
+  | 'harbourmaster'
+  | 'customsOfficer';
 
 export interface EntityView {
   id: number;
@@ -36,7 +43,10 @@ export interface EntityView {
   catch?: Cargo;
   /** Dockhands on a break: sat on the bench outside the break hut. */
   sitting?: boolean;
-  /** Harbourmasters: pointing out a boat, the way they face. */
+  /**
+   * Harbourmasters: pointing out a boat, the way they face. Customs
+   * officers: checking the papers of the ship they face.
+   */
   pointing?: boolean;
   name: string;
   activity: string;

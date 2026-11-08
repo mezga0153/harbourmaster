@@ -67,40 +67,39 @@ describe("Harbourmaster's hut", () => {
   });
 });
 
-describe('The harbourmaster', () => {
-  /** A hut as near the fishing jetty as one will go. */
-  function hutByJetty(world: World): number {
-    const m = world.map;
-    const jetty = m.build.findIndex((b) => b === Build.Jetty);
-    const near = (i: number) =>
-      Math.abs(m.xOf(i) - m.xOf(jetty)) + Math.abs(m.yOf(i) - m.yOf(jetty));
-    const spot = Array.from(m.build, (_, i) => i)
-      .filter((i) => !placementError(m, 'harbourHut', i))
-      .sort((a, b) => near(a) - near(b))[0];
-    world.command({ type: 'build', kind: 'harbourHut', tiles: [spot] });
-    expect(m.build[spot]).toBe(Build.HarbourHut);
-    return spot;
-  }
+/** A hut or customs office as near the fishing jetty as one will go. */
+function byJetty(world: World, kind: 'harbourHut' | 'customs'): number {
+  const m = world.map;
+  const jetty = m.build.findIndex((b) => b === Build.Jetty);
+  const near = (i: number) => Math.abs(m.xOf(i) - m.xOf(jetty)) + Math.abs(m.yOf(i) - m.yOf(jetty));
+  const spot = Array.from(m.build, (_, i) => i)
+    .filter((i) => !placementError(m, kind, i))
+    .sort((a, b) => near(a) - near(b))[0];
+  world.command({ type: 'build', kind, tiles: [spot] });
+  expect(m.build[spot]).toBe(kind === 'customs' ? Build.Customs : Build.HarbourHut);
+  return spot;
+}
 
+describe('The harbourmaster', () => {
   it('comes with the hut, walks the jetties and points out the boats', () => {
     const world = World.create(7, 96);
     world.cash = 50_000;
-    const hut = hutByJetty(world);
+    const hut = byJetty(world, 'harbourHut');
     let onJetty = false;
     let pointed = false;
     for (let t = 0; t < 3000; t++) {
       world.step();
-      const [h] = world.harbourmasters;
+      const [h] = world.officials;
       if (!h) continue;
       if (world.map.build[world.tileOf(h)] === Build.Jetty) onJetty = true;
       if (h.boat >= 0) pointed = true;
     }
-    expect(world.harbourmasters).toHaveLength(1);
-    expect(world.harbourmasters[0].home).toBe(hut);
+    expect(world.officials).toHaveLength(1);
+    expect(world.officials[0].home).toBe(hut);
     expect(onJetty).toBe(true);
     expect(pointed).toBe(true);
     // Not one of the staff, so no one waits on them and they wait on no one.
-    expect(world.people.some((p) => p.id === world.harbourmasters[0].id)).toBe(false);
+    expect(world.people.some((p) => p.id === world.officials[0].id)).toBe(false);
     const view = world.snapshot().entities.find((e) => e.kind === 'harbourmaster');
     expect(view?.name).toMatch(/^Harbourmaster /);
   });
@@ -108,12 +107,56 @@ describe('The harbourmaster', () => {
   it('is kept in the save, and goes with the hut', () => {
     const world = World.create(7, 96);
     world.cash = 50_000;
-    const hut = hutByJetty(world);
+    const hut = byJetty(world, 'harbourHut');
     for (let t = 0; t < 200; t++) world.step();
     const again = World.fromSave(JSON.parse(JSON.stringify(world.toSave())));
-    expect(again.harbourmasters).toEqual(world.harbourmasters);
+    expect(again.officials).toEqual(world.officials);
     again.command({ type: 'bulldoze', tiles: [hut] });
     again.step();
-    expect(again.harbourmasters).toHaveLength(0);
+    expect(again.officials).toHaveLength(0);
+  });
+
+  it('is kept in saves from before there were customs officers', () => {
+    const world = World.create(7, 96);
+    world.cash = 50_000;
+    byJetty(world, 'harbourHut');
+    for (let t = 0; t < 200; t++) world.step();
+    const { officials, ...old } = world.toSave();
+    const harbourmasters = officials!.map(({ role: _, ...h }) => h);
+    const again = World.fromSave(JSON.parse(JSON.stringify({ ...old, harbourmasters })));
+    expect(again.officials).toEqual(world.officials);
+  });
+});
+
+describe('The customs officer', () => {
+  it('comes with the office and goes down to check the papers of the ships alongside', () => {
+    const world = World.create(7, 96);
+    world.tier = 1;
+    world.cash = 50_000;
+    const office = byJetty(world, 'customs');
+    let checked = false;
+    let walked = false;
+    for (let t = 0; t < 3000; t++) {
+      world.step();
+      const [h] = world.officials;
+      if (!h) continue;
+      if (h.state === 'walk') walked = true;
+      const b = world.boats.find((q) => q.id === h.boat);
+      if (b) {
+        expect(b.state).toBe('moored');
+        expect(Math.hypot(b.x - h.x, b.y - h.y)).toBeLessThan(B.CUSTOMS_REACH);
+        checked = true;
+      }
+    }
+    expect(world.officials).toHaveLength(1);
+    expect(world.officials[0].role).toBe('customs');
+    expect(world.officials[0].home).toBe(office);
+    expect(walked).toBe(true);
+    expect(checked).toBe(true);
+    const view = world.snapshot().entities.find((e) => e.kind === 'customsOfficer');
+    expect(view?.name).toMatch(/^Customs officer /);
+    world.command({ type: 'bulldoze', tiles: [office] });
+    world.step();
+    expect(world.officials).toHaveLength(0);
   });
 });

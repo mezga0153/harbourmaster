@@ -25,6 +25,7 @@ const KIND_LABEL = {
   boat: 'Boat',
   truck: 'Truck',
   harbourmaster: 'Harbourmaster',
+  customsOfficer: 'Customs officer',
 } as const;
 
 /** The handbook page that explains why each kind of thing gets held up. */

@@ -235,6 +235,88 @@ export function pointOut(w: { body?: Object3D; limbs?: Limbs }, id: number, t: n
   }
 }
 
+const UNIFORM = 0x2e3138;
+const GOLD = 0xd9b84a;
+
+/**
+ * A customs officer: a dark uniform jacket over a white shirt and black
+ * tie, a black peaked cap with a gold band, and a clipboard in their left
+ * hand; built from their id like a dock worker, see worker().
+ */
+export function customsOfficer(seed: number): Model {
+  const rng = new Rng(seed * 2654435761 + 41);
+  const skin = rng.pick(SKIN);
+  const hair = rng.pick(HAIR);
+  const broad = rng.range(0.92, 1.08);
+
+  const root = new Group();
+  const body = new Group();
+  root.add(body);
+  root.scale.setScalar(rng.range(0.94, 1.06));
+
+  const leg = (z: number) => {
+    const hip = new Group();
+    hip.position.set(0, 0.15, z);
+    hip.add(box(0.055, 0.12, 0.05, UNIFORM, 0, -0.12, 0));
+    hip.add(box(0.07, 0.035, 0.055, 0x111111, 0.008, -0.15, 0));
+    body.add(hip);
+    return hip;
+  };
+  const legL = leg(-0.034 * broad);
+  const legR = leg(0.034 * broad);
+
+  // The jacket, the shirt and tie at the neck, and a badge on the chest.
+  const tw = 0.13 * broad;
+  body.add(box(0.09, 0.17, tw, UNIFORM, 0, 0.125, 0));
+  body.add(box(0.01, 0.05, 0.035, 0xf4f4f0, 0.046, 0.245, 0));
+  body.add(box(0.012, 0.045, 0.012, 0x111111, 0.048, 0.24, 0));
+  body.add(box(0.01, 0.016, 0.016, GOLD, 0.046, 0.22, -0.035));
+
+  const arm = (z: number) => {
+    const shoulder = new Group();
+    shoulder.position.set(0, 0.285, z);
+    shoulder.add(box(0.045, 0.1, 0.04, UNIFORM, 0, -0.1, 0));
+    shoulder.add(box(0.04, 0.035, 0.038, skin, 0, -0.13, 0));
+    body.add(shoulder);
+    return shoulder;
+  };
+  const armL = arm(-(tw / 2 + 0.022));
+  const armR = arm(tw / 2 + 0.022);
+  // The clipboard, along the hand: hanging by their side as they walk, flat
+  // in front of them held out to write on.
+  armL.add(box(0.008, 0.075, 0.06, 0x8a5a2b, 0.02, -0.185, 0));
+  armL.add(box(0.004, 0.06, 0.048, 0xf4f4f0, 0.025, -0.178, 0));
+
+  // Head, hair, and the cap.
+  body.add(box(0.03, 0.02, 0.03, skin, 0, 0.295, 0));
+  body.add(box(0.085, 0.09, 0.085, skin, 0, 0.31, 0));
+  for (const z of [-0.018, 0.018]) body.add(box(0.006, 0.012, 0.01, 0x1a1a1a, 0.043, 0.36, z));
+  body.add(box(0.05, 0.05, 0.09, hair, -0.022, 0.35, 0));
+  body.add(box(0.092, 0.022, 0.092, GOLD, 0, 0.395, 0));
+  body.add(box(0.102, 0.03, 0.102, 0x111111, -0.004, 0.417, 0));
+  body.add(box(0.05, 0.008, 0.085, 0x111111, 0.06, 0.395, 0));
+  body.add(box(0.008, 0.016, 0.02, 0xf4f4f0, 0.047, 0.42, 0));
+
+  return { root, crates: [], body, limbs: { legL, legR, armL, armR } };
+}
+
+/**
+ * A customs officer going through a ship's papers: the clipboard held out
+ * in front, writing on it bent over a little, and every few seconds looking
+ * up at the ship.
+ */
+export function checkPapers(w: { body?: Object3D; limbs?: Limbs }, id: number, t: number): void {
+  const l = w.limbs;
+  if (!l || !w.body) return;
+  const k = (t + id * 0.9) % 6;
+  const up = clamp01(Math.min(k - 4.5, 6 - k) / 0.3);
+  l.armL.rotation.z = 1.2 - 0.3 * up;
+  l.armL.rotation.x = -0.5;
+  l.armR.rotation.z = 1.0 - 0.5 * up + Math.sin(t * 11) * 0.05 * (1 - up);
+  l.armR.rotation.x = 0.35;
+  w.body.rotation.z += -0.12 * (1 - up) + 0.08 * up;
+}
+
 /** Hips above the feet sat on the break hut's bench, and the legs out from it. */
 const SEAT = 0.09;
 const KNEES = 0.95;
