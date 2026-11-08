@@ -85,17 +85,29 @@ export function trainCar(
       break;
     }
     case 'hopper': {
-      // Open topped: a floor, two sides and two ends, and the chutes under it.
+      // Open topped: the sides run its length, the ends and the floor sit
+      // between them, and the load just inside those, so no two faces lie
+      // on top of each other and flicker; the chutes hang under the floor.
       const paint = [0x5a5f66, 0x7a5230][v % 2];
       const long = LEN - 0.06;
-      g.add(box(0.42, 0.04, long, 0x3a3d42, 0, top, 0));
+      const wall = 0.03;
+      const inner = 0.42 - 2 * wall;
+      g.add(box(inner, 0.04, long - 2 * wall, 0x3a3d42, 0, top, 0));
       for (const s of [-1, 1]) {
-        g.add(box(0.03, 0.3, long, paint, s * 0.195, top, 0));
-        g.add(box(0.42, 0.3, 0.03, paint, 0, top, s * (long / 2 - 0.015)));
-        g.add(box(0.2, 0.06, 0.2, paint, 0, top - 0.06, s * long * 0.22));
+        g.add(box(wall, 0.3, long, paint, s * (0.21 - wall / 2), top, 0));
+        g.add(box(inner, 0.3, wall, paint, 0, top, s * (long / 2 - wall / 2)));
+        g.add(box(0.2, 0.05, 0.2, paint, 0, top - 0.055, s * long * 0.22));
       }
       // What it is loaded with, from the floor up to heaped over its sides; see Trains.push.
-      const fill = box(0.36, HOPPER_HEAP, long - 0.06, 0x2b2b30, 0, top + 0.04, 0);
+      const fill = box(
+        inner - 0.02,
+        HOPPER_HEAP,
+        long - 2 * wall - 0.02,
+        0x2b2b30,
+        0,
+        top + 0.04,
+        0,
+      );
       fill.visible = !boxes;
       slots?.push(fill);
       g.add(fill);
