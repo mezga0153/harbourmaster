@@ -96,8 +96,8 @@ export function worker(seed: number, crate: (size: number) => Object3D): Model {
   for (const z of [-0.018, 0.018]) body.add(box(0.006, 0.012, 0.01, 0x1a1a1a, 0.043, 0.355, z));
   body.add(box(0.06, 0.05, 0.09, hair, -0.02, 0.35, 0));
   if (rng.next() < 0.3) {
-    // A beard.
-    body.add(box(0.02, 0.035, 0.07, hair, 0.04, 0.31, 0));
+    // A moustache.
+    body.add(box(0.012, 0.012, 0.045, hair, 0.044, 0.333, 0));
   }
   const hat = rng.pick(['hardhat', 'hardhat', 'beanie', 'cap', 'none'] as const);
   if (hat === 'hardhat') {
