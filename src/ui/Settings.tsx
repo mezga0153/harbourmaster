@@ -141,6 +141,15 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
           ['sharp', 'Sharp'],
         ]}
       />
+      <Choice
+        name="daylight"
+        label="Day and night"
+        hint="The sun going round with each game day, and a moonlit night at its end"
+        options={[
+          ['cycle', 'Day and night'],
+          ['day', 'Always day'],
+        ]}
+      />
       <p class="muted">
         Lower settings run more smoothly on a slow computer. They are kept in this browser.
       </p>

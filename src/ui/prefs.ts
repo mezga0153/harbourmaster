@@ -11,7 +11,12 @@ const GRAPHICS_KEY = 'harbourmaster.graphics';
  * and every pixel of a phone's dense screen are more than its graphics can
  * keep up, and some browsers turn 3D off for the site once it crashes.
  */
-const PHONE_GRAPHICS: Graphics = { water: 'medium', shadows: 'low', resolution: 'balanced' };
+const PHONE_GRAPHICS: Graphics = {
+  water: 'medium',
+  shadows: 'low',
+  resolution: 'balanced',
+  daylight: 'cycle',
+};
 
 function onPhone(): boolean {
   return (

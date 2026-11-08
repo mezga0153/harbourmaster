@@ -150,8 +150,11 @@ export function buildSeabed(map: GameMap): Mesh {
   const material = new MeshLambertMaterial({ vertexColors: true });
   // Sand ripples in the shallows and caustics: sunlight focused by the waves.
   const time = { value: 0 };
+  // The light the caustics are made of: the sun's, or the moon's at night.
+  const caustic = { value: new Color(1, 1, 1) };
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = time;
+    shader.uniforms.uCaustic = caustic;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vSeaWorld;')
       .replace(
@@ -172,11 +175,12 @@ export function buildSeabed(map: GameMap): Mesh {
         '#include <opaque_fragment>',
         `#include <opaque_fragment>
         float caustics = causticLight(vSeaWorld.xz, uTime);
-        gl_FragColor.rgb += vec3(0.85, 1.0, 0.95) * caustics * shallow * 0.35;`,
+        gl_FragColor.rgb += vec3(0.85, 1.0, 0.95) * uCaustic * caustics * shallow * 0.35;`,
       );
   };
   const mesh = new Mesh(geo, material);
   mesh.userData.time = time;
+  mesh.userData.caustic = caustic;
   // Shadows fall on the water over it (see Water), not on the bottom too.
   mesh.receiveShadow = false;
   return mesh;
@@ -184,6 +188,7 @@ export function buildSeabed(map: GameMap): Mesh {
 
 const SEABED_GLSL = /* glsl */ `
   uniform float uTime;
+  uniform vec3 uCaustic;
   varying vec3 vSeaWorld;
 
   float seaHash(vec2 p) {

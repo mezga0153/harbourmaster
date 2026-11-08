@@ -75,6 +75,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uDeep;
   uniform vec3 uFoam;
   uniform vec3 uSun;
+  uniform vec3 uTint;
+  uniform vec3 uSunLight;
   uniform vec3 uView;
   // Boat wakes, a row each: the box the wake fits in, then (half beam,
   // waterline length, points), then the points along its track (x, z,
@@ -374,7 +376,8 @@ const fragmentShader = /* glsl */ `
       float glint = 0.0;
     #endif
     float spec = (sheen * 0.18 + glint * 1.6) * lit;
-    col += vec3(1.0, 0.97, 0.88) * spec;
+    col *= uTint;
+    col += uSunLight * spec;
 
     // Foam hugging the coast.
     float edge = 1.0 - smoothstep(0.02, 0.07, shore);
@@ -390,7 +393,7 @@ const fragmentShader = /* glsl */ `
     foam = max(foam, max(breaking * 0.9, backwash));
     foam = max(foam, stirred.x);
 
-    col = mix(col, uFoam * mix(0.75, 1.0, lit), foam);
+    col = mix(col, uFoam * uTint * mix(0.75, 1.0, lit), foam);
     // Clear in the shallows so the seabed shows, nearly opaque out at sea.
     float alpha = mix(0.45, 0.94, smoothstep(0.0, 0.45, depth));
     // Less light reaches the bottom in the shade, so less of it shows.
@@ -464,6 +467,8 @@ export class Water {
         uDeep: { value: new Color(C.waterDeep) },
         uFoam: { value: new Color(C.foam) },
         uSun: { value: sunDir.clone() },
+        uTint: { value: new Color(1, 1, 1) },
+        uSunLight: { value: new Color(1.0, 0.97, 0.88) },
         uView: { value: new Vector3(0, 1, 0) },
         uWakes: { value: this.wakeTex },
         uWakeCount: { value: 0 },
@@ -494,6 +499,16 @@ export class Water {
     this.material.uniforms.uTime.value = time;
     (this.material.uniforms.uView.value as Vector3).copy(view);
     this.material.uniforms.uShadowSpan.value = shadowSpan;
+  }
+
+  /**
+   * The light on the sea: `dir` towards the sun (or moon), `tint` what the
+   * sea's colours are multiplied by, `glint` the colour of its glints.
+   */
+  setLight(dir: Vector3, tint: Color, glint: Color): void {
+    (this.material.uniforms.uSun.value as Vector3).copy(dir);
+    (this.material.uniforms.uTint.value as Color).copy(tint);
+    (this.material.uniforms.uSunLight.value as Color).copy(glint);
   }
 
   /** Boat tracks for the sea to churn up this frame. */

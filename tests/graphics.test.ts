@@ -9,7 +9,11 @@ describe('Graphics settings kept in the browser', () => {
       water: 'low',
       shadows: 'off',
       resolution: 'fast',
+      daylight: 'cycle',
     });
+    expect(
+      readGraphics({ water: 'low', shadows: 'off', resolution: 'fast', daylight: 'day' }).daylight,
+    ).toBe('day');
     expect(readGraphics({ water: 'ultra', shadows: 'low', resolution: 7 })).toEqual({
       ...DEFAULT_GRAPHICS,
       shadows: 'low',

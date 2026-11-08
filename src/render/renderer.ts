@@ -16,12 +16,14 @@ import {
 } from 'three';
 import type { EntityView, ProblemView, Snapshot, TileChange } from '../protocol';
 import type { GameMap } from '../sim/map';
+import { TICKS_PER_SECOND } from '../sim/types';
 import { IsoCamera } from './camera';
 import { Entities } from './entities';
 import { KeyedObjects } from './keyed';
 import { alertMarker } from './models';
 import { Overlay } from './overlay';
-import { C } from './palette';
+import { daylightAt, newDaylight, noon } from './daylight';
+import { setNight } from './util/mesh';
 import { Structures } from './structures';
 import { Designations } from './structures/labels';
 import { Trains } from './trains';
@@ -30,10 +32,9 @@ import { Water } from './water';
 import { DEFAULT_GRAPHICS, PIXEL_RATIO, SHADOW_SIZE, WATER_LEVEL, type Graphics } from './graphics';
 import { toCanvas, toClient } from './util/screen';
 
-const SUN_DIR = new Vector3(-0.55, 1, 0.35).normalize();
-// Light-space axes, used to snap the shadow camera to whole shadow-map texels.
-const SUN_RIGHT = new Vector3().crossVectors(SUN_DIR, new Vector3(0, 1, 0)).normalize();
-const SUN_UP = new Vector3().crossVectors(SUN_RIGHT, SUN_DIR).normalize();
+const UP = new Vector3(0, 1, 0);
+/** The sun's strength at noon, against which the sea's glints are measured. */
+const SUN_INTENSITY = 2.4;
 const PICK_PLANE = new Plane(new Vector3(0, 1, 0), -0.28);
 
 interface Floater {
@@ -65,6 +66,13 @@ export class Renderer {
   private gl: WebGLRenderer;
   private scene = new Scene();
   private sun: DirectionalLight;
+  private hemi: HemisphereLight;
+  /** How the scene is lit now, as the time of day has it; see daylight.ts. */
+  private light = newDaylight();
+  /** Light-space axes, used to snap the shadow camera to whole shadow-map texels. */
+  private sunRight = new Vector3();
+  private sunUp = new Vector3();
+  private glint = new Color();
   private layers: MapLayers | null = null;
   private floaters: Floater[] = [];
   /** Words pinned to places on the map, such as what plots of land cost; see setLabels. */
@@ -91,9 +99,11 @@ export class Renderer {
     this.gl.toneMappingExposure = 1.15;
     container.appendChild(this.gl.domElement);
 
-    this.scene.background = new Color(C.waterDeep);
-    this.scene.add(new HemisphereLight(0xeaf4ff, 0x8a7f6a, 1.6));
-    this.sun = new DirectionalLight(0xfff1dc, 2.4);
+    noon(this.light);
+    this.scene.background = this.light.background.clone();
+    this.hemi = new HemisphereLight(this.light.sky, this.light.ground, this.light.hemi);
+    this.scene.add(this.hemi);
+    this.sun = new DirectionalLight(this.light.color, this.light.intensity);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.bias = -0.0004;
@@ -132,7 +142,7 @@ export class Renderer {
       this.scene.remove(this.layers.root);
       this.layers.water.dispose();
     }
-    const water = new Water(map, SUN_DIR, WATER_LEVEL[this.graphics.water]);
+    const water = new Water(map, this.light.dir, WATER_LEVEL[this.graphics.water]);
     const structures = new Structures(map);
     const entities = new Entities(map);
     // A yard gantry reaches for the container slot on the truck it works.
@@ -206,7 +216,7 @@ export class Renderer {
     l.scenery.add(l.seabed, l.seabedDetail);
     l.root.remove(l.water.mesh);
     l.water.dispose();
-    l.water = new Water(l.map, SUN_DIR, WATER_LEVEL[this.graphics.water]);
+    l.water = new Water(l.map, this.light.dir, WATER_LEVEL[this.graphics.water]);
     l.root.add(l.water.mesh);
   }
 
@@ -397,6 +407,7 @@ export class Renderer {
 
     this.keyPan(dt);
     this.cam.update(dt);
+    this.daylight();
     this.followSun();
 
     if (this.layers) {
@@ -421,6 +432,7 @@ export class Renderer {
         mark.position.y = (mark.userData.h ?? 1.1) + Math.sin(time * 4) * 0.08;
       }
       (this.layers.seabed.userData.time as { value: number }).value = time;
+      (this.layers.seabed.userData.caustic as { value: Color }).value.copy(this.glint);
       const pos =
         this.selectedId !== null
           ? this.layers.entities.positionOf(this.selectedId, this.tmp)
@@ -443,17 +455,45 @@ export class Renderer {
     if (right || fwd) this.cam.panWorld(right, fwd);
   }
 
+  /**
+   * Light the scene for the time of day in the game, or always as at noon
+   * if the player would rather: the sun or moon, the sky, the sea, and the
+   * windows and lamps lit at night.
+   */
+  private daylight(): void {
+    const l = this.light;
+    const ticks = (this.layers?.entities.gameTime ?? 0) * TICKS_PER_SECOND;
+    if (this.graphics.daylight === 'day') noon(l);
+    else daylightAt(ticks, l);
+    this.sun.color.copy(l.color);
+    this.sun.intensity = l.intensity;
+    this.hemi.color.copy(l.sky);
+    this.hemi.groundColor.copy(l.ground);
+    this.hemi.intensity = l.hemi;
+    (this.scene.background as Color).copy(l.background);
+    // The sea glints in the colour of the light, as bright as it is.
+    this.glint
+      .setRGB(1, 0.97, 0.88)
+      .multiply(l.color)
+      .multiplyScalar(l.intensity / SUN_INTENSITY);
+    this.layers?.water.setLight(l.dir, l.sea, this.glint);
+    setNight(l.night);
+  }
+
   private followSun(): void {
+    const dir = this.light.dir;
+    const right = this.sunRight.crossVectors(dir, UP).normalize();
+    const up = this.sunUp.crossVectors(right, dir).normalize();
     const s = this.cam.viewSize * 1.1;
     // Moving the shadow camera by fractions of a texel makes shadow edges
     // shimmer while panning, so snap it to the shadow-map grid.
     const texel = (2 * s) / this.sun.shadow.mapSize.x;
     const t = this.sunTarget.copy(this.cam.target);
-    const r = t.dot(SUN_RIGHT);
-    const u = t.dot(SUN_UP);
-    t.addScaledVector(SUN_RIGHT, Math.round(r / texel) * texel - r);
-    t.addScaledVector(SUN_UP, Math.round(u / texel) * texel - u);
-    this.sun.position.copy(t).addScaledVector(SUN_DIR, 60);
+    const r = t.dot(right);
+    const u = t.dot(up);
+    t.addScaledVector(right, Math.round(r / texel) * texel - r);
+    t.addScaledVector(up, Math.round(u / texel) * texel - u);
+    this.sun.position.copy(t).addScaledVector(dir, 60);
     this.sun.target.position.copy(t);
     const sc = this.sun.shadow.camera;
     if (sc.right !== s) {

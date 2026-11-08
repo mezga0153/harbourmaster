@@ -6,9 +6,16 @@ export interface Graphics {
   shadows: 'off' | 'low' | 'high' | 'ultra';
   /** How many pixels it draws, against the screen's own. */
   resolution: 'fast' | 'balanced' | 'sharp';
+  /** Day and night going round with the game's days, or always day. */
+  daylight: 'cycle' | 'day';
 }
 
-export const DEFAULT_GRAPHICS: Graphics = { water: 'high', shadows: 'high', resolution: 'sharp' };
+export const DEFAULT_GRAPHICS: Graphics = {
+  water: 'high',
+  shadows: 'high',
+  resolution: 'sharp',
+  daylight: 'cycle',
+};
 
 /** The sea's detail as the water shader counts it. */
 export const WATER_LEVEL: Record<Graphics['water'], number> = { low: 0, medium: 1, high: 2 };
@@ -40,5 +47,6 @@ export function readGraphics(raw: unknown): Graphics {
   if (r.resolution === 'fast' || r.resolution === 'balanced' || r.resolution === 'sharp') {
     out.resolution = r.resolution;
   }
+  if (r.daylight === 'cycle' || r.daylight === 'day') out.daylight = r.daylight;
   return out;
 }

@@ -176,6 +176,11 @@ export class Entities {
   private prevTick = 0;
   /** Game time, in seconds, as of the last frame. */
   private sim = 0;
+
+  /** Game time, in seconds, as of the last frame: for the time of day. */
+  get gameTime(): number {
+    return this.sim;
+  }
   /** The wakes the boats lay and the water they stir, for the sea. */
   private wash = new Wakes();
   /**

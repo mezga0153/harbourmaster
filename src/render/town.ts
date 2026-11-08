@@ -11,6 +11,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Build } from '../sim/types';
 import { C } from './palette';
 import { box, cyl, mat } from './parts';
+import { glowAtNight } from './util/mesh';
 
 // The town's buildings, from a fisher's cottage to a tower block. Each is
 // drawn on a 1×1 tile facing +z, onto its street, and turned into place by
@@ -20,6 +21,8 @@ const WALLS = [0xf4efe4, 0xf1e2c0, 0xd9e6ee, 0xf2d7c9, 0xe9e4a8, 0xcfe0c8];
 const ROOFS = [0xb5533c, 0x5d6670, 0x8c3b30, 0x6b4f3f];
 const BRICK = [0xb8674a, 0xc98f5e, 0xa9a39a, 0xd4c3a3];
 const GLASS = [0x5f7f99, 0x6c8ea6, 0x4f6d84];
+// Offices and shop fronts, lit up after dark.
+for (const glass of GLASS) glowAtNight(glass, 0xffd890, 0.55);
 const AWNINGS = [0xd6453d, 0x2f6fd0, 0x3fa34d, 0xf2c230];
 const DOOR = 0x5a3d2b;
 const PAVING = 0xc9c4ba;
