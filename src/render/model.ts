@@ -1,6 +1,6 @@
 import type { Group, Object3D } from 'three';
 import type { EntityView } from '../protocol';
-import { coasterShip, feederShip, fishingBoat, lobsterBoat, tugBoat } from './craft';
+import { coasterShip, feederShip, bulkCarrier, fishingBoat, lobsterBoat, tugBoat } from './craft';
 import type { Owns } from './keyed';
 import { forklift, stacker, tractor, type Reach } from './machines';
 import { container, crate } from './models';
@@ -44,6 +44,8 @@ export function boat(variant: number, vessel = 'smack', id = 0, lobster = false)
       return tugBoat(id);
     case 'feeder':
       return feederShip(id, variant, (k, x, y, z) => container(k, x, y, z));
+    case 'bulker':
+      return bulkCarrier(id, variant);
     case 'coaster':
       return coasterShip(id, variant, crate);
     default:

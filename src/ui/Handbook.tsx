@@ -29,6 +29,7 @@ export type TopicId =
   | 'storage'
   | 'trucks'
   | 'containers'
+  | 'bulk'
   | 'exports'
   | 'money'
   | 'land'
@@ -464,6 +465,33 @@ export const TOPICS: Record<TopicId, Topic> = {
           works the wagons in its reach itself, no stacker needed: a yard as long as the train
           serves all of it. A port road may cross a siding on the level: no one goes onto it while a
           train is on it or coming, and paths go round while one stands across it.
+        </p>
+      </>
+    ),
+  },
+  bulk: {
+    title: 'Bulk cargo',
+    body: () => (
+      <>
+        <p>
+          From the Bulk Terminal, <b>bulk carriers</b> bring coal by the tonne. They need{' '}
+          {B.BULKER_DRAFT} m of water and a <b>grab crane</b> on the edge of a quay two tiles wide,
+          with room along the quay for the whole ship. The crane lifts {B.GRAB_BITE} tonnes a bite
+          out of the holds into its hopper, and the line pays for each tonne as it is landed.
+        </p>
+        <p>
+          <b>Conveyor belts</b> carry it on, a tile at a time, {B.BELT_RATE} tonnes a tick, the way
+          they were dragged: a belt starting beside a grab crane's hopper or a stockpile takes from
+          it, and hands on to whatever it runs into, another belt, a stockpile or a rail loadout.
+          Drag over a belt again to turn it round. Nothing walks or drives across a belt.
+        </p>
+        <p>
+          A <b>stockpile</b> heaps it, {B.STOCKPILE_TILE} tonnes a tile and one kind to a heap, so
+          the cranes keep working while no train is in. A <b>rail loadout</b> over a siding, fed by
+          a belt, pours it into the hopper wagons of the train standing under it, {B.HOPPER_WAGON}{' '}
+          tonnes a wagon. The power station up the line offers its coal trains, which pay by the
+          tonne as they leave. When the hopper is full the grab crane stops, and when the stockpile
+          is full the belts back up: select a bulk carrier to see what holds it up.
         </p>
       </>
     ),

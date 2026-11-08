@@ -618,3 +618,72 @@ export function feederShip(seed: number, company: number, container: Box): Model
   );
   return { root, crates: slots, owned };
 }
+
+/**
+ * A handysize bulk carrier, about 5.6 tiles long: a long low hull with
+ * five hatch covers along its holds, the bridge and funnel right aft, and
+ * the hull's paint stained where its cargo has been.
+ */
+export function bulkCarrier(seed: number, company: number): Model {
+  const rng = new Rng(seed * 7919 + 11);
+  const root = new Group();
+  const paint = rng.pick([0x5a2f2a, 0x24324a, 0x2e3a2f, 0x7a2a2a, 0x3a3f47]);
+  const accent = COMPANY[company % COMPANY.length];
+  const beam = 1;
+  const owned: BufferGeometry[] = [];
+  const deck = hull(
+    root,
+    {
+      length: 5.6,
+      beam,
+      height: 0.62,
+      draft: 0.34,
+      bow: rng.range(0.12, 0.16),
+      stern: 0.9,
+      paint,
+      bottom: rng.pick(ANTIFOUL),
+      stripe: C.cabin,
+      deck: 0x7d6e5a,
+    },
+    owned,
+  );
+  const white = rng.pick(SUPERSTRUCTURE);
+  root.add(box(0.46, 0.12, beam * 0.9, paint, 2.45, deck, 0));
+  // Five holds, each a raised coaming with its hatch cover, and a deck
+  // crane between each pair.
+  const hatch = rng.pick([0xb33a32, 0x2f6b4f, 0x3a5f8a, 0x8a6a2f]);
+  for (let k = 0; k < 5; k++) {
+    const x = -1.25 + k * 0.82;
+    root.add(box(0.66, 0.08, beam * 0.7, 0x8e959c, x, deck, 0));
+    root.add(box(0.62, 0.05, beam * 0.64, hatch, x, deck + 0.08, 0));
+    root.add(box(0.62, 0.012, 0.02, 0x26282b, x, deck + 0.13, 0));
+    if (k < 4) {
+      const cx = x + 0.41;
+      root.add(cyl(0.035, 0.3, white, cx, deck, beam * 0.3, 8));
+      const jib = box(0.42, 0.025, 0.025, white, cx + 0.15, deck + 0.3, beam * 0.3);
+      jib.rotation.z = 0.35;
+      root.add(jib);
+    }
+  }
+  // The bridge right aft, four decks over the holds.
+  let y = deck;
+  for (let k = 0; k < 4; k++) {
+    cabin(
+      root,
+      -2.28,
+      y,
+      0.5 - k * 0.03,
+      beam * (0.86 - k * 0.04),
+      0.17,
+      white,
+      k === 3 ? accent : white,
+      k === 3 && 'mast',
+    );
+    y += 0.19;
+  }
+  root.add(box(0.14, 0.025, beam + 0.06, white, -2.16, y - 0.05, 0));
+  sidelights(root, -2.16, y - 0.025 + 0.04, beam / 2 + 0.03, 0.08);
+  root.add(box(0.2, 0.32, 0.22, accent, -2.5, deck + 0.7, 0));
+  root.add(box(0.205, 0.05, 0.225, C.chassis, -2.5, deck + 1.0, 0));
+  return { root, crates: [], owned };
+}

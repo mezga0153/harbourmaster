@@ -58,6 +58,7 @@ import { baysOpen, roadTo } from './roads/bays';
 import { sidings } from '../rules/rails';
 import { openCities, regionDay } from '../region';
 import { sidingsOpen } from './trains';
+import { vesselName } from '../helpers';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -571,7 +572,7 @@ export function judgeVisit(w: World, b: Boat, gaveUp: boolean): void {
     penalty(w, claim, w.tileOf(b));
     message(
       w,
-      `A ${b.company} boat gave up and left with ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'}. They claim $${claim}.`,
+      `A ${b.company} ${vesselName(b)} gave up and left with ${b.crates} ${b.vessel === 'feeder' ? 'containers' : b.bulk ? `tonnes of ${b.bulk}` : 'crates'}. They claim $${claim}.`,
       'bad',
     );
   }

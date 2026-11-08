@@ -98,6 +98,29 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
     needs:
       'Truck access through a gate. Reach stackers or terminal tractors bring containers from the quay cranes.',
   },
+  grabCrane: {
+    what: 'Lifts coal, grain and ore out of a bulk carrier into the hopper at its back.',
+    where: `On a quay edge, quay behind it, in ${B.BULKER_DRAFT} m of water with room for the whole ship.`,
+    needs:
+      'A harbour office, and a conveyor belt laid away from its hopper, or the hopper fills and it stops.',
+  },
+  belt: {
+    what: `Carries bulk cargo the way you drag it, ${B.BELT_RATE} tonnes a tick.`,
+    where:
+      'On open ground or quay. Drag from where the cargo comes to where it goes; drag again to turn it round.',
+    needs:
+      'Something to take from at its start (a hopper, a stockpile) and somewhere to go at its end (a stockpile, a loadout, another belt).',
+  },
+  stockpile: {
+    what: `Heaps bulk cargo, ${B.STOCKPILE_TILE} tonnes a tile, one kind to a heap.`,
+    where: 'Drag out an area on open ground or quay.',
+    needs: 'A belt running into it to fill it, and a belt laid away from its edge to empty it.',
+  },
+  loadout: {
+    what: `Pours bulk cargo into the hopper wagons of the train under it, ${B.HOPPER_WAGON} tonnes a wagon.`,
+    where: 'On siding track, which runs on under it.',
+    needs: 'A belt running into it, from a stockpile, and a rail line of hopper wagons signed.',
+  },
   siding: {
     what: 'Track off the main line where the port’s trains stand to be loaded and unloaded.',
     where: `Straight out from beside the main line along a row, on the port’s land, ${B.SWITCH_GAP} rows from another switch or a level crossing.`,

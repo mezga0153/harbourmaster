@@ -5,7 +5,7 @@ import { land, openGuide, panel, selection, snapshot, tool } from './store';
 import { InfoHeader, Meter, More, PortTownTabs } from './widgets';
 
 /** The handbook page on what each step up brings. */
-const TIER_TOPIC = ['start', 'machines', 'containers'];
+const TIER_TOPIC = ['start', 'machines', 'containers', 'bulk'];
 
 function Requirement({ label, have, need }: { label: string; have: number; need: number }) {
   const done = have >= need;

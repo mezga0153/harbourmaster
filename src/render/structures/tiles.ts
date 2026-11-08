@@ -203,6 +203,29 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
     machinesOutline(t.m, t.g, t.i, QUAY_Y);
     return makeJibCrane(t);
   },
+  [Build.GrabCrane]: (t) => {
+    quay(t.m, t.g, t.i);
+    grabBase(t.m, t.g, t.i);
+    return t.g;
+  },
+  [Build.Belt]: (t) => {
+    // Laid on a quay, on its deck.
+    const onQuay = (t.m.orient[t.i] & ON_QUAY) !== 0;
+    if (onQuay) quay(t.m, t.g, t.i);
+    belt(t.m, t.g, t.i, onQuay ? QUAY_Y : t.top);
+    return t.g;
+  },
+  [Build.Stockpile]: (t) => {
+    const onQuay = (t.m.orient[t.i] & ON_QUAY) !== 0;
+    if (onQuay) quay(t.m, t.g, t.i);
+    stockpilePad(t.m, t.g, t.i, onQuay ? QUAY_Y : t.top);
+    return t.g;
+  },
+  [Build.Loadout]: (t) => {
+    sidingTrack(t.m, t.g, t.i, t.top);
+    loadoutTower(t.g, t.top);
+    return t.g;
+  },
   [Build.Depot]: depot,
   [Build.BreakHut]: breakHut,
   [Build.HarbourHut]: harbourHut,
@@ -1088,4 +1111,75 @@ export function roadArrow(g: Group, y: number, facing: number, scale = 1): void 
   arrow.position.set(0.5, y, 0.5);
   arrow.rotation.y = Math.atan2(dx, dy);
   g.add(arrow);
+}
+
+/** A grab crane's hopper on the quay behind it, on legs, its chute down to the belt. */
+function grabBase(m: GameMap, g: Group, i: number): void {
+  const y = QUAY_Y;
+  // The hopper stands on the crane's landward side, where the belt starts.
+  const water = m.neighbors4(i).find((n) => m.ocean[n] === 1);
+  const dx = water === undefined ? 0 : m.xOf(i) - m.xOf(water);
+  const dz = water === undefined ? 1 : m.yOf(i) - m.yOf(water);
+  const hx = 0.5 + dx * 0.28;
+  const hz = 0.5 + dz * 0.28;
+  for (const [ox, oz] of [
+    [-0.15, -0.15],
+    [0.15, -0.15],
+    [-0.15, 0.15],
+    [0.15, 0.15],
+  ]) {
+    g.add(box(0.035, 0.32, 0.035, C.chassis, hx + ox, y, hz + oz));
+  }
+  g.add(box(0.38, 0.14, 0.38, 0x6b7077, hx, y + 0.3, hz));
+  g.add(box(0.12, 0.08, 0.12, 0x4a4f55, hx, y + 0.22, hz));
+}
+
+/** A tile of conveyor belt: a frame on legs, the belt on its rollers, and a chevron the way it runs. */
+function belt(m: GameMap, g: Group, i: number, y: number): void {
+  const way = m.orient[i] & 3;
+  const alongX = way === 0 || way === 2;
+  const put = (w: number, h: number, d: number, color: number, u: number, yy: number, v: number) =>
+    g.add(alongX ? box(d, h, w, color, v, yy, u) : box(w, h, d, color, u, yy, v));
+  for (const v of [0.2, 0.8]) {
+    for (const u of [0.36, 0.64]) put(0.03, 0.1, 0.03, C.chassis, u, y, v);
+  }
+  put(0.34, 0.03, 1, 0x6b7077, 0.5, y + 0.1, 0.5);
+  put(0.28, 0.008, 1, 0x7d8288, 0.5, y + 0.13, 0.5);
+  for (const u of [0.33, 0.67]) put(0.02, 0.04, 1, 0xf2c230, u, y + 0.12, 0.5);
+  // A white chevron, pointing the way the belt runs.
+  const ahead = way === 0 || way === 1 ? 1 : -1;
+  for (const s of [-1, 1]) {
+    const c = box(0.14, 0.004, 0.025, C.marking, 0, 0, 0);
+    c.position.set(alongX ? 0.5 : 0.5 + s * 0.05, y + 0.14, alongX ? 0.5 + s * 0.05 : 0.5);
+    if (alongX) c.position.x = 0.5 - ahead * 0.03;
+    else c.position.z = 0.5 - ahead * 0.03;
+    c.rotation.y = alongX ? s * ahead * 0.7 + Math.PI / 2 : s * ahead * 0.7;
+    g.add(c);
+  }
+}
+
+/** A tile of stockpile: hard standing, with low walls along the heap's edges. */
+function stockpilePad(m: GameMap, g: Group, i: number, y: number): void {
+  g.add(box(1, 0.02, 1, 0x8c857a, 0.5, y, 0.5));
+  for (const [dx, dy] of DIRS) {
+    const n = offset(m, i, dx, dy);
+    if (n >= 0 && m.build[n] === Build.Stockpile) continue;
+    const [x, z, w, d] = dx ? [0.5 + dx * 0.47, 0.5, 0.06, 1] : [0.5, 0.5 + dy * 0.47, 1, 0.06];
+    g.add(box(w, 0.1, d, 0xa9a39a, x, y, z));
+  }
+}
+
+/** A rail loadout: a bin on four legs over the track, and its chute down to the wagons. */
+function loadoutTower(g: Group, y: number): void {
+  for (const [x, z] of [
+    [0.12, 0.12],
+    [0.88, 0.12],
+    [0.12, 0.88],
+    [0.88, 0.88],
+  ]) {
+    g.add(box(0.05, 0.6, 0.05, C.chassis, x, y, z));
+  }
+  g.add(box(0.8, 0.04, 0.8, 0x6b7077, 0.5, y + 0.58, 0.5));
+  g.add(box(0.5, 0.22, 0.5, 0x8e959c, 0.5, y + 0.62, 0.5));
+  g.add(box(0.14, 0.12, 0.14, 0x4a4f55, 0.5, y + 0.46, 0.5));
 }

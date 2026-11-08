@@ -5,6 +5,7 @@ import type { Difficulty } from '../sim/balance';
 import type { Cargo } from '../sim/cargo';
 import type { Terms } from '../sim/contracts';
 import type { Train } from '../sim/railway';
+import type { BulkKind } from '../sim/bulk';
 import type { Candidate, Trait } from '../sim/staff';
 import type { CargoSample, CargoStats, FinanceDay, Ledger, Stats } from '../sim/state';
 import type { MachineKind } from '../sim/types';
@@ -636,6 +637,8 @@ export interface Snapshot {
   sidings: SidingView[];
   /** The places along the main line the port serves. */
   region: PlaceView[];
+  /** Bulk cargo where it lies, and the grab cranes at work. */
+  bulk: BulkView;
 }
 
 /** A siding off the main line, for its panel and the contracts board. */
@@ -652,6 +655,8 @@ export interface SidingView {
   yardsOut: number;
   /** Port roads it crosses on the level. */
   crossings: number;
+  /** A rail loadout stands over it, for hopper wagons. */
+  loadout: boolean;
   /** The port train calling at it, by id, if one is. */
   train?: number;
   /** Why its trains cannot be worked, if they cannot. */
@@ -683,4 +688,12 @@ export interface PlaceView {
   next?: { name: string; aim: string; opens: string; have: number; need: number; cap: number };
   /** What a place waiting for the Bulk Terminal would send or want. */
   waits?: string;
+}
+
+/** Bulk cargo in the port, for the view: tonnes by tile, and the grab cranes swinging. */
+export interface BulkView {
+  /** Tile, what, tonnes: on belts, in hoppers and bins, on stockpiles. */
+  at: [number, BulkKind, number][];
+  /** Each grab crane: its tile, whether it is lifting, how far through its bite (0 to 1), and the water it reaches over. */
+  grabs: { idx: number; busy: boolean; phase: number; water: number }[];
 }

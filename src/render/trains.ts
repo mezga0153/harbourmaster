@@ -83,6 +83,11 @@ export function trainCar(
     case 'hopper': {
       g.add(box(0.42, 0.3, LEN - 0.06, [0x5a5f66, 0x7a5230][v % 2], 0, top, 0));
       g.add(box(0.36, 0.06, LEN - 0.14, 0x26282b, 0, top + 0.28, 0));
+      // What it is loaded with, heaped above its sides as it fills.
+      const fill = box(0.34, 0.06, LEN - 0.18, 0x2b2b30, 0, top + 0.3, 0);
+      fill.visible = !boxes;
+      slots?.push(fill);
+      g.add(fill);
       break;
     }
     case 'flat': {
@@ -130,12 +135,22 @@ export class Trains {
     this.at = now;
     this.rate = (speed * TICKS_PER_SECOND) / 1000;
     const keyOf = (t: Train) =>
-      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}:${t.port?.cells ? 'cells' : ''}`;
+      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}:${t.port?.cells ? 'cells' : ''}${t.port?.hoppers ? 'hoppers' : ''}`;
     const byKey = new Map(trains.map((t) => [keyOf(t), t]));
     this.models.sync([...byKey.keys()], (k) => this.build(byKey.get(k)!));
     this.shown = [...byKey].map(([k, t]) => {
       const m = this.models.get(k)!;
       m.view = t;
+      // A port train's hopper wagons fill as the loadout pours into them.
+      t.port?.hoppers?.forEach((h, n) => {
+        const fill = m.slots[n];
+        if (!fill) return;
+        const f = Math.min(1, h / B.HOPPER_WAGON);
+        fill.visible = f > 0.02;
+        // The box's height is its scale: heaped up to a little over the sides.
+        fill.scale.y = 0.02 + 0.08 * f;
+        fill.position.y = 0.39 + fill.scale.y / 2;
+      });
       // Containers on and off as the game has them.
       t.port?.cells?.forEach((c, n) => {
         const slot = m.slots[n];
@@ -207,7 +222,16 @@ export class Trains {
           })
         : undefined;
       const mine: Object3D[] = [];
-      const c = trainCar(kind, train.variant, k, kind === 'flat' ? looks : undefined, mine);
+      const hoppers = train.port?.hoppers;
+      const c = trainCar(
+        kind,
+        train.variant,
+        k,
+        kind === 'flat' ? looks : kind === 'hopper' && hoppers ? [] : undefined,
+        mine,
+      );
+      // A port train's hopper wagons, by wagon from the locomotive.
+      if (hoppers && kind === 'hopper') slots[wagon - 1] = mine[0];
       // By cell: the one nearer the locomotive first, at the back when it backs.
       if (cells && kind === 'flat') {
         mine.forEach((o, s) => (slots[at + (train.back ? B.WAGON_BOXES - 1 - s : s)] = o));

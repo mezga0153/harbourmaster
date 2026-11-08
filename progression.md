@@ -186,7 +186,19 @@ Terminal, which their bulk chains will need (M5 in `plan.md`).
 
 The **Bulk Terminal** needs 11,000 people in the region (`Tier.region`):
 the town's with the places' (`World.regionSize`), about 6,900 when the
-station opens. It stays "coming later" till bulk cargo is in the game.
+station opens.
+
+## Bulk Terminal (coal, first version)
+
+Bulk lines (`vessel: 'bulker'`, `bulk: 'coal'` on their `FisheryTerms`,
+from the Bulk Terminal on in `makeOffer`) send bulk carriers of 300 to 600
+tonnes (`Boat.crates` counts tonnes) that berth only at a **grab crane**
+and pay by the tonne as it lands it (`src/sim/systems/bulk.ts`). Belts,
+stockpiles and a rail loadout carry it to the **power station's coal
+trains** (`makeCoalTrainOffer`, offered by `railOffers` from the Bulk
+Terminal on), hopper wagons that pay by the tonne as they leave and count
+towards the power station in the region. Grain and ore, ship loaders and
+wagon unloaders, and the works' own steps come next (M5 in `plan.md`).
 
 ## What the player sees
 

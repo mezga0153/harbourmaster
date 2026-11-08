@@ -400,7 +400,10 @@ tonnes tile by tile; the town keeps its landmarks.
    panel: the line as a strip, a card a place with its next step and a red !
    when the port lets it down. Trains and hauliers come from real places.
    Old saves get a region and count what they have done.
-4. **The Bulk Terminal.** Bulk is tonnes in buffers, not crates (ship's
+4. **The Bulk Terminal** (first version in: coal by bulk carrier, grab
+   cranes, belts, stockpiles, rail loadouts and the power station's coal
+   trains; still to come: grain and ore, silos, wagon unloaders, ship
+   loaders, truck hoppers, a flow overlay, a lesson). Bulk is tonnes in buffers, not crates (ship's
    hold → hopper → belt → stockpile or silo → wagon or truck), its own
    kinds (coal, grain, ore) beside `CARGO`. Bulk quay (deep water), grab
    crane onto a hopper, directional conveyor belts dragged out with a

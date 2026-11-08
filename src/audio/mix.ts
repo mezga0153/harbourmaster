@@ -147,7 +147,9 @@ export function bed(s: Snapshot, l: Listener, w: number, trainX: number): Bed {
     if (!working) continue;
     if (e.kind !== 'boat' && e.kind !== 'dockhand') busy += e.kind === 'truck' ? 0.5 : 1;
     if (e.kind === 'boat') busy += 0.5;
-    const hull = e.kind === 'boat' ? (e.vessel as Hull) : undefined;
+    // A bulk carrier sounds as big as a feeder.
+    const hull =
+      e.kind === 'boat' ? ((e.vessel === 'bulker' ? 'feeder' : e.vessel) as Hull) : undefined;
     if (hull && e.moving && HULL_CARRY[hull]) {
       const range = hearing(l) * HULL_CARRY[hull];
       const a = attenuate(l, e.x, e.y, range);

@@ -243,6 +243,11 @@ export const TIPS: Record<string, Tip> = {
     topic: 'machines',
     guide: ['wharf', 0],
   },
+  tier3: {
+    title: 'Bulk Terminal',
+    text: 'Bulk carriers bring coal by the tonne. Put a grab crane on a 2-wide quay edge in 5 m of water, lay a conveyor belt from its hopper to a stockpile, and from the stockpile a belt to a rail loadout over a siding: the power station’s coal trains are filled there. Sign a bulk line and the coal trains on the contracts board.',
+    topic: 'bulk',
+  },
   tier2: {
     title: 'Container Port',
     text: 'Feeder ships bring containers. Cranes lift them, reach stackers take them to container yards, and after customs, container trucks take them away.',

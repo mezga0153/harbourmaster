@@ -15,8 +15,16 @@ import { paid } from './difficulty';
 // filters and order the player chose for them, kept in this browser.
 
 /** The kinds of company, as the panel's filter groups them. */
-export type KindGroup = 'fishery' | 'line' | 'feeder' | 'shipper' | 'haulier' | 'rail';
-export const KINDS: KindGroup[] = ['fishery', 'line', 'feeder', 'shipper', 'haulier', 'rail'];
+export type KindGroup = 'fishery' | 'line' | 'feeder' | 'bulk' | 'shipper' | 'haulier' | 'rail';
+export const KINDS: KindGroup[] = [
+  'fishery',
+  'line',
+  'feeder',
+  'bulk',
+  'shipper',
+  'haulier',
+  'rail',
+];
 export const KIND_LABEL: Record<KindGroup, string> = {
   fishery: 'Fisheries',
   line: 'Coaster lines',
@@ -24,18 +32,25 @@ export const KIND_LABEL: Record<KindGroup, string> = {
   shipper: 'Shippers',
   haulier: 'Hauliers',
   rail: 'Rail lines',
+  bulk: 'Bulk lines',
 };
 
 export function kindGroup(t: Terms): KindGroup {
   if (t.kind === 'fishery') {
-    return t.vessel === 'feeder' ? 'feeder' : t.vessel === 'coaster' ? 'line' : 'fishery';
+    return t.vessel === 'feeder'
+      ? 'feeder'
+      : t.vessel === 'bulker'
+        ? 'bulk'
+        : t.vessel === 'coaster'
+          ? 'line'
+          : 'fishery';
   }
   return t.kind;
 }
 
 /** What a contract carries: hauliers' trucks take any crates, or containers. */
 export type Cargo =
-  'fish' | 'lobster' | 'timber' | 'goods' | 'canned' | 'ice' | 'crates' | 'containers';
+  'fish' | 'lobster' | 'timber' | 'goods' | 'canned' | 'ice' | 'crates' | 'containers' | 'coal';
 export const CARGOS: Cargo[] = [
   'fish',
   'lobster',
@@ -45,6 +60,7 @@ export const CARGOS: Cargo[] = [
   'ice',
   'crates',
   'containers',
+  'coal',
 ];
 export const CARGO_LABEL: Record<Cargo, string> = {
   fish: 'Fish',
@@ -55,9 +71,11 @@ export const CARGO_LABEL: Record<Cargo, string> = {
   ice: 'Ice',
   crates: 'Any crates',
   containers: 'Containers',
+  coal: 'Coal',
 };
 
 export function cargoOf(t: Terms): Cargo {
+  if ((t.kind === 'fishery' || t.kind === 'rail') && t.bulk) return 'coal';
   if (t.kind === 'fishery') return t.vessel === 'feeder' ? 'containers' : (t.catch ?? 'fish');
   if (t.kind === 'rail' || t.cargo === 'container') return 'containers';
   if (t.kind === 'shipper') return t.goods ?? 'goods';

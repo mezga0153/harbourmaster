@@ -100,6 +100,7 @@ import {
   takesImports,
 } from './cargo/stores';
 import { bedCap, bedView, trailerLooks } from './cargo/beds';
+import type { BulkKind } from '../bulk';
 import { WAITS, nextStep, openCities, placeCap, placeLabel, stepsOf } from '../region';
 import { sidingCars, sidingTrouble, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
 import { portCrossing, sidings } from '../rules/rails';
@@ -121,18 +122,23 @@ import {
   stagingSpace,
 } from './roads/bays';
 import { backingPose, cratesOf, lanePos, laterStops, lengthOf } from './roads/traffic';
+import { vesselName } from '../helpers';
 
 /** What a ship coming in to its berth is doing: on its way, or waiting for one in its way to sail. */
 export function arrivingWords(w: World, b: Boat): string {
   const o = b.waitingOn !== undefined && w.boats.find((q) => q.id === b.waitingOn);
   if (!o || (b.waitedFor ?? 0) <= B.BERTH_BLOCKED_TICKS) return 'Sailing to the jetty';
-  const what = o.vessel === 'feeder' ? 'feeder ship' : o.vessel === 'coaster' ? 'coaster' : 'boat';
-  return `Waiting for the ${o.company} ${what} moored in its way to sail`;
+  return `Waiting for the ${o.company} ${vesselName(o)} moored in its way to sail`;
 }
 
 export function boatWhy(w: World, b: Boat): string | undefined {
   const hands = w.people.some((q) => q.kind === 'dockhand');
   if (b.state === 'anchored') {
+    if (b.vessel === 'bulker') {
+      return w.map.build.includes(Build.GrabCrane)
+        ? 'Every berth at a grab crane is taken, or a ship is coming or going in the way. More grab cranes help.'
+        : `No berth for a bulk carrier: it needs a grab crane on a quay two tiles wide, in ${B.BULKER_DRAFT} m of water, with room along the quay for the whole ship.`;
+    }
     if (b.vessel === 'feeder' && berthCount(w, b.draft, true, true) === 0) {
       return `No berth for a feeder ship: it needs a harbour or gantry crane on a quay two tiles wide, in ${B.FEEDER_DRAFT} m of water.`;
     }
@@ -165,6 +171,14 @@ export function boatWhy(w: World, b: Boat): string | undefined {
   }
   if (b.state === 'moored' && b.crates === 0) return iceTrouble(w, b);
   if (b.state !== 'moored') return undefined;
+  if (b.vessel === 'bulker') {
+    const full = [...w.map.build].some(
+      (c, i) => c === Build.GrabCrane && (w.bulk.get(i)?.t ?? 0) >= B.HOPPER_CAP - B.GRAB_BITE,
+    );
+    return full
+      ? 'The grab crane’s hopper is full: lay a conveyor belt away from it to a stockpile with room, or the crane stops.'
+      : undefined;
+  }
   if (b.vessel === 'feeder') {
     const cranes = [...w.cranes.values()].filter((c) => c.kind !== 'jib');
     if (cranes.length > 0 && cranes.every((c) => stackFull(w, c))) {
@@ -863,7 +877,7 @@ export function buildSnapshot(w: World): Snapshot {
               : b.state === 'moored' && b.crates === 0 && b.reserved === 0
                 ? readyWords(w, b)
                 : b.state === 'moored'
-                  ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : 'crates'} left`
+                  ? `Unloading, ${b.crates} ${b.vessel === 'feeder' ? 'containers' : b.bulk ? `tonnes of ${b.bulk}` : 'crates'} left`
                   : 'Heading back out to sea') +
         (giving ? `, giving way to a ${giving.company} ${kind(giving)}` : '') +
         (tugged(w, b) ? ', with a tug alongside' : ''),
@@ -871,11 +885,13 @@ export function buildSnapshot(w: World): Snapshot {
       givingWayTo: giving?.id,
       variant: b.variant,
       capacity:
-        b.vessel === 'feeder'
-          ? B.FEEDER_MAX_LOAD
-          : b.vessel === 'coaster'
-            ? B.COASTER_MAX_LOAD
-            : B.BOAT_MAX_LOAD,
+        b.vessel === 'bulker'
+          ? B.BULKER_MAX_LOAD
+          : b.vessel === 'feeder'
+            ? B.FEEDER_MAX_LOAD
+            : b.vessel === 'coaster'
+              ? B.COASTER_MAX_LOAD
+              : B.BOAT_MAX_LOAD,
       alert:
         b.state === 'anchored' ||
         (b.state === 'arriving' && (b.waitedFor ?? 0) > B.BERTH_BLOCKED_TICKS),
@@ -1171,6 +1187,23 @@ export function buildSnapshot(w: World): Snapshot {
     },
     trains: w.rail.trains.map((t) => structuredClone(t)),
     region: regionView(w),
+    bulk: {
+      at: [...w.bulk].map(
+        ([i, l]) => [i, l.kind, Math.round(l.t * 10) / 10] as [number, BulkKind, number],
+      ),
+      grabs: [...w.map.build].flatMap((b, i) =>
+        b === Build.GrabCrane
+          ? [
+              {
+                idx: i,
+                busy: !!w.grabs.get(i)?.busy,
+                phase: (w.grabs.get(i)?.timer ?? 0) / B.GRAB_TICKS,
+                water: w.map.neighbors4(i).find((n) => w.map.ocean[n] === 1) ?? -1,
+              },
+            ]
+          : [],
+      ),
+    },
     sidings: sidings(w.map).map((x) => {
       const yards = yardsBeside(w, x);
       return {
@@ -1180,7 +1213,9 @@ export function buildSnapshot(w: World): Snapshot {
         yards: yards.length,
         yardsIn: yards.filter((y) => !y.outgoing).length,
         yardsOut: yards.filter((y) => y.outgoing).length,
-        crossings: x.tiles.filter((i) => portCrossing(w.map, i)).length,
+        crossings: x.tiles.filter((i) => w.map.build[i] !== Build.Loadout && portCrossing(w.map, i))
+          .length,
+        loadout: x.tiles.some((i) => w.map.build[i] === Build.Loadout),
         train: trainAt(w, x.switch)?.id,
         why: sidingTrouble(w, x),
       };

@@ -82,7 +82,8 @@ function kindLabel(t: Terms): string {
         ? 'Haulier, pickups'
         : 'Haulier';
   }
-  if (t.kind === 'rail') return 'Rail line';
+  if (t.kind === 'rail') return t.bulk ? 'Coal trains' : 'Rail line';
+  if (t.kind === 'fishery' && t.vessel === 'bulker') return 'Bulk line';
   if (t.kind === 'shipper') {
     return t.cargo === 'container'
       ? 'Container shipper'
@@ -112,6 +113,7 @@ function of(t: Terms): string {
 }
 
 function unit(t: Terms): string {
+  if ((t.kind === 'fishery' || t.kind === 'rail') && t.bulk) return 'tonnes';
   const boxes =
     t.kind === 'fishery' ? t.vessel === 'feeder' : t.kind === 'rail' || t.cargo === 'container';
   return boxes ? 'containers' : 'crates';
@@ -147,7 +149,15 @@ function Headline({ terms }: { terms: Terms }) {
     return (
       <div class="headline">
         <span>
-          <strong>{terms.bring}</strong> out, up to <strong>{terms.take}</strong> in, a train
+          {terms.bulk ? (
+            <>
+              <strong>{terms.take}</strong> tonnes of {terms.bulk} a train
+            </>
+          ) : (
+            <>
+              <strong>{terms.bring}</strong> out, up to <strong>{terms.take}</strong> in, a train
+            </>
+          )}
         </span>
         <span class={railDailyValue(terms) >= 0 ? 'pos' : 'neg'}>
           <strong>≈{money(paid(railDailyValue(terms)))}</strong>/day
@@ -208,6 +218,31 @@ function termRows(t: Terms): [string, ComponentChildren][] {
             : t.capacity > B.TRUCK_CAPACITY
               ? 'Large truck bays or crate storage'
               : 'Any truck bay',
+      ],
+    ];
+  }
+  if (t.kind === 'rail' && t.bulk) {
+    return [
+      ['A train', `every ${span(t.trainEvery)}`],
+      [
+        'Takes',
+        `${t.take} tonnes of ${t.bulk}, ${Math.round(t.take / B.HOPPER_WAGON)} hopper wagons`,
+      ],
+      [
+        'Pays',
+        `${money(paid(t.fee))} a tonne as it leaves; ${money(t.dailyFee)}/day to the railway`,
+      ],
+      ['Needs', 'A rail loadout over a siding, fed by a conveyor belt from a stockpile'],
+    ];
+  }
+  if (t.kind === 'fishery' && t.vessel === 'bulker') {
+    return [
+      ['A bulk carrier', `every ${span(t.boatEvery)}`],
+      ['Load', `${t.cratesMin}–${t.cratesMax} tonnes of ${t.bulk ?? 'coal'}`],
+      ['Pays', `${money(paid(t.fee))} a tonne, as the grab cranes land it`],
+      [
+        'Needs',
+        `A grab crane on a 2-wide quay in ${B.BULKER_DRAFT} m of water, a belt from its hopper to a stockpile`,
       ],
     ];
   }
@@ -637,6 +672,25 @@ export function offerChecks(
   let blocked: string | null = o.blocked ?? null;
   const add = (ok: boolean, text: string, warn?: boolean) => checks.push({ ok, warn, text });
 
+  if (t.kind === 'fishery' && t.vessel === 'bulker') {
+    const grabs = s.bulk.grabs.length;
+    if (grabs === 0) blocked ??= 'No grab crane yet: build one on a quay edge in deep water';
+    add(
+      grabs > 0,
+      grabs > 0
+        ? `${grabs} grab crane${grabs === 1 ? '' : 's'} to land it`
+        : `Needs a grab crane on a 2-wide quay in ${B.BULKER_DRAFT} m of water`,
+    );
+  }
+  if (t.kind === 'rail' && t.bulk) {
+    const loadouts = s.sidings.filter((x) => x.loadout).length;
+    add(
+      loadouts > 0,
+      loadouts > 0
+        ? 'A rail loadout over a siding to fill its wagons'
+        : 'Needs a rail loadout over a siding, fed by a belt from a stockpile',
+    );
+  }
   if (t.kind === 'fishery' && t.vessel === 'feeder') {
     const b = cap.boxes;
     const after = b.demand + Math.round(fisheryDailyCrates(t));

@@ -27,6 +27,7 @@ import { setNight } from './util/mesh';
 import { Structures } from './structures';
 import { Designations } from './structures/labels';
 import { Trains } from './trains';
+import { BulkLayer } from './bulk';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
 import { DEFAULT_GRAPHICS, PIXEL_RATIO, SHADOW_SIZE, WATER_LEVEL, type Graphics } from './graphics';
@@ -52,6 +53,7 @@ interface MapLayers {
   designations: Designations;
   entities: Entities;
   trains: Trains;
+  bulk: BulkLayer;
   scenery: Group;
   seabed: Mesh;
   seabedDetail: Object3D;
@@ -159,6 +161,7 @@ export class Renderer {
     entities.cratesOn = (i) => structures.cratesOn(i);
     structures.slotTurn = (id, k) => entities.slotTurn(id, k);
     const trains = new Trains(map);
+    const bulk = new BulkLayer(map);
     const scenery = new Group();
     const trees = buildTrees(map);
     const land = buildLand(map);
@@ -168,7 +171,15 @@ export class Renderer {
     scenery.add(seabed, seabedDetail, land, rocks, trees);
     const root = new Group();
     const designations = new Designations(map, (i) => structures.tileObject(i));
-    root.add(water.mesh, scenery, structures.group, entities.group, trains.group, this.marks);
+    root.add(
+      water.mesh,
+      scenery,
+      structures.group,
+      entities.group,
+      trains.group,
+      bulk.group,
+      this.marks,
+    );
     root.add(designations.group);
     this.scene.add(root);
     this.layers = {
@@ -179,6 +190,7 @@ export class Renderer {
       designations,
       entities,
       trains,
+      bulk,
       scenery,
       seabed,
       seabedDetail,
@@ -243,6 +255,7 @@ export class Renderer {
     if (!this.layers) return;
     this.layers.entities.push(s.entities, performance.now(), s.tick);
     this.layers.trains.push(s.trains, s.speed, performance.now());
+    this.layers.bulk.push(s.bulk, s.speed);
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
     this.layers.structures.setSpeed(s.speed);
@@ -426,6 +439,7 @@ export class Renderer {
       this.layers.water.setWakes(this.layers.entities.wakes());
       this.layers.water.setStirs(this.layers.entities.stirs());
       this.layers.structures.setTrains(this.layers.trains.update(now));
+      this.layers.bulk.update(now);
       this.layers.structures.update(dt, time);
       // The red marks bob above what is wrong.
       for (const mark of this.marks.children) {

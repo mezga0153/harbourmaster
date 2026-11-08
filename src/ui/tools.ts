@@ -117,6 +117,7 @@ export const CATEGORIES: Category[] = [
       { tool: 'portRoad', icon: 'portRoad', label: 'Port road', group: 'Roads' },
       { tool: 'portGate', icon: 'gate', label: 'Port gate', group: 'Roads' },
       { tool: 'siding', icon: 'train', label: 'Rail siding', group: 'Railway' },
+      { tool: 'loadout', icon: 'train', label: 'Rail loadout', group: 'Railway' },
       { tool: 'parking', icon: 'parking', label: 'Truck parking', group: 'Areas' },
       {
         tool: 'forkliftOnly',
@@ -265,6 +266,15 @@ export const CATEGORIES: Category[] = [
         group: 'Cranes',
         upkeep: B.YARD_GANTRY_RUNNING_COST,
       },
+      {
+        tool: 'grabCrane',
+        icon: 'crane',
+        label: 'Grab crane',
+        group: 'Bulk',
+        upkeep: B.GRAB_RUNNING_COST,
+      },
+      { tool: 'belt', icon: 'lane', label: 'Conveyor belt', group: 'Bulk' },
+      { tool: 'stockpile', icon: 'warehouse', label: 'Stockpile', group: 'Bulk' },
       {
         tool: 'boxStore',
         group: 'Storage',
