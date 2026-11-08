@@ -7,6 +7,7 @@ import type * as B from './balance';
 import type { Contract, Offer } from './contracts';
 import type { MapData } from './map';
 import type { RailState } from './railway';
+import type { Region } from './region';
 import type { Candidate, Trait } from './staff';
 import type { Town } from './town';
 import type { MachineKind } from './types';
@@ -533,6 +534,8 @@ export interface Crate {
   look?: number;
   /** Containers: the ship it came off, by id. */
   from?: number;
+  /** Containers a rail line's train brought to go out: the region's place that sent them, by id. */
+  place?: number;
   /**
    * Containers: when customs clear it, where that is known already; minus
    * the ship's id while that ship is still being unloaded, as the clock only
@@ -680,6 +683,8 @@ export interface SaveData {
   /** Older saves have no town or railway; one is laid out when they load. */
   town?: Town | null;
   rail?: RailState;
+  /** The places along the main line; older saves get one from their seed. */
+  region?: Region;
   /** State of the town and railway's own random numbers. */
   scenery?: number;
   /** Advisor tips already given; see tip(). */

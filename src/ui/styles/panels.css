@@ -158,3 +158,29 @@
     overflow-y: auto;
   }
 }
+
+/* The Region panel: the places along the main line, as the line runs. */
+.place-end {
+  margin: 10px 0 2px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+
+.card.place {
+  border-left: 3px solid var(--line-strong);
+}
+
+.card.place.city {
+  border-left-color: var(--accent);
+}
+
+.card.place.here {
+  border-left-color: var(--good);
+}
+
+.card.place .place-where {
+  margin-top: -4px;
+}

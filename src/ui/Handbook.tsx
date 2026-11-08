@@ -599,9 +599,19 @@ export const TOPICS: Record<TopicId, Topic> = {
           <p key={t.name}>
             <b>{t.name}</b>
             {t.town > 0 ? ` (a town of ${t.town.toLocaleString('en-US')})` : ''}
+            {t.region ? ` and ${t.region.toLocaleString('en-US')} people in the region` : ''}
             {t.comingSoon ? ' (coming later)' : ''}: {t.unlocks.join('; ')}.
           </p>
         ))}
+        <p>
+          From the Container Port the port serves a <b>region</b> as well: the cities and works
+          along the main line past both ends of the map (the Region tab of the Town panel). Each
+          city offers container trains once the town has its railway station, the nearer first, and
+          grows step by step as the port carries containers for it: a freight terminal, a
+          distribution park, a business district. The works wait for a bulk terminal. The harbour
+          authority looks to the whole region, the town's people with theirs, from the Bulk Terminal
+          on.
+        </p>
       </>
     ),
   },

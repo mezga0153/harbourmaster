@@ -227,6 +227,11 @@ export const TIPS: Record<string, Tip> = {
     topic: 'containers',
     guide: ['railway', 0],
   },
+  region: {
+    title: 'The region along the line',
+    text: 'A city up the line has grown on the containers your port carries for it. The Region tab of the Town panel shows every place along the main line, how big each is, and what each wants next; from the Bulk Terminal on, the harbour authority counts the whole region, not the town alone.',
+    topic: 'growth',
+  },
   land: {
     title: 'The port’s land',
     text: `The port builds only on land it owns. Pick up Land in the bar at the bottom: plots beside yours are outlined with their price, and a click buys one. Each plot costs ${Math.round((B.PLOT_PRICE_RISE - 1) * 100)}% more than the last; a plot all of sea, less.`,

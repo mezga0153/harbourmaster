@@ -31,6 +31,7 @@ import { book, payout } from './economy';
 import { message, moneyAt } from './output';
 import { boxLookOf } from '../helpers';
 import type { GameMap } from '../map';
+import { placeById, served } from './region';
 
 /** Where the town's railway station comes in LANDMARKS. */
 const STATION = LANDMARKS.findIndex((l) => l.code === Build.Station);
@@ -275,6 +276,8 @@ function leave(w: World, t: Train): void {
     w.stats.earned += income;
     if (s) moneyAt(w, income, s.tiles[Math.floor(s.tiles.length / 2)]);
     if (!w.learning.marks.includes('trainDelivery')) w.learning.marks.push('trainDelivery');
+    // Towards the next step of the city it goes to.
+    if (line?.terms.kind === 'rail') served(w, line.terms.place, 'inland', going.length);
   }
   if (back > 0) {
     message(
@@ -305,17 +308,27 @@ export function callTrains(w: World): void {
       c.nextBoatTick = w.tick + 60;
       continue;
     }
-    const wagons = Math.ceil(Math.max(terms.bring, terms.take) / B.WAGON_BOXES);
-    const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, undefined, wagons);
+    // From its city's end of the line; longer once it has its freight terminal.
+    const place = placeById(w, terms.place);
+    const take = terms.take + (place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0);
+    const dir = place ? (-place.side as 1 | -1) : undefined;
+    const wagons = Math.ceil(Math.max(terms.bring, take) / B.WAGON_BOXES);
+    const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, dir, wagons);
     if (!train?.port) continue;
     train.port.contractId = c.id;
     const pt = train as Train & { port: NonNullable<Train['port']> };
     const cells = wagonCells(pt);
     const bring = Math.min(terms.bring, cells.length);
     for (let k = 0; k < bring; k++) {
-      cells[k] = { fee: terms.fee, at: w.tick, out: true, look: boxLookOf(train.id, k) };
+      cells[k] = {
+        fee: terms.fee,
+        at: w.tick,
+        out: true,
+        look: boxLookOf(train.id, k),
+        ...(terms.place !== undefined ? { place: terms.place } : {}),
+      };
     }
-    train.port.take = Math.min(terms.take, cells.length);
+    train.port.take = Math.min(take, cells.length);
     c.nextBoatTick =
       w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
   }

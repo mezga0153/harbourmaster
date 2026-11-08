@@ -458,6 +458,8 @@ export const TRAIN_STAND_TICKS = 600;
 export const TRAIN_MAX_WAGONS = 10;
 /** Containers on a flat wagon, end to end. */
 export const WAGON_BOXES = 2;
+/** Containers more a city's trains take once it has its freight terminal. */
+export const TERMINAL_EXTRA = 4;
 /** Rows either side of a siding a container yard may lie in to be worked from it. */
 export const SIDING_REACH = 2;
 /** Marking a port road or quay tile for port machines only, or back. */

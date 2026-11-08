@@ -234,6 +234,8 @@ export interface TierProgress {
   tier: number;
   /** People in the town now, which the next step up needs enough of; see Tier.town. */
   town: number;
+  /** People in the region now, the town's with its places'; see Tier.region. */
+  region: number;
   canUpgrade: boolean;
   /** The landmark the town must open before it may grow big enough for the next tier. */
   waitsOn?: string;
@@ -632,6 +634,8 @@ export interface Snapshot {
   trains: Train[];
   /** The port's sidings off the main line. */
   sidings: SidingView[];
+  /** The places along the main line the port serves. */
+  region: PlaceView[];
 }
 
 /** A siding off the main line, for its panel and the contracts board. */
@@ -652,4 +656,31 @@ export interface SidingView {
   train?: number;
   /** Why its trains cannot be worked, if they cannot. */
   why?: string;
+}
+
+/** A place along the main line, for the Region panel. */
+export interface PlaceView {
+  id: number;
+  name: string;
+  /** What kind of place, in words: "City", "Colliery". */
+  label: string;
+  city: boolean;
+  /** -1 past the north end of the map, +1 the south. */
+  side: 1 | -1;
+  /** How far past the map's end, in km. */
+  far: number;
+  size: number;
+  /** People it may grow to as far as its steps let it. */
+  cap: number;
+  /** A city whose trains the railway offers the port. */
+  open: boolean;
+  /** The rail line signed to run its trains, by name. */
+  line?: string;
+  /** Containers a day the port moves for it, lately. */
+  lately: number;
+  /** Its steps taken, by name. */
+  taken: string[];
+  next?: { name: string; aim: string; opens: string; have: number; need: number; cap: number };
+  /** What a place waiting for the Bulk Terminal would send or want. */
+  waits?: string;
 }

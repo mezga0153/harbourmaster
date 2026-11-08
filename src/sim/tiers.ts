@@ -14,6 +14,11 @@ export interface Tier {
    * large town and a city (see TOWN_STAGES).
    */
   town: number;
+  /**
+   * From the Bulk Terminal on, people in the whole region the port serves
+   * (the town's and its places', see region.ts), besides the town's own.
+   */
+  region?: number;
   unlocks: string[];
   /** Planned but not in the game yet. */
   comingSoon?: boolean;
@@ -75,6 +80,7 @@ export const TIERS: Tier[] = [
     blurb: 'Coal, grain and ore on conveyor belts, silos and trains.',
     cost: 80000,
     town: TOWN_STAGES[4].from,
+    region: 11000,
     unlocks: ['Conveyor belts', 'Grab cranes', 'Silos', 'Rail sidings'],
     comingSoon: true,
   },

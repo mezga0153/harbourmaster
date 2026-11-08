@@ -68,6 +68,7 @@ import { walkableAt } from '../../rules/placement';
 import { TICKS_PER_DAY } from '../../types';
 import { feesOn } from './beds';
 import { feesOf, put, stamp } from './hold';
+import { served } from '../region';
 
 /**
  * Exports waiting to go on a ship being loaded: dockhands carry crates on
@@ -542,6 +543,11 @@ export function shipOut(w: World, b: Boat, load: (Crate | number)[], slot?: numb
   w.stats.earned += total;
   w.stats.exported = (w.stats.exported ?? 0) + fees.length;
   moneyAt(w, total, b.berth);
+  // Containers a city's trains brought, towards its next step.
+  const byPlace = new Map<number, number>();
+  for (const c of crates)
+    if (c.place !== undefined) byPlace.set(c.place, (byPlace.get(c.place) ?? 0) + 1);
+  for (const [id, n] of byPlace) served(w, id, 'out', n);
   // Ice on board a fishing boat, towards the town's ice house, canned fish
   // on a coaster, towards its builders' yard, or containers on a feeder.
   const goal = w.town && landmarkGoal(w.town, w.tier)?.goal;

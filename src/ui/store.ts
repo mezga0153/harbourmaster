@@ -32,6 +32,8 @@ export type Selection =
   /** A siding, by its switch's tile. */
   | { type: 'siding'; idx: number }
   | { type: 'town' }
+  /** The places along the main line; see Region.tsx. */
+  | { type: 'region' }
   | { type: 'railway' };
 
 export interface Message {

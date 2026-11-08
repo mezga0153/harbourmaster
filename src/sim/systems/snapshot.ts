@@ -31,6 +31,7 @@ import type {
   CraneFix,
   ContractView,
   EntityView,
+  PlaceView,
   ProblemView,
   Snapshot,
   StaffView,
@@ -99,6 +100,7 @@ import {
   takesImports,
 } from './cargo/stores';
 import { bedCap, bedView, trailerLooks } from './cargo/beds';
+import { WAITS, nextStep, openCities, placeCap, placeLabel, stepsOf } from '../region';
 import { sidingCars, sidingTrouble, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
 import { portCrossing, sidings } from '../rules/rails';
 import { bySiding, yardsBeside } from './cargo/wagons';
@@ -1131,6 +1133,7 @@ export function buildSnapshot(w: World): Snapshot {
     progress: {
       tier: w.tier,
       town: w.townSize(),
+      region: w.regionSize(),
       canUpgrade: canUpgrade(w),
       waitsOn: tierWaitsOn(w),
       baysWhy: baysOpen(w) ? undefined : baysShutWhy(w),
@@ -1167,6 +1170,7 @@ export function buildSnapshot(w: World): Snapshot {
       y: w.map.yOf(w.town.centre),
     },
     trains: w.rail.trains.map((t) => structuredClone(t)),
+    region: regionView(w),
     sidings: sidings(w.map).map((x) => {
       const yards = yardsBeside(w, x);
       return {
@@ -1195,4 +1199,38 @@ export function buildSnapshot(w: World): Snapshot {
       blocked: offerBlocked(w, o.terms, customs) ?? undefined,
     })),
   };
+}
+
+/** The places along the main line, for the Region panel. */
+function regionView(w: World): PlaceView[] {
+  const open = new Set(sidingsOpen(w) ? openCities(w.region).map((p) => p.id) : []);
+  return w.region.places.map((p) => {
+    const next = nextStep(p);
+    const line = w.contracts.find((c) => c.terms.kind === 'rail' && c.terms.place === p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      label: placeLabel(p.kind),
+      city: p.kind === 'city',
+      side: p.side,
+      far: p.far,
+      size: p.size,
+      cap: placeCap(p),
+      open: open.has(p.id),
+      line: line?.terms.name,
+      lately: Math.round(p.lately * 10) / 10,
+      taken: stepsOf(p)
+        .slice(0, p.steps)
+        .map((s) => s.name),
+      next: next && {
+        name: next.name,
+        aim: next.aim,
+        opens: next.opens,
+        have: p.goal,
+        need: next.goal.total,
+        cap: next.cap,
+      },
+      waits: p.kind === 'city' ? undefined : WAITS[p.kind],
+    };
+  });
 }

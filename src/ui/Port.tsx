@@ -1,7 +1,7 @@
 import { TIERS } from '../sim/tiers';
 import type { Actions } from './actions';
 import { money } from './format';
-import { land, openGuide, panel, snapshot, tool } from './store';
+import { land, openGuide, panel, selection, snapshot, tool } from './store';
 import { InfoHeader, Meter, More, PortTownTabs } from './widgets';
 
 /** The handbook page on what each step up brings. */
@@ -84,6 +84,24 @@ export function PortPanel({ actions }: { actions: Actions }) {
               <button class="link" onClick={() => openGuide(k === 1 ? 'wharf' : 'harbour')}>
                 Show me how to build it ›
               </button>
+            )}
+            {state === 'next' && t.region !== undefined && (
+              <>
+                <Requirement
+                  label="People in the region"
+                  have={s.progress.region}
+                  need={t.region}
+                />
+                <button
+                  class="link"
+                  onClick={() => {
+                    panel.value = null;
+                    selection.value = { type: 'region' };
+                  }}
+                >
+                  See the region ›
+                </button>
+              </>
             )}
             {state === 'next' && !t.comingSoon && (
               <>

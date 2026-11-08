@@ -389,7 +389,11 @@ tonnes tile by tile; the town keeps its landmarks.
    Rail operator contracts: more boxes a trip than trucks, a fixed loading
    window, penalties for a late train. Passenger trains stop at the town's
    station.
-3. **The region** (`src/sim/region.ts`): places from the map's seed, each
+3. **The region** (first version in: two cities sending container trains,
+   their steps and growth, the works waiting for bulk, the Region tab, the
+   Bulk Terminal gated on the region's size; still to come: through trains
+   and hauliers named for the places, the works' own steps with bulk)
+   (`src/sim/region.ts`): places from the map's seed, each
    with a kind, distance along the line, size, what it needs and supplies,
    and steps like `LANDMARKS`. The region's size gates the tiers from Bulk
    Terminal on (in place of the town's). A Region panel beside the Town

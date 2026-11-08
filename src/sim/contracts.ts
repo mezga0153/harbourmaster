@@ -80,6 +80,8 @@ export interface RailTerms {
   fee: number;
   /** What the port pays the railway a day for its trains. */
   dailyFee: number;
+  /** The region's place its trains run to and from, by id; see region.ts. */
+  place?: number;
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms | RailTerms;
@@ -570,12 +572,17 @@ export function makeRailOffer(
   id: number,
   tick: number,
   takenNames: Set<string>,
+  place?: { id: number; name: string },
 ): Offer | null {
-  const free = RAIL_LINES.filter((n) => !takenNames.has(n));
+  // Named for the city it runs to, as long as that is free.
+  const free = [...(place ? [`${place.name} Railfreight`] : []), ...RAIL_LINES].filter(
+    (n) => !takenNames.has(n),
+  );
   if (free.length === 0) return null;
   const terms: RailTerms = {
     kind: 'rail',
     name: free[0],
+    ...(place ? { place: place.id } : {}),
     color: rng.int(0, 4),
     trainEvery: Math.round(rng.range(1.2, 2) * 20) / 20,
     bring: rng.int(4, 8),

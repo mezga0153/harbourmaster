@@ -158,18 +158,35 @@ feeder line and container hauliers, or for the factory's offer to be
 signed. Saves from before count the steps a town is past by its size, as
 for the Coastal Wharf's.
 
-## The region and the Bulk Terminal (planned)
+## The region (from the Container Port)
 
-See M5 in `plan.md`. The railway station opens rail at the port (a siding
-off the main line, container trains). From then the port serves a
-**region**: places along the main line past the map's ends (a colliery,
-farms, an ore mine, a power station, a steelworks, an inland container
-depot, other towns), each with its own steps like the town's landmarks.
-The region's size, not the town's alone, gates the Bulk Terminal and the
-tiers after it; the town stays one place in the region and keeps its
-landmarks. Bulk chains grow the region: coal by train to the power station,
-grain from the farms out through silos, ore and coal for the steelworks,
-whose last step opens the Liquid Terminal.
+From the railway station on the port serves a **region** as well
+(`src/sim/region.ts`, laid out from the map's seed): places along the main
+line past the map's ends, shown in the Region tab of the Town panel
+(`src/ui/Region.tsx`). Two **cities**, one past each end, send container
+trains (`RailTerms.place`; `railOffers` in `src/sim/systems/economy.ts`):
+the nearer offers its line as soon as the port may lay sidings, the other
+once the first has its distribution park. A city's trains come in from its
+end of the line. Each city takes steps as the port carries containers for
+it (`served` in `src/sim/systems/region.ts`), counted as its trains leave
+with them (`inland`) and as the containers they brought go on board
+(`out`, by `Crate.place`):
+
+| Step                  | Goal                                                | Opens                            | Cap after |
+| --------------------- | --------------------------------------------------- | -------------------------------- | --------- |
+| (start)               |                                                     |                                  | 2000      |
+| **Freight terminal**  | its trains take 40 containers inland                | its trains take 4 more a train   | 2600      |
+| **Distribution park** | 40 containers its trains brought put on board ships | the other city offers its trains | 3600      |
+| **Business district** | 200 containers moved for it, in and out             | it grows on                      | 5000      |
+
+A city grows each day it has been served lately, 12% of the way to its cap
+(`regionDay`). The **works** (a colliery, farms with a grain co-op, an ore
+mine, a power station, a steelworks) keep their size and wait for the Bulk
+Terminal, which their bulk chains will need (M5 in `plan.md`).
+
+The **Bulk Terminal** needs 11,000 people in the region (`Tier.region`):
+the town's with the places' (`World.regionSize`), about 6,900 when the
+station opens. It stays "coming later" till bulk cargo is in the game.
 
 ## What the player sees
 

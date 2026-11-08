@@ -37,6 +37,7 @@ import { DEFAULT_PILOT, type PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, railFromSave, type RailState } from './railway';
+import { newRegion, placesSize, type Region } from './region';
 import { sendPortTrain, stepTrains, trackHeld, trainOver } from './systems/trains';
 import { sidings } from './rules/rails';
 import {
@@ -474,6 +475,8 @@ export class World {
   /** The step up the player has been told the town is big enough for. */
   tierReadyTold = 0;
   rail: RailState;
+  /** The places along the main line the port serves; see region.ts. */
+  region: Region;
   /**
    * The town and the trains draw their own random numbers, so they never
    * change what happens at the port.
@@ -563,6 +566,7 @@ export class World {
     this.storeOf = new Int32Array(map.w * map.h).fill(-1);
     this.scenery = new Rng(seed ^ 0x7a3c1);
     this.rail = newRail(this.scenery);
+    this.region = newRegion(seed);
   }
 
   /** Lay the railway and found the town, on a new map or one from an older save. */
@@ -759,6 +763,8 @@ export class World {
     if (s.departed === undefined) for (const id of FIRST_STEPS) world.tipsSeen.add(id);
     world.unloadedAt = new Map(s.unloaded ?? []);
     if (s.rail) world.rail = railFromSave(s.rail);
+    // Saves from before the region get one from their seed, as a new game would.
+    if (s.region) world.region = structuredClone(s.region);
     // The line runs on through any country added to the map since.
     layRailway(world.map);
     // The highway runs down the map itself since it was laid on it.
@@ -884,6 +890,7 @@ export class World {
       piles: [...this.piles.values()],
       town: this.town,
       rail: this.rail,
+      region: this.region,
       scenery: this.scenery.state,
       tips: [...this.tipsSeen],
       learning: this.learning,
@@ -1231,6 +1238,11 @@ export class World {
   /** People living in the town, which the port's tier waits on. */
   townSize(): number {
     return this.town ? population(this.town, this.map) : 0;
+  }
+
+  /** People in the region the port serves: the town's and its places', from the Bulk Terminal on. */
+  regionSize(): number {
+    return this.townSize() + placesSize(this.region);
   }
 
   loadingDocks(bay: Bay, pickup = false): number[] {

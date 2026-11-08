@@ -55,6 +55,8 @@ import { jibStows } from './cargo/stores';
 import { cancelJob } from './cargo/customs';
 import { baysOpen, roadTo } from './roads/bays';
 import { sidings } from '../rules/rails';
+import { openCities, regionDay } from '../region';
+import { sidingsOpen } from './trains';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -95,11 +97,16 @@ export function takeLoan(w: World, amount: number): void {
   }
 }
 
+/** Whether the town, and from the Bulk Terminal the region, has grown enough for tier `next`. */
+export function grownFor(w: World, next: (typeof TIERS)[number]): boolean {
+  return w.townSize() >= next.town && (next.region === undefined || w.regionSize() >= next.region);
+}
+
 /** People in the town: the port may grow a step once there are enough of them. */
 /** Tell the player, once, when the town has grown enough for the next step up. */
 export function townGrownEnough(w: World): void {
   const next = TIERS[w.tier + 1];
-  if (!next || next.comingSoon || w.townSize() < next.town) return;
+  if (!next || next.comingSoon || !grownFor(w, next)) return;
   if (w.tierReadyTold >= w.tier + 1) return;
   w.tierReadyTold = w.tier + 1;
   const name = w.town?.name ?? 'The town';
@@ -124,12 +131,19 @@ export function tierWaitsOn(w: World): string | undefined {
 export function canUpgrade(w: World): boolean {
   const next = TIERS[w.tier + 1];
   if (!next || next.comingSoon) return false;
-  return w.townSize() >= next.town && w.cash >= next.cost;
+  return grownFor(w, next) && w.cash >= next.cost;
 }
 
 export function upgrade(w: World): void {
   const next = TIERS[w.tier + 1];
   if (!next || next.comingSoon) return message(w, 'No further upgrades yet.', 'info');
+  if (next.region !== undefined && w.regionSize() < next.region) {
+    return message(
+      w,
+      `The harbour authority waits for the region to grow: ${next.name} needs ${next.region.toLocaleString('en-US')} people along the line, it has ${w.regionSize().toLocaleString('en-US')}. See the Region tab of the Town panel.`,
+      'bad',
+    );
+  }
   if (w.townSize() < next.town) {
     return message(
       w,
@@ -323,7 +337,6 @@ export function townTradeOffers(w: World): void {
     ['timber', Build.BuildersYard],
     ['goods', Build.School],
     ['factory', Build.Hospital],
-    ['rail', Build.Station],
   ];
   trades.forEach(([trade, code], k) => {
     const at = LANDMARKS.findIndex((l) => l.code === code);
@@ -339,9 +352,25 @@ export function townTradeOffers(w: World): void {
         ? makeCannedOffer(rng, id, w.tick, taken, w.town?.name)
         : trade === 'factory'
           ? makeFactoryOffer(rng, id, w.tick, taken, w.town?.name)
-          : trade === 'rail'
-            ? makeRailOffer(rng, id, w.tick, taken)
-            : makeTownLineOffer(rng, id, w.tick, taken, trade);
+          : makeTownLineOffer(rng, id, w.tick, taken, trade as 'timber' | 'goods');
+    if (offer) w.offers.push(offer);
+  });
+  railOffers(w);
+}
+
+/**
+ * Each city along the line the railway serves offers its container trains
+ * once the port may lay sidings, kept on the board till signed: the nearer
+ * first, the other once the first has its distribution park.
+ */
+export function railOffers(w: World): void {
+  if (!sidingsOpen(w)) return;
+  openCities(w.region).forEach((p, k) => {
+    const has = (t: Terms) => t.kind === 'rail' && t.place === p.id;
+    if (w.offers.some((o) => has(o.terms)) || w.contracts.some((c) => has(c.terms))) return;
+    const taken = new Set([...w.contracts, ...w.offers].map((c) => c.terms.name));
+    const rng = new Rng(w.tick * 7919 + p.id * 13 + k);
+    const offer = makeRailOffer(rng, -2e9 - w.tick * 4 - p.id, w.tick, taken, p);
     if (offer) w.offers.push(offer);
   });
 }
@@ -815,6 +844,7 @@ export function newDay(w: World): void {
     openLandmark(w, landmarkDue(w.town, true, w.tier));
     townDay(w.town, jobs(w), w.map);
   }
+  regionDay(w.region);
   townGrownEnough(w);
   const late = w.demurrageToday;
   w.demurrageToday = { amount: 0, ships: 0 };
