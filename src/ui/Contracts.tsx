@@ -6,6 +6,7 @@ import * as B from '../sim/balance';
 import {
   fisheryDailyCrates,
   fisheryDailyValue,
+  railDailyValue,
   shipperDailyValue,
   type Terms,
 } from '../sim/contracts';
@@ -81,6 +82,7 @@ function kindLabel(t: Terms): string {
         ? 'Haulier, pickups'
         : 'Haulier';
   }
+  if (t.kind === 'rail') return 'Rail line';
   if (t.kind === 'shipper') {
     return t.cargo === 'container'
       ? 'Container shipper'
@@ -110,9 +112,9 @@ function of(t: Terms): string {
 }
 
 function unit(t: Terms): string {
-  return (t.kind === 'fishery' ? t.vessel === 'feeder' : t.cargo === 'container')
-    ? 'containers'
-    : 'crates';
+  const boxes =
+    t.kind === 'fishery' ? t.vessel === 'feeder' : t.kind === 'rail' || t.cargo === 'container';
+  return boxes ? 'containers' : 'crates';
 }
 
 /** The one-line headline: what this contract brings or costs per day. */
@@ -137,6 +139,18 @@ function Headline({ terms }: { terms: Terms }) {
         </span>
         <span class="pos">
           <strong>≈{money(paid(shipperDailyValue(terms)))}</strong>/day
+        </span>
+      </div>
+    );
+  }
+  if (terms.kind === 'rail') {
+    return (
+      <div class="headline">
+        <span>
+          <strong>{terms.bring}</strong> out, up to <strong>{terms.take}</strong> in, a train
+        </span>
+        <span class={railDailyValue(terms) >= 0 ? 'pos' : 'neg'}>
+          <strong>≈{money(paid(railDailyValue(terms)))}</strong>/day
         </span>
       </div>
     );
@@ -194,6 +208,21 @@ function termRows(t: Terms): [string, ComponentChildren][] {
             : t.capacity > B.TRUCK_CAPACITY
               ? 'Large truck bays or crate storage'
               : 'Any truck bay',
+      ],
+    ];
+  }
+  if (t.kind === 'rail') {
+    return [
+      ['A train', `every ${span(t.trainEvery)}`],
+      ['Brings', `${t.bring} containers to go out on the feeders`],
+      ['Takes', `Up to ${t.take} containers off the feeders, inland`],
+      [
+        'Pays',
+        `${money(paid(t.fee))} a container it brought, on board; ${money(t.dailyFee)}/day to the railway`,
+      ],
+      [
+        'Needs',
+        'A rail siding with container yards beside it, in and out, and reach stackers to work the wagons',
       ],
     ];
   }
@@ -503,6 +532,12 @@ function SignedRow({
   } else if (t.kind === 'shipper') {
     rows.push(['Next truck', c.nextIn <= 0 ? 'Due now' : `in ${span(c.nextIn / TICKS_PER_DAY)}`]);
     rows.push(['At the port', `${c.active} truck${c.active === 1 ? '' : 's'}`]);
+  } else if (t.kind === 'rail') {
+    rows.push(['Next train', c.nextIn <= 0 ? 'Due now' : `in ${span(c.nextIn / TICKS_PER_DAY)}`]);
+    rows.push([
+      'At the port',
+      c.active > 0 ? 'A train in its siding' : <span class="muted">None</span>,
+    ]);
   } else {
     rows.push(['At the port', `${c.active} of ${t.fleet}`]);
     rows.push([
@@ -698,6 +733,20 @@ export function offerChecks(
       );
     }
     add(payback <= 3, `Signing fee pays back in ${span(payback)}`, payback > 3);
+  } else if (t.kind === 'rail') {
+    const yards = s.yards.length;
+    add(
+      s.sidings.length > 0,
+      s.sidings.length > 0
+        ? `${s.sidings.length} rail siding${s.sidings.length === 1 ? '' : 's'}`
+        : 'No rail siding yet: lay one off the main line (Roads, then Rail siding)',
+    );
+    add(
+      yards > 0,
+      yards > 0
+        ? 'Container yards for its trains to be worked from, beside a siding'
+        : 'Needs container yards beside a siding, in and out',
+    );
   } else {
     const trucks = s.contracts.reduce(
       (n, c) => n + (c.terms.kind === 'haulier' ? c.terms.fleet : 0),

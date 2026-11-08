@@ -451,11 +451,15 @@ export const SIDING_COST = 80; // a tile of the port's siding track
 /** Rows of plain main line kept between a siding's switch and another, or a crossing. */
 export const SWITCH_GAP = 3;
 /** A port train's top speed, in tiles a tick: slower than the trains passing through. */
-export const PORT_TRAIN_SPEED = 0.5;
+export const PORT_TRAIN_SPEED = 0.6;
 /** Ticks a port train stands in its siding, at most, to be worked. */
-export const TRAIN_STAND_TICKS = 300;
+export const TRAIN_STAND_TICKS = 600;
 /** Wagons behind a port train's locomotive, at most, however long its siding. */
 export const TRAIN_MAX_WAGONS = 10;
+/** Containers on a flat wagon, end to end. */
+export const WAGON_BOXES = 2;
+/** Rows either side of a siding a container yard may lie in to be worked from it. */
+export const SIDING_REACH = 2;
 /** Marking a port road or quay tile for port machines only, or back. */
 export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;

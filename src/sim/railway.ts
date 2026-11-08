@@ -1,4 +1,5 @@
 import type { GameMap } from './map';
+import type { Crate } from './state';
 import type { Rng } from './rng';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from './types';
 
@@ -34,6 +35,20 @@ export interface PortVisit {
   stand: number;
   /** The tick it pulls out again, once standing. */
   leaves: number;
+  /** The rail line that sent it, by contract id. */
+  contractId?: number;
+  /**
+   * Its flat wagons' containers, a cell for each place one stands: wagon
+   * `n` (counted from the locomotive, the first 1) has cells (n-1)*2 and
+   * (n-1)*2+1. Exports it brought are `out`; see cargo/wagons.ts.
+   */
+  cells?: (Crate | null)[];
+  /** Containers off the feeders it takes away, at most. */
+  take?: number;
+  /** Containers stackers are bringing it. */
+  coming?: number;
+  /** Containers stackers are taking off it. */
+  taking?: number;
 }
 
 export interface Train {

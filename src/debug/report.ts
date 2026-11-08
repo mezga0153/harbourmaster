@@ -61,7 +61,9 @@ export function report(s: Snapshot, x: ReportExtras): string {
           ? `haulier ${t.fleet}×${t.capacity}${t.cargo ? ' containers' : ''}`
           : t.kind === 'shipper'
             ? `shipper ${t.perDay}/day${t.cargo ? ' containers' : ''}`
-            : `fishery ${t.vessel}`;
+            : t.kind === 'rail'
+              ? `rail line, a train every ${t.trainEvery} days bringing ${t.bring}, taking ${t.take}`
+              : `fishery ${t.vessel}`;
       return `- ${t.name}: ${what}, satisfaction ${Math.round(k.satisfaction)}, active ${k.active}, waiting ${k.waiting}`;
     }),
   );

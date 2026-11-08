@@ -54,6 +54,7 @@ import { byHand, byStacker, cratesFor, cratesOff, truckTicks } from '../truckLoa
 import { bedCap, bedCells, bottomFull, offBed, onBed, onTrailer, topFirst } from '../cargo/beds';
 import { BUSINESSES, HIGHWAY_X } from '../../town';
 import { cargoOf } from '../../cargo';
+import { bySiding } from '../cargo/wagons';
 
 export function spawnTrucks(w: World): void {
   const m = w.map;
@@ -210,8 +211,9 @@ export function cutOff(w: World, bay: Bay, turn = false): void {
     : bay.tiles
       ? `Trucks cannot reach this ${what}: they load storage from inside the port, from a port road or quay beside it through a port gate, not beside machines-only ground.`
       : `Trucks cannot reach this ${what}: it needs a public road to the highway, or port roads from a port gate.`;
-  // Crate storage out of the trucks' way is a buffer the forklifts empty.
-  if (!bay.noAccess && !bay.warehouse) message(w, why, 'bad');
+  // Crate storage out of the trucks' way is a buffer the forklifts empty,
+  // and a container yard by a siding is worked by the trains.
+  if (!bay.noAccess && !bay.warehouse && !bySiding(w, bay)) message(w, why, 'bad');
   bay.noAccess = true;
   bay.noAccessWhy = why;
   bay.nextTruckTick = w.tick + 100;

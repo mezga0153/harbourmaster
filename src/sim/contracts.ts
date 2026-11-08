@@ -61,7 +61,33 @@ export interface ShipperTerms {
   factory?: boolean;
 }
 
-export type Terms = FisheryTerms | HaulierTerms | ShipperTerms;
+/**
+ * A rail operator: its container trains call at the port's sidings, each
+ * bringing containers to go out on the feeders and taking containers off
+ * them away inland, as trucks would.
+ */
+export interface RailTerms {
+  kind: 'rail';
+  name: string;
+  color: number;
+  /** Average days between trains. */
+  trainEvery: number;
+  /** Containers each train brings to go out on the feeders. */
+  bring: number;
+  /** Containers each train takes away inland, at most. */
+  take: number;
+  /** Paid for each container a train brought, as it goes on board a ship. */
+  fee: number;
+  /** What the port pays the railway a day for its trains. */
+  dailyFee: number;
+}
+
+export type Terms = FisheryTerms | HaulierTerms | ShipperTerms | RailTerms;
+
+/** Rough income a rail line's trains bring a day: their exports' fees, less what the railway charges. */
+export function railDailyValue(t: RailTerms): number {
+  return (t.bring * t.fee) / t.trainEvery - t.dailyFee;
+}
 
 /** Rough income a shipper brings per day if everything it sends is shipped. */
 export function shipperDailyValue(t: ShipperTerms): number {
@@ -75,7 +101,7 @@ export interface Contract {
   signingFee: number;
   /** Fisheries only: 0 to 100. The fishery walks away at 0. */
   satisfaction: number;
-  /** Fisheries only. */
+  /** Fisheries: when the next boat comes; rail lines: when the next train is sent. */
   nextBoatTick: number;
   warned: boolean;
   /** Hauliers only: when each truck that has left the port is back for more. */
@@ -266,6 +292,8 @@ export function makeOffer(
 ): Offer | null {
   const roll = rng.next();
   if (kind === 'shipper') return makeShipper(rng, id, tick, takenNames, tier, roll);
+  // The railway's offers come with the town's station; see townTradeOffers.
+  if (kind === 'rail') return null;
   const feeder = kind === 'fishery' && tier >= 2 && roll < 0.4;
   const coaster = kind === 'fishery' && !feeder && tier >= 1 && roll < 0.7;
   const boxTrucks = kind === 'haulier' && tier >= 2 && roll < 0.35;
@@ -526,6 +554,40 @@ export function makeFactoryOffer(
   return { id, terms, signingFee, expires };
 }
 
+const RAIL_LINES = [
+  'Coastline Railfreight',
+  'Inland Container Rail',
+  'Valley Intermodal',
+  'Midland Freightliner',
+];
+
+/**
+ * A rail operator's offer, put on the board as the town's railway station
+ * opens: container trains calling at the port's sidings.
+ */
+export function makeRailOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+): Offer | null {
+  const free = RAIL_LINES.filter((n) => !takenNames.has(n));
+  if (free.length === 0) return null;
+  const terms: RailTerms = {
+    kind: 'rail',
+    name: free[0],
+    color: rng.int(0, 4),
+    trainEvery: Math.round(rng.range(1.2, 2) * 20) / 20,
+    bring: rng.int(4, 8),
+    take: rng.int(8, 12),
+    fee: rng.int(150, 210),
+    dailyFee: rng.int(8, 12) * 10,
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
+  const signingFee = Math.round((terms.bring * terms.fee) / terms.trainEvery / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
 /**
  * A shipping line whose coasters bring the town something it wants, put on
  * the board as a landmark opens: timber for the builders' yard, or goods
@@ -559,12 +621,13 @@ export function makeTownLineOffer(
 }
 
 /** What a town landmark's offer brings; see townTrade. */
-export type TownTrade = 'canned' | 'timber' | 'goods' | 'factory';
+export type TownTrade = 'canned' | 'timber' | 'goods' | 'factory' | 'rail';
 
 /** An offer or contract the town's landmarks bring: kept on the board till signed. */
 export function townTrade(t: Terms): TownTrade | null {
   if (t.kind === 'shipper' && t.goods === 'canned') return 'canned';
   if (t.kind === 'shipper' && t.factory) return 'factory';
+  if (t.kind === 'rail') return 'rail';
   if (t.kind === 'fishery' && (t.catch === 'timber' || t.catch === 'goods')) return t.catch;
   return null;
 }

@@ -12,6 +12,12 @@ import {
 } from '../src/sim/railway';
 import { bulldozeError, placementError, sidingAt, sidings } from '../src/sim/rules';
 import { portTrains, sendPortTrain, sidingCars } from '../src/sim/systems/trains';
+import { addContract, offerBlocked } from '../src/sim/systems/economy';
+import { boxesIn, putBox } from '../src/sim/systems/cargo/stores';
+import type { RailTerms } from '../src/sim/contracts';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
 
 /** A Container Port whose town has its railway station, rich enough to build. */
 function stationTown(): World {
@@ -144,5 +150,104 @@ describe('Rail sidings', () => {
     expect(loaded.rail.trains).toEqual([]);
     for (let t = 0; t < 20; t++) loaded.step();
     expect(portTrains(loaded)).toEqual([]);
+  });
+});
+
+describe('Container trains', () => {
+  /**
+   * A siding nine tiles long with a port road along it a row off, and past
+   * that a container yard for cargo coming in and one for cargo going out,
+   * a depot and a reach stacker; containers cleared by customs in the yard.
+   */
+  function railPort(boxes = 6) {
+    const world: Any = stationTown();
+    const m = world.map;
+    const x = railColumn(m);
+    const row = (y: number, a: number, b: number) =>
+      Array.from({ length: b - a + 1 }, (_, k) => m.idx(x + a + k, y));
+    let y = -1;
+    for (let r = 6; r < m.limit - 6 && y < 0; r++) {
+      const all = [...row(r, 1, 9), ...row(r + 1, 1, 10), ...row(r + 2, 1, 10)];
+      if (all.every((i) => m.isLand(i) && m.build[i] === Build.None && m.owns(i))) y = r;
+    }
+    expect(y).toBeGreaterThan(0);
+    world.command({
+      type: 'bulldoze',
+      tiles: [...row(y, 1, 9), ...row(y + 1, 1, 10), ...row(y + 2, 1, 10)],
+    });
+    world.command({ type: 'build', kind: 'siding', tiles: row(y, 1, 9) });
+    world.command({
+      type: 'build',
+      kind: 'portRoad',
+      tiles: [...row(y + 1, 1, 10), ...row(y + 2, 2, 8)],
+    });
+    const inTiles = row(y + 2, 2, 4);
+    const outTiles = row(y + 2, 6, 8);
+    world.command({ type: 'store', tiles: inTiles, kind: 'boxes', on: true });
+    world.command({ type: 'store', tiles: outTiles, kind: 'boxesOut', on: true });
+    const depot = m.idx(x + 10, y + 2);
+    // Its door onto the road along the siding.
+    world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 3 });
+    // Two, a depot each.
+    const depot2 = m.idx(x + 9, y + 2);
+    world.command({ type: 'build', kind: 'depot', tiles: [depot2], facing: 3 });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot });
+    world.command({ type: 'buyMachine', kind: 'stacker', tile: depot2 });
+    const yardIn = world.yards.get(inTiles[0]);
+    const yardOut = world.yards.get(outTiles[0]);
+    expect(sidings(m)).toHaveLength(1);
+    expect(yardIn && yardOut).toBeTruthy();
+    expect(world.people.filter((p: Any) => p.kind === 'stacker')).toHaveLength(2);
+    for (let k = 0; k < boxes; k++)
+      putBox(world, yardIn, { fee: 200, at: 0, ready: 0, look: k }, false);
+    return { world, m, yardIn, yardOut, siding: sidings(m)[0] };
+  }
+
+  it('have their containers unloaded into the yard going out and are loaded from the one coming in, then pay as they leave', () => {
+    const { world, yardIn, yardOut } = railPort(6);
+    const terms: RailTerms = {
+      kind: 'rail',
+      name: 'Test Rail',
+      color: 0,
+      trainEvery: 5,
+      bring: 4,
+      take: 6,
+      fee: 180,
+      dailyFee: 0,
+    };
+    const line = addContract(world, terms, world.tick, 0);
+    const before = world.cash;
+    let train: Any;
+    let worked = false;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      train ??= world.rail.trains.find((o: Any) => o.port?.contractId === line.id);
+      if (train?.port.state === 'out') worked = true;
+      if (worked && !world.rail.trains.includes(train)) break;
+    }
+    expect(train, 'a train came').toBeDefined();
+    expect(worked, 'it was worked and left').toBe(true);
+    // What it brought waits to go out on a feeder; what it took is gone.
+    expect(boxesIn(yardOut, true)).toHaveLength(4);
+    expect(boxesIn(yardIn)).toHaveLength(0);
+    expect(world.cash - before).toBeGreaterThanOrEqual(6 * 200 * 0.9);
+  });
+
+  it('wait for a free siding with a yard beside it', () => {
+    const world = stationTown();
+    const terms: RailTerms = {
+      kind: 'rail',
+      name: 'X',
+      color: 0,
+      trainEvery: 1,
+      bring: 2,
+      take: 2,
+      fee: 100,
+      dailyFee: 0,
+    };
+    expect(offerBlocked(world, terms)).toMatch(/siding/);
+    addContract(world, terms, world.tick, 0);
+    for (let t = 0; t < 100; t++) world.step();
+    expect(portTrains(world)).toHaveLength(0);
   });
 });

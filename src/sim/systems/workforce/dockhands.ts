@@ -112,6 +112,7 @@ import { pickTile } from '../boats/berthing';
 import { WORKING } from '../../helpers';
 import { standsFor, type StandPlan } from './stands';
 import { drivable } from '../../rules';
+import { takeWagonJob, wagonJob, wagonSources } from '../cargo/wagons';
 
 export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
   const p: Dockhand = {
@@ -494,6 +495,7 @@ function work(w: World, p: Dockhand): void {
   // road by a pickup they loaded.
   if (tire(w, p) && Number.isFinite(costFor(w, p)(w.tileOf(p)))) return goOnBreak(w, p);
   if (p.truckId !== undefined && (isBoxy(p) ? truckJob(w, p) : crateTruckJob(w, p))) return;
+  if (p.trainId !== undefined && wagonJob(w, p)) return;
   if (p.restack && restackJob(w, p)) return;
   switch (p.state) {
     case 'broken':
@@ -1004,7 +1006,10 @@ export function assignJob(w: World, p: Dockhand): boolean {
   }
   exportSources(w, p, here, sources);
   // Only stackers can lift a container onto a truck or off one.
-  if (p.kind === 'stacker') truckSources(w, sources);
+  if (p.kind === 'stacker') {
+    truckSources(w, sources);
+    wagonSources(w, sources);
+  }
   if (p.kind === 'dockhand' || p.kind === 'forklift') crateTruckSources(w, sources);
   // The boat moored longest is unloaded first, however near another lies:
   // others only once its crates are all spoken for, or its spots taken.
@@ -1030,6 +1035,10 @@ export function assignJob(w: World, p: Dockhand): boolean {
     }
     if (src.truck) {
       if (isBoxy(p) ? takeTruckJob(w, p, src) : takeCrateTruckJob(w, p, src)) return true;
+      continue;
+    }
+    if (src.train) {
+      if (takeWagonJob(w, p, src)) return true;
       continue;
     }
     if (!Number.isFinite(cost(src.tile))) continue;

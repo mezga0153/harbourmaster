@@ -3,6 +3,7 @@ import type { ContractView, OfferView } from '../protocol';
 import {
   fisheryDailyCrates,
   fisheryDailyValue,
+  railDailyValue,
   shipperDailyValue,
   type Terms,
 } from '../sim/contracts';
@@ -14,14 +15,15 @@ import { paid } from './difficulty';
 // filters and order the player chose for them, kept in this browser.
 
 /** The kinds of company, as the panel's filter groups them. */
-export type KindGroup = 'fishery' | 'line' | 'feeder' | 'shipper' | 'haulier';
-export const KINDS: KindGroup[] = ['fishery', 'line', 'feeder', 'shipper', 'haulier'];
+export type KindGroup = 'fishery' | 'line' | 'feeder' | 'shipper' | 'haulier' | 'rail';
+export const KINDS: KindGroup[] = ['fishery', 'line', 'feeder', 'shipper', 'haulier', 'rail'];
 export const KIND_LABEL: Record<KindGroup, string> = {
   fishery: 'Fisheries',
   line: 'Coaster lines',
   feeder: 'Container lines',
   shipper: 'Shippers',
   haulier: 'Hauliers',
+  rail: 'Rail lines',
 };
 
 export function kindGroup(t: Terms): KindGroup {
@@ -57,7 +59,7 @@ export const CARGO_LABEL: Record<Cargo, string> = {
 
 export function cargoOf(t: Terms): Cargo {
   if (t.kind === 'fishery') return t.vessel === 'feeder' ? 'containers' : (t.catch ?? 'fish');
-  if (t.cargo === 'container') return 'containers';
+  if (t.kind === 'rail' || t.cargo === 'container') return 'containers';
   if (t.kind === 'shipper') return t.goods ?? 'goods';
   return 'crates';
 }
@@ -66,6 +68,7 @@ export function cargoOf(t: Terms): Cargo {
 export function dailyValue(t: Terms): number {
   if (t.kind === 'fishery') return paid(fisheryDailyValue(t));
   if (t.kind === 'shipper') return paid(shipperDailyValue(t));
+  if (t.kind === 'rail') return paid(railDailyValue(t));
   return -t.dailyFee;
 }
 
@@ -73,6 +76,7 @@ export function dailyValue(t: Terms): number {
 export function volume(t: Terms): string {
   if (t.kind === 'fishery') return `≈${Math.round(fisheryDailyCrates(t))}/day in`;
   if (t.kind === 'shipper') return `≈${t.perDay}/day out`;
+  if (t.kind === 'rail') return `${t.bring} out, ${t.take} in, every ${t.trainEvery} days`;
   return `${t.fleet} × ${t.capacity}`;
 }
 

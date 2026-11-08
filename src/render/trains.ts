@@ -1,5 +1,6 @@
 import { Group, Mesh, type Object3D } from 'three';
 import type { GameMap } from '../sim/map';
+import * as B from '../sim/balance';
 import { CAR_LENGTH, pointAt, wayLength, type CarKind, type Train } from '../sim/railway';
 import { TICKS_PER_SECOND } from '../sim/types';
 import { KeyedObjects } from './keyed';
@@ -23,8 +24,17 @@ const BOGIE = 0x2a2d31;
 const RAIL_TOP = 0.105;
 const LEN = CAR_LENGTH - 0.12;
 
-/** A wagon or locomotive, along +z with its middle at the origin. */
-export function trainCar(kind: CarKind, v: number, k: number): Object3D {
+/**
+ * A wagon or locomotive, along +z with its middle at the origin. A port
+ * train's flat wagon carries the containers `boxes` gives the looks of,
+ * front (+z) first, or none; one passing through, a container of its own.
+ */
+export function trainCar(
+  kind: CarKind,
+  v: number,
+  k: number,
+  boxes?: readonly (number | null)[],
+): Object3D {
   const g = new Group();
   const y = 0.07;
   for (const z of [-LEN / 2 + 0.2, LEN / 2 - 0.2]) g.add(box(0.34, 0.07, 0.3, BOGIE, 0, 0, z));
@@ -75,9 +85,15 @@ export function trainCar(kind: CarKind, v: number, k: number): Object3D {
       break;
     }
     case 'flat': {
-      const c = container(v * 31 + k * 7, 0, top, 0);
-      c.rotation.y = Math.PI / 2;
-      g.add(c);
+      g.add(box(0.44, 0.03, LEN, 0x6b4f3f, 0, top, 0));
+      const looks = boxes ?? [v * 31 + k * 7];
+      looks.forEach((look, n) => {
+        if (look === null) return;
+        const z = boxes ? (n === 0 ? 0.3 : -0.3) : 0;
+        const c = container(look, 0, top + 0.03, z);
+        c.rotation.y = Math.PI / 2;
+        g.add(c);
+      });
       break;
     }
   }
@@ -109,7 +125,7 @@ export class Trains {
     this.at = now;
     this.rate = (speed * TICKS_PER_SECOND) / 1000;
     const keyOf = (t: Train) =>
-      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}`;
+      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}:${t.port?.cells?.map((c) => c?.look ?? '-').join() ?? ''}`;
     const byKey = new Map(trains.map((t) => [keyOf(t), t]));
     this.models.sync([...byKey.keys()], (k) => this.build(byKey.get(k)!));
     this.shown = [...byKey].map(([k, t]) => {
@@ -152,8 +168,20 @@ export class Trains {
 
   private build(train: Train): Shown {
     const model = new Group();
+    const n = train.cars.length - 1;
+    const cells = train.port?.cells;
     const cars = train.cars.map((kind, k) => {
-      const c = trainCar(kind, train.variant, k);
+      // Its wagon counted from the locomotive, which is last when it backs.
+      const wagon = train.back ? n - k : k;
+      const at = (wagon - 1) * B.WAGON_BOXES;
+      const looks = cells
+        ? Array.from({ length: B.WAGON_BOXES }, (_, s) => {
+            // The cell nearer the locomotive faces it: to the back when backing.
+            const cell = cells[at + (train.back ? B.WAGON_BOXES - 1 - s : s)];
+            return cell ? (cell.look ?? 0) : null;
+          })
+        : undefined;
+      const c = trainCar(kind, train.variant, k, kind === 'flat' ? looks : undefined);
       model.add(c);
       return c;
     });

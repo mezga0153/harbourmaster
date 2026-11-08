@@ -99,7 +99,9 @@ import {
   takesImports,
 } from './cargo/stores';
 import { bedCap, bedView, trailerLooks } from './cargo/beds';
-import { sidingsOpen, sidingsShutWhy } from './trains';
+import { sidingCars, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
+import { sidings } from '../rules/rails';
+import { bySiding, yardsBeside } from './cargo/wagons';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
 import { AHEAD_CELLS, AHEAD_TILES } from '../../protocol/views';
@@ -504,6 +506,8 @@ export function problems(w: World): ProblemView[] {
   for (const b of [...w.bays.values(), ...w.yards.values()]) {
     // Crate storage the trucks cannot reach is still a buffer the forklifts empty.
     if (!b.noAccess || b.warehouse || (b.tiles && !b.yard) || marked.has(b.idx)) continue;
+    // Worked by the trains in the siding beside it.
+    if (bySiding(w, b)) continue;
     out.push({
       ...middle(b.tiles ?? [b.idx]),
       h: 1.2,
@@ -642,6 +646,12 @@ function shipperMarks(w: World, out: ProblemView[]): Set<number> {
 function troubleView(w: World, c: Contract, customs: boolean): ContractView['trouble'] {
   const t = shipperTrouble(w, c);
   if (t) return { text: `${t.text}.`, bad: t.bad };
+  if (c.terms.kind === 'rail' && !sidings(w.map).some((s) => yardsBeside(w, s).length > 0)) {
+    return {
+      text: 'Its trains cannot come: no rail siding has a container yard beside it, a row or two off, for them to be worked from.',
+      bad: true,
+    };
+  }
   // Signed before the port needed a customs office, or with one since
   // pulled down: it goes on, but no line like it can be signed.
   if (!customs && needsCustomsOffice(c.terms)) {
@@ -1010,7 +1020,10 @@ export function buildSnapshot(w: World): Snapshot {
     active:
       c.terms.kind === 'fishery'
         ? w.boats.filter((b) => b.contractId === c.id).length
-        : w.trucks.filter((t) => t.contractId === c.id && !t.away).length,
+        : c.terms.kind === 'rail'
+          ? w.rail.trains.filter((t) => t.port?.contractId === c.id && t.port.state === 'standing')
+              .length
+          : w.trucks.filter((t) => t.contractId === c.id && !t.away).length,
     away: (c.returns ?? []).filter((at) => at > w.tick).length,
     backIn: (c.returns ?? []).reduce(
       (n, at) => (at > w.tick && (n < 0 || at - w.tick < n) ? at - w.tick : n),
@@ -1147,6 +1160,13 @@ export function buildSnapshot(w: World): Snapshot {
       y: w.map.yOf(w.town.centre),
     },
     trains: w.rail.trains.map((t) => structuredClone(t)),
+    sidings: sidings(w.map).map((x) => ({
+      switch: x.switch,
+      tiles: x.tiles,
+      cars: sidingCars(x),
+      yards: yardsBeside(w, x).length,
+      train: trainAt(w, x.switch)?.id,
+    })),
     offers: w.offers.map((o) => ({
       id: o.id,
       terms: o.terms,

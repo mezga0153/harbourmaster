@@ -7,7 +7,7 @@
 import type { World } from '../world';
 import * as B from '../balance';
 import { LANDMARKS } from '../town';
-import { Build } from '../types';
+import { Build, TICKS_PER_DAY } from '../types';
 import {
   CAR_LENGTH,
   RAIL_RUN,
@@ -22,7 +22,12 @@ import {
   type Point,
   type Train,
 } from '../railway';
-import { sidingAt, type Siding } from '../rules/rails';
+import { sidingAt, sidings, type Siding } from '../rules/rails';
+import type { Crate } from '../state';
+import { aboard, wagonCells, yardsBeside } from './cargo/wagons';
+import { book, payout } from './economy';
+import { message, moneyAt } from './output';
+import { boxLookOf } from '../helpers';
 import type { GameMap } from '../map';
 
 /** Where the town's railway station comes in LANDMARKS. */
@@ -114,8 +119,9 @@ export function trainAt(w: World, sw: number): Train | undefined {
 
 /**
  * Send a train to a siding: it waits off the map for the main line to
- * clear, comes in and stands `stand` ticks. Null when the siding has a
- * train already or is too short for one.
+ * clear, comes in and stands `stand` ticks at most. Null when the siding
+ * has a train already or is too short for one. `wagons` at most, as many
+ * as the siding holds if not said.
  */
 export function sendPortTrain(
   w: World,
@@ -123,9 +129,10 @@ export function sendPortTrain(
   wagons: CarKind = 'flat',
   stand: number = B.TRAIN_STAND_TICKS,
   dir: 1 | -1 = w.scenery.next() < 0.5 ? 1 : -1,
+  most = Infinity,
 ): Train | null {
   if (trainAt(w, s.switch)) return null;
-  const n = Math.min(B.TRAIN_MAX_WAGONS, sidingCars(s) - 1);
+  const n = Math.min(B.TRAIN_MAX_WAGONS, sidingCars(s) - 1, most);
   if (n < 1) return null;
   const train: Train = {
     id: w.rail.nextId++,
@@ -178,7 +185,8 @@ export function stepTrains(w: World): void {
         }
         break;
       case 'standing':
-        if (w.tick >= v.leaves && clear() && s) {
+        if ((w.tick >= v.leaves || worked(t)) && clear() && s) {
+          leave(w, t);
           v.state = 'out';
           t.cars.reverse();
           t.back = true;
@@ -205,7 +213,90 @@ export function stepTrains(w: World): void {
     }
   }
   const waiting = portTrains(w).some(
-    (t) => t.port.state === 'due' || (t.port.state === 'standing' && w.tick >= t.port.leaves),
+    (t) =>
+      t.port.state === 'due' ||
+      (t.port.state === 'standing' && (w.tick >= t.port.leaves || worked(t))),
   );
+  if (w.tick % 10 === 3) callTrains(w);
   stepThrough(rail, w.scenery, w.tick, column, w.map.h, w.town?.stage ?? 0, waiting || !clear());
+}
+
+/**
+ * Whether a rail line's train has been worked and may go: what it brought
+ * all off, and as much on as it takes, with no stacker still at it.
+ */
+function worked(t: Train): boolean {
+  const v = t.port;
+  if (!v || v.contractId === undefined) return false;
+  const pt = t as Train & { port: NonNullable<Train['port']> };
+  if ((v.coming ?? 0) > 0 || (v.taking ?? 0) > 0) return false;
+  return (
+    aboard(pt, true) === 0 && aboard(pt, false) >= Math.min(v.take ?? 0, wagonCells(pt).length)
+  );
+}
+
+/** A rail line's train pulls out: the containers it takes inland are paid for, and what it brought and could not leave goes back. */
+function leave(w: World, t: Train): void {
+  const v = t.port;
+  if (!v || v.contractId === undefined) return;
+  const pt = t as Train & { port: NonNullable<Train['port']> };
+  const line = w.contracts.find((c) => c.id === v.contractId);
+  const name = line?.terms.name ?? 'The rail line';
+  const cells = wagonCells(pt);
+  const going = cells.filter((c): c is Crate => !!c && !c.out);
+  const back = aboard(pt, true);
+  const s = sidingOf(w, t);
+  if (going.length > 0) {
+    const income = payout(
+      w,
+      going.reduce((n, c) => n + c.fee, 0),
+    );
+    book(w, 'containers', income);
+    w.stats.earned += income;
+    if (s) moneyAt(w, income, s.tiles[Math.floor(s.tiles.length / 2)]);
+    if (!w.learning.marks.includes('trainDelivery')) w.learning.marks.push('trainDelivery');
+  }
+  if (back > 0) {
+    message(
+      w,
+      `${name}'s train left with ${back} of the containers it brought still on board: there was no stacker to unload it, or no room in a container yard for cargo going out beside its siding.`,
+      'bad',
+    );
+  }
+  // Empty as it goes on its way.
+  v.cells = cells.map(() => null);
+}
+
+/**
+ * Rail lines send their trains when due, each to a siding with no train in
+ * it and a container yard beside it, bringing containers to go out on the
+ * feeders and with room for those it takes away.
+ */
+export function callTrains(w: World): void {
+  for (const c of w.contracts) {
+    const terms = c.terms;
+    if (terms.kind !== 'rail' || w.tick < c.nextBoatTick) continue;
+    if (portTrains(w).some((t) => t.port.contractId === c.id && t.port.state !== 'away')) continue;
+    const s = sidings(w.map).find(
+      (x) => !trainAt(w, x.switch) && sidingCars(x) >= 2 && yardsBeside(w, x).length > 0,
+    );
+    // None free: it waits, and tries again soon.
+    if (!s) {
+      c.nextBoatTick = w.tick + 60;
+      continue;
+    }
+    const wagons = Math.ceil(Math.max(terms.bring, terms.take) / B.WAGON_BOXES);
+    const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, undefined, wagons);
+    if (!train?.port) continue;
+    train.port.contractId = c.id;
+    const pt = train as Train & { port: NonNullable<Train['port']> };
+    const cells = wagonCells(pt);
+    const bring = Math.min(terms.bring, cells.length);
+    for (let k = 0; k < bring; k++) {
+      cells[k] = { fee: terms.fee, at: w.tick, out: true, look: boxLookOf(train.id, k) };
+    }
+    train.port.take = Math.min(terms.take, cells.length);
+    c.nextBoatTick =
+      w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
+  }
 }

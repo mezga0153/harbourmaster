@@ -190,6 +190,11 @@ when changing tiers, town growth, contracts or what unlocks what.
   forks in.
 - `src/protocol.ts` exports the messages between the threads
   (`protocol/messages.ts`) and what the view sees (`protocol/views.ts`).
+- The railway (`src/sim/railway.ts`): trains run along ways (lines of
+  points), one under way at a time; the port's sidings are straight rows
+  off the main line (`rules/rails.ts`), port trains call at them
+  (`systems/trains.ts`) and reach stackers work their wagons' cells from
+  container yards beside them (`systems/cargo/wagons.ts`).
 - The renderer: `src/render/structures/` (tiles, cranes, stock, furniture),
   `entities/` and `motion.ts` for moving things, `util/` for shared maths,
   `keyed.ts` for keeping keyed objects (and disposing what they own).

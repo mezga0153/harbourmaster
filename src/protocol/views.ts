@@ -629,4 +629,19 @@ export interface Snapshot {
   town: TownView | null;
   /** The trains on the line and in the port's sidings. */
   trains: Train[];
+  /** The port's sidings off the main line. */
+  sidings: SidingView[];
+}
+
+/** A siding off the main line, for its panel and the contracts board. */
+export interface SidingView {
+  /** The main line's tile its switch is on. */
+  switch: number;
+  tiles: number[];
+  /** Cars, the locomotive with them, a train standing in it has room for. */
+  cars: number;
+  /** Container yards beside it its trains are worked from. */
+  yards: number;
+  /** The port train calling at it, by id, if one is. */
+  train?: number;
 }

@@ -30,6 +30,7 @@ import {
   isIce,
   makeCannedOffer,
   makeFactoryOffer,
+  makeRailOffer,
   makeIceOffer,
   makeLobsterOffer,
   makeOffer,
@@ -53,6 +54,7 @@ import { muster, spawnDockhand } from './workforce/dockhands';
 import { jibStows } from './cargo/stores';
 import { cancelJob } from './cargo/customs';
 import { baysOpen, roadTo } from './roads/bays';
+import { sidings } from '../rules/rails';
 
 /** Every change to cash goes through here, so the ledger adds up. */
 export function book(w: World, category: LedgerCategory, amount: number): void {
@@ -321,6 +323,7 @@ export function townTradeOffers(w: World): void {
     ['timber', Build.BuildersYard],
     ['goods', Build.School],
     ['factory', Build.Hospital],
+    ['rail', Build.Station],
   ];
   trades.forEach(([trade, code], k) => {
     const at = LANDMARKS.findIndex((l) => l.code === code);
@@ -336,7 +339,9 @@ export function townTradeOffers(w: World): void {
         ? makeCannedOffer(rng, id, w.tick, taken, w.town?.name)
         : trade === 'factory'
           ? makeFactoryOffer(rng, id, w.tick, taken, w.town?.name)
-          : makeTownLineOffer(rng, id, w.tick, taken, trade);
+          : trade === 'rail'
+            ? makeRailOffer(rng, id, w.tick, taken)
+            : makeTownLineOffer(rng, id, w.tick, taken, trade);
     if (offer) w.offers.push(offer);
   });
 }
@@ -352,6 +357,9 @@ export function hasCustomsOffice(w: World): boolean {
  */
 export function offerBlocked(w: World, terms: Terms, customs = hasCustomsOffice(w)): string | null {
   if (needsCustomsOffice(terms) && !customs) return `Needs a customs office: ${customsWhat(terms)}`;
+  if (terms.kind === 'rail' && sidings(w.map).length === 0) {
+    return 'Needs a rail siding for its trains, with a container yard beside it (Roads, then Rail siding)';
+  }
   return null;
 }
 
@@ -744,7 +752,11 @@ export function dockRate(_w: World, load: number): number {
 }
 
 export function dailyFees(w: World): number {
-  return hauliers(w).reduce((sum, c) => sum + c.terms.dailyFee, 0);
+  return w.contracts.reduce(
+    (sum, c) =>
+      sum + (c.terms.kind === 'haulier' || c.terms.kind === 'rail' ? c.terms.dailyFee : 0),
+    0,
+  );
 }
 
 export function wageBill(w: World): number {

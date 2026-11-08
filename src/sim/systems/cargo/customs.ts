@@ -41,6 +41,7 @@ import {
 } from './places';
 import { waits } from './hold';
 import { putOnCrane } from '../cranes';
+import { releaseWagonJob } from './wagons';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -355,6 +356,7 @@ export function retargetExports(w: World, p: Dockhand): void {
 
 export function cancelJob(w: World, p: Dockhand): void {
   releaseTruckJob(w, p);
+  releaseWagonJob(w, p);
   releaseTarget(w, p, p.planned);
   if (!p.carrying && p.outbound) {
     const heap = stock(w, p.stockIdx) ?? w.yards.get(p.stockIdx);

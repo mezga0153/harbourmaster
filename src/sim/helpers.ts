@@ -4,6 +4,7 @@ import * as B from './balance';
 import { cargoOf } from './cargo';
 import type { Contract } from './contracts';
 import { count } from './systems/cargo/hold';
+import type { Train } from './railway';
 // Small helpers the simulation's systems share: geometry, the arithmetic of
 // bays, decks and yards, and the words for what a worker is doing.
 
@@ -128,6 +129,9 @@ export interface Source {
   /** A truck at a yard for a stacker to load (`load`) or unload. */
   truck?: Truck;
   load?: boolean;
+  /** A port train standing in its siding for a stacker to load (`load`) or unload, from `yard`. */
+  train?: Train;
+  yard?: Bay;
   /** Lower goes first. */
   rank: number;
 }

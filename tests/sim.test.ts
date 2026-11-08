@@ -5015,6 +5015,10 @@ describe('The Container Port’s landmarks', () => {
     const st = m.build.indexOf(Build.Station);
     expect(st).toBeGreaterThanOrEqual(0);
     expect(m.neighbors4(st).some((n) => m.build[n] === Build.Rail)).toBe(true);
+    // The railway's offer of container trains, which wants a siding first.
+    const rail = world.offers.find((o) => townTrade(o.terms) === 'rail')!;
+    expect(rail.terms.kind).toBe('rail');
+    expect(world.snapshot().offers.find((o) => o.id === rail.id)!.blocked).toMatch(/siding/);
   });
 
   it('are counted from an older save whose town grew past the town hall', () => {

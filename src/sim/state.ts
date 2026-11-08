@@ -137,6 +137,12 @@ export interface Dockhand extends Agent {
    */
   truckId?: number;
   truckLoad?: boolean;
+  /**
+   * Stackers: the port train standing in its siding it is loading
+   * (`trainLoad`) from a yard beside it (`bayIdx`), or unloading into one.
+   */
+  trainId?: number;
+  trainLoad?: boolean;
   /** Stackers: the yard, and which of its tiles, it is restacking at; see restackJob. */
   restack?: { yard: number; tile: number };
   /** Crates carried out of storage, so cleared already: no customs again where they go. */
