@@ -165,6 +165,19 @@ export function fromGantry(w: World, y: Bay, i: number): number {
  */
 export function gantryWork(w: World, y: Bay): GantryWork {
   if (!w.yardGantry(y)) return {};
+  // A wagon of the train in the siding under it.
+  const wagon = y.gantryWagon;
+  if (wagon && (y.gantryOn ?? 0) < 0 && y.gantryLift) {
+    return {
+      working: wagon.load ? 'load' : 'unload',
+      workLook: wagon.look,
+      workAt: wagon.at,
+      workTruck: y.gantryOn,
+      workSlot: wagon.cell,
+      ...(wagon.load ? {} : { workYard: y.gantryTo }),
+      ...liftView(w, y, y.gantryOn!),
+    };
+  }
   // The one it is part way through a lift for. Between lifts it is at
   // none: it stands where it set the last one down, rather than show a
   // lift for the next one waiting that has not begun.
@@ -902,6 +915,8 @@ export function yardLooks(
  */
 export function gantryElsewhere(w: World, t: Truck, bay: Bay): boolean {
   if (!t.boxes || !bay.yard || !w.yardGantry(bay)) return false;
+  // Working a train in the siding under it.
+  if ((bay.gantryOn ?? 0) < 0) return true;
   const on = gantryHolder(w, bay);
   if (on) return on !== t;
   // Still setting down one it lifted off another.
@@ -928,7 +943,8 @@ export function gantryElsewhere(w: World, t: Truck, bay: Bay): boolean {
  */
 export function gantryHolder(w: World, y: Bay): Vehicle | undefined {
   const id = y.gantryOn;
-  if (id === undefined) return undefined;
+  // Lifting for a train in the siding under it: see cargo/wagons.ts.
+  if (id === undefined || id < 0) return undefined;
   const t = w.trucks.find((q) => q.id === id);
   const p = t ? undefined : w.people.find((q) => q.id === id);
   const there = t
@@ -953,6 +969,7 @@ export function gantryFor(w: World, p: Dockhand): boolean {
   if (p.kind !== 'tractor') return true;
   const y = w.yards.get(p.state === 'picking' ? p.stockIdx : p.bayIdx);
   if (!y || !w.yardGantry(y)) return true;
+  if ((y.gantryOn ?? 0) < 0) return false;
   const on = gantryHolder(w, y);
   if (on) return on === p;
   // Still setting down one it lifted off another.

@@ -26,7 +26,7 @@ import {
 } from '../railway';
 import { portCrossing, sidingAt, sidings, type Siding } from '../rules/rails';
 import type { Crate } from '../state';
-import { aboard, wagonCells, yardsBeside } from './cargo/wagons';
+import { aboard, gantryOverSiding, gantryWagons, wagonCells, yardsBeside } from './cargo/wagons';
 import { book, payout } from './economy';
 import { message, moneyAt } from './output';
 import { boxLookOf } from '../helpers';
@@ -228,6 +228,7 @@ export function stepTrains(w: World): void {
       (t.port.state === 'standing' && (w.tick >= t.port.leaves || worked(t))),
   );
   if (w.tick % 10 === 3) callTrains(w);
+  gantryWagons(w);
   stepThrough(
     rail,
     w.scenery,
@@ -397,7 +398,9 @@ export function sidingTrouble(w: World, s: Siding): string | undefined {
   if (yards.length === 0) {
     return 'No container yard beside it for its trains to be worked from: mark one out a row or two off the track';
   }
-  if (!w.people.some((p) => p.kind === 'stacker')) {
+  // Gantries over the track work it from their yards; stackers from the rest.
+  const gantry = yards.every((y) => gantryOverSiding(w, y, s));
+  if (!gantry && !w.people.some((p) => p.kind === 'stacker')) {
     return 'No reach stacker to unload and load the wagons: buy one at a depot';
   }
   return undefined;

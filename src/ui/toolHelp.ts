@@ -93,7 +93,8 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
   },
   yardGantry: {
     what: 'Loads and unloads trucks beside a container yard.',
-    where: 'On port road or quay beside a yard, with a clear lane under its rails.',
+    where:
+      'On port road or quay beside a yard, with a clear lane under its rails; or on a siding beside a yard, to work the trains.',
     needs:
       'Truck access through a gate. Reach stackers or terminal tractors bring containers from the quay cranes.',
   },

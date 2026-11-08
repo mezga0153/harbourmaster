@@ -616,6 +616,14 @@ export interface Bay {
    * at the end of the lift; see offToGantry.
    */
   gantryHeld?: GantryHeld;
+  /**
+   * Container yards whose gantry stands over a siding, while it lifts
+   * between the yard and a wagon (`gantryOn` is then minus the train's
+   * id): the wagon's cell, where that stands along its rails, whether it
+   * loads the wagon or unloads it, how the container looks, and the
+   * container once its spreader has it; see cargo/wagons.ts.
+   */
+  gantryWagon?: { cell: number; at: number; load: boolean; look: number; box?: Crate };
   /** Exports promised to workers on their way to take them on board. */
   outReserved?: number;
   /** Container yards: cleared containers promised to stackers loading trucks. */

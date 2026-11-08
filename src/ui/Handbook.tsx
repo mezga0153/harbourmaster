@@ -460,8 +460,10 @@ export const TOPICS: Record<TopicId, Topic> = {
           for cargo coming in. A train leaves once it is worked, or after a day at most, and the
           containers it takes away are paid for as it goes. A train is {B.WAGON_BOXES} containers a
           wagon, as many wagons as the siding holds and the line sends, up to {B.TRAIN_MAX_WAGONS}.
-          A port road may cross a siding on the level: no one goes onto it while a train is on it or
-          coming, and paths go round while one stands across it.
+          A <b>yard gantry</b> built on a siding beside a yard runs its rails along the track and
+          works the wagons in its reach itself, no stacker needed: a yard as long as the train
+          serves all of it. A port road may cross a siding on the level: no one goes onto it while a
+          train is on it or coming, and paths go round while one stands across it.
         </p>
       </>
     ),

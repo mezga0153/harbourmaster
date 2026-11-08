@@ -108,7 +108,7 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.YardGantry,
     label: 'Yard gantry',
     cost: B.YARD_GANTRY_COST,
-    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
+    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. Stood on a siding beside a yard, its rails run along the track and it works the trains' wagons instead. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   siding: {

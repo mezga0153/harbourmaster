@@ -18,9 +18,15 @@ export interface Siding {
   side: 1 | -1;
 }
 
-/** A port road the siding track runs across: a level crossing in the port. */
+/**
+ * Port ground the siding track runs across: a port road crossing it on the
+ * level, or a yard gantry standing over it.
+ */
 export function portCrossing(map: GameMap, i: number): boolean {
-  return i >= 0 && map.build[i] === Build.PortRoad && (map.orient[i] & RAILS) !== 0;
+  const b = map.build[i];
+  return (
+    i >= 0 && (b === Build.PortRoad || b === Build.YardGantry) && (map.orient[i] & RAILS) !== 0
+  );
 }
 
 /** Siding track, on its own or across a port road. */
@@ -112,7 +118,7 @@ export function sidingError(map: GameMap, i: number, pending?: ReadonlySet<numbe
 
 /** Why siding tile `i` cannot be taken up yet: only from the buffer stop back. */
 export function sidingBulldozeError(map: GameMap, i: number): string | null {
-  // Bulldozing a crossing takes up the road and leaves the track.
+  // Bulldozing a crossing, or a gantry over the track, leaves the track.
   if (portCrossing(map, i)) return null;
   const s = sidingAt(map, i);
   if (!s || s.tiles.at(-1) === i) return null;

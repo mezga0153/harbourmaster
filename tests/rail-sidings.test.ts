@@ -30,6 +30,7 @@ import {
 import { addContract, offerBlocked } from '../src/sim/systems/economy';
 import { boxesIn, putBox } from '../src/sim/systems/cargo/stores';
 import type { RailTerms } from '../src/sim/contracts';
+import { gantryOverSiding } from '../src/sim/systems/cargo/wagons';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -346,5 +347,79 @@ describe('The town’s railway station', () => {
     }
     expect(stopped).toBeGreaterThan(STATION_DWELL / 2);
     expect(freightStopped).toBe(0);
+  });
+});
+
+describe('A yard gantry over a siding', () => {
+  it('stands on the track beside the yard and works the train in it, no stacker needed', () => {
+    const world: Any = stationTown();
+    const m = world.map;
+    const x = railColumn(m);
+    const row = (y: number, a: number, b: number) =>
+      Array.from({ length: b - a + 1 }, (_, k) => m.idx(x + a + k, y));
+    let y = -1;
+    for (let r = 6; r < m.limit - 6 && y < 0; r++) {
+      const all = [...row(r, 1, 9), ...row(r + 1, 1, 9), ...row(r - 1, 1, 9)];
+      if (all.every((i) => m.isLand(i) && m.build[i] === Build.None && m.owns(i))) y = r;
+    }
+    world.command({
+      type: 'bulldoze',
+      tiles: [...row(y, 1, 9), ...row(y + 1, 1, 9), ...row(y - 1, 1, 9)],
+    });
+    world.command({ type: 'build', kind: 'siding', tiles: row(y, 1, 9) });
+    // A yard each side of the track, right beside it, along the wagons:
+    // going out by the first wagon, coming in by the next.
+    world.command({
+      type: 'build',
+      kind: 'portRoad',
+      tiles: [...row(y + 1, 3, 6), ...row(y - 1, 7, 9)],
+    });
+    world.command({ type: 'store', tiles: row(y + 1, 3, 6), kind: 'boxes', on: true });
+    world.command({ type: 'store', tiles: row(y - 1, 7, 9), kind: 'boxesOut', on: true });
+    const yardIn = world.yards.get(row(y + 1, 3, 6)[0]);
+    const yardOut = world.yards.get(row(y - 1, 7, 9)[0]);
+    const s = sidings(m)[0];
+    // A gantry over the track by each, its rails along it.
+    const gantries = [m.idx(x + 3, y), m.idx(x + 9, y)];
+    world.command({ type: 'build', kind: 'yardGantry', tiles: gantries });
+    expect(gantries.map((g) => m.build[g])).toEqual([Build.YardGantry, Build.YardGantry]);
+    expect(sidingAt(m, m.idx(x + 1, y))!.tiles).toHaveLength(9);
+    expect(gantryOverSiding(world, yardIn, s)).toBe(true);
+    expect(gantryOverSiding(world, yardOut, s)).toBe(true);
+    const second = [gantries[1]];
+    for (let k = 0; k < 6; k++)
+      putBox(world, yardIn, { fee: 200, at: 0, ready: 0, look: k }, false);
+    const line = addContract(
+      world,
+      {
+        kind: 'rail',
+        name: 'T',
+        color: 0,
+        trainEvery: 9,
+        bring: 2,
+        take: 3,
+        fee: 150,
+        dailyFee: 0,
+      },
+      world.tick,
+      0,
+    );
+    let train: Any;
+    let lifted = false;
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      train ??= world.rail.trains.find((o: Any) => o.port?.contractId === line.id);
+      lifted ||= (yardIn.gantryOn ?? 0) < 0 || (yardOut.gantryOn ?? 0) < 0;
+      if (train?.port.state === 'out') break;
+    }
+    expect(train?.port.state).toBe('out');
+    expect(world.people.some((p: Any) => p.kind === 'stacker')).toBe(false);
+    expect(lifted).toBe(true);
+    expect(boxesIn(yardOut, true)).toHaveLength(2);
+    // The second wagon's two, in its reach; the third it wanted is not.
+    expect(boxesIn(yardIn)).toHaveLength(4);
+    // Taken up, the track stays.
+    world.command({ type: 'bulldoze', tiles: second });
+    expect(m.build[second[0]]).toBe(Build.Siding);
   });
 });

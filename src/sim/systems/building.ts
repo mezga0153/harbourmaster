@@ -150,6 +150,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         // Siding track and a port road across each other: a level crossing,
         // the road kept as it was with the track across it.
         const was = w.map.build[t];
+        // A yard gantry over the track keeps it, to load the trains.
+        const track = kind === 'yardGantry' && (was === Build.Siding || portCrossing(w.map, t));
         const railsOver = kind === 'siding' && was === Build.PortRoad;
         const roadOver = kind === 'portRoad' && was === Build.Siding;
         if (railsOver || roadOver) {
@@ -163,7 +165,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         w.map.orient[t] =
           (ROTATABLE.has(kind) ? partOrient(f, k) : 0) |
           (kind === 'parking' ? w.map.orient[t] & ON_QUAY : quay) |
-          under;
+          under |
+          (track ? RAILS : 0);
         w.map.deco[t] = Deco.None;
         w.dirty.add(t);
       });
@@ -913,7 +916,8 @@ export function bulldoze(w: World, tiles: number[]): void {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
     } else if (portCrossing(w.map, i)) {
-      // Taking up a crossing's road leaves the siding.
+      // Taking up a crossing's road, or a gantry over the track, leaves the siding.
+      if (w.map.build[i] === Build.YardGantry) w.gantryCache = null;
       w.map.build[i] = Build.Siding;
       w.map.orient[i] = 0;
     } else if (w.map.build[i] === Build.Siding) {

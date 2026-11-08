@@ -1,10 +1,10 @@
-import { Group, Mesh, type Object3D } from 'three';
+import { Group, Mesh, Vector3, type Object3D } from 'three';
 import type { GameMap } from '../sim/map';
 import * as B from '../sim/balance';
 import { CAR_LENGTH, pointAt, wayLength, type CarKind, type Train } from '../sim/railway';
 import { TICKS_PER_SECOND } from '../sim/types';
 import { KeyedObjects } from './keyed';
-import { container } from './models';
+import { container, paintContainer } from './models';
 import { C } from './palette';
 import { box, cyl } from './parts';
 import { landTop } from './terrain';
@@ -34,6 +34,7 @@ export function trainCar(
   v: number,
   k: number,
   boxes?: readonly (number | null)[],
+  slots?: Object3D[],
 ): Object3D {
   const g = new Group();
   const y = 0.07;
@@ -88,11 +89,13 @@ export function trainCar(
       g.add(box(0.44, 0.03, LEN, 0x6b4f3f, 0, top, 0));
       const looks = boxes ?? [v * 31 + k * 7];
       looks.forEach((look, n) => {
-        if (look === null) return;
+        // A port train's places are there empty too, for the cranes to set one in.
         const z = boxes ? (n === 0 ? 0.3 : -0.3) : 0;
-        const c = container(look, 0, top + 0.03, z);
+        const c = container(look ?? 0, 0, top + 0.03, z);
         c.rotation.y = Math.PI / 2;
+        c.visible = look !== null;
         g.add(c);
+        slots?.push(c);
       });
       break;
     }
@@ -105,6 +108,8 @@ interface Shown {
   view: Train;
   model: Group;
   cars: Object3D[];
+  /** A port train's container places, by its cells (see PortVisit.cells). */
+  slots: Object3D[];
 }
 
 export class Trains {
@@ -125,12 +130,19 @@ export class Trains {
     this.at = now;
     this.rate = (speed * TICKS_PER_SECOND) / 1000;
     const keyOf = (t: Train) =>
-      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}:${t.port?.cells?.map((c) => c?.look ?? '-').join() ?? ''}`;
+      `${t.id}:${t.back ? 'b' : 'f'}:${t.cars.join()}:${t.way.map((p) => p.join(',')).join(';')}:${t.port?.cells ? 'cells' : ''}`;
     const byKey = new Map(trains.map((t) => [keyOf(t), t]));
     this.models.sync([...byKey.keys()], (k) => this.build(byKey.get(k)!));
     this.shown = [...byKey].map(([k, t]) => {
       const m = this.models.get(k)!;
       m.view = t;
+      // Containers on and off as the game has them.
+      t.port?.cells?.forEach((c, n) => {
+        const slot = m.slots[n];
+        if (!slot) return;
+        slot.visible = !!c;
+        if (c) paintContainer(slot, c.look ?? 0);
+      });
       return m;
     });
   }
@@ -148,6 +160,17 @@ export class Trains {
       this.place(m, now);
       return now;
     });
+  }
+
+  /** Where a port train's container place for cell `k` is in the world, or null. */
+  slotPosition(id: number, k: number, out: Vector3): Vector3 | null {
+    const slot = this.shown.find((m) => m.view.id === id)?.slots[k];
+    return slot ? slot.getWorldPosition(out) : null;
+  }
+
+  /** Whether a port train shows a container in cell `k`. */
+  slotShown(id: number, k: number): boolean {
+    return !!this.shown.find((m) => m.view.id === id)?.slots[k]?.visible;
   }
 
   /** Each car between its bogies' points along the way, so they follow the curves. */
@@ -171,6 +194,7 @@ export class Trains {
     const model = new Group();
     const n = train.cars.length - 1;
     const cells = train.port?.cells;
+    const slots: Object3D[] = [];
     const cars = train.cars.map((kind, k) => {
       // Its wagon counted from the locomotive, which is last when it backs.
       const wagon = train.back ? n - k : k;
@@ -182,7 +206,12 @@ export class Trains {
             return cell ? (cell.look ?? 0) : null;
           })
         : undefined;
-      const c = trainCar(kind, train.variant, k, kind === 'flat' ? looks : undefined);
+      const mine: Object3D[] = [];
+      const c = trainCar(kind, train.variant, k, kind === 'flat' ? looks : undefined, mine);
+      // By cell: the one nearer the locomotive first, at the back when it backs.
+      if (cells && kind === 'flat') {
+        mine.forEach((o, s) => (slots[at + (train.back ? B.WAGON_BOXES - 1 - s : s)] = o));
+      }
       model.add(c);
       return c;
     });
@@ -190,7 +219,7 @@ export class Trains {
       if (o instanceof Mesh) o.castShadow = true;
     });
     this.group.add(model);
-    const m = { view: train, model, cars };
+    const m = { view: train, model, cars, slots };
     this.place(m, train);
     return m;
   }

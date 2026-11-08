@@ -146,8 +146,11 @@ export class Renderer {
     const structures = new Structures(map);
     const entities = new Entities(map);
     // A yard gantry reaches for the container slot on the truck it works.
-    structures.truckSlot = (id, k, out) => entities.slotPosition(id, k, out);
-    structures.slotShown = (id, k) => entities.slotShown(id, k);
+    // A wagon of a train in a siding by minus its id.
+    structures.truckSlot = (id, k, out) =>
+      id < 0 ? trains.slotPosition(-id, k, out) : entities.slotPosition(id, k, out);
+    structures.slotShown = (id, k) =>
+      id < 0 ? trains.slotShown(-id, k) : entities.slotShown(id, k);
     structures.slotObject = (id, k) => entities.slotObject(id, k);
     // Stackers and tractors pull up to the container they take or set down.
     entities.containerAt = (at, out) => structures.containerAt(at, out);

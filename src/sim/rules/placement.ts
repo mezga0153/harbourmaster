@@ -83,8 +83,13 @@ export function placementError(
     return 'Kept clear for a gantry crane’s rails';
   }
   if (kind === 'yardGantry') {
-    const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
-    if (!paved || map.store[i]) return 'A yard gantry stands on port road or quay, beside a yard';
+    // Or over a siding beside the yard, to load the trains on it.
+    const paved =
+      map.build[i] === Build.PortRoad ||
+      map.build[i] === Build.Quay ||
+      map.build[i] === Build.Siding;
+    if (!paved || map.store[i])
+      return 'A yard gantry stands on port road, quay or siding track, beside a yard';
     const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
     // Trucks still drive under it, to load, so it may stand where they do.
     return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
@@ -369,7 +374,8 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (i === map.entry) return 'The main road cannot be removed';
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
-  if (map.build[i] === Build.Siding || map.build[i] === Build.PortRoad) {
+  const b = map.build[i];
+  if (b === Build.Siding || b === Build.PortRoad || b === Build.YardGantry) {
     return sidingBulldozeError(map, i);
   }
   return null;

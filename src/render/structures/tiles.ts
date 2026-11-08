@@ -193,6 +193,8 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
   },
   [Build.YardGantry]: (t) => {
     paving(t);
+    // Over a siding: the track runs on under it.
+    if (t.m.orient[t.i] & RAILS) railsAcross(t.m, t.g, t.i);
     return makeYardGantry(t);
   },
   [Build.Gantry]: makeShipGantry,
