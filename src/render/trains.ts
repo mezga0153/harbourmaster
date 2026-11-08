@@ -20,6 +20,10 @@ const LIVERIES = [
 ];
 const COACHES = [0x2e6b4f, 0x7a2a2a, 0x2f4f86, 0xb8483a];
 const BOGIE = 0x2a2d31;
+/** How high a full hopper wagon's load is, from its floor: heaped a little over its sides. */
+const HOPPER_HEAP = 0.32;
+/** Where a hopper wagon's floor is, above the rails. */
+const HOPPER_FLOOR = 0.15;
 /** Rail top: ground, ballast, sleepers and rail. */
 const RAIL_TOP = 0.105;
 const LEN = CAR_LENGTH - 0.12;
@@ -81,10 +85,17 @@ export function trainCar(
       break;
     }
     case 'hopper': {
-      g.add(box(0.42, 0.3, LEN - 0.06, [0x5a5f66, 0x7a5230][v % 2], 0, top, 0));
-      g.add(box(0.36, 0.06, LEN - 0.14, 0x26282b, 0, top + 0.28, 0));
-      // What it is loaded with, heaped above its sides as it fills.
-      const fill = box(0.34, 0.06, LEN - 0.18, 0x2b2b30, 0, top + 0.3, 0);
+      // Open topped: a floor, two sides and two ends, and the chutes under it.
+      const paint = [0x5a5f66, 0x7a5230][v % 2];
+      const long = LEN - 0.06;
+      g.add(box(0.42, 0.04, long, 0x3a3d42, 0, top, 0));
+      for (const s of [-1, 1]) {
+        g.add(box(0.03, 0.3, long, paint, s * 0.195, top, 0));
+        g.add(box(0.42, 0.3, 0.03, paint, 0, top, s * (long / 2 - 0.015)));
+        g.add(box(0.2, 0.06, 0.2, paint, 0, top - 0.06, s * long * 0.22));
+      }
+      // What it is loaded with, from the floor up to heaped over its sides; see Trains.push.
+      const fill = box(0.36, HOPPER_HEAP, long - 0.06, 0x2b2b30, 0, top + 0.04, 0);
       fill.visible = !boxes;
       slots?.push(fill);
       g.add(fill);
@@ -147,9 +158,9 @@ export class Trains {
         if (!fill) return;
         const f = Math.min(1, h / B.HOPPER_WAGON);
         fill.visible = f > 0.02;
-        // The box's height is its scale: heaped up to a little over the sides.
-        fill.scale.y = 0.02 + 0.08 * f;
-        fill.position.y = 0.39 + fill.scale.y / 2;
+        // The box's height is its scale: from the floor, up to heaped over the sides.
+        fill.scale.y = 0.02 + (HOPPER_HEAP - 0.02) * f;
+        fill.position.y = HOPPER_FLOOR + fill.scale.y / 2;
       });
       // Containers on and off as the game has them.
       t.port?.cells?.forEach((c, n) => {
