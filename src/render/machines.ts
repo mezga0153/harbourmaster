@@ -4,9 +4,11 @@ import type { Model } from './model';
 import { container, crate, CRATE } from './models';
 import { C } from './palette';
 import { box, cyl } from './parts';
+import { sit, worker } from './people';
 
 // The port's own machines: forklifts, reach stackers and terminal
-// tractors, the same every time. All face +X with their wheels on y=0.
+// tractors, the same every time but for a forklift's driver. All face +X
+// with their wheels on y=0.
 
 /** A reach stacker's boom, worked to hold its spreader where it should be. */
 export interface Reach {
@@ -57,8 +59,16 @@ export function reachTo(r: Reach, h: number): void {
 export const FORKS_EMPTY = 0.05;
 export const FORKS_LOADED = 0.12;
 
-/** A counterbalance forklift with its driver. Forks face +X. */
-export function forklift(): Model {
+/** How big a forklift's driver is beside the dockhands on foot, to fit under its guard. */
+const DRIVER_SCALE = 0.8;
+/** Where they sit: their hips on the seat at the top of the body. */
+const DRIVER_SEAT = { x: -0.07, y: 0.2 - 0.09 * DRIVER_SCALE };
+
+/**
+ * A counterbalance forklift with its driver, a dockhand built from `seed`
+ * sat at the wheel. Forks face +X.
+ */
+export function forklift(seed = 0): Model {
   const root = new Group();
   const body = new Group();
   // The body ends where the counterweight begins: were they to overlap, their
@@ -73,9 +83,15 @@ export function forklift(): Model {
       body.add(wheel);
     }
   }
-  // Driver under the overhead guard.
-  body.add(box(0.1, 0.1, 0.12, C.vest, -0.06, 0.2));
-  body.add(box(0.08, 0.08, 0.08, C.skin, -0.06, 0.3));
+  // The driver under the overhead guard, sat with their hands on the wheel.
+  const driver = worker(seed, (size) => crate(size));
+  sit(driver, 0);
+  driver.limbs!.armL.rotation.z = driver.limbs!.armR.rotation.z = 1.05;
+  const seat = new Group();
+  seat.position.set(DRIVER_SEAT.x, DRIVER_SEAT.y, 0);
+  seat.scale.setScalar(DRIVER_SCALE);
+  seat.add(driver.root);
+  body.add(seat);
   for (const x of [-0.16, 0.06]) {
     for (const z of [-0.13, 0.13]) body.add(box(0.02, 0.26, 0.02, C.chassis, x, 0.2, z));
   }

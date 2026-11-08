@@ -76,7 +76,7 @@ export function modelFor(v: EntityView): Model {
     case 'dockhand':
       return person(v.id);
     case 'forklift':
-      return forklift();
+      return forklift(v.id);
     case 'stacker':
       return stacker();
     case 'tractor':
