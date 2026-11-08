@@ -18,6 +18,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { C } from '../render/palette';
+import { solidBounds } from '../render/util/mesh';
 
 // A turntable for one model or rig: lit and toned as the game is, on a
 // patch of ground or water, seen from any angle by dragging, or from the
@@ -123,7 +124,7 @@ export class Stage {
     (this.ground.material as MeshLambertMaterial).color.set(s.water ? 0x3f8fc9 : C.concrete);
     this.ground.position.y = s.water ? -0.02 : -0.001;
     s.object.updateMatrixWorld(true);
-    const box = s.box ?? new Box3().setFromObject(s.object);
+    const box = s.box ?? solidBounds(s.object);
     if (!box.isEmpty()) this.frame(box);
   }
 

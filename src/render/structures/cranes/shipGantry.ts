@@ -10,6 +10,7 @@ import { TICKS_PER_SECOND } from '../../../sim/types';
 import { BOX_HEIGHT } from '../../assets';
 import { container, paintContainer } from '../../models';
 import { C } from '../../palette';
+import { lamp, LIGHT, pool } from '../../lights';
 import { box, strut } from '../../parts';
 import { QUAY_Y } from '../../terrain';
 import type { TileBuild } from '../tiles';
@@ -71,6 +72,12 @@ export function makeShipGantry(t: TileBuild): Object3D {
     carriage.add(strut([0, apex, -0.85], [x, top + 0.07, tail + 0.1], 0.014, C.chassis));
   }
   carriage.add(box(0.3, 0.16, 0.36, C.cabin, 0, top + 0.07, tail + 0.3));
+  // Red lights on the apex and the boom's tip, and floodlights under the
+  // portal and the boom lighting the quay and the ship at night.
+  carriage.add(lamp(LIGHT.warning, 0.05, 0, apex + 0.03, -0.85));
+  carriage.add(lamp(LIGHT.warning, 0.04, 0, top + 0.1, reach));
+  carriage.add(pool(0.7, 1.05, 0, y + 0.004, 0));
+  carriage.add(pool(0.6, 0.9, 0, 0.012, 1.7, 0.24));
   // The trolley with the driver's cab under it, the hoist and spreader.
   const trolley = new Group();
   trolley.position.set(0, top, -0.3);

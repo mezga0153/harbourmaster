@@ -70,7 +70,8 @@ function depotPort() {
 function meshes(o: Object3D): { box: Box3; corners: Vector3[] }[] {
   const out: { box: Box3; corners: Vector3[] }[] = [];
   o.traverseVisible((c) => {
-    if (!(c instanceof Mesh)) return;
+    // The light a machine throws on the ground at night is not part of it.
+    if (!(c instanceof Mesh) || c.userData.thrown) return;
     c.geometry.computeBoundingBox();
     const b = c.geometry.boundingBox!;
     const corners: Vector3[] = [];

@@ -23,6 +23,7 @@ import { forklift, stacker, tractor } from './machines';
 import { boat } from './model';
 import { Structures } from './structures';
 import { buildLand, surfaceY } from './terrain';
+import { solidBounds } from './util/mesh';
 
 /**
  * Pictures of what the build menu offers, Cities: Skylines style: each
@@ -343,12 +344,12 @@ export function stage(tool: string): Staged | null {
   // Frame the tiles laid out, from their ground to their tops.
   content.updateMatrixWorld(true);
   const box = new Box3();
-  if (one) box.expandByObject(one);
+  if (one) solidBounds(one, box);
   for (const t of p.focus) {
     const obj = structures.tileObject(t);
-    if (obj) box.expandByObject(obj);
+    if (obj) solidBounds(obj, box);
   }
-  if (box.isEmpty()) box.setFromObject(structures.group);
+  if (box.isEmpty()) solidBounds(structures.group, box);
   // Seen as the game sees it: never the quay walls down to the seabed.
   box.min.y = Math.max(box.min.y, -0.05);
   return { content, box, structures, map: p.map };

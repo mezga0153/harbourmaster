@@ -1,6 +1,7 @@
 import { Box3 } from 'three';
 import { button, defaults, el, paramPanel, toggle, type Param, type Params } from './controls';
 import { Stage, type Staged } from './stage';
+import { solidBounds } from '../render/util/mesh';
 
 // A gallery: a list of things to look at down the side, one of them on the
 // stage, with the controls it offers. The models and the animations tabs
@@ -135,5 +136,5 @@ export function gallery(items: Item[], intro: string): HTMLElement {
 
 function boxOf(s: Staged): Box3 {
   s.object.updateMatrixWorld(true);
-  return new Box3().setFromObject(s.object);
+  return solidBounds(s.object);
 }

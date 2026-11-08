@@ -5,6 +5,7 @@ import { TICKS_PER_SECOND } from '../../../sim/types';
 import { BOX_HEIGHT } from '../../assets';
 import { container, paintContainer } from '../../models';
 import { C } from '../../palette';
+import { lamp, LIGHT, pool } from '../../lights';
 import { box } from '../../parts';
 import { QUAY_Y } from '../../terrain';
 import { clamp01 } from '../../util/math';
@@ -73,6 +74,10 @@ export function makeYardGantry(t: TileBuild): Object3D {
   for (const x of [-0.4, 0.4]) {
     carriage.add(box(0.1, 0.12, far + 0.45, C.craneYellow, x, y + h, (far - 0.35) / 2));
   }
+  // Red lights on its top corners, and floodlights under its beam lighting
+  // the row of the yard it is over at night.
+  for (const z of [-0.35, far]) carriage.add(lamp(LIGHT.warning, 0.035, 0.4, y + h + 0.14, z));
+  carriage.add(pool(0.6, (far + 0.5) / 2, 0, y + 0.004, (far - 0.35) / 2, 0.26));
   // The trolley with its cab, the hoist ropes and the spreader on them,
   // and the container it is lifting, if any.
   const trolley = new Group();

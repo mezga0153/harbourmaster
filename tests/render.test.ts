@@ -15,6 +15,7 @@ import { CRATE } from '../src/render/models';
 import { shutIn, smallTruckHauliers, wharf } from './wharf';
 import { cratesAt, stockUp } from './stock';
 import { cratesIn } from '../src/sim/systems/cargo/places';
+import { solidBounds } from '../src/render/util/mesh';
 
 describe('Container slots', () => {
   it('keeps each container in its slot as others come and go', () => {
@@ -546,7 +547,7 @@ describe('Trucks at a truck bay', () => {
             root.position.set(0, 0, 0);
             root.rotation.y = 0;
             root.updateMatrixWorld(true);
-            body = new Box3().setFromObject(root);
+            body = solidBounds(root);
             root.position.copy(at);
             root.rotation.y = turn;
             root.updateMatrixWorld(true);

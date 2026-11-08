@@ -4,6 +4,7 @@ import { BOX_LENGTH } from './assets';
 import { C } from './palette';
 import type { Model } from './model';
 import { CRATE } from './models';
+import { LIGHT, pool } from './lights';
 import { box, cyl } from './parts';
 
 // Procedural trucks. Each is built from its id, in its haulier's colours:
@@ -31,7 +32,7 @@ const WHITE = 0xf4f4f0;
 const GREY = 0x8e959c;
 const DARK = 0x2b2f35;
 const LAMP = 0xfff2b0;
-const TAIL = 0xd6453d;
+const TAIL = LIGHT.tail;
 
 type Crate = (size: number, x: number, y: number, z: number) => Object3D;
 type Box = (seed: number, x: number, y: number, z: number) => Object3D;
@@ -103,6 +104,8 @@ function cab(root: Group, front: number, s: CabStyle): number {
   root.add(box(0.03, 0.04, w + 0.02, DARK, front, y - 0.02, 0));
   for (const z of [-1, 1])
     root.add(box(0.01, 0.025, 0.05, LAMP, front + 0.016, y + 0.02, z * 0.11));
+  // The road ahead lit by its headlamps, at night.
+  root.add(pool(0.32, 0.2, front + 0.34, 0.006, 0));
   if (s.spoiler) root.add(box(len * 0.7, 0.07, w * 0.9, s.trim, cabFront - len * 0.55, y + h, 0));
   if (s.beacon) root.add(box(0.03, 0.025, 0.06, 0xf5a623, cabFront - len * 0.4, y + h, 0));
   // Exhaust stack behind the cab.
@@ -181,6 +184,7 @@ function pickupTruck(rng: Rng, company: number, capacity: number, crate: Crate):
   root.add(box(0.012, 0.05, w * 0.6, DARK, front + 0.001, y + 0.015, 0));
   root.add(box(0.025, 0.035, w + 0.02, DARK, front, y - 0.015, 0));
   for (const z of [-1, 1]) root.add(box(0.01, 0.02, 0.05, LAMP, front + 0.014, y + 0.03, z * 0.1));
+  root.add(pool(0.28, 0.18, front + 0.3, 0.006, 0));
   // The cab, its windscreen raked back over the bonnet.
   const cabFront = front - 0.15;
   const cabLen = 0.17;

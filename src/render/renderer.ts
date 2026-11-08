@@ -477,7 +477,7 @@ export class Renderer {
       .multiply(l.color)
       .multiplyScalar(l.intensity / SUN_INTENSITY);
     this.layers?.water.setLight(l.dir, l.sea, this.glint);
-    setNight(l.night);
+    setNight(l.night, (performance.now() - this.start) / 1000);
   }
 
   private followSun(): void {

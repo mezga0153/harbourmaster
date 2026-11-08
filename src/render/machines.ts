@@ -3,6 +3,7 @@ import { BOX_HEIGHT, BOX_LENGTH } from './assets';
 import type { Model } from './model';
 import { container, crate, CRATE } from './models';
 import { C } from './palette';
+import { lamp, LIGHT, pool } from './lights';
 import { box, cyl } from './parts';
 import { sit, worker } from './people';
 
@@ -96,6 +97,11 @@ export function forklift(seed = 0): Model {
     for (const z of [-0.13, 0.13]) body.add(box(0.02, 0.26, 0.02, C.chassis, x, 0.2, z));
   }
   body.add(box(0.26, 0.02, 0.3, C.chassis, -0.05, 0.46));
+  // An amber beacon on the guard, and work lights on the mast lighting
+  // the ground ahead of the forks at night.
+  body.add(lamp(LIGHT.beacon, 0.03, -0.13, 0.48, 0));
+  body.add(lamp(LIGHT.white, 0.025, 0.16, 0.44, 0));
+  body.add(pool(0.3, 0.22, 0.42, 0.006, 0));
   // The mast, and the carriage that runs up and down it with the forks:
   // down on the ground to go under a pallet, up a little to drive with it.
   body.add(box(0.03, 0.47, 0.03, C.chassis, 0.16, 0.01, -0.09));
@@ -134,6 +140,8 @@ export function stacker(): Model {
   body.add(box(0.16, 0.12, 0.3, C.chassis, -0.28, 0.22));
   body.add(box(0.14, 0.18, 0.12, C.window, 0.02, 0.22, -0.1));
   body.add(box(0.15, 0.04, 0.14, C.forklift, 0.02, 0.4, -0.1));
+  body.add(lamp(LIGHT.beacon, 0.035, 0.02, 0.46, -0.1));
+  body.add(pool(0.45, 0.3, 0.45, 0.006, 0));
   for (const x of [-0.24, 0.16]) {
     for (const z of [-0.17, 0.17]) {
       const wheel = cyl(0.09, 0.07, C.tyre, x, 0, z, 10);
@@ -179,6 +187,8 @@ export function tractor(): Model {
   body.add(box(0.2, 0.12, 0.26, C.forklift, 0.3, 0.08));
   body.add(box(0.12, 0.12, 0.2, C.window, 0.32, 0.2, -0.02));
   body.add(box(0.13, 0.03, 0.22, C.forklift, 0.32, 0.32, -0.02));
+  body.add(lamp(LIGHT.beacon, 0.035, 0.32, 0.37, -0.02));
+  body.add(pool(0.3, 0.2, 0.68, 0.006, 0));
   body.add(box(0.66, 0.04, 0.28, C.chassis, -0.14, 0.1));
   for (const x of [0.3, -0.04, -0.34]) {
     for (const z of [-0.13, 0.13]) {

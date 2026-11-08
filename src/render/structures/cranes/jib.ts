@@ -5,6 +5,7 @@ import { CRANE_LIFT_SET, CRANE_LIFT_TAKEN, CRANE_TICKS } from '../../../sim/bala
 import { TICKS_PER_SECOND } from '../../../sim/types';
 import { crate, CRATE, setCrateIcon } from '../../models';
 import { C } from '../../palette';
+import { lamp, LIGHT, pool } from '../../lights';
 import { box, cyl } from '../../parts';
 import { QUAY_Y } from '../../terrain';
 import { lerpAngle, syncPhase } from '../../util/math';
@@ -56,6 +57,11 @@ export function makeJibCrane(t: TileBuild): Object3D {
   slew.add(box(0.3, 0.2, 0.24, C.craneYellow, -0.02, 0));
   slew.add(box(0.06, 0.1, 0.2, C.window, 0.13, 0.05));
   slew.add(box(0.16, 0.14, 0.2, C.chassis, -0.2, 0.02));
+  // A red light on top, and a floodlight on the front lighting the quay
+  // where it lands crates, at night.
+  slew.add(lamp(LIGHT.warning, 0.035, -0.08, 0.22, 0));
+  slew.add(lamp(LIGHT.white, 0.035, 0.17, 0.17, 0));
+  slew.add(pool(0.6, 0.45, 0.55, -0.5 + 0.004, 0));
   // The jib luffs up and down from its foot on the cab, and runs out
   // in two more sections, each slimmer, to reach as far as it lifts.
   const luff = new Group();

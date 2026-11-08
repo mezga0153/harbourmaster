@@ -3,6 +3,7 @@ import { FEEDER_BAYS, FEEDER_ROWS, FEEDER_TIERS } from '../sim/balance';
 import { Rng } from '../sim/rng';
 import { BOX_WIDTH } from './assets';
 import { C } from './palette';
+import { lamp, LIGHT, pool } from './lights';
 import { box, cyl } from './parts';
 import type { Model } from './model';
 import { CRATE } from './models';
@@ -144,6 +145,8 @@ function hull(root: Group, h: HullSpec, owned: BufferGeometry[]): number {
     loft(scaleRing(top, 0.97, 0.9), deckY, scaleRing(top, 0.97, 0.9), deckY + 0.012, true),
     h.deck,
   );
+  // The white stern light.
+  root.add(lamp(LIGHT.white, 0.025, -h.length / 2 + 0.05, deckY + 0.04, 0));
   return deckY + 0.012;
 }
 
@@ -156,7 +159,11 @@ function windows(root: Group, x0: number, x1: number, y: number, z: number, n: n
   }
 }
 
-/** A cabin with windows on the front and both sides. */
+/**
+ * A cabin with windows on the front and both sides; the wheelhouse, with
+ * `lights`, carries the sidelights, red to port and green to starboard,
+ * and the white masthead light on its roof.
+ */
 function cabin(
   root: Group,
   x: number,
@@ -166,9 +173,16 @@ function cabin(
   hgt: number,
   color: number,
   roof: number,
+  lights = true,
 ): void {
   root.add(box(len, hgt, wid, color, x, y, 0));
   root.add(box(len + 0.03, 0.025, wid + 0.03, roof, x, y + hgt, 0));
+  if (lights) {
+    const fore = x + len / 2 - 0.04;
+    root.add(lamp(LIGHT.port, 0.03, fore, y + hgt * 0.8, -(wid / 2 + 0.015)));
+    root.add(lamp(LIGHT.starboard, 0.03, fore, y + hgt * 0.8, wid / 2 + 0.015));
+    root.add(lamp(LIGHT.white, 0.03, x, y + hgt + 0.045, 0));
+  }
   // Front windows face the bow (+x).
   root.add(box(0.012, 0.05, wid * 0.8, C.window, x + len / 2 + 0.002, y + hgt * 0.62, 0));
   for (const s of [-1, 1]) {
@@ -255,6 +269,7 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Model 
     root.add(box(0.2, 0.12, beam * 0.5, white, 0.42, deck + 0.2, 0));
     root.add(box(0.21, 0.02, beam * 0.52, accent, 0.42, deck + 0.32, 0));
     root.add(cyl(0.015, 0.36, C.chassis, 0.4, deck + 0.34));
+    root.add(lamp(LIGHT.white, 0.03, 0.4, deck + 0.72, 0));
     // Gantry over the stern and the net drum in front of it.
     for (const s of [-1, 1]) root.add(box(0.04, 0.42, 0.04, accent, -0.86, deck, s * beam * 0.36));
     root.add(box(0.05, 0.05, beam * 0.78, accent, -0.86, deck + 0.4, 0));
@@ -266,6 +281,7 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Model 
   } else if (kind === 'crabber') {
     cabin(root, 0.42, deck, 0.34, beam * 0.66, 0.24, white, accent);
     root.add(cyl(0.012, 0.3, C.chassis, 0.42, deck + 0.26));
+    root.add(lamp(LIGHT.white, 0.03, 0.42, deck + 0.58, 0));
     root.add(box(0.12, 0.012, 0.012, C.chassis, 0.42, deck + 0.5, 0));
     // A davit for hauling pots over the side.
     root.add(box(0.03, 0.3, 0.03, accent, 0.12, deck, beam * 0.38));
@@ -275,6 +291,7 @@ export function fishingBoat(seed: number, company: number, crate: Crate): Model 
     cabin(root, -0.62, deck, 0.34, beam * 0.62, 0.22, white, accent);
     root.add(cyl(0.035, 0.12, accent, -0.72, deck + 0.22));
     root.add(cyl(0.018, 0.62, C.woodDark, 0.48, deck));
+    root.add(lamp(LIGHT.white, 0.03, 0.48, deck + 0.64, 0));
     const boom = box(0.5, 0.025, 0.025, C.woodDark, 0.26, deck + 0.42);
     boom.rotation.z = -0.35;
     root.add(boom);
@@ -419,6 +436,7 @@ export function coasterShip(seed: number, company: number, crate: Crate): Model 
       0.16,
       white,
       k === decks - 1 ? accent : white,
+      k === decks - 1,
     );
     y += 0.185;
   }
@@ -426,8 +444,9 @@ export function coasterShip(seed: number, company: number, crate: Crate): Model 
   root.add(box(0.12, 0.02, beam + 0.04, white, -0.86, y - 0.04, 0));
   root.add(cyl(0.07, 0.26, accent, -1.22, deck + 0.2));
   root.add(cyl(0.072, 0.05, C.chassis, -1.22, deck + 0.42));
-  // Hold coaming.
+  // Hold coaming, and the deck lights on over it at night.
   root.add(box(1.62, 0.04, beam * 0.78, 0x8e959c, 0.05, deck, 0));
+  root.add(pool(0.95, beam * 0.45, 0.05, deck + 0.045, 0, 0.22));
   const gear = rng.int(0, 2);
   const cranes = gear === 0 ? [] : gear === 1 ? [0.05] : [-0.42, 0.52];
   for (const x of cranes) {
@@ -505,6 +524,7 @@ export function tugBoat(seed: number): Model {
   root.add(box(0.2, 0.1, beam * 0.5, white, 0.14, deck + 0.19, 0));
   root.add(box(0.012, 0.045, beam * 0.42, C.window, 0.245, deck + 0.22, 0));
   root.add(box(0.23, 0.02, beam * 0.54, paint, 0.14, deck + 0.29, 0));
+  root.add(lamp(LIGHT.white, 0.03, 0.14, deck + 0.33, 0));
   // Funnel in the company paint with a black top, and the winch aft.
   root.add(cyl(0.045, 0.16, paint, -0.12, deck + 0.13));
   root.add(cyl(0.047, 0.04, fender, -0.12, deck + 0.29));
@@ -559,6 +579,7 @@ export function feederShip(seed: number, company: number, container: Box): Model
       0.17,
       white,
       k === 5 ? accent : white,
+      k === 5,
     );
     y += 0.19;
   }

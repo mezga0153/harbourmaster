@@ -3,6 +3,7 @@ import type { HandAt } from '../../protocol';
 import type { GameMap } from '../../sim/map';
 import type { Entry } from './entry';
 import type { StillTruck } from './grid';
+import { solidBounds } from '../util/mesh';
 
 // The trucks standing still, for the dockhands and forklifts drawn about
 // them: a truck bay's frame, whether a point is in a truck, and how big each
@@ -117,7 +118,7 @@ export function sizeOf(root: Object3D): Box3 {
   root.position.set(0, 0, 0);
   root.rotation.y = 0;
   root.updateMatrixWorld(true);
-  const box = new Box3().setFromObject(root);
+  const box = solidBounds(root);
   root.position.copy(at);
   root.rotation.y = turn;
   root.updateMatrixWorld(true);

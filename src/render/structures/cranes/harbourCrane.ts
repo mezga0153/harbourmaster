@@ -4,6 +4,7 @@ import { TICKS_PER_SECOND } from '../../../sim/types';
 import { BOX_HEIGHT } from '../../assets';
 import { container, paintContainer } from '../../models';
 import { C } from '../../palette';
+import { lamp, LIGHT, pool } from '../../lights';
 import { box, cyl, strut } from '../../parts';
 import { QUAY_Y } from '../../terrain';
 import { turnOf, wrapAngle } from '../../util/math';
@@ -86,6 +87,10 @@ export function makeHarbourCrane(t: TileBuild): Object3D {
   slew.add(box(0.15, 0.13, 0.12, C.cabin, 0.12, 0.05, 0.2));
   slew.add(box(0.02, 0.07, 0.1, C.window, 0.2, 0.09, 0.2));
   slew.add(box(0.1, 0.08, 0.18, C.chassis, BOOM_FOOT.x, 0.24));
+  // Red lights on the house and the boom's head; floodlights on the
+  // boom light the quay and the ship under it at night.
+  slew.add(lamp(LIGHT.warning, 0.035, -0.2, 0.27, 0));
+  slew.add(pool(0.9, 0.6, 0.6, -HARBOUR_TOWER + 0.004, 0));
   // The boom, laid out along +x from its foot and tapering to its
   // head, where the rope runs over the sheaves.
   const boom = new Group();
@@ -94,6 +99,7 @@ export function makeHarbourCrane(t: TileBuild): Object3D {
   boom.add(box(l * 0.6, 0.1, 0.12, C.craneYellow, l * 0.3, -0.05));
   boom.add(box(l * 0.4, 0.07, 0.08, C.craneYellow, l * 0.8, -0.035));
   boom.add(box(0.1, 0.08, 0.1, C.chassis, l, -0.04));
+  boom.add(lamp(LIGHT.warning, 0.04, l, 0.06, 0));
   slew.add(boom);
   const ram = box(1, 0.045, 0.045, C.chassis);
   slew.add(ram);

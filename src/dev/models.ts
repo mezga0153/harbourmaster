@@ -35,6 +35,7 @@ import { CATEGORIES } from '../ui/tools';
 import type { Param, Params, RangeParam } from './controls';
 import type { Item } from './gallery';
 import type { Staged } from './stage';
+import { solidBounds } from '../render/util/mesh';
 
 // Every model in the game, for the Models tab: boats and ships, trucks,
 // people and machines, what the build menu offers on its patch of shore,
@@ -246,7 +247,7 @@ function town(name: string, code: number): Item {
       const owned: Parameters<typeof townBuilding>[3] = [];
       const g = townBuilding(code, 0, p.variant as number, owned) ?? new Group();
       // Lots are a tile across, the building in the middle of it.
-      const box = new Box3().setFromObject(g);
+      const box = solidBounds(g);
       box.min.x = Math.min(box.min.x, -0.5);
       box.max.x = Math.max(box.max.x, 0.5);
       box.min.z = Math.min(box.min.z, -0.5);
