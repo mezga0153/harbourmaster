@@ -171,8 +171,44 @@
 }
 
 .advisor-head .muted {
-  margin-left: auto;
   font-size: 11px;
+}
+
+.advisor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.advisor-head-actions .muted {
+  margin-right: 4px;
+}
+
+.advisor-head-actions .btn.icon {
+  width: 28px;
+  height: 28px;
+  color: var(--text-2);
+}
+
+.advisor-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.advisor-actions .primary {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+}
+
+.advisor-actions .ghost {
+  flex-shrink: 0;
+  color: var(--text-2);
 }
 
 /* Floating money */

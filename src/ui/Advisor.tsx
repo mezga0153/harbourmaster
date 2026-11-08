@@ -262,15 +262,17 @@ export function tipPriority(id: string, s: Snapshot | null): number {
   return 0;
 }
 
+function readTip(id: string, actions: Actions): void {
+  actions.send({ type: 'readTip', id });
+  advice.value = advice.value.filter((t) => t !== id);
+}
+
 function TipActions({ id, actions }: { id: string; actions: Actions }) {
   const tip = TIPS[id];
   const action = TIP_ACTIONS[id];
-  const read = () => {
-    actions.send({ type: 'readTip', id });
-    advice.value = advice.value.filter((t) => t !== id);
-  };
+  const read = () => readTip(id, actions);
   return (
-    <div class="actions">
+    <div class="advisor-actions">
       {tip.guide ? (
         <button
           class="btn primary"
@@ -291,18 +293,19 @@ function TipActions({ id, actions }: { id: string; actions: Actions }) {
         >
           {action.label}
         </button>
-      ) : null}
+      ) : (
+        <button class="btn primary" onClick={read}>
+          Got it
+        </button>
+      )}
       <button
-        class="link"
+        class="btn ghost"
         onClick={() => {
           read();
           openHandbook(tip.topic);
         }}
       >
         Read more
-      </button>
-      <button class="link" onClick={read}>
-        Got it
       </button>
     </div>
   );
@@ -317,17 +320,31 @@ export function Advisor({ actions }: { actions: Actions }) {
   return (
     <div class="advisor panel" role="status">
       <div class="advisor-head">
-        <Icon name="book" />
         <span class="kicker">Advisor</span>
-        {advice.value.length > 1 && <span class="muted">{advice.value.length - 1} more</span>}
+        <div class="advisor-head-actions">
+          {advice.value.length > 1 && <span class="muted">{advice.value.length - 1} more</span>}
+          <button
+            class="btn icon ghost"
+            title="Advice history"
+            aria-label="Open advice history"
+            onClick={() => openHandbook('tips')}
+          >
+            <Icon name="book" />
+          </button>
+          <button
+            class="btn icon ghost"
+            title="Dismiss advice"
+            aria-label="Dismiss advice"
+            onClick={() => readTip(id, actions)}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
       </div>
       <strong>{tip.title}</strong>
       <p>{tip.text}</p>
       {tip.picture && <FlipBook id={tip.picture} small />}
       <TipActions id={id} actions={actions} />
-      <button class="link" onClick={() => openHandbook('tips')}>
-        Revisit advice ›
-      </button>
     </div>
   );
 }
