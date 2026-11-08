@@ -25,7 +25,9 @@ export interface Siding {
 export function portCrossing(map: GameMap, i: number): boolean {
   const b = map.build[i];
   return (
-    i >= 0 && (b === Build.PortRoad || b === Build.YardGantry) && (map.orient[i] & RAILS) !== 0
+    i >= 0 &&
+    (b === Build.PortRoad || b === Build.YardGantry || b === Build.Loadout) &&
+    (map.orient[i] & RAILS) !== 0
   );
 }
 

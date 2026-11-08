@@ -13,6 +13,7 @@ import { lanePos, lengthOf } from '../roads/traffic';
 import { farSide } from '../cargo/beds';
 import { mooredTiles } from '../boats/berthing';
 import { boatHalf } from '../boats/berthing';
+import { longShip } from '../../helpers';
 
 // Where a dockhand or forklift stands to take a crate or set one down: on
 // the staff's grid (rules/cells.ts), beside the crate or the place it goes
@@ -298,9 +299,7 @@ function bedSpot(w: World, t: Truck, at: HandAt): Spot {
 /** The cells on the quay edge beside a boat a dockhand works it from, facing it. */
 function boatSpot(w: World, _p: Dockhand, b: Boat): Spot {
   const m = w.map;
-  const hull = new Set(
-    mooredTiles(w, b.berth, b.jetty, boatHalf(w, b.vessel === 'feeder')) ?? [b.berth],
-  );
+  const hull = new Set(mooredTiles(w, b.berth, b.jetty, boatHalf(w, longShip(b))) ?? [b.berth]);
   const cells: [number, number][] = [];
   for (const t of pickupSpots(w, b)) {
     const [x, y] = [m.xOf(t), m.yOf(t)];

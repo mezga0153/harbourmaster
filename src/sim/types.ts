@@ -91,6 +91,15 @@ export const Build = {
   Station: 47,
   /** The port's siding track off the main line; see rules/rails.ts. */
   Siding: 48,
+  // The Bulk Terminal's; see systems/bulk.ts.
+  /** A grab crane at a quay's edge, lifting bulk cargo out of a ship's holds into its hopper. */
+  GrabCrane: 49,
+  /** A conveyor belt, carrying bulk cargo the way it faces. */
+  Belt: 50,
+  /** Open ground where bulk cargo is heaped. */
+  Stockpile: 51,
+  /** A rail loadout over a siding, filling hopper wagons from its bin. */
+  Loadout: 52,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -142,7 +151,11 @@ export type BuildKind =
   | 'parking'
   | 'buoyIn'
   | 'buoyOut'
-  | 'siding';
+  | 'siding'
+  | 'grabCrane'
+  | 'belt'
+  | 'stockpile'
+  | 'loadout';
 
 export type MachineKind = 'forklift' | 'stacker' | 'tractor';
 
@@ -182,6 +195,7 @@ export function isDock(code: number): boolean {
     code === Build.Quay ||
     code === Build.JibCrane ||
     code === Build.HarbourCrane ||
-    code === Build.Gantry
+    code === Build.Gantry ||
+    code === Build.GrabCrane
   );
 }

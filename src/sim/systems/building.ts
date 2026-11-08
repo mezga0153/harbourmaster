@@ -107,6 +107,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   if (kind === 'siding' && !sidingsOpen(w)) return message(w, sidingsShutWhy(w), 'bad');
   let spent = 0;
   let firstError: string | null = null;
+  // A belt runs the way it is dragged; one tile, the way it was turned.
+  const belts = kind === 'belt' ? beltWays(w, tiles, facing) : new Map<number, number>();
   // Why a depot just built is no use yet, said once it is up.
   let shutIn: string | undefined;
   // A jib crane just built with no crate storage in reach to swing crates into.
@@ -142,7 +144,11 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         // Built over, the heap at the road's end is gone: it had no crates.
         if (w.bays.get(t)?.kerb) w.bays.delete(t);
         // A building on a quay remembers it, to leave it when cleared.
-        const quay = w.map.build[t] === Build.Quay ? ON_QUAY : 0;
+        // A belt turned round on a quay keeps it, too.
+        const onQuay =
+          w.map.build[t] === Build.Quay ||
+          (w.map.build[t] === Build.Belt && (w.map.orient[t] & ON_QUAY) !== 0);
+        const quay = onQuay ? ON_QUAY : 0;
         // A road over the railway is a level crossing.
         const crossing = def.code === Build.Road && w.map.build[t] === Build.Rail;
         // Parking is marked out on a road: which kind it was, for when it is unmarked.
@@ -151,7 +157,9 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         // the road kept as it was with the track across it.
         const was = w.map.build[t];
         // A yard gantry over the track keeps it, to load the trains.
-        const track = kind === 'yardGantry' && (was === Build.Siding || portCrossing(w.map, t));
+        const track =
+          (kind === 'yardGantry' || kind === 'loadout') &&
+          (was === Build.Siding || portCrossing(w.map, t));
         const railsOver = kind === 'siding' && was === Build.PortRoad;
         const roadOver = kind === 'portRoad' && was === Build.Siding;
         if (railsOver || roadOver) {
@@ -166,7 +174,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
           (ROTATABLE.has(kind) ? partOrient(f, k) : 0) |
           (kind === 'parking' ? w.map.orient[t] & ON_QUAY : quay) |
           under |
-          (track ? RAILS : 0);
+          (track ? RAILS : 0) |
+          (kind === 'belt' ? (belts.get(t) ?? 0) : 0);
         w.map.deco[t] = Deco.None;
         w.dirty.add(t);
       });
@@ -908,15 +917,22 @@ export function bulldoze(w: World, tiles: number[]): void {
       w.cranes.delete(i);
       freed.push(...gantryGround(w.map, i, w.map.orient[i] & 3));
     }
-    if (w.map.build[i] === Build.JibCrane || w.map.build[i] === Build.HarbourCrane) {
-      // Taking down a crane leaves the quay it stood on.
+    if (
+      w.map.build[i] === Build.JibCrane ||
+      w.map.build[i] === Build.HarbourCrane ||
+      w.map.build[i] === Build.GrabCrane
+    ) {
+      // Taking down a crane leaves the quay it stood on, and what was in a grab's hopper.
       w.cranes.delete(i);
+      w.grabs.delete(i);
+      w.bulk.delete(i);
       w.map.build[i] = Build.Quay;
     } else if (w.map.build[i] === Build.Crossing) {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
     } else if (portCrossing(w.map, i)) {
-      // Taking up a crossing's road, or a gantry over the track, leaves the siding.
+      // Taking up a crossing's road, or a gantry or loadout over the track, leaves the siding.
+      w.bulk.delete(i);
       if (w.map.build[i] === Build.YardGantry) w.gantryCache = null;
       w.map.build[i] = Build.Siding;
       w.map.orient[i] = 0;
@@ -925,6 +941,8 @@ export function bulldoze(w: World, tiles: number[]): void {
       w.map.orient[i] = 0;
       w.dirty.add(i - 1).add(i + 1);
     } else if (w.map.build[i] !== Build.None) {
+      // Bulk cargo on a belt or stockpile goes with it.
+      w.bulk.delete(i);
       if (isBay(w.map.build[i]) || w.bays.get(i)?.kerb) removeBay(w, i);
       removePile(w, i);
       for (const b of bulldozeTiles(w.map, i)) {
@@ -952,4 +970,24 @@ export function bulldoze(w: World, tiles: number[]): void {
   }
   if (net !== 0) moneyAt(w, net, tiles[tiles.length - 1]);
   else if (lastError && tiles.length === 1) message(w, lastError, 'bad');
+}
+
+/**
+ * The way each tile of a belt dragged out runs: on to the next tile of the
+ * drag, the last as the one before it; a single tile, `facing`.
+ */
+function beltWays(w: World, tiles: number[], facing?: number): Map<number, number> {
+  const m = w.map;
+  const way = (a: number, b: number) => {
+    const dx = m.xOf(b) - m.xOf(a);
+    const dy = m.yOf(b) - m.yOf(a);
+    return Math.abs(dx) + Math.abs(dy) !== 1 ? -1 : dx > 0 ? 0 : dy > 0 ? 1 : dx < 0 ? 2 : 3;
+  };
+  const out = new Map<number, number>();
+  tiles.forEach((t, k) => {
+    const on = k + 1 < tiles.length ? way(t, tiles[k + 1]) : -1;
+    const back = k > 0 ? way(tiles[k - 1], t) : -1;
+    out.set(t, on >= 0 ? on : back >= 0 ? back : (facing ?? 0) & 3);
+  });
+  return out;
 }

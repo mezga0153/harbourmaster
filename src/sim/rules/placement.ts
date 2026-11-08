@@ -28,7 +28,7 @@ import {
 } from './footprint';
 import { BUILDABLES, ROTATABLE } from './buildables';
 import { STORE_COST, forkliftOnly, parkingError, storeKindAt } from './marking';
-import { sidingBulldozeError, sidingError } from './rails';
+import { portCrossing, sidingBulldozeError, sidingError } from './rails';
 
 /**
  * Static placement check. `pending` holds tiles of the same kind already
@@ -93,6 +93,27 @@ export function placementError(
     const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
     // Trucks still drive under it, to load, so it may stand where they do.
     return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
+  }
+  if (kind === 'grabCrane') {
+    if (map.build[i] !== Build.Quay || map.store[i]) return 'A grab crane goes on a quay';
+    const water = map.neighbors4(i).find((n) => map.ocean[n] === 1 && map.build[n] === Build.None);
+    if (water === undefined) return 'Put the crane at the quay edge, next to open water';
+    const bx = 2 * map.xOf(i) - map.xOf(water);
+    const by = 2 * map.yOf(i) - map.yOf(water);
+    const behind = map.inBounds(bx, by) ? map.build[map.idx(bx, by)] : Build.None;
+    return behind === Build.Quay || behind === Build.Belt
+      ? null
+      : 'A grab crane needs quay behind it too (2 wide), for its hopper';
+  }
+  if (kind === 'loadout') {
+    const track = map.build[i] === Build.Siding || portCrossing(map, i);
+    if (map.build[i] === Build.Loadout) return 'A loadout stands here already';
+    return track ? null : 'A rail loadout stands over siding track';
+  }
+  // Belts and stockpiles go on open ground or quay; a belt laid again turns it.
+  if (kind === 'belt' && map.build[i] === Build.Belt) return null;
+  if ((kind === 'belt' || kind === 'stockpile') && map.build[i] === Build.Quay) {
+    return map.store[i] ? 'Clear the storage marked out here first' : null;
   }
   if (kind === 'harbourCrane') {
     if (map.build[i] !== Build.Quay) return 'A harbour crane goes on a quay';
@@ -340,6 +361,8 @@ export function tugPlacementError(map: GameMap, i: number): string | null {
 
 export function placementCost(map: GameMap, kind: BuildKind, i: number): number {
   if (kind === 'road' && map.build[i] === Build.Rail) return B.CROSSING_COST;
+  // Turning a belt round costs nothing.
+  if (kind === 'belt' && map.build[i] === Build.Belt) return 0;
   const base = kind === 'quay' && !map.isLand(i) ? B.QUAY_COST_WATER : BUILDABLES[kind].cost;
   // Upgrading: what is there already is worth what bulldozing it would pay.
   const old = kindOfCode(map.build[i]);
@@ -375,7 +398,7 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
   const b = map.build[i];
-  if (b === Build.Siding || b === Build.PortRoad || b === Build.YardGantry) {
+  if (b === Build.Siding || b === Build.PortRoad || b === Build.YardGantry || b === Build.Loadout) {
     return sidingBulldozeError(map, i);
   }
   return null;

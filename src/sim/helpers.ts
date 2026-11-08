@@ -22,6 +22,7 @@ export function emptyLedger(): Ledger {
     cargo: 0,
     containers: 0,
     exports: 0,
+    bulk: 0,
     town: 0,
     construction: 0,
     hiring: 0,
@@ -157,6 +158,22 @@ export function outHeld(b: Bay): number {
 }
 
 /** How many crates or containers a ship takes out. Fishing boats take ice. */
+/** A long ship, lying along a berth of its own length: a feeder or a bulk carrier. */
+export function longShip(b: { vessel: string }): boolean {
+  return b.vessel === 'feeder' || b.vessel === 'bulker';
+}
+
+/** A boat in words: "feeder ship", "bulk carrier", "coaster", "boat". */
+export function vesselName(b: { vessel: string }): string {
+  return b.vessel === 'feeder'
+    ? 'feeder ship'
+    : b.vessel === 'bulker'
+      ? 'bulk carrier'
+      : b.vessel === 'coaster'
+        ? 'coaster'
+        : 'boat';
+}
+
 export function outCap(b: { vessel: string }): number {
   return b.vessel === 'feeder'
     ? B.FEEDER_MAX_LOAD

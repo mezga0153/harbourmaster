@@ -33,6 +33,7 @@ import { boxLookOf } from '../helpers';
 import type { GameMap } from '../map';
 import { placeById, placeName, served } from './region';
 import type { PlaceKind } from '../region';
+import { hoppersFull } from './bulk';
 
 /** Where the town's railway station comes in LANDMARKS. */
 const STATION = LANDMARKS.findIndex((l) => l.code === Build.Station);
@@ -251,6 +252,7 @@ export function stepTrains(w: World): void {
 function worked(t: Train): boolean {
   const v = t.port;
   if (!v || v.contractId === undefined) return false;
+  if (v.hoppers) return hoppersFull(t);
   const pt = t as Train & { port: NonNullable<Train['port']> };
   if ((v.coming ?? 0) > 0 || (v.taking ?? 0) > 0) return false;
   return (
@@ -265,6 +267,19 @@ function leave(w: World, t: Train): void {
   const pt = t as Train & { port: NonNullable<Train['port']> };
   const line = w.contracts.find((c) => c.id === v.contractId);
   const name = line?.terms.name ?? 'The rail line';
+  // Hopper wagons: paid for by the tonne they take, towards the place they go to.
+  if (v.hoppers) {
+    const tonnes = v.hoppers.reduce((n, h) => n + h, 0);
+    const s = sidingOf(w, t);
+    if (tonnes > 0 && line?.terms.kind === 'rail') {
+      const income = payout(w, tonnes * line.terms.fee);
+      book(w, 'bulk', income);
+      w.stats.earned += income;
+      if (s) moneyAt(w, income, s.tiles[Math.floor(s.tiles.length / 2)]);
+      served(w, line.terms.place, 'inland', Math.round(tonnes));
+    }
+    return;
+  }
   const cells = wagonCells(pt);
   const going = cells.filter((c): c is Crate => !!c && !c.out);
   const back = aboard(pt, true);
@@ -302,8 +317,14 @@ export function callTrains(w: World): void {
     const terms = c.terms;
     if (terms.kind !== 'rail' || w.tick < c.nextBoatTick) continue;
     if (portTrains(w).some((t) => t.port.contractId === c.id && t.port.state !== 'away')) continue;
+    // Container trains at a siding with yards beside it; hopper wagons under a loadout.
     const s = sidings(w.map).find(
-      (x) => !trainAt(w, x.switch) && sidingCars(x) >= 2 && yardsBeside(w, x).length > 0,
+      (x) =>
+        !trainAt(w, x.switch) &&
+        sidingCars(x) >= 2 &&
+        (terms.bulk
+          ? x.tiles.some((t) => w.map.build[t] === Build.Loadout)
+          : yardsBeside(w, x).length > 0),
     );
     // None free: it waits, and tries again soon.
     if (!s) {
@@ -312,8 +333,25 @@ export function callTrains(w: World): void {
     }
     // From its city's end of the line; longer once it has its freight terminal.
     const place = placeById(w, terms.place);
-    const take = terms.take + (place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0);
     const dir = place ? (-place.side as 1 | -1) : undefined;
+    if (terms.bulk) {
+      const train = sendPortTrain(
+        w,
+        s,
+        'hopper',
+        B.TRAIN_STAND_TICKS,
+        dir,
+        Math.ceil(terms.take / B.HOPPER_WAGON),
+      );
+      if (!train?.port) continue;
+      train.port.contractId = c.id;
+      train.port.bulk = terms.bulk;
+      train.port.hoppers = train.cars.filter((k) => k === 'hopper').map(() => 0);
+      c.nextBoatTick =
+        w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
+      continue;
+    }
+    const take = terms.take + (place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0);
     const wagons = Math.ceil(Math.max(terms.bring, take) / B.WAGON_BOXES);
     const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, dir, wagons);
     if (!train?.port) continue;
@@ -409,6 +447,8 @@ export function stationRow(w: World, column: number): number | undefined {
 /** Why a siding's trains cannot be worked, or nothing: too short, no yard beside it, no stacker. */
 export function sidingTrouble(w: World, s: Siding): string | undefined {
   if (sidingCars(s) < 2) return 'Too short for a train: lay the siding at least three tiles long';
+  // A siding with a loadout is for hopper wagons, and needs no yard.
+  if (s.tiles.some((t) => w.map.build[t] === Build.Loadout)) return undefined;
   const yards = yardsBeside(w, s);
   if (yards.length === 0) {
     return 'No container yard beside it for its trains to be worked from: mark one out a row or two off the track';

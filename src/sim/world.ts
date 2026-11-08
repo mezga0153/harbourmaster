@@ -38,6 +38,8 @@ import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, railFromSave, type RailState } from './railway';
 import { newRegion, placesSize, type Region } from './region';
+import type { BulkKind, BulkLoad } from './bulk';
+import { stepBulk } from './systems/bulk';
 import { sendPortTrain, stepTrains, trackHeld, trainOver } from './systems/trains';
 import { sidings } from './rules/rails';
 import {
@@ -477,6 +479,12 @@ export class World {
   rail: RailState;
   /** The places along the main line the port serves; see region.ts. */
   region: Region;
+  /** Bulk cargo where it lies, by tile: on belts, in hoppers and bins, on stockpiles; see systems/bulk.ts. */
+  bulk = new Map<number, BulkLoad>();
+  /** The grab cranes', belts' and loadouts' tiles; cleared when the map changes. */
+  bulkCache: { grabs: number[]; belts: number[]; loadouts: number[] } | null = null;
+  /** Grab cranes at work, by tile: ticks into the bite under way. */
+  grabs = new Map<number, { timer: number; busy?: boolean }>();
   /**
    * The town and the trains draw their own random numbers, so they never
    * change what happens at the port.
@@ -765,6 +773,7 @@ export class World {
     if (s.rail) world.rail = railFromSave(s.rail);
     // Saves from before the region get one from their seed, as a new game would.
     if (s.region) world.region = structuredClone(s.region);
+    for (const [i, kind, t] of s.bulk ?? []) world.bulk.set(i, { kind, t });
     // The line runs on through any country added to the map since.
     layRailway(world.map);
     // The highway runs down the map itself since it was laid on it.
@@ -891,6 +900,7 @@ export class World {
       town: this.town,
       rail: this.rail,
       region: this.region,
+      bulk: [...this.bulk].map(([i, l]) => [i, l.kind, l.t] as [number, BulkKind, number]),
       scenery: this.scenery.state,
       tips: [...this.tipsSeen],
       learning: this.learning,
@@ -916,6 +926,7 @@ export class World {
     this.spotCache.clear();
     this.laneCache = null;
     this.railCache = null;
+    this.bulkCache = null;
     this.laneOfCache.clear();
     this.yardLaneCache = null;
     this.gantryCache = null;
@@ -1092,6 +1103,7 @@ export class World {
     for (const t of [...this.trucks]) updateTruck(this, t);
     for (const y of this.yards.values())
       if (y.gantryHeld && liftDone(this, y)) settleGantry(this, y);
+    stepBulk(this);
     stepTrains(this);
     if (this.town && this.tick % B.TOWN_BUILD_TICKS === 0) buildTown(this, this.town);
   }

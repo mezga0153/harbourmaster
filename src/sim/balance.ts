@@ -227,6 +227,7 @@ export const VESSELS = {
   smack: { length: 1.9, beam: 0.6, speed: 0.15, turn: 0.05 },
   coaster: { length: 2.7, beam: 0.84, speed: 0.11, turn: 0.032 },
   feeder: { length: 5.6, beam: 0.96, speed: 0.08, turn: 0.02 },
+  bulker: { length: 5.6, beam: 1, speed: 0.075, turn: 0.02 },
   tug: { length: 1.1, beam: 0.48, speed: 0.17, turn: 0.1 },
 } as const;
 /** Share of top speed a boat gains per tick; it sheds way at twice that. */
@@ -462,6 +463,33 @@ export const WAGON_BOXES = 2;
 export const TERMINAL_EXTRA = 4;
 /** Rows either side of a siding a container yard may lie in to be worked from it. */
 export const SIDING_REACH = 2;
+
+// The Bulk Terminal: bulk cargo by the tonne; see systems/bulk.ts.
+/** Water a bulk carrier needs, in metres. */
+export const BULKER_DRAFT = 5;
+/** Tonnes a bulk carrier brings, least and most. */
+export const BULKER_MIN_LOAD = 300;
+export const BULKER_MAX_LOAD = 600;
+/** Tonnes a grab crane lifts a bite, and ticks a bite takes, out of the hold and into its hopper. */
+export const GRAB_BITE = 8;
+export const GRAB_TICKS = 12;
+/** Tonnes a grab crane's hopper holds. */
+export const HOPPER_CAP = 40;
+/** Tonnes on a tile of conveyor belt at most, and tonnes a tick it passes on. */
+export const BELT_CAP = 6;
+export const BELT_RATE = 0.8;
+/** Tonnes heaped on a tile of stockpile at most. */
+export const STOCKPILE_TILE = 400;
+/** Tonnes a rail loadout's bin holds, and tonnes a tick it pours into a wagon. */
+export const LOADOUT_CAP = 60;
+export const LOADOUT_RATE = 1.5;
+/** Tonnes a hopper wagon carries. */
+export const HOPPER_WAGON = 40;
+export const GRAB_CRANE_COST = 14000;
+export const GRAB_RUNNING_COST = 120;
+export const BELT_COST = 60;
+export const STOCKPILE_COST = 30;
+export const LOADOUT_COST = 6000;
 /** Marking a port road or quay tile for port machines only, or back. */
 export const FORKLIFT_ONLY_COST = 5;
 export const FORKLIFT_ONLY_TIER = 1;

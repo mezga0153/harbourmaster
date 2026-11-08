@@ -61,6 +61,7 @@ export function updateCrane(w: World, c: Crane): void {
     (b) =>
       b.state === 'moored' &&
       (b.vessel === 'feeder') === boxes &&
+      b.vessel !== 'bulker' &&
       b.crates - b.reserved > 0 &&
       reaches(b),
   );

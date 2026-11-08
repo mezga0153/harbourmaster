@@ -1,5 +1,6 @@
 import type { GameMap } from './map';
 import type { Crate } from './state';
+import type { BulkKind } from './bulk';
 import type { Rng } from './rng';
 import { Build, Deco, Terrain, TICKS_PER_DAY } from './types';
 
@@ -49,6 +50,9 @@ export interface PortVisit {
   coming?: number;
   /** Containers stackers are taking off it. */
   taking?: number;
+  /** A train of hopper wagons for bulk cargo: what it takes, and the tonnes in each wagon, from the locomotive back. */
+  bulk?: BulkKind;
+  hoppers?: number[];
 }
 
 export interface Train {

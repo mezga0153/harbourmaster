@@ -36,6 +36,7 @@ import { exportsComing, stillLoading } from '../cargo/exports';
 import { jibStore } from '../cargo/stores';
 import { jibStores } from '../cranes';
 import { hullGap, outAboard } from '../../helpers';
+import { longShip, vesselName } from '../../helpers';
 
 export function spawnBoats(w: World): void {
   for (const c of fisheries(w)) {
@@ -71,11 +72,17 @@ export function spawnBoat(w: World, contractId: number, terms: FisheryTerms, clo
     draft:
       terms.vessel === 'feeder'
         ? B.FEEDER_DRAFT
-        : terms.vessel === 'coaster'
-          ? B.COASTER_DRAFT
-          : B.BOAT_DRAFT,
-    // Containers are all alike; a crate holds the catch.
-    fee: terms.vessel === 'feeder' ? terms.fee : withCargo(terms.fee, terms.catch ?? 'fish'),
+        : terms.vessel === 'bulker'
+          ? B.BULKER_DRAFT
+          : terms.vessel === 'coaster'
+            ? B.COASTER_DRAFT
+            : B.BOAT_DRAFT,
+    // Containers are all alike, and bulk by the tonne; a crate holds the catch.
+    fee:
+      terms.vessel === 'feeder' || terms.vessel === 'bulker'
+        ? terms.fee
+        : withCargo(terms.fee, terms.catch ?? 'fish'),
+    ...(terms.bulk ? { bulk: terms.bulk } : {}),
     anchorTicks: 0,
     mooredTicks: 0,
     grace: 0,
@@ -93,7 +100,11 @@ export function spawnBoat(w: World, contractId: number, terms: FisheryTerms, clo
     variant: terms.color,
     came: w.tick,
   };
-  boat.grace = B.MOORED_GRACE_TICKS + boat.crates * B.MOORED_TICKS_PER_CRATE;
+  boat.grace =
+    B.MOORED_GRACE_TICKS +
+    (boat.bulk
+      ? Math.ceil(boat.crates / B.GRAB_BITE) * B.GRAB_TICKS
+      : boat.crates * B.MOORED_TICKS_PER_CRATE);
   w.boats.push(boat);
   w.stats.boats++;
   // The first boat of the game is already coming in, a few tiles off the
@@ -584,8 +595,26 @@ export function berthsClash(w: World, a: Moorage, b: Moorage): boolean {
 }
 
 /** The vessel berths are counted and handed out for. */
-export function vesselFor(_w: World, wide: boolean, needCrane: boolean): Vessel {
-  return needCrane ? 'feeder' : wide ? 'coaster' : 'smack';
+export function vesselFor(_w: World, wide: boolean, needCrane: boolean, bulk = false): Vessel {
+  return bulk ? 'bulker' : needCrane ? 'feeder' : wide ? 'coaster' : 'smack';
+}
+
+/** Whether a grab crane stands at this dock tile, at the quay edge a bulk carrier lies against. */
+export function grabAgainst(w: World, j: number): boolean {
+  return w.map.build[j] === Build.GrabCrane;
+}
+
+/** Whether a grab crane stands by this berth: kept for bulk carriers. */
+export function grabReaches(w: World, berth: number): boolean {
+  const m = w.map;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = m.xOf(berth) + dx;
+      const y = m.yOf(berth) + dy;
+      if (m.inBounds(x, y) && m.build[m.idx(x, y)] === Build.GrabCrane) return true;
+    }
+  }
+  return false;
 }
 
 /** Berth tiles either side of the middle: feeders are long ships. */
@@ -773,10 +802,12 @@ export function freeBerths(
   draft: number,
   wide: boolean,
   needCrane = false,
+  bulk = false,
 ): { berth: number; jetty: number }[] {
   const water = boatCostFor(w, draft);
   const m = w.map;
-  const vessel = vesselFor(w, wide, needCrane);
+  const vessel = vesselFor(w, wide, needCrane, bulk);
+  const long = needCrane || bulk;
   const taken = w.boats.filter((b) => b.berth >= 0);
   const out: { berth: number; jetty: number; d: number; craned: boolean }[] = [];
   // With nobody to unload by hand, boats wait for a berth under a jib crane.
@@ -788,8 +819,14 @@ export function freeBerths(
       if (wide && !wideQuay(w, j, n)) continue;
       // Berths under a harbour crane are kept for container ships, which
       // lie square in front of the crane, centred on it.
-      if (needCrane ? !craneAgainst(w, j) : harbourCraneReaches(w, n)) continue;
-      if (!mooredTiles(w, n, j, boatHalf(w, needCrane))) continue;
+      // Bulk carriers lie at a grab crane, and nothing else does.
+      if (bulk) {
+        if (!grabAgainst(w, j)) continue;
+      } else {
+        if (needCrane ? !craneAgainst(w, j) : harbourCraneReaches(w, n)) continue;
+        if (grabReaches(w, n)) continue;
+      }
+      if (!mooredTiles(w, n, j, boatHalf(w, long))) continue;
       const nx = m.xOf(n);
       const ny = m.yOf(n);
       // A jib crane is only any use with crate storage for cargo coming in
@@ -802,7 +839,7 @@ export function freeBerths(
       // Nobody could unload it by hand next to a crane, off machines-only
       // quay, or at a jetty the dockhands cannot walk to storage from: a
       // boat is never sent where nothing can unload it.
-      if (!needCrane && !craned && !handsReach(w, n, j, boatHalf(w, needCrane))) continue;
+      if (!long && !craned && !handsReach(w, n, j, boatHalf(w, long))) continue;
       const here = { berth: n, jetty: j, vessel };
       if (taken.some((t) => berthsClash(w, here, t))) continue;
       // Not while another boat is still pulling out of it.
@@ -841,7 +878,14 @@ export function tryBerth(w: World, boat: Boat): boolean {
   // One boat at a time comes alongside or pulls out in each lane; the rest
   // wait at the anchorage, out of the way. Of the berths with a clear lane,
   // the best few that can be reached.
-  const berths = freeBerths(w, from, boat.draft, boat.vessel !== 'smack', feeder)
+  const berths = freeBerths(
+    w,
+    from,
+    boat.draft,
+    boat.vessel !== 'smack',
+    feeder,
+    boat.vessel === 'bulker',
+  )
     .filter((c) => fairwayFree(w, boat, c.jetty, c.berth))
     .slice(0, 6);
   for (const c of berths) {
@@ -1104,7 +1148,7 @@ export function updateBoat(w: World, b: Boat): void {
   plotCourses(w);
   if (b.state === 'anchored' || b.state === 'moored') {
     // A container ship takes long to work, and allows for that.
-    const patience = B.BOAT_GIVE_UP_TICKS + (b.vessel === 'feeder' ? b.grace : 0);
+    const patience = B.BOAT_GIVE_UP_TICKS + (longShip(b) ? b.grace : 0);
     if (b.anchorTicks + b.mooredTicks > patience && b.crates > 0) {
       // The claim message in judgeVisit explains what happened.
       if (b.state === 'anchored' || !boxedIn(w, b)) return depart(w, b, true);
@@ -1142,7 +1186,7 @@ export function updateBoat(w: World, b: Boat): void {
       // Come alongside: lie along the berth, parallel to the dock edge.
       const alongX = w.map.yOf(b.jetty) !== w.map.yOf(b.berth);
       // Something has been built where its hull would lie: another berth.
-      const gone = !mooredTiles(w, b.berth, b.jetty, boatHalf(w, b.vessel === 'feeder'));
+      const gone = !mooredTiles(w, b.berth, b.jetty, boatHalf(w, longShip(b)));
       const r = gone ? 'blocked' : sail(w, b, alongX ? 0 : Math.PI / 2);
       if (r === 'blocked') {
         freeFairway(w, b);
@@ -1159,14 +1203,15 @@ export function updateBoat(w: World, b: Boat): void {
         b.lineup = b.lineEnd = b.berthing = undefined;
         b.timer = 0;
         b.mooredAt = w.tick;
-        const what =
-          b.vessel === 'feeder' ? 'feeder ship' : b.vessel === 'coaster' ? 'coaster' : 'boat';
+        const what = vesselName(b);
         const cargo =
           b.vessel === 'feeder'
             ? 'containers'
-            : b.vessel === 'coaster'
-              ? 'crates on pallets'
-              : 'crates';
+            : b.bulk
+              ? `tonnes of ${b.bulk}`
+              : b.vessel === 'coaster'
+                ? 'crates on pallets'
+                : 'crates';
         // Only a new line's first boat is news; the rest are routine.
         if (w.firstBoat.delete(b.company)) {
           message(w, `A ${b.company} ${what} has moored with ${b.crates} ${cargo}.`, 'info');

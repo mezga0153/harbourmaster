@@ -81,8 +81,13 @@ export const TIERS: Tier[] = [
     cost: 80000,
     town: TOWN_STAGES[4].from,
     region: 11000,
-    unlocks: ['Conveyor belts', 'Grab cranes', 'Silos', 'Rail sidings'],
-    comingSoon: true,
+    unlocks: [
+      'Bulk carriers of coal (5 m draft), landed by the tonne',
+      'Grab cranes, lifting it out of the holds into their hoppers',
+      'Conveyor belts, carrying it tonne by tonne',
+      'Stockpiles, heaping it up',
+      'Rail loadouts over a siding, filling the power station’s hopper wagons',
+    ],
   },
 ];
 
@@ -109,6 +114,10 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   tugBerth: 1,
   yardGantry: 2,
   siding: 2,
+  grabCrane: 3,
+  belt: 3,
+  stockpile: 3,
+  loadout: 3,
 };
 
 export const MACHINE_TIER: Record<MachineKind, number> = {

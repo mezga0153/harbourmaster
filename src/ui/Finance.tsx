@@ -18,6 +18,7 @@ const INCOME: { key: LedgerCategory; label: string }[] = [
   { key: 'cargo', label: 'Crates trucked out' },
   { key: 'containers', label: 'Containers trucked out' },
   { key: 'exports', label: 'Exports shipped' },
+  { key: 'bulk', label: 'Bulk cargo' },
   { key: 'town', label: 'Town deliveries' },
 ];
 

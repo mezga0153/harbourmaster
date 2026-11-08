@@ -31,6 +31,7 @@ import {
   makeCannedOffer,
   makeFactoryOffer,
   makeRailOffer,
+  makeCoalTrainOffer,
   makeIceOffer,
   makeLobsterOffer,
   makeOffer,
@@ -365,6 +366,22 @@ export function townTradeOffers(w: World): void {
  */
 export function railOffers(w: World): void {
   if (!sidingsOpen(w)) return;
+  // The power station's coal trains, from the Bulk Terminal on.
+  const power = w.region.places.find((p) => p.kind === 'power');
+  if (w.tier >= 3 && power) {
+    const has = (t: Terms) => t.kind === 'rail' && t.place === power.id;
+    if (!w.offers.some((o) => has(o.terms)) && !w.contracts.some((c) => has(c.terms))) {
+      const taken = new Set([...w.contracts, ...w.offers].map((c) => c.terms.name));
+      const offer = makeCoalTrainOffer(
+        new Rng(w.tick * 104729 + power.id),
+        -3e9 - w.tick * 4,
+        w.tick,
+        taken,
+        power,
+      );
+      if (offer) w.offers.push(offer);
+    }
+  }
   openCities(w.region).forEach((p, k) => {
     const has = (t: Terms) => t.kind === 'rail' && t.place === p.id;
     if (w.offers.some((o) => has(o.terms)) || w.contracts.some((c) => has(c.terms))) return;
@@ -877,6 +894,8 @@ export function newDay(w: World): void {
   book(w, 'maintenance', -B.TUG_RUNNING_COST * w.tugs.length);
   const yardGantries = w.map.build.filter((c) => c === Build.YardGantry).length;
   book(w, 'maintenance', -B.YARD_GANTRY_RUNNING_COST * yardGantries);
+  const grabs = w.map.build.filter((c) => c === Build.GrabCrane).length;
+  book(w, 'maintenance', -B.GRAB_RUNNING_COST * grabs);
   for (const p of w.people) {
     if (isMachine(p) && w.rng.next() < B.FORKLIFT_BREAKDOWN) p.needsRepair = true;
   }

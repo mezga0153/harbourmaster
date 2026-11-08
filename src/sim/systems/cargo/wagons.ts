@@ -83,7 +83,8 @@ export function bySiding(w: World, yard: Bay): boolean {
 function standing(w: World): { t: PortTrain; s: Siding }[] {
   const out: { t: PortTrain; s: Siding }[] = [];
   for (const t of w.rail.trains) {
-    if (t.port?.state !== 'standing' || t.port.contractId === undefined) continue;
+    // Container trains only: hopper wagons are filled at a loadout.
+    if (t.port?.state !== 'standing' || t.port.contractId === undefined || t.port.hoppers) continue;
     const s = sidingOf(w, t);
     if (s) out.push({ t: t as PortTrain, s });
   }

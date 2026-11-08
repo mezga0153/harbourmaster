@@ -1,5 +1,6 @@
 import * as B from './balance';
 import type { Rng } from './rng';
+import type { BulkKind } from './bulk';
 import { TICKS_PER_DAY } from './types';
 
 // Fisheries send boats; hauliers supply the trucks that carry crates away.
@@ -7,7 +8,7 @@ import { TICKS_PER_DAY } from './types';
 /** A supplier of boats: a local fishery or, later, a shipping line with coasters. */
 export interface FisheryTerms {
   kind: 'fishery';
-  vessel: 'smack' | 'coaster' | 'feeder';
+  vessel: 'smack' | 'coaster' | 'feeder' | 'bulker';
   name: string;
   /** Paint colour index for this fishery's boats. */
   color: number;
@@ -19,6 +20,8 @@ export interface FisheryTerms {
   fee: number;
   /** What its boats land: fish unless said otherwise. */
   catch?: 'fish' | 'lobster' | 'timber' | 'goods';
+  /** Bulk carriers: what they land, by the tonne (cratesMin and cratesMax are tonnes, `fee` a tonne). */
+  bulk?: BulkKind;
 }
 
 export interface HaulierTerms {
@@ -82,13 +85,19 @@ export interface RailTerms {
   dailyFee: number;
   /** The region's place its trains run to and from, by id; see region.ts. */
   place?: number;
+  /**
+   * Trains of hopper wagons for bulk cargo rather than containers: `take`
+   * is the tonnes a train takes, `fee` what it pays a tonne as it leaves,
+   * and it brings nothing.
+   */
+  bulk?: BulkKind;
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms | RailTerms;
 
 /** Rough income a rail line's trains bring a day: their exports' fees, less what the railway charges. */
 export function railDailyValue(t: RailTerms): number {
-  return (t.bring * t.fee) / t.trainEvery - t.dailyFee;
+  return ((t.bulk ? t.take : t.bring) * t.fee) / t.trainEvery - t.dailyFee;
 }
 
 /** Rough income a shipper brings per day if everything it sends is shipped. */
@@ -294,6 +303,9 @@ export function makeOffer(
 ): Offer | null {
   const roll = rng.next();
   if (kind === 'shipper') return makeShipper(rng, id, tick, takenNames, tier, roll);
+  // Bulk carriers of coal for the power station's trains, from the Bulk Terminal on.
+  if (kind === 'fishery' && tier >= 3 && roll < 0.35)
+    return makeBulkLine(rng, id, tick, takenNames);
   // The railway's offers come with the town's station; see townTradeOffers.
   if (kind === 'rail') return null;
   const feeder = kind === 'fishery' && tier >= 2 && roll < 0.4;
@@ -556,6 +568,34 @@ export function makeFactoryOffer(
   return { id, terms, signingFee, expires };
 }
 
+const BULK_LINES = [
+  'North Sea Bulk',
+  'Collier Line',
+  'Black Diamond Shipping',
+  'Ore & Coal Carriers',
+];
+
+/** A line of bulk carriers bringing coal, paid for by the tonne as the grab cranes land it. */
+function makeBulkLine(rng: Rng, id: number, tick: number, takenNames: Set<string>): Offer | null {
+  const free = BULK_LINES.filter((n) => !takenNames.has(n));
+  if (free.length === 0) return null;
+  const cratesMin = rng.int(B.BULKER_MIN_LOAD, B.BULKER_MAX_LOAD - 150);
+  const terms: FisheryTerms = {
+    kind: 'fishery',
+    vessel: 'bulker',
+    name: rng.pick(free),
+    color: rng.int(0, 3),
+    boatEvery: Math.round(rng.range(1.5, 2.5) * 20) / 20,
+    cratesMin,
+    cratesMax: Math.min(B.BULKER_MAX_LOAD, cratesMin + rng.int(50, 150)),
+    fee: rng.int(3, 5),
+    bulk: 'coal',
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
+  const signingFee = Math.round((fisheryDailyValue(terms) * 2) / 100) * 100;
+  return { id, terms, signingFee, expires };
+}
+
 const RAIL_LINES = [
   'Coastline Railfreight',
   'Inland Container Rail',
@@ -592,6 +632,36 @@ export function makeRailOffer(
   };
   const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((terms.bring * terms.fee) / terms.trainEvery / 50) * 50;
+  return { id, terms, signingFee, expires };
+}
+
+/**
+ * A power station's offer, from the Bulk Terminal on: trains of hopper
+ * wagons for the coal the bulk carriers land, filled at a rail loadout.
+ */
+export function makeCoalTrainOffer(
+  rng: Rng,
+  id: number,
+  tick: number,
+  takenNames: Set<string>,
+  place: { id: number; name: string },
+): Offer | null {
+  const name = `${place.name} Power`;
+  if (takenNames.has(name)) return null;
+  const terms: RailTerms = {
+    kind: 'rail',
+    name,
+    color: rng.int(0, 4),
+    trainEvery: Math.round(rng.range(1, 1.6) * 20) / 20,
+    bring: 0,
+    take: rng.int(6, 8) * B.HOPPER_WAGON,
+    fee: rng.int(2, 3),
+    dailyFee: rng.int(5, 8) * 10,
+    place: place.id,
+    bulk: 'coal',
+  };
+  const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
+  const signingFee = Math.round((terms.take * terms.fee) / terms.trainEvery / 50) * 50;
   return { id, terms, signingFee, expires };
 }
 

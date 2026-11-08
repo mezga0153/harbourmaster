@@ -8,6 +8,7 @@ import type { Contract, Offer } from './contracts';
 import type { MapData } from './map';
 import type { RailState } from './railway';
 import type { Region } from './region';
+import type { BulkKind } from './bulk';
 import type { Candidate, Trait } from './staff';
 import type { Town } from './town';
 import type { MachineKind } from './types';
@@ -287,6 +288,8 @@ export interface Boat extends Agent {
   state: 'approaching' | 'anchored' | 'arriving' | 'moored' | 'leaving';
   /** Feeders carry containers (counted in `crates`) and need a harbour crane. */
   vessel: Vessel;
+  /** Bulk carriers: what is in their holds, `crates` tonnes of it, lifted out by grab cranes. */
+  bulk?: BulkKind;
   /** Water depth needed, in metres. */
   draft: number;
   contractId: number;
@@ -685,6 +688,8 @@ export interface SaveData {
   rail?: RailState;
   /** The places along the main line; older saves get one from their seed. */
   region?: Region;
+  /** Bulk cargo where it lies: tile, kind, tonnes. */
+  bulk?: [number, BulkKind, number][];
   /** State of the town and railway's own random numbers. */
   scenery?: number;
   /** Advisor tips already given; see tip(). */
@@ -747,6 +752,8 @@ export type LedgerCategory =
   | 'cargo'
   | 'containers'
   | 'exports'
+  /** Bulk cargo landed by the tonne, and taken away by train. */
+  | 'bulk'
   | 'town'
   | 'construction'
   | 'hiring'

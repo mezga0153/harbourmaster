@@ -49,6 +49,7 @@ import {
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
 import { cargoOf } from '../../cargo';
+import { longShip } from '../../helpers';
 
 /** A heap on the quay, or storage, being collected from: exports from container yards too. */
 export function stock(w: World, i: number): Bay | undefined {
@@ -99,7 +100,7 @@ export function nearerMachine(w: World, p: Dockhand, tile: number): boolean {
 
 /** Dock tiles beside a moored boat's hull. */
 export function pickupSpots(w: World, b: Boat): number[] {
-  const fp = mooredTiles(w, b.berth, b.jetty, boatHalf(w, b.vessel === 'feeder')) ?? [b.berth];
+  const fp = mooredTiles(w, b.berth, b.jetty, boatHalf(w, longShip(b))) ?? [b.berth];
   const spots = new Set<number>([b.jetty]);
   for (const t of fp) {
     for (const n of w.map.neighbors4(t)) if (isDock(w.map.build[n])) spots.add(n);

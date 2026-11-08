@@ -113,6 +113,7 @@ import { WORKING } from '../../helpers';
 import { standsFor, type StandPlan } from './stands';
 import { drivable } from '../../rules';
 import { takeWagonJob, wagonJob, wagonSources } from '../cargo/wagons';
+import { longShip } from '../../helpers';
 
 export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
   const p: Dockhand = {
@@ -970,7 +971,7 @@ export function assignJob(w: World, p: Dockhand): boolean {
     for (const boat of w.boats) {
       const avail = boat.crates - boat.reserved;
       // Containers only come off a ship by crane.
-      if (boat.vessel === 'feeder' || boat.state !== 'moored' || avail <= 0) continue;
+      if (longShip(boat) || boat.state !== 'moored' || avail <= 0) continue;
       // Workers can unload from any dock tile alongside the boat.
       for (const tile of pickupSpots(w, boat)) sources.push({ tile, avail, boat, rank: 1 });
     }
