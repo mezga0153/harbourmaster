@@ -1,5 +1,7 @@
 import { Box3, Group } from 'three';
-import type { CraneView } from '../protocol';
+import type { BulkView, CraneView } from '../protocol';
+import * as B from '../sim/balance';
+import type { GameMap } from '../sim/map';
 import { CARGO } from '../sim/cargo';
 import type { CarKind } from '../sim/railway';
 import { anchorOf } from '../sim/rules';
@@ -128,43 +130,128 @@ function machine(name: string, make: () => Model, most: number): Item {
 }
 
 /** A tool as its build menu card pictures it, live: cranes slewed and stacked as the sliders say. */
+/** Sliders for a bulk tool's picture: how much lies where, and the grab crane at work. */
+const BULK_PARAMS: Record<string, Param[]> = {
+  grabCrane: [
+    { key: 'working', label: 'Lifting', kind: 'toggle', value: true, live: true },
+    {
+      key: 'hopper',
+      label: 'In the hopper (t)',
+      kind: 'range',
+      min: 0,
+      max: B.HOPPER_CAP,
+      value: 30,
+      live: true,
+    },
+    {
+      key: 'load',
+      label: 'On the belt (t)',
+      kind: 'range',
+      min: 0,
+      max: B.BELT_CAP,
+      value: 4,
+      live: true,
+    },
+  ],
+  belt: [
+    {
+      key: 'load',
+      label: 'On each tile (t)',
+      kind: 'range',
+      min: 0,
+      max: B.BELT_CAP,
+      value: 4,
+      live: true,
+    },
+  ],
+  stockpile: [
+    {
+      key: 'pile',
+      label: 'On each tile (t)',
+      kind: 'range',
+      min: 0,
+      max: B.STOCKPILE_TILE,
+      value: 250,
+      live: true,
+    },
+  ],
+  loadout: [
+    {
+      key: 'bin',
+      label: 'In the bin (t)',
+      kind: 'range',
+      min: 0,
+      max: B.LOADOUT_CAP,
+      value: 40,
+      live: true,
+    },
+  ],
+};
+
+/** The bulk cargo on a bulk tool's patch, as its sliders say, and its grab crane. */
+function bulkView(m: GameMap, q: Params): BulkView {
+  const at: BulkView['at'] = [];
+  const grabs: BulkView['grabs'] = [];
+  m.build.forEach((b, i) => {
+    const t =
+      b === Build.Belt
+        ? (q.load as number)
+        : b === Build.Stockpile
+          ? (q.pile as number)
+          : b === Build.GrabCrane
+            ? (q.hopper as number)
+            : b === Build.Loadout
+              ? (q.bin as number)
+              : 0;
+    if (t > 0) at.push([i, 'coal', t]);
+    if (b === Build.GrabCrane) {
+      const water = m.neighbors4(i).find((n) => m.ocean[n] === 1) ?? -1;
+      grabs.push({ idx: i, busy: !!q.working, phase: 0, water });
+    }
+  });
+  return { at, grabs };
+}
+
 function pictured(tool: string, label: string): Item {
   const crane = ['jibCrane', 'harbourCrane', 'gantryCrane'].includes(tool);
+  const bulk = BULK_PARAMS[tool];
   return {
     group: 'Buildings and cranes',
     name: label,
-    params: crane
-      ? [
-          {
-            key: 'angle',
-            label: 'Slew (°)',
-            kind: 'range',
-            min: -180,
-            max: 180,
-            value: 0,
-            live: true,
-          },
-          {
-            key: 'stack',
-            label: 'On the stack',
-            kind: 'range',
-            min: 0,
-            max: 16,
-            value: 0,
-            live: true,
-          },
-          {
-            key: 'out',
-            label: 'Exports waiting',
-            kind: 'range',
-            min: 0,
-            max: 8,
-            value: 0,
-            live: true,
-          },
-          { key: 'pallets', label: 'On pallets', kind: 'toggle', value: false, live: true },
-        ]
-      : [],
+    params:
+      bulk ??
+      (crane
+        ? [
+            {
+              key: 'angle',
+              label: 'Slew (°)',
+              kind: 'range',
+              min: -180,
+              max: 180,
+              value: 0,
+              live: true,
+            },
+            {
+              key: 'stack',
+              label: 'On the stack',
+              kind: 'range',
+              min: 0,
+              max: 16,
+              value: 0,
+              live: true,
+            },
+            {
+              key: 'out',
+              label: 'Exports waiting',
+              kind: 'range',
+              min: 0,
+              max: 8,
+              value: 0,
+              live: true,
+            },
+            { key: 'pallets', label: 'On pallets', kind: 'toggle', value: false, live: true },
+          ]
+        : []),
     make(p) {
       const s = stage(tool);
       if (!s) return { object: new Group() };
@@ -188,6 +275,7 @@ function pictured(tool: string, label: string): Item {
         }
       }
       const live = (q: Params) => {
+        if (s.bulk) s.bulk.push(bulkView(m, q), 1);
         if (!kind) return;
         const n = (q.stack as number) + (q.out as number);
         s.structures.setCranes(
@@ -212,7 +300,10 @@ function pictured(tool: string, label: string): Item {
         box: s.box,
         bare: true,
         live,
-        update: (time, dt) => s.structures.update(dt, time),
+        update: (time, dt) => {
+          s.structures.update(dt, time);
+          s.bulk?.update(performance.now());
+        },
       };
     },
   };
@@ -265,7 +356,7 @@ const CARS: [CarKind, string][] = [
   ['coach', 'Coach'],
   ['box', 'Box wagon'],
   ['tank', 'Tank wagon'],
-  ['hopper', 'Hopper'],
+  ['hopper', 'Hopper, loaded'],
   ['flat', 'Flat wagon with a container'],
 ];
 
@@ -280,6 +371,14 @@ function car(kind: CarKind, name: string): Item {
     make: (p) => ({ object: trainCar(kind, p.variant as number, p.k as number) }),
   };
 }
+
+/** A port train's hopper wagon, empty as it comes in to the loadout. */
+const emptyHopper: Item = {
+  group: 'Train',
+  name: 'Hopper, empty',
+  params: [{ key: 'variant', label: 'Livery', kind: 'range', min: 0, max: 3, value: 0 }],
+  make: (p) => ({ object: trainCar('hopper', p.variant as number, 1, []) }),
+};
 
 function asset(group: string, name: string, label = name): Item {
   return {
@@ -487,6 +586,7 @@ export function modelItems(): Item[] {
     vessel('Lobster boat', 'smack', true),
     vessel('Coaster', 'coaster'),
     vessel('Feeder ship', 'feeder'),
+    { ...vessel('Bulk carrier', 'bulker'), params: [SEED, COMPANY] },
     { ...vessel('Tug', 'tug'), params: [SEED] },
     haulage('Rigid flatbed', 6, false),
     haulage('Articulated flatbed', 8, false),
@@ -502,6 +602,7 @@ export function modelItems(): Item[] {
     ...built,
     ...TOWN.map(([name, code]) => town(name, code)),
     ...CARS.map(([k, name]) => car(k, name)),
+    emptyHopper,
     ...TREES.map((n) => asset('Scenery', n)),
     ...ROCKS.map((n) => asset('Scenery', n)),
     ...CONTAINERS.map((n) => asset('Scenery', n, `${n} (Kenney)`)),

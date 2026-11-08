@@ -22,6 +22,9 @@ import { Build, Store, Terrain, type BuildKind } from '../sim/types';
 import { forklift, stacker, tractor } from './machines';
 import { boat } from './model';
 import { Structures } from './structures';
+import { BulkLayer } from './bulk';
+import type { BulkView } from '../protocol';
+import { ON_QUAY, RAILS } from '../sim/orient';
 import { buildLand, surfaceY } from './terrain';
 import { solidBounds } from './util/mesh';
 
@@ -37,7 +40,13 @@ const H = 7;
 const COAST = 4;
 const SIZE = [176, 120] as const;
 
-type Patch = { map: GameMap; focus: number[]; stock?: { tiles: number[]; boxes: boolean } };
+type Patch = {
+  map: GameMap;
+  focus: number[];
+  stock?: { tiles: number[]; boxes: boolean };
+  /** Bulk cargo where it lies, and grab cranes at work. */
+  bulk?: BulkView;
+};
 
 /** A patch of shore `w` by `h`, sand up to column `coast` and sea beyond; see also the guides' pictures (guides.ts). */
 export function patch(w = W, h = H, coast = COAST): GameMap {
@@ -139,6 +148,73 @@ function scene(tool: string): Patch | null {
       const g = place(m, 'yardGantry', at(m, 3, mid));
       return { map: m, focus: [...tiles, ...g], stock: { tiles, boxes: true } };
     }
+    case 'grabCrane': {
+      // On the quay edge, its belt running off from behind it ashore.
+      quay(m, 2);
+      const run = row(m, mid, 0, COAST - 2);
+      lay(m, Build.Belt, run);
+      for (const t of run) m.orient[t] = 2 | (m.xOf(t) >= COAST - 2 ? ON_QUAY : 0);
+      const g = place(m, 'grabCrane', at(m, COAST - 1, mid));
+      return {
+        map: m,
+        focus: [...g, ...run],
+        bulk: {
+          at: [...run.map((t) => [t, 'coal', 4] as [number, 'coal', number]), [g[0], 'coal', 30]],
+          grabs: [{ idx: g[0], busy: true, phase: 0.6, water: at(m, COAST, mid) }],
+        },
+      };
+    }
+    case 'belt': {
+      const run = [...row(m, mid, 0, 2), at(m, 2, mid - 1), at(m, 2, mid - 2)];
+      lay(m, Build.Belt, run);
+      run.forEach((t, k) => (m.orient[t] = k < 2 ? 0 : 3));
+      return {
+        map: m,
+        focus: run,
+        bulk: { at: run.map((t, k) => [t, 'coal', 2 + k] as [number, 'coal', number]), grabs: [] },
+      };
+    }
+    case 'stockpile': {
+      const pile = block(m, 1, 2, 2, 4);
+      lay(m, Build.Stockpile, pile);
+      const feed = row(m, mid, COAST - 1, COAST - 1);
+      lay(m, Build.Belt, feed);
+      for (const t of feed) m.orient[t] = 2;
+      return {
+        map: m,
+        focus: [...pile, ...feed],
+        bulk: {
+          at: [
+            ...pile.map((t, k) => [t, 'coal', 120 + k * 50] as [number, 'coal', number]),
+            [feed[0], 'coal', 5],
+          ],
+          grabs: [],
+        },
+      };
+    }
+    case 'loadout': {
+      lay(
+        m,
+        Build.Rail,
+        Array.from({ length: H }, (_, y) => at(m, 0, y)),
+      );
+      const track = row(m, mid, 1, COAST - 1);
+      lay(m, Build.Siding, track);
+      const l = at(m, 2, mid);
+      m.build[l] = Build.Loadout;
+      m.orient[l] = RAILS;
+      const feed = [at(m, 2, mid + 2), at(m, 2, mid + 1)];
+      lay(m, Build.Belt, feed);
+      for (const t of feed) m.orient[t] = 3;
+      return {
+        map: m,
+        focus: [...track, ...feed],
+        bulk: {
+          at: [[l, 'coal', 40], ...feed.map((t) => [t, 'coal', 4] as [number, 'coal', number])],
+          grabs: [],
+        },
+      };
+    }
     case 'siding': {
       lay(
         m,
@@ -220,6 +296,10 @@ export const PICTURED: readonly string[] = [
   'boxOutStore',
   'yardGantry',
   'siding',
+  'loadout',
+  'grabCrane',
+  'belt',
+  'stockpile',
   'jetty',
   'quay',
   'buoyIn',
@@ -312,6 +392,8 @@ export interface Staged {
   box: Box3;
   structures: Structures;
   map: GameMap;
+  /** Bulk cargo and the grab cranes, for a bulk tool's picture. */
+  bulk?: BulkLayer;
 }
 
 /** `tool` on a little patch of shore, as its build menu card shows it, or null for a tool with no picture. */
@@ -344,6 +426,13 @@ export function stage(tool: string): Staged | null {
   water.position.set(COAST + (W - COAST + 40) / 2, -0.02, H / 2);
   const content = new Group();
   content.add(land, water, structures.group);
+  // Bulk cargo on the belts and heaps, and the grab crane at work.
+  const bulk = p.bulk ? new BulkLayer(p.map) : undefined;
+  if (bulk && p.bulk) {
+    bulk.push(p.bulk, 1);
+    bulk.update(performance.now());
+    content.add(bulk.group);
+  }
   if (one) {
     const [x, y] = tool === 'tug' ? [COAST + 1, 3] : [2, 3];
     one.position.set(x + 0.5, tool === 'tug' ? 0 : surfaceY(p.map, x + 0.5, y + 0.5), y + 0.5);
@@ -361,7 +450,7 @@ export function stage(tool: string): Staged | null {
   if (box.isEmpty()) solidBounds(structures.group, box);
   // Seen as the game sees it: never the quay walls down to the seabed.
   box.min.y = Math.max(box.min.y, -0.05);
-  return { content, box, structures, map: p.map };
+  return { content, box, structures, map: p.map, bulk };
 }
 
 function picture(tool: string): string | null {
