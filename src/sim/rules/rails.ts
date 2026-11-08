@@ -7,6 +7,7 @@ import * as B from '../balance';
 import type { GameMap } from '../map';
 import { railColumn } from '../railway';
 import { Build, Terrain } from '../types';
+import { RAILS } from '../orient';
 
 export interface Siding {
   /** The main line's tile its switch is on. */
@@ -17,9 +18,19 @@ export interface Siding {
   side: 1 | -1;
 }
 
+/** A port road the siding track runs across: a level crossing in the port. */
+export function portCrossing(map: GameMap, i: number): boolean {
+  return i >= 0 && map.build[i] === Build.PortRoad && (map.orient[i] & RAILS) !== 0;
+}
+
+/** Siding track, on its own or across a port road. */
+export function isTrack(map: GameMap, i: number): boolean {
+  return i >= 0 && (map.build[i] === Build.Siding || portCrossing(map, i));
+}
+
 /** The siding tile `i` is part of, if it is one. */
 export function sidingAt(map: GameMap, i: number): Siding | null {
-  if (i < 0 || map.build[i] !== Build.Siding) return null;
+  if (!isTrack(map, i)) return null;
   const rail = railColumn(map);
   if (rail < 0) return null;
   const y = map.yOf(i);
@@ -27,7 +38,7 @@ export function sidingAt(map: GameMap, i: number): Siding | null {
   const tiles: number[] = [];
   for (let x = rail + side; x >= 0 && x < map.w; x += side) {
     const t = map.idx(x, y);
-    if (map.build[t] !== Build.Siding) break;
+    if (!isTrack(map, t)) break;
     tiles.push(t);
   }
   if (!tiles.includes(i)) return null;
@@ -59,7 +70,11 @@ export function sidings(map: GameMap): Siding[] {
 export function sidingError(map: GameMap, i: number, pending?: ReadonlySet<number>): string | null {
   const rail = railColumn(map);
   if (rail < 0) return 'There is no railway on this map';
-  if (map.build[i] !== Build.None) return 'Something is already built here';
+  // Across a port road, a level crossing; nothing else is built over.
+  const road = map.build[i] === Build.PortRoad;
+  if (road && map.orient[i] & RAILS) return 'The track runs here already';
+  if (road && map.store[i]) return 'Clear the storage marked out here first';
+  if (map.build[i] !== Build.None && !road) return 'Something is already built here';
   if (!map.isLand(i)) return 'Track goes on land';
   if (map.terrain[i] === Terrain.Rock) return 'Rock is in the way: bulldoze it first';
   const x = map.xOf(i);
@@ -69,7 +84,7 @@ export function sidingError(map: GameMap, i: number, pending?: ReadonlySet<numbe
   // Joined to the main line by track all the way.
   for (let k = rail + side; k !== x; k += side) {
     const t = map.idx(k, y);
-    if (map.build[t] !== Build.Siding && !pending?.has(t)) {
+    if (!isTrack(map, t) && !pending?.has(t)) {
       return 'A siding runs straight out from the main line: lay it from beside the line, along the row';
     }
   }
@@ -87,7 +102,7 @@ export function sidingError(map: GameMap, i: number, pending?: ReadonlySet<numbe
         if (dy === 0 && s === side) return false;
         if (!map.inBounds(rail + s, y + dy)) return false;
         const t = map.idx(rail + s, y + dy);
-        return map.build[t] === Build.Siding || (pending?.has(t) && t !== i);
+        return isTrack(map, t) || (pending?.has(t) && t !== i);
       });
       if (other) return `Switches need ${B.SWITCH_GAP} rows of plain line between them`;
     }
@@ -97,6 +112,8 @@ export function sidingError(map: GameMap, i: number, pending?: ReadonlySet<numbe
 
 /** Why siding tile `i` cannot be taken up yet: only from the buffer stop back. */
 export function sidingBulldozeError(map: GameMap, i: number): string | null {
+  // Bulldozing a crossing takes up the road and leaves the track.
+  if (portCrossing(map, i)) return null;
   const s = sidingAt(map, i);
   if (!s || s.tiles.at(-1) === i) return null;
   return 'Take a siding up from its buffer stop back';

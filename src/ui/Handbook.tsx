@@ -449,6 +449,20 @@ export const TOPICS: Record<TopicId, Topic> = {
           the end nearer the highway, out at the other, queueing along it behind each other. A
           longer yard along the lane gives more spots.
         </p>
+        <p>
+          Once the town has its <b>railway station</b>, the port may lay <b>rail sidings</b> (Roads,
+          then Rail siding): straight out from beside the main line along a row, on the port's land,
+          to a buffer stop, each leaving the line by a switch {B.SWITCH_GAP} rows at least from
+          another or a level crossing. A <b>rail line</b>'s container trains call at a siding with a
+          container yard a row or two off it: they wait off the map until the main line is clear,
+          pull in and stand while reach stackers unload what they bring into a yard for cargo going
+          out, to go on the feeders, and load them with containers customs have cleared from a yard
+          for cargo coming in. A train leaves once it is worked, or after a day at most, and the
+          containers it takes away are paid for as it goes. A train is {B.WAGON_BOXES} containers a
+          wagon, as many wagons as the siding holds and the line sends, up to {B.TRAIN_MAX_WAGONS}.
+          A port road may cross a siding on the level: no one goes onto it while a train is on it or
+          coming, and paths go round while one stands across it.
+        </p>
       </>
     ),
   },

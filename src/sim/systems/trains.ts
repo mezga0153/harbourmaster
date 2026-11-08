@@ -11,8 +11,10 @@ import { Build, TICKS_PER_DAY } from '../types';
 import {
   CAR_LENGTH,
   RAIL_RUN,
+  along,
   arrived,
   moving,
+  pointAt,
   railColumn,
   runTrain,
   stepThrough,
@@ -22,7 +24,7 @@ import {
   type Point,
   type Train,
 } from '../railway';
-import { sidingAt, sidings, type Siding } from '../rules/rails';
+import { portCrossing, sidingAt, sidings, type Siding } from '../rules/rails';
 import type { Crate } from '../state';
 import { aboard, wagonCells, yardsBeside } from './cargo/wagons';
 import { book, payout } from './economy';
@@ -177,6 +179,10 @@ export function stepTrains(w: World): void {
         }
         break;
       case 'in':
+        if (crossingAhead(w, t)) {
+          t.speed = 0;
+          break;
+        }
         runTrain(t);
         if (arrived(t)) {
           v.state = 'standing';
@@ -195,6 +201,10 @@ export function stepTrains(w: World): void {
         }
         break;
       case 'out':
+        if (crossingAhead(w, t)) {
+          t.speed = 0;
+          break;
+        }
         runTrain(t);
         if (arrived(t) && s) {
           v.state = 'away';
@@ -218,7 +228,16 @@ export function stepTrains(w: World): void {
       (t.port.state === 'standing' && (w.tick >= t.port.leaves || worked(t))),
   );
   if (w.tick % 10 === 3) callTrains(w);
-  stepThrough(rail, w.scenery, w.tick, column, w.map.h, w.town?.stage ?? 0, waiting || !clear());
+  stepThrough(
+    rail,
+    w.scenery,
+    w.tick,
+    column,
+    w.map.h,
+    w.town?.stage ?? 0,
+    waiting || !clear(),
+    stationRow(w, column),
+  );
 }
 
 /**
@@ -299,4 +318,87 @@ export function callTrains(w: World): void {
     c.nextBoatTick =
       w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
   }
+}
+
+/** The tiles under each car of a train, by the middle of the car. */
+function carTiles(w: World, t: Train): Set<number> {
+  const out = new Set<number>();
+  const m = w.map;
+  for (let k = 0; k < t.cars.length; k++) {
+    for (const f of [0.2, 0.5, 0.8]) {
+      const p = pointAt(t.way, t.at - (k + f) * CAR_LENGTH);
+      const x = Math.floor(p.x);
+      const y = Math.floor(p.y);
+      if (m.inBounds(x, y)) out.add(m.idx(x, y));
+    }
+  }
+  return out;
+}
+
+/** Whether a port train standing in its siding stands across this crossing in the port. */
+export function trainOver(w: World, i: number): boolean {
+  if (!portCrossing(w.map, i)) return false;
+  return portTrains(w).some((t) => t.port.state === 'standing' && carTiles(w, t).has(i));
+}
+
+/** How near, in tiles, a port train coming to a crossing in the port holds the road. */
+const CROSSING_HOLD = 2.5;
+
+/**
+ * Whether no one may go onto this crossing in the port now: a train is on
+ * it, or one under way is about to be.
+ */
+export function trackHeld(w: World, i: number): boolean {
+  if (!portCrossing(w.map, i)) return false;
+  const cx = w.map.xOf(i) + 0.5;
+  const cy = w.map.yOf(i) + 0.5;
+  for (const t of portTrains(w)) {
+    if (t.port.state === 'due' || t.port.state === 'away') continue;
+    if (carTiles(w, t).has(i)) return true;
+    if (t.port.state === 'standing') continue;
+    const s = along(t.way, cx, cy);
+    if (s !== null && s >= t.at && s - t.at <= CROSSING_HOLD) return true;
+  }
+  return false;
+}
+
+/** Whether someone is still on a crossing in the port just ahead of a train, which waits for them. */
+function crossingAhead(w: World, t: Train): boolean {
+  const s = sidingOf(w, t);
+  if (!s) return false;
+  const m = w.map;
+  for (const i of s.tiles) {
+    if (!portCrossing(m, i)) continue;
+    const at = along(t.way, m.xOf(i) + 0.5, m.yOf(i) + 0.5);
+    if (at === null || at < t.at - 0.5 || at - t.at > 1.5) continue;
+    if (w.people.some((p) => w.tileOf(p) === i) || w.trucks.some((q) => w.tileOf(q) === i)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The row of the town's railway station, standing beside the main line, if it has one. */
+export function stationRow(w: World, column: number): number | undefined {
+  const m = w.map;
+  if (column < 0) return undefined;
+  for (let y = 0; y < m.h; y++) {
+    for (const dx of [1, -1]) {
+      if (m.inBounds(column + dx, y) && m.build[m.idx(column + dx, y)] === Build.Station) return y;
+    }
+  }
+  return undefined;
+}
+
+/** Why a siding's trains cannot be worked, or nothing: too short, no yard beside it, no stacker. */
+export function sidingTrouble(w: World, s: Siding): string | undefined {
+  if (sidingCars(s) < 2) return 'Too short for a train: lay the siding at least three tiles long';
+  const yards = yardsBeside(w, s);
+  if (yards.length === 0) {
+    return 'No container yard beside it for its trains to be worked from: mark one out a row or two off the track';
+  }
+  if (!w.people.some((p) => p.kind === 'stacker')) {
+    return 'No reach stacker to unload and load the wagons: buy one at a depot';
+  }
+  return undefined;
 }

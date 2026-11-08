@@ -1,6 +1,6 @@
 import type { EntityView, ProblemView, Snapshot } from '../protocol';
 import type { GameMap } from '../sim/map';
-import { anchorOf } from '../sim/rules';
+import { anchorOf, sidingAt } from '../sim/rules';
 import { ownedByTown } from '../sim/town';
 import { Build, isTownBuilding } from '../sim/types';
 import { craneGuide, stepFor } from '../ui/guides';
@@ -64,12 +64,9 @@ export function selectionAt(
   if (map?.build[i] === Build.YardGantry) return { type: 'yardGantry', idx: i };
   if (s?.yards.some((y) => y.idx === i)) return { type: 'yard', idx: i };
   if (map && (ownedByTown(map, i) || isTownBuilding(map.build[i]))) return { type: 'town' };
-  if (
-    map &&
-    (map.build[i] === Build.Rail ||
-      map.build[i] === Build.Crossing ||
-      map.build[i] === Build.Siding)
-  ) {
+  const siding = map ? sidingAt(map, i) : null;
+  if (siding) return { type: 'siding', idx: siding.switch };
+  if (map && (map.build[i] === Build.Rail || map.build[i] === Build.Crossing)) {
     return { type: 'railway' };
   }
   return null;

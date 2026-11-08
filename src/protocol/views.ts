@@ -543,7 +543,8 @@ export interface ProblemView {
     | 'boat'
     | 'worker'
     | 'dock'
-    | 'contract';
+    | 'contract'
+    | 'siding';
   idx: number;
 }
 
@@ -642,6 +643,13 @@ export interface SidingView {
   cars: number;
   /** Container yards beside it its trains are worked from. */
   yards: number;
+  /** Of those, the ones for cargo coming in, which trains load from, and going out, they unload into. */
+  yardsIn: number;
+  yardsOut: number;
+  /** Port roads it crosses on the level. */
+  crossings: number;
   /** The port train calling at it, by id, if one is. */
   train?: number;
+  /** Why its trains cannot be worked, if they cannot. */
+  why?: string;
 }

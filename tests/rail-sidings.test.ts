@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
-import { LANDMARKS } from '../src/sim/town';
+import { growTown, LANDMARKS } from '../src/sim/town';
 import {
   CAR_LENGTH,
   crossingClosed,
@@ -9,9 +9,24 @@ import {
   pointAt,
   railColumn,
   railFromSave,
+  STATION_DWELL,
 } from '../src/sim/railway';
-import { bulldozeError, placementError, sidingAt, sidings } from '../src/sim/rules';
-import { portTrains, sendPortTrain, sidingCars } from '../src/sim/systems/trains';
+import {
+  bulldozeError,
+  placementError,
+  portCrossing,
+  sidingAt,
+  sidings,
+  storeError,
+} from '../src/sim/rules';
+import {
+  portTrains,
+  sendPortTrain,
+  sidingCars,
+  stationRow,
+  trackHeld,
+  trainOver,
+} from '../src/sim/systems/trains';
 import { addContract, offerBlocked } from '../src/sim/systems/economy';
 import { boxesIn, putBox } from '../src/sim/systems/cargo/stores';
 import type { RailTerms } from '../src/sim/contracts';
@@ -249,5 +264,87 @@ describe('Container trains', () => {
     addContract(world, terms, world.tick, 0);
     for (let t = 0; t < 100; t++) world.step();
     expect(portTrains(world)).toHaveLength(0);
+  });
+});
+
+describe('Level crossings in the port', () => {
+  it('lay a port road across a siding, or a siding across a port road, and keep both', () => {
+    const world = stationTown();
+    const m = world.map;
+    const y = freeRow(world, 7);
+    const tiles = rowOut(world, y, 7);
+    // A port road already across the row.
+    world.command({
+      type: 'build',
+      kind: 'portRoad',
+      tiles: [tiles[3], tiles[3] - m.w, tiles[3] + m.w],
+    });
+    world.command({ type: 'build', kind: 'siding', tiles });
+    expect(m.build[tiles[3]]).toBe(Build.PortRoad);
+    expect(portCrossing(m, tiles[3])).toBe(true);
+    expect(sidingAt(m, tiles[0])!.tiles).toEqual(tiles);
+    // And a road laid across the track afterwards.
+    world.command({ type: 'build', kind: 'portRoad', tiles: [tiles[5]] });
+    expect(portCrossing(m, tiles[5])).toBe(true);
+    // No storage or parking on the track.
+    expect(storeError(m, tiles[3], 'boxes', true)).toMatch(/siding/);
+    // Bulldozed, the road goes and the track stays.
+    world.command({ type: 'bulldoze', tiles: [tiles[5]] });
+    expect(m.build[tiles[5]]).toBe(Build.Siding);
+    expect(sidingAt(m, tiles[0])!.tiles).toEqual(tiles);
+  });
+
+  it('are kept clear while a train stands across one, and hold a train coming for whoever is on one', () => {
+    const world = stationTown();
+    const m = world.map;
+    const y = freeRow(world, 9);
+    const tiles = rowOut(world, y, 9);
+    world.command({ type: 'build', kind: 'siding', tiles });
+    // A crossing near the switch, where a long train stands across it.
+    const at = tiles[1];
+    world.command({ type: 'build', kind: 'portRoad', tiles: [at] });
+    const train = sendPortTrain(world, sidings(m)[0], 'flat', 200)!;
+    let held = false;
+    for (let t = 0; t < TICKS_PER_DAY && train.port!.state !== 'standing'; t++) {
+      world.step();
+      held ||= trackHeld(world, at);
+    }
+    expect(held).toBe(true);
+    expect(train.port!.state).toBe('standing');
+    expect(trainOver(world, at)).toBe(true);
+    expect(world.walkCost(at, at - m.w)).toBe(Infinity);
+    expect(world.driveCost(at, at - m.w)).toBe(Infinity);
+    // Not the yard's ground, which the machines' reach is worked out on.
+    expect(world.yardCost(at, at - m.w)).toBe(1);
+  });
+});
+
+describe('The town’s railway station', () => {
+  it('has the passenger trains stop at it, and the freight run straight through', () => {
+    const world = stationTown();
+    const m = world.map;
+    for (let k = 0; k < 40 && !m.build.includes(Build.Station); k++) {
+      growTown(world.town!, m, () => {});
+    }
+    const row = stationRow(world, railColumn(m));
+    expect(row).toBeDefined();
+    let stopped = 0;
+    let freightStopped = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 6; t++) {
+      if (world.rail.trains.length === 0) world.rail.nextTrain = world.tick;
+      world.step();
+      for (const tr of world.rail.trains) {
+        if (tr.port || tr.speed > 0) continue;
+        if (!tr.cars.includes('coach')) freightStopped++;
+        else {
+          stopped++;
+          // Its middle by the platform.
+          const mid = pointAt(tr.way, tr.at - (tr.cars.length * CAR_LENGTH) / 2);
+          expect(Math.abs(mid.y - (row! + 0.5))).toBeLessThan(0.2);
+        }
+      }
+    }
+    expect(stopped).toBeGreaterThan(STATION_DWELL / 2);
+    expect(freightStopped).toBe(0);
   });
 });

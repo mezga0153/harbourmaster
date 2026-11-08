@@ -32,6 +32,12 @@ export const GATE_IN = 16;
 /** On a port gate: trucks only drive out through it. */
 export const GATE_OUT = 32;
 
+/**
+ * On a port road tile: the port's siding track runs across it, a level
+ * crossing; the road goes on as road, and the track as track.
+ */
+export const RAILS = 128;
+
 /** On a parking tile: it is marked out on port road, not public road. */
 export const ON_PORT_ROAD = 16;
 /** On a parking tile: its lot runs the other way round from the usual. */

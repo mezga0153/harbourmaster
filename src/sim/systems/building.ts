@@ -50,6 +50,7 @@ import {
   ON_QUAY,
   PARK_FLIP,
   PARK_MIRROR,
+  RAILS,
 } from '../orient';
 import { isLandError, nextPrice, ownedPlots, plotBounds, plotError, plotPrice } from '../land';
 import * as B from '../balance';
@@ -90,7 +91,7 @@ import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
 import { sidingsOpen, sidingsShutWhy, trainAt } from './trains';
-import { sidingAt } from '../rules/rails';
+import { isTrack, portCrossing, sidingAt } from '../rules/rails';
 import { railColumn } from '../railway';
 import { boxesIn, jibStows, putBox, removePile, yardCells, yardSlots } from './cargo/stores';
 import { dest } from './cargo/customs';
@@ -146,6 +147,18 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         const crossing = def.code === Build.Road && w.map.build[t] === Build.Rail;
         // Parking is marked out on a road: which kind it was, for when it is unmarked.
         const under = kind === 'parking' && w.map.build[t] === Build.PortRoad ? ON_PORT_ROAD : 0;
+        // Siding track and a port road across each other: a level crossing,
+        // the road kept as it was with the track across it.
+        const was = w.map.build[t];
+        const railsOver = kind === 'siding' && was === Build.PortRoad;
+        const roadOver = kind === 'portRoad' && was === Build.Siding;
+        if (railsOver || roadOver) {
+          w.map.build[t] = Build.PortRoad;
+          w.map.orient[t] = (railsOver ? w.map.orient[t] : 0) | RAILS;
+          w.map.deco[t] = Deco.None;
+          w.dirty.add(t);
+          return;
+        }
         w.map.build[t] = crossing ? Build.Crossing : def.code;
         w.map.orient[t] =
           (ROTATABLE.has(kind) ? partOrient(f, k) : 0) |
@@ -156,7 +169,7 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
       });
       if (kind === 'truckBay' || kind === 'largeBay') addBay(w, i);
       // The track either side changes with it: a switch, a buffer stop.
-      if (kind === 'siding') w.dirty.add(i - 1).add(i + 1);
+      if (kind === 'siding' || kind === 'portRoad') w.dirty.add(i - 1).add(i + 1);
       if (kind === 'depot') shutIn ??= depotDoorTrouble(w.map, i, f) ?? undefined;
       if (kind === 'jibCrane') {
         addCrane(w, i, 'jib');
@@ -857,7 +870,7 @@ export function bulldoze(w: World, tiles: number[]): void {
   let stores = false;
   // Siding track comes up from its buffer stop back.
   const rail = railColumn(w.map);
-  const out = (i: number) => (w.map.build[i] === Build.Siding ? Math.abs(w.map.xOf(i) - rail) : -1);
+  const out = (i: number) => (isTrack(w.map, i) ? Math.abs(w.map.xOf(i) - rail) : -1);
   for (const t of [...tiles].sort((a, b) => out(b) - out(a))) {
     if (t < 0 || t >= w.map.build.length) continue;
     // A click anywhere on a building takes all of it down.
@@ -899,6 +912,10 @@ export function bulldoze(w: World, tiles: number[]): void {
     } else if (w.map.build[i] === Build.Crossing) {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
+    } else if (portCrossing(w.map, i)) {
+      // Taking up a crossing's road leaves the siding.
+      w.map.build[i] = Build.Siding;
+      w.map.orient[i] = 0;
     } else if (w.map.build[i] === Build.Siding) {
       w.map.build[i] = Build.None;
       w.map.orient[i] = 0;

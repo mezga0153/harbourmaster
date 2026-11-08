@@ -99,8 +99,8 @@ import {
   takesImports,
 } from './cargo/stores';
 import { bedCap, bedView, trailerLooks } from './cargo/beds';
-import { sidingCars, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
-import { sidings } from '../rules/rails';
+import { sidingCars, sidingTrouble, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
+import { portCrossing, sidings } from '../rules/rails';
 import { bySiding, yardsBeside } from './cargo/wagons';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
@@ -489,6 +489,13 @@ export function problems(w: World): ProblemView[] {
     const text = craneTrouble(w, c);
     const h = c.kind === 'jib' ? 1.7 : c.kind === 'gantry' ? 2.9 : 2.3;
     if (text) out.push({ ...middle([c.idx]), h, text, type: 'crane', idx: c.idx });
+  }
+  // Sidings a rail line's trains cannot be worked at.
+  if (w.contracts.some((c) => c.terms.kind === 'rail')) {
+    for (const s of sidings(m)) {
+      const text = sidingTrouble(w, s);
+      if (text) out.push({ ...middle(s.tiles), h: 0.9, text, type: 'siding', idx: s.switch });
+    }
   }
   // Yard gantries working no yard: beside none, or a second by one.
   for (const [g, text] of gantries(w).idle) {
@@ -1160,13 +1167,20 @@ export function buildSnapshot(w: World): Snapshot {
       y: w.map.yOf(w.town.centre),
     },
     trains: w.rail.trains.map((t) => structuredClone(t)),
-    sidings: sidings(w.map).map((x) => ({
-      switch: x.switch,
-      tiles: x.tiles,
-      cars: sidingCars(x),
-      yards: yardsBeside(w, x).length,
-      train: trainAt(w, x.switch)?.id,
-    })),
+    sidings: sidings(w.map).map((x) => {
+      const yards = yardsBeside(w, x);
+      return {
+        switch: x.switch,
+        tiles: x.tiles,
+        cars: sidingCars(x),
+        yards: yards.length,
+        yardsIn: yards.filter((y) => !y.outgoing).length,
+        yardsOut: yards.filter((y) => y.outgoing).length,
+        crossings: x.tiles.filter((i) => portCrossing(w.map, i)).length,
+        train: trainAt(w, x.switch)?.id,
+        why: sidingTrouble(w, x),
+      };
+    }),
     offers: w.offers.map((o) => ({
       id: o.id,
       terms: o.terms,

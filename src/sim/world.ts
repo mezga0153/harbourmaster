@@ -37,7 +37,7 @@ import { DEFAULT_PILOT, type PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, railFromSave, type RailState } from './railway';
-import { sendPortTrain, stepTrains } from './systems/trains';
+import { sendPortTrain, stepTrains, trackHeld, trainOver } from './systems/trains';
 import { sidings } from './rules/rails';
 import {
   clearTown,
@@ -1098,9 +1098,9 @@ export class World {
 
   boatCost: CostFn = (i) => boatCostFor(this, B.BOAT_DRAFT)(i);
 
-  /** Dockhands stay on the port: paths, jetties, quays and port buildings. */
+  /** Dockhands stay on the port: paths, jetties, quays and port buildings; never under a train. */
   walkCost: CostFn = (i, from) =>
-    walkableAt(this.map, i) && throughDoor(this, i, from) ? 1 : Infinity;
+    walkableAt(this.map, i) && throughDoor(this, i, from) && !trainOver(this, i) ? 1 : Infinity;
 
   /** Forklifts need a hard surface; wooden jetties cannot take the weight. */
   /** Where port machines may be at all: port roads and quays, off the stacks in a container yard. */
@@ -1113,7 +1113,10 @@ export class World {
    * along the quay only where there is no other way at all, as on a pier
    * too narrow for anything else.
    */
-  driveCost: CostFn = (i, from) => {
+  driveCost: CostFn = (i, from) => (trainOver(this, i) ? Infinity : this.yardCost(i, from));
+
+  /** As driveCost, whatever trains stand across the port's roads: the ground as it is built. */
+  yardCost: CostFn = (i, from) => {
     // Never across a yard gantry's rails, as trucks never do.
     if (from !== undefined && from >= 0 && crossesRails(this, from, i)) return Infinity;
     if (!throughDoor(this, i, from)) return Infinity;
@@ -1154,8 +1157,9 @@ export class World {
     const cuts = 'contractId' in a;
     while (budget > 1e-6 && a.path.length > 0) {
       const next = a.path[0];
-      // Hold back at the edge of a tile someone else is standing on.
-      if (canEnter && next !== this.tileOf(a) && !canEnter(next)) {
+      // Hold back at the edge of a tile someone else is standing on, or of
+      // a crossing in the port a train is on or coming to.
+      if (next !== this.tileOf(a) && ((canEnter && !canEnter(next)) || trackHeld(this, next))) {
         a.v = 0;
         return 'waiting';
       }

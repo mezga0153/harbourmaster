@@ -263,6 +263,7 @@ export class Structures {
       {
         lights: this.each('lights'),
         crossings: this.each('crossing'),
+        signals: this.each('signal'),
         buoys: this.each('buoy'),
         gates: this.each('gate'),
       },

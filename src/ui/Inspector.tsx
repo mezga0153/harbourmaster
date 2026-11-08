@@ -12,6 +12,7 @@ import { FlipBook } from './Guide';
 import { craneGuide, stepFor } from './guides';
 import { cash, openGuide, selected, selection, snapshot, tier } from './store';
 import { RailwayPanel, TownPanel } from './Town';
+import { SidingInfo } from './Siding';
 import { InfoHeader, Meter, More, Why } from './widgets';
 
 // What the player has clicked on the map, in the panel down the side: a
@@ -69,6 +70,7 @@ export function InfoPanel({ actions }: { actions: Actions }) {
 
   if (sel.type === 'town') return <TownPanel actions={actions} />;
   if (sel.type === 'railway') return <RailwayPanel />;
+  if (sel.type === 'siding') return <SidingInfo idx={sel.idx} />;
   if (sel.type === 'yardGantry') return <YardGantryInfo idx={sel.idx} onClose={close} />;
   if (sel.type === 'office') return <OfficeInfo hut={!!sel.hut} idx={sel.idx} onClose={close} />;
   if (sel.type === 'customs') return <CustomsInfo onClose={close} />;

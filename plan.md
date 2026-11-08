@@ -372,11 +372,12 @@ tonnes tile by tile; the town keeps its landmarks.
 1. **The Container Port's landmarks** (progression.md): containers trucked
    out and put on board, ending at the town's **railway station**, which
    opens rail.
-2. **Rail at the port, for containers** (first version in: sidings,
-   trains on ways with one under way at a time, rail lines whose trains
-   reach stackers work from yards beside the siding; still to come: level
-   crossings with port roads, signals drawn, yard gantries over a siding,
-   passenger trains at the station, a siding panel). A switch off the main line and
+2. **Rail at the port, for containers** (in: sidings, trains on ways with
+   one under way at a time, rail lines whose trains reach stackers work
+   from yards beside the siding, port roads crossing sidings on the level,
+   signals at the switches, passenger trains calling at the town's station,
+   a siding panel and red marks; still to come: yard gantries over a
+   siding, a lesson). A switch off the main line and
    siding track the player drags out on owned land, crossing port roads on
    the level (`src/sim/rules/rails.ts`, a track graph like the trucks' road
    graph, with a debug overlay). `railway.ts` goes from one `train` to a

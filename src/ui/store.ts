@@ -29,6 +29,8 @@ export type Selection =
   | { type: 'customs'; idx: number }
   | { type: 'parking'; idx: number }
   | { type: 'yardGantry'; idx: number }
+  /** A siding, by its switch's tile. */
+  | { type: 'siding'; idx: number }
   | { type: 'town' }
   | { type: 'railway' };
 

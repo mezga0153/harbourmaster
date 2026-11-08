@@ -123,6 +123,8 @@ export function placementError(
   const upgrade =
     (kind === 'quay' && map.build[i] === Build.Jetty) ||
     (kind === 'portRoad' && map.build[i] === Build.Footpath) ||
+    // A port road across siding track: a level crossing.
+    (kind === 'portRoad' && map.build[i] === Build.Siding) ||
     ((kind === 'office' || kind === 'harbourHut' || kind === 'customs') && onPath(map, i));
   if (map.build[i] !== Build.None && !upgrade) return 'Something is already built here';
 
@@ -367,7 +369,9 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (i === map.entry) return 'The main road cannot be removed';
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
-  if (map.build[i] === Build.Siding) return sidingBulldozeError(map, i);
+  if (map.build[i] === Build.Siding || map.build[i] === Build.PortRoad) {
+    return sidingBulldozeError(map, i);
+  }
   return null;
 }
 

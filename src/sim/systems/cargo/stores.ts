@@ -588,7 +588,7 @@ export function machineGround(w: World): Set<number> {
   while (queue.length > 0) {
     const from = queue.pop()!;
     for (const n of m.neighbors4(from)) {
-      if (seen.has(n) || !Number.isFinite(w.driveCost(n, from))) continue;
+      if (seen.has(n) || !Number.isFinite(w.yardCost(n, from))) continue;
       seen.add(n);
       queue.push(n);
     }

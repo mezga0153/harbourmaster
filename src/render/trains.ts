@@ -143,6 +143,7 @@ export class Trains {
       const t = m.view;
       let at = t.at + t.speed * ticks;
       if (t.stops) at = Math.min(at, wayLength(t.way));
+      if (t.stopAt !== undefined) at = Math.min(at, t.stopAt);
       const now = { ...t, at };
       this.place(m, now);
       return now;

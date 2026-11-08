@@ -487,16 +487,12 @@ function streetPlans(t: Town, map: GameMap): StreetPlan[] {
 
 /**
  * Where the town's railway station goes: open land beside the main line,
- * near the square and on a street if it can be, facing the line. None when
- * the line runs nowhere near.
+ * as near the square as there is and on a street if it can be, facing the
+ * line, however far the line runs from town. None with no open land by it.
  */
-function stationSite(
-  t: Town,
-  map: GameMap,
-  spread: number,
-): { tile: number; facing: number } | undefined {
+function stationSite(t: Town, map: GameMap): { tile: number; facing: number } | undefined {
   let best: { tile: number; facing: number } | undefined;
-  let bestScore = spread + 8;
+  let bestScore = Infinity;
   for (let i = 0; i < map.build.length; i++) {
     if (!free(map, i)) continue;
     const facing = [0, 1, 2, 3].find((f) => map.build[step(map, i, f)] === Build.Rail);
@@ -566,7 +562,7 @@ export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boo
     ...WANTED[t.stage],
   ];
   const missing = wanted.find(([code, n]) => (have.get(code) ?? 0) < n);
-  const station = missing?.[0] === Build.Station ? stationSite(t, map, spread) : undefined;
+  const station = missing?.[0] === Build.Station ? stationSite(t, map) : undefined;
   if (station) {
     // Its platform onto the main line.
     place(map, station.tile, Build.Station, station.facing, touch);

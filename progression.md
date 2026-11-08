@@ -151,7 +151,9 @@ without a siding). Its container trains call every day or two at a siding
 with a container yard a row or two off it (`yardsBeside`), bring containers
 to go out on the feeders (paid as they go on board) and take containers
 off the feeders away inland (paid as the train leaves), for the railway's
-daily fee; reach stackers work the wagons (`src/sim/systems/cargo/wagons.ts`). The Next step card asks for a
+daily fee; reach stackers work the wagons (`src/sim/systems/cargo/wagons.ts`).
+Passenger trains stop at the station (`stationRow`), which the town puts up
+beside the line however far it runs from town. The Next step card asks for a
 feeder line and container hauliers, or for the factory's offer to be
 signed. Saves from before count the steps a town is past by its size, as
 for the Coastal Wharf's.

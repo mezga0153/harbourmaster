@@ -1,5 +1,5 @@
 import type { Snapshot } from '../protocol';
-import { EXTENSION, forkliftOnly } from '../sim/rules';
+import { EXTENSION, forkliftOnly, portCrossing } from '../sim/rules';
 import type { GameMap } from '../sim/map';
 import { canBeOneWay, hasLights, isExit, ONE_WAY } from '../sim/roads';
 import { isTownStreet } from '../sim/town';
@@ -17,6 +17,7 @@ const TILES: Partial<Record<number, string>> = {
   [Build.Jetty]: 'jetty',
   [Build.Quay]: 'quay',
   [Build.Parking]: 'parking',
+  [Build.Siding]: 'siding',
 };
 /** What the player builds, counted one apiece (a two-tile building once). */
 const PIECES: Partial<Record<number, string>> = {
@@ -73,8 +74,12 @@ export function portSize(m: GameMap, s: Snapshot): PortSize {
       if (hasLights(m, i)) add('lights');
     }
     if (b === Build.PortRoad && forkliftOnly(m, i)) add('forkliftOnly');
+    if (portCrossing(m, i)) add('railCrossing');
   }
   for (const c of s.cranes) add(`${c.kind}Crane`);
+  if (s.sidings.length > 0) add('sidings', s.sidings.length);
+  const trains = s.trains.filter((t) => t.port?.contractId !== undefined).length;
+  if (trains > 0) add('portTrains', trains);
   add('docks', s.docks.total);
   return { size, port };
 }

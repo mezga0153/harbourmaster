@@ -1,6 +1,6 @@
 import { ConeGeometry, Group, Mesh, type Object3D } from 'three';
 import type { GameMap } from '../../sim/map';
-import { crossingClosed, type Train } from '../../sim/railway';
+import { crossingClosed, moving, type Train } from '../../sim/railway';
 import { GATE_IN, GATE_OUT, greenAt } from '../../sim/roads';
 import { TOWN } from '../../sim/town';
 import { Build } from '../../sim/types';
@@ -34,6 +34,14 @@ export interface LightParts {
   ew: { red: Object3D; green: Object3D }[];
 }
 
+/** A siding's signal at its switch; see `signal` in tiles.ts. */
+export interface SignalParts {
+  red: Object3D;
+  green: Object3D;
+  /** The main line's tile its switch is on. */
+  switch: number;
+}
+
 export interface CrossingParts {
   /** Barrier arms, each lifting about its post; `sign` is which way is up. */
   arms: { arm: Object3D; sign: number }[];
@@ -48,6 +56,7 @@ export interface CrossingParts {
 export interface Furniture {
   lights: Map<number, LightParts>;
   crossings: Map<number, CrossingParts>;
+  signals: Map<number, SignalParts>;
   buoys: Map<number, Object3D>;
   gates: Map<number, GateParts>;
 }
@@ -68,6 +77,12 @@ export function animateFurniture(
         lamp.red.visible = green !== way;
       }
     }
+  }
+  // Green while the siding's own train has the road, in or out; red else.
+  for (const s of f.signals.values()) {
+    const clear = trains.some((t) => moving(t) && t.port?.switch === s.switch);
+    s.green.visible = clear;
+    s.red.visible = !clear;
   }
   for (const c of f.crossings.values()) {
     const closed = crossingClosed(trains, c.x, c.y);

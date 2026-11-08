@@ -69,6 +69,10 @@ export interface Train {
   back?: boolean;
   /** Stops at the end of its way rather than running on off the map. */
   stops?: boolean;
+  /** A passenger train calling at the town's station: how far along its way it stops, while it has yet to. */
+  stopAt?: number;
+  /** Ticks it stands at the station once there. */
+  dwell?: number;
   /** A train calling at the port, rather than passing along the main line. */
   port?: PortVisit;
 }
@@ -271,7 +275,14 @@ export function mainWay(column: number, mapH: number, dir: 1 | -1): Point[] {
   return dir > 0 ? [a, b] : [b, a];
 }
 
-function makeTrain(rng: Rng, id: number, column: number, mapH: number, stage: number): Train {
+function makeTrain(
+  rng: Rng,
+  id: number,
+  column: number,
+  mapH: number,
+  stage: number,
+  station?: number,
+): Train {
   const dir = rng.next() < 0.5 ? 1 : -1;
   const passenger = rng.next() < 0.25 + stage * 0.12;
   const cars: CarKind[] = ['loco'];
@@ -288,15 +299,17 @@ function makeTrain(rng: Rng, id: number, column: number, mapH: number, stage: nu
     }
   }
   const speed = passenger ? 1.1 : 0.8;
-  return {
-    id,
-    cars,
-    variant: rng.int(0, 3),
-    speed,
-    top: speed,
-    way: mainWay(column, mapH, dir),
-    at: 0,
-  };
+  const way = mainWay(column, mapH, dir);
+  const train: Train = { id, cars, variant: rng.int(0, 3), speed, top: speed, way, at: 0 };
+  // Passengers get on and off at the town's station: the train's middle by it.
+  if (passenger && station !== undefined) {
+    const s = along(way, column + 0.5, station + 0.5);
+    if (s !== null) {
+      train.stopAt = s + trainLength(train) / 2;
+      train.dwell = STATION_DWELL;
+    }
+  }
+  return train;
 }
 
 export function newRail(rng: Rng): RailState {
@@ -309,8 +322,11 @@ export function railFromSave(r: RailState | { train?: unknown; nextTrain: number
   return { trains: [], nextTrain: r.nextTrain, nextId: 1 };
 }
 
-/** Port trains slow to a stop by this much a tick, and gather speed by half as much. */
+/** Trains slow to a stop by this much a tick at most, and gather speed by a little more. */
 const BRAKE = 0.006;
+const ACCEL = 0.008;
+/** Ticks a passenger train stands at the town's station. */
+export const STATION_DWELL = 40;
 
 /** Move a train on a tick: up to its top speed, slowing to stop at the end of its way if it stops. */
 export function runTrain(t: Train): void {
@@ -318,7 +334,19 @@ export function runTrain(t: Train): void {
     t.speed = 0;
     return;
   }
-  let v = Math.min(t.top, t.speed + BRAKE / 2);
+  let v = Math.min(t.top, t.speed + ACCEL);
+  if (t.stopAt !== undefined) {
+    const left = t.stopAt - t.at;
+    if (left <= Math.max(v, 1e-3)) {
+      // At the platform: it stands, then sets off again.
+      t.at = t.stopAt;
+      t.speed = 0;
+      if ((t.dwell ?? 0) > 0) t.dwell!--;
+      else t.stopAt = undefined;
+      return;
+    }
+    v = Math.min(v, Math.max(0.02, Math.sqrt(2 * BRAKE * left)));
+  }
   if (t.stops) {
     const left = wayLength(t.way) - t.at;
     v = Math.min(v, Math.max(0.02, Math.sqrt(2 * BRAKE * Math.max(0, left))));
@@ -355,6 +383,7 @@ export function stepThrough(
   mapH: number,
   stage: number,
   busy: boolean,
+  station?: number,
 ): void {
   for (const t of [...rail.trains]) {
     if (t.port) continue;
@@ -365,5 +394,5 @@ export function stepThrough(
     }
   }
   if (column < 0 || busy || tick < rail.nextTrain || rail.trains.some(moving)) return;
-  rail.trains.push(makeTrain(rng, rail.nextId++, column, mapH, stage));
+  rail.trains.push(makeTrain(rng, rail.nextId++, column, mapH, stage, station));
 }

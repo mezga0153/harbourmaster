@@ -15,10 +15,12 @@ import {
   EXTENSION,
   FACING,
   forksAlongZ,
+  isTrack,
   machinesOnly,
   ON_QUAY,
   type ParkingFlow,
 } from '../../sim/rules';
+import { RAILS } from '../../sim/orient';
 import { railColumn } from '../../sim/railway';
 import { TOWN } from '../../sim/town';
 import { Build, isDock, storesBoxes, storesOutgoing } from '../../sim/types';
@@ -41,6 +43,7 @@ import {
   gate,
   trafficLights,
   type CrossingParts,
+  type SignalParts,
   type GateParts,
   type LightParts,
 } from './furniture';
@@ -78,6 +81,8 @@ export interface TileParts extends Owns {
   /** A buoy, bobbing on the swell. */
   buoy?: Object3D;
   crossing?: CrossingParts;
+  /** A siding's signal at its switch. */
+  signal?: SignalParts;
   lights?: LightParts;
   /** A yard gantry, for its trolley to run as it loads trucks. */
   yardGantry?: YardGantryParts;
@@ -146,7 +151,9 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
     );
     // A switch onto a siding beside it, curving off for trains from either way.
     for (const side of [1, -1] as const) {
-      if (is(t.m, t.i, side, 0, Build.Siding)) switchCurves(t.g, t.top, side);
+      if (!isTrack(t.m, offset(t.m, t.i, side, 0))) continue;
+      switchCurves(t.g, t.top, side);
+      t.parts.signal = signal(t.g, t.top, side, t.i);
     }
     return t.g;
   },
@@ -286,7 +293,8 @@ function portRoad(t: TileBuild): Object3D {
     return g;
   }
   const way = oneWay(m, i);
-  if (way >= 0) roadArrow(g, QUAY_Y, way);
+  if (m.orient[i] & RAILS) railsAcross(m, g, i);
+  else if (way >= 0) roadArrow(g, QUAY_Y, way);
   else {
     for (const o of [0.15, 0.6]) {
       const [x, z, w, d] = along ? [o + 0.125, 0.5, 0.25, 0.04] : [0.5, o + 0.125, 0.04, 0.25];
@@ -295,6 +303,25 @@ function portRoad(t: TileBuild): Object3D {
   }
   if (hasLights(m, i)) trafficLights(g, QUAY_Y, parts);
   return g;
+}
+
+/**
+ * A port road with the siding running across it: rails set flush in the
+ * paving along the row, between yellow-and-black warning edges.
+ */
+function railsAcross(m: GameMap, g: Group, i: number): void {
+  const out = m.xOf(i) > railColumn(m) ? 1 : -1;
+  const first = is(m, i, -out, 0, Build.Rail);
+  const from = first ? (out > 0 ? 0.5 : 0) : 0;
+  const len = first ? 0.5 : 1;
+  const mid = from + len / 2;
+  g.add(box(len, 0.008, 0.44, C.quayWall, mid, QUAY_Y, 0.5));
+  for (const z of [0.35, 0.65]) g.add(box(len, 0.012, 0.03, STEEL, mid, QUAY_Y, z));
+  for (const z of [0.2, 0.8]) {
+    for (let k = 0; k < 4; k++) {
+      g.add(box(0.12, 0.007, 0.03, k % 2 ? C.stripe : 0x26282b, 0.125 + k * 0.25, QUAY_Y, z));
+    }
+  }
 }
 
 function parking(t: TileBuild): Object3D {
@@ -646,7 +673,7 @@ function track(g: Group, top: number, alongX = false): void {
 function sidingTrack(m: GameMap, g: Group, i: number, top: number): void {
   const out = m.xOf(i) > railColumn(m) ? 1 : -1;
   const first = is(m, i, -out, 0, Build.Rail);
-  const last = !is(m, i, out, 0, Build.Siding);
+  const last = !isTrack(m, offset(m, i, out, 0));
   // Along x: `u` runs across the track (z), `v` along it (x).
   const put = (w: number, h: number, d: number, color: number, u: number, y: number, v: number) =>
     g.add(box(d, h, w, color, v, y, u));
@@ -666,6 +693,22 @@ function sidingTrack(m: GameMap, g: Group, i: number, top: number): void {
     put(0.5, 0.07, 0.06, 0xd6453d, 0.5, top + 0.18, v);
     put(0.16, 0.071, 0.061, 0xf4f4f0, 0.5, top + 0.18, v);
   }
+}
+
+/**
+ * A siding's signal by its switch, on the siding side of the line: a post
+ * with a red and a green lamp, green while its train has the road.
+ */
+function signal(g: Group, top: number, side: 1 | -1, i: number): SignalParts {
+  const x = 0.5 + side * 0.44;
+  const z = 0.08;
+  g.add(cyl(0.015, 0.42, C.chassis, x, top, z, 6));
+  g.add(box(0.07, 0.15, 0.05, 0x26282b, x, top + 0.36, z));
+  const red = box(0.035, 0.035, 0.015, 0xff3b30, x, top + 0.45, z + 0.03);
+  const green = box(0.035, 0.035, 0.015, 0x34d058, x, top + 0.39, z + 0.03);
+  for (const lamp of [red, green]) lamp.castShadow = false;
+  g.add(red, green);
+  return { red, green, switch: i };
 }
 
 /**

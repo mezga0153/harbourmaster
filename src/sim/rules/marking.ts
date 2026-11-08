@@ -1,6 +1,6 @@
 // Marks on port road and quay tiles: machines only, storage areas, one-way roads, lights, gates and roundabouts, and what each may and may not be.
 
-import { FORKLIFT_ONLY, ON_PORT_ROAD } from '../orient';
+import { FORKLIFT_ONLY, ON_PORT_ROAD, RAILS } from '../orient';
 import * as B from '../balance';
 import { landError, OUTSIDE } from '../land';
 import type { GameMap } from '../map';
@@ -90,6 +90,8 @@ export function storeError(map: GameMap, i: number, kind: StoreKind, on: boolean
   if (map.store[i] === code) return 'Already marked out';
   if (map.store[i]) return 'Marked out for other storage: clear that first';
   if (gantryOver(map, i) >= 0) return 'Kept clear for a gantry crane’s rails';
+  if (map.orient[i] & RAILS && map.build[i] === Build.PortRoad)
+    return 'The siding runs across here';
   const b = map.build[i];
   return b === Build.PortRoad || b === Build.Quay
     ? null
@@ -135,6 +137,7 @@ export function parkingError(map: GameMap, i: number): string | null {
   if (b !== Build.Road && b !== Build.PortRoad)
     return 'Parking is marked out on a public road or port road: build the road first';
   if (map.store[i]) return 'Clear the storage marked out here first';
+  if (b === Build.PortRoad && map.orient[i] & RAILS) return 'The siding runs across here';
   if (forkliftOnly(map, i)) return 'Kept for port machines: clear the mark first';
   if (nearCrane(map, i)) return 'The ground round a crane is kept for port machines';
   return null;
