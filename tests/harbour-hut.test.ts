@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as B from '../src/sim/balance';
 import { placementError } from '../src/sim/rules';
+import { walkable } from '../src/sim/rules/placement';
+import { FORKLIFT_ONLY } from '../src/sim/orient';
 import { Build } from '../src/sim/types';
 import { World } from '../src/sim/world';
 import { docks } from '../src/sim/systems/boats/berthing';
@@ -104,6 +106,22 @@ describe('The harbourmaster', () => {
     expect(world.people.some((p) => p.id === world.officials[0].id)).toBe(false);
     const view = world.snapshot().entities.find((e) => e.kind === 'harbourmaster');
     expect(view?.name).toMatch(/^Harbourmaster /);
+  });
+
+  it('walks across ground kept for the port machines, where dockhands may not', () => {
+    const world = World.create(7, 96);
+    world.cash = 50_000;
+    byJetty(world, 'harbourHut');
+    const m = world.map;
+    for (let i = 0; i < m.build.length; i++) if (walkable(m.build[i])) m.orient[i] |= FORKLIFT_ONLY;
+    let onJetty = false;
+    for (let t = 0; t < 3000; t++) {
+      world.step();
+      const [h] = world.officials;
+      if (h && m.build[world.tileOf(h)] === Build.Jetty) onJetty = true;
+    }
+    expect(world.officials).toHaveLength(1);
+    expect(onJetty).toBe(true);
   });
 
   it('is kept in the save, and goes with the hut', () => {

@@ -11,9 +11,12 @@ import type { World } from '../world';
 import type { Boat, Official, OfficialRole } from '../state';
 import * as B from '../balance';
 import { needsCustomsOffice } from '../contracts';
-import { Build, isDock } from '../types';
+import { Build, isCrane, isDock } from '../types';
 import { findPath } from '../path';
+import type { CostFn } from '../path';
 import { frontOf } from '../rules/footprint';
+import { walkable } from '../rules/placement';
+import { throughDoor } from './workforce/dockhands';
 
 /** What each sort of official comes with, what they are called, and how they go about. */
 const ROLES: Record<
@@ -43,6 +46,18 @@ const ROLES: Record<
   },
 };
 
+/**
+ * Where officials walk: where dockhands do, and across the ground kept for
+ * the port's machines too (marked out, or round a crane), as no one has to
+ * get out of their way; never on a crane itself.
+ */
+const officialCost =
+  (w: World): CostFn =>
+  (i, from) =>
+    i >= 0 && walkable(w.map.build[i]) && !isCrane(w.map.build[i]) && throughDoor(w, i, from)
+      ? 1
+      : Infinity;
+
 /** A number from 0 to 1 for this official and `salt`, the same every run. */
 function roll(h: Official, salt: number): number {
   const k = Math.imul(h.id * 2654435761 + salt * 40503, 0x9e3779b1) ^ (salt * 97);
@@ -53,13 +68,14 @@ function roll(h: Official, salt: number): number {
 function doorStep(w: World, home: number): number {
   const m = w.map;
   const front = frontOf(m, home, m.orient[home] & 3);
-  return front >= 0 && Number.isFinite(w.walkCost(front)) ? front : -1;
+  return front >= 0 && Number.isFinite(officialCost(w)(front)) ? front : -1;
 }
 
 /** The tiles an official stops at within their beat, a walk from `from`, their door. */
 function beat(w: World, h: Official, from: number): number[] {
   const m = w.map;
   const role = ROLES[h.role];
+  const cost = officialCost(w);
   const seen = new Map<number, number>([[from, 0]]);
   const queue = [from];
   const stops: number[] = [];
@@ -69,7 +85,7 @@ function beat(w: World, h: Official, from: number): number[] {
     if (role.stops(m.build[i])) stops.push(i);
     if (d >= role.beat) continue;
     for (const n of m.neighbors4(i)) {
-      if (seen.has(n) || !Number.isFinite(w.walkCost(n, i))) continue;
+      if (seen.has(n) || !Number.isFinite(cost(n, i))) continue;
       seen.set(n, d + 1);
       queue.push(n);
     }
@@ -204,7 +220,7 @@ function nextStop(w: World, h: Official): number {
 function update(w: World, h: Official): void {
   if (h.state === 'walk') {
     // Through everyone: no waiting at the edge of a tile someone is on.
-    const r = w.move(h, w.walkCost, true, () => B.HARBOURMASTER_SPEED);
+    const r = w.move(h, officialCost(w), true, () => B.HARBOURMASTER_SPEED);
     if (r === 'moving') return;
     h.state = 'watch';
     const watch = h.role === 'customs' ? B.CUSTOMS_INSPECT : B.HARBOURMASTER_WATCH;
@@ -228,7 +244,7 @@ function update(w: World, h: Official): void {
   const goal = nextStop(w, h);
   const path =
     goal >= 0 && goal !== w.tileOf(h)
-      ? findPath(w.map.w, w.map.h, w.tileOf(h), goal, w.walkCost, true)
+      ? findPath(w.map.w, w.map.h, w.tileOf(h), goal, officialCost(w), true)
       : null;
   if (!path || path.length === 0) {
     h.timer = B.HARBOURMASTER_WATCH;
@@ -261,7 +277,7 @@ export function updateOfficials(w: World): void {
   }
   for (const h of w.officials) {
     // Stood somewhere they can no longer walk (built over): back to the door.
-    if (!Number.isFinite(w.walkCost(w.tileOf(h)))) {
+    if (!Number.isFinite(officialCost(w)(w.tileOf(h)))) {
       const at = doorStep(w, h.home);
       if (at < 0) continue;
       h.x = m.xOf(at) + 0.5;
