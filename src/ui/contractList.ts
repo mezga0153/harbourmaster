@@ -9,10 +9,12 @@ import {
 } from '../sim/contracts';
 import { TICKS_PER_DAY } from '../sim/types';
 import { paid } from './difficulty';
+import { panel } from './store';
 
 // The Contracts panel's lists, signed and offered: what kind of company each
 // is, what it carries, what it is worth a day, how it is getting on, and the
-// filters and order the player chose for them, kept in this browser.
+// filters and order the player chose for them. The order is kept in this
+// browser; the filters are cleared each time the panel opens.
 
 /** The kinds of company, as the panel's filter groups them. */
 export type KindGroup = 'fishery' | 'line' | 'feeder' | 'bulk' | 'shipper' | 'haulier' | 'rail';
@@ -249,6 +251,18 @@ function save(): void {
 }
 signedFilter.subscribe(save);
 offerFilter.subscribe(save);
+
+// Opening the panel shows everything again, in the order last picked: a
+// filter left on from last time would hide offers without a word.
+let wasOpen = false;
+panel.subscribe((p) => {
+  const open = p === 'contracts';
+  if (open && !wasOpen) {
+    signedFilter.value = { ...SIGNED_DEFAULT, sort: signedFilter.value.sort };
+    offerFilter.value = { ...OFFER_DEFAULT, sort: offerFilter.value.sort };
+  }
+  wasOpen = open;
+});
 
 const RANK: Record<Health, number> = { trouble: 0, held: 1, working: 2 };
 
