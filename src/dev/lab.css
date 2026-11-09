@@ -30,6 +30,13 @@
   background: #0b141c;
   border-bottom: 1px solid var(--lab-line);
   z-index: 20;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+#devlab .lab-tabs > * {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 #devlab .lab-tabs strong {

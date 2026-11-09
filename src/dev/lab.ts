@@ -7,6 +7,7 @@ import { el } from './controls';
 import { gallery } from './gallery';
 import { modelItems } from './models';
 import { scenesTab } from './scenes';
+import { composerTab } from './composer/panel';
 
 // The dev lab (dev.html, on the dev server only): every sound, model and
 // animation in the game to look at on its own, and the game itself to set
@@ -38,6 +39,7 @@ const TABS: Tab[] = [
       ),
   },
   { id: 'scenes', label: 'Scenes', make: scenesTab },
+  { id: 'composer', label: 'Composer', make: composerTab },
   {
     id: 'sounds',
     label: 'Sounds',
@@ -75,6 +77,7 @@ function show(id: string, a?: string, b?: string): void {
   }
   current = tab.id;
   for (const [k, btn] of buttons) btn.classList.toggle('on', k === tab.id);
+  buttons.get(tab.id)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   page.activate?.(true);
   page.open?.(a, b);
   if (!location.hash.startsWith(`#${tab.id}`)) location.hash = tab.id;

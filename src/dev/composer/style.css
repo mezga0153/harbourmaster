@@ -1,0 +1,471 @@
+/* Scoped to the experiment; nothing here is imported by the game. */
+#devlab .lab-composer {
+  overflow: auto;
+  color-scheme: dark;
+  background: radial-gradient(ellipse at 85% 0%, #1a3440 0, transparent 55%), var(--lab-bg);
+}
+
+.lab-composer .composer-content {
+  max-width: 1400px;
+  margin: auto;
+  padding: 36px 28px;
+}
+
+.lab-composer .composer-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.lab-composer .composer-eyebrow,
+.lab-composer h2 {
+  color: #a2c3bc;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.lab-composer h1 {
+  margin: 10px 0;
+  font-size: clamp(24px, 3vw, 36px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.lab-composer p {
+  color: var(--lab-text-2);
+}
+.lab-composer .composer-heading p {
+  margin: 0;
+}
+.lab-composer h2 {
+  margin: 0 0 18px;
+}
+.lab-composer .composer-badge {
+  color: #c4d9d2;
+  border: 1px solid #3e5c5c;
+  border-radius: 30px;
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lab-composer .composer-panel {
+  background: #152431;
+  border: 1px solid var(--lab-line);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.lab-composer button {
+  padding: 8px 12px;
+  border: 1px solid #37505f;
+  border-radius: 6px;
+  background: #223746;
+  color: var(--lab-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lab-composer button:hover {
+  border-color: #a2c3bc;
+}
+.lab-composer :is(button, input, select):focus-visible {
+  outline: 2px solid var(--lab-accent);
+  outline-offset: 3px;
+}
+.lab-composer button.composer-primary {
+  min-width: 100px;
+  background: #b5d2c5;
+  border-color: #b5d2c5;
+  color: #142c29;
+  font-weight: 600;
+}
+
+.lab-composer .composer-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px 32px;
+  margin-bottom: 18px;
+  padding: 16px 22px;
+}
+.lab-composer .composer-transport .lab-row {
+  margin-right: auto;
+}
+.lab-composer .composer-key {
+  color: #c4d9d2;
+  font-variant-numeric: tabular-nums;
+}
+.lab-composer .composer-workspace {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 18px;
+}
+.lab-composer .composer-arrangement {
+  align-self: start;
+}
+.lab-composer .composer-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lab-composer .composer-auditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lab-composer .composer-auditions button {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+#devlab .lab-composer .composer-settings label.lab-check {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+.lab-composer .lab-check input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: none;
+}
+.lab-composer .composer-harmony-info {
+  padding: 10px 12px;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  color: #c5d7c9;
+  font-size: 12px;
+  margin: 0 0 18px;
+  line-height: 1.7;
+}
+.lab-composer .composer-library {
+  margin-top: 18px;
+}
+.lab-composer .composer-blocks {
+  margin-top: 18px;
+}
+.lab-composer .composer-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+.lab-composer .composer-slot {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--lab-line);
+  border-radius: 8px;
+  background: #101e29;
+}
+.lab-composer .composer-slot.on {
+  border-color: #b5d2c5;
+}
+.lab-composer .composer-slot.locked {
+  box-shadow: inset 0 3px #e5b96d;
+}
+#devlab .lab-composer .composer-slot > .lab-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+#devlab .lab-composer .composer-slot select {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.lab-composer .composer-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.lab-composer .composer-slot-actions button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.lab-composer .composer-slot-actions .lab-check {
+  margin-left: auto;
+}
+.lab-composer .composer-source-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+.lab-composer .composer-source {
+  padding: 18px;
+  border: 1px solid var(--lab-line);
+  border-radius: 8px;
+  background: #101e29;
+  min-width: 0;
+}
+.lab-composer .composer-source h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 12px 0;
+}
+.lab-composer .composer-source a {
+  color: #c5dfd0;
+  text-underline-offset: 4px;
+}
+.lab-composer .composer-source p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.lab-composer .composer-source details {
+  color: var(--lab-text-2);
+  margin-top: 18px;
+  font-size: 11px;
+}
+.lab-composer .composer-source summary {
+  cursor: pointer;
+}
+.lab-composer .composer-source small {
+  font-size: 11px;
+}
+.lab-composer .composer-settings h2 {
+  margin-bottom: 0;
+}
+#devlab .lab-composer .composer-settings .lab-ctl {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+#devlab .lab-composer .composer-settings input[type='range'] {
+  width: 100%;
+}
+#devlab .lab-composer .composer-settings select {
+  width: 100%;
+  grid-column: 2 / -1;
+}
+.lab-composer .composer-description {
+  min-height: 60px;
+  margin: 0;
+  font-size: 13px;
+}
+.lab-composer input[type='range'] {
+  accent-color: #b5d2c5;
+}
+.lab-composer .composer-seed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lab-composer .composer-seed label {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--lab-text-2);
+  font-size: 13px;
+}
+.lab-composer input[type='text'] {
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--lab-text);
+  background: #0f1a24;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  font: inherit;
+}
+.lab-composer .composer-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+.lab-composer .composer-score-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.lab-composer .composer-score-heading h2 {
+  margin: 0;
+}
+.lab-composer .composer-readout {
+  color: var(--lab-text-2);
+  font-size: 12px;
+}
+.lab-composer .composer-phrases {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.lab-composer .composer-phrases span {
+  color: var(--lab-text-2);
+  font-size: 11px;
+  padding-bottom: 8px;
+}
+.lab-composer .composer-timeline {
+  display: grid;
+  grid-template-columns: repeat(32, 1fr);
+  gap: 3px;
+}
+.lab-composer .composer-timeline span {
+  height: 25px;
+  background: #243c49;
+  text-align: center;
+  font-size: 10px;
+  line-height: 25px;
+  color: #a2b8be;
+  border-radius: 2px;
+}
+.lab-composer .composer-timeline span:nth-child(8n) {
+  margin-right: 4px;
+}
+.lab-composer .composer-timeline span.on {
+  background: #b5d2c5;
+  color: #142c29;
+}
+.lab-composer .composer-score {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  height: 240px;
+  margin: 20px 0 10px;
+  overflow: hidden;
+  background: repeating-linear-gradient(to bottom, transparent 0 23px, #203340 23px 24px), #0e1c27;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+}
+.lab-composer .composer-score-bar {
+  position: relative;
+  border-right: 1px solid #37505f;
+}
+.lab-composer .composer-chord {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  color: #8caaa8;
+  font-size: 11px;
+}
+.lab-composer .composer-note {
+  position: absolute;
+  height: 5px;
+  border-radius: 2px;
+  min-width: 3px;
+}
+.lab-composer .keys {
+  --layer: #e5b96d;
+}
+.lab-composer .lead {
+  --layer: #93c9b7;
+}
+.lab-composer .bass {
+  --layer: #8faedc;
+}
+.lab-composer .pad {
+  --layer: #b5a1c9;
+}
+.lab-composer .percussion {
+  --layer: #d79282;
+}
+.lab-composer .composer-note {
+  background: var(--layer);
+}
+.lab-composer .composer-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #effff7;
+  box-shadow: 0 0 10px #b5d2c580;
+  pointer-events: none;
+}
+.lab-composer .composer-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 22px 0 12px;
+}
+.lab-composer .composer-layer {
+  flex: 1 1 110px;
+  padding: 10px;
+  background: transparent;
+  text-align: left;
+  border-top: 2px solid var(--layer);
+}
+.lab-composer .composer-layer strong {
+  display: block;
+  color: var(--layer);
+  font-size: 12px;
+}
+.lab-composer .composer-layer small {
+  display: block;
+  margin-top: 5px;
+  color: var(--lab-text-2);
+  font-size: 11px;
+}
+.lab-composer .composer-layer.muted {
+  opacity: 0.4;
+}
+.lab-composer .mute-keys .keys,
+.lab-composer .mute-lead .lead,
+.lab-composer .mute-bass .bass,
+.lab-composer .mute-pad .pad,
+.lab-composer .mute-percussion .percussion {
+  visibility: hidden;
+}
+.lab-composer .composer-status {
+  font-size: 12px;
+  margin: 16px 0 0;
+  min-height: 18px;
+}
+
+@media (max-width: 1000px) {
+  .lab-composer .composer-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lab-composer .composer-workspace {
+    grid-template-columns: 1fr;
+  }
+  .lab-composer .composer-settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px 26px;
+  }
+  .lab-composer .composer-settings h2 {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 600px) {
+  .lab-composer .composer-slots {
+    grid-template-columns: 1fr;
+  }
+  .lab-composer .composer-source-cards {
+    grid-template-columns: 1fr;
+  }
+  .lab-composer .composer-content {
+    padding: 24px 12px;
+  }
+  .lab-composer .composer-heading {
+    flex-direction: column;
+  }
+  .lab-composer .composer-settings {
+    display: flex;
+  }
+  .lab-composer .composer-panel {
+    padding: 16px;
+  }
+  .lab-composer .composer-timeline {
+    gap: 2px;
+  }
+  .lab-composer .composer-timeline span {
+    font-size: 0;
+    height: 16px;
+  }
+  .lab-composer .composer-phrases span {
+    font-size: 10px;
+  }
+  .lab-composer .composer-score {
+    height: 200px;
+  }
+}

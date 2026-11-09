@@ -60,7 +60,7 @@ export class Music {
   private room: GainNode;
   /** The recorded notes, by instrument, as they come in. */
   private recorded = new Map<Instrument, { key: number | string; buffer: AudioBuffer }[]>();
-  private loading = false;
+  private loading = new Map<Instrument, Promise<void>>();
 
   constructor(
     private ctx: BaseAudioContext,
@@ -124,23 +124,37 @@ export class Music {
    * instrument is in, the band made in code plays its part.
    */
   private load(): void {
-    if (this.loading || typeof fetch !== 'function') return;
-    this.loading = true;
-    const base = import.meta.env?.BASE_URL ?? '/';
-    for (const [inst, keys] of Object.entries(SAMPLES) as [
-      Instrument,
-      readonly (number | string)[],
-    ][]) {
-      void Promise.all(
-        keys.map(async (key) => {
-          const res = await fetch(`${base}music/${inst}/${key}.mp3`);
-          if (!res.ok) throw new Error(`${inst} ${key}: ${res.status}`);
-          return { key, buffer: await this.ctx.decodeAudioData(await res.arrayBuffer()) };
-        }),
-      )
-        .then((notes) => this.recorded.set(inst, notes))
-        .catch((err) => console.warn('Music: playing on without', inst, err));
+    if (typeof fetch !== 'function') return;
+    for (const inst of Object.keys(SAMPLES) as Instrument[]) {
+      if (!this.loading.has(inst))
+        void this.loadInstrument(inst).catch((err) =>
+          console.warn('Music: playing on without', inst, err),
+        );
     }
+  }
+
+  /** Let the lab wait for a recorded band without starting the game's composer. */
+  async prepare(band: Band): Promise<void> {
+    await Promise.all(Object.values(BAND_PARTS[band]).map((inst) => this.loadInstrument(inst)));
+  }
+
+  private loadInstrument(inst: Instrument): Promise<void> {
+    if (this.recorded.has(inst)) return Promise.resolve();
+    const pending = this.loading.get(inst);
+    if (pending) return pending;
+    const base = import.meta.env?.BASE_URL ?? '/';
+    const keys: readonly (number | string)[] = SAMPLES[inst];
+    const loading = Promise.all(
+      keys.map(async (key) => {
+        const res = await fetch(`${base}music/${inst}/${key}.mp3`);
+        if (!res.ok) throw new Error(`${inst} ${key}: ${res.status}`);
+        return { key, buffer: await this.ctx.decodeAudioData(await res.arrayBuffer()) };
+      }),
+    ).then((notes) => {
+      this.recorded.set(inst, notes);
+    });
+    this.loading.set(inst, loading);
+    return loading;
   }
 
   /** Every note of a bar, put on the clock from `t0`. */
