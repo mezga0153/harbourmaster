@@ -418,6 +418,9 @@ input:focus {
    the bar fills to --fill, under a round handle. */
 input[type='range'] {
   appearance: none;
+  /* None of a text field's padding or border: the handle runs end to end. */
+  padding: 0;
+  border: 0;
   height: 6px;
   border-radius: 3px;
   background: linear-gradient(
