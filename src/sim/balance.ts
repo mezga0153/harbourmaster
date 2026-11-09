@@ -147,7 +147,8 @@ export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the po
  * How kind the game is, picked for a new port: what cargo pays (trucked out,
  * shipped out and delivered in town) and what penalties cost (demurrage,
  * cargo claims and walk-outs), against the numbers above. Force Nine is the
- * game as it always was.
+ * game as it always was; the blurbs and the title screen measure the others
+ * against Fair Winds, the one most play.
  */
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export const DIFFICULTIES: Record<
@@ -156,19 +157,22 @@ export const DIFFICULTIES: Record<
 > = {
   easy: {
     name: 'Millpond',
-    blurb: 'Flat calm. Cargo pays half as much again and the boats hardly ever send a bill.',
+    blurb:
+      'Flat calm, for learning the ropes. Cargo pays a fifth more than on Fair Winds and penalties cost half as much.',
     pay: 1.5,
     penalties: 0.25,
   },
   medium: {
     name: 'Fair Winds',
-    blurb: 'A friendly breeze. Cargo pays a quarter more and penalties are halved.',
+    blurb:
+      'The standard harbour: steady pay, and penalties for boats kept waiting, cargo claims and walk-outs that sting without sinking you.',
     pay: 1.25,
     penalties: 0.5,
   },
   hard: {
     name: 'Force Nine',
-    blurb: 'The harbour as it really is: tight margins, and every hour a boat waits is billed.',
+    blurb:
+      'For old hands. Cargo pays a fifth less than on Fair Winds and every penalty costs twice as much: no room for slack.',
     pay: 1,
     penalties: 1,
   },

@@ -202,8 +202,8 @@ function seaSheet(go: (cmd: Command) => void, where: string | null): void {
       const blurb = document.createElement('small');
       blurb.textContent = DIFFICULTIES[d].blurb;
       const terms = document.createElement('span');
-      terms.className = 'terms';
-      terms.textContent = `Pay ×${DIFFICULTIES[d].pay} · Penalties ×${DIFFICULTIES[d].penalties}`;
+      terms.className = 'sea-terms';
+      terms.textContent = seaTerms(d);
       b.append(waves, name, blurb, terms);
       if (d === 'medium') {
         const tag = document.createElement('span');
@@ -215,6 +215,16 @@ function seaSheet(go: (cmd: Command) => void, where: string | null): void {
       return b;
     }),
   );
+}
+
+/** What a sea pays and fines, against Fair Winds: "Pay +20% · Penalties ×½". */
+function seaTerms(d: Difficulty): string {
+  const base = DIFFICULTIES.medium;
+  const pay = Math.round((DIFFICULTIES[d].pay / base.pay - 1) * 100);
+  const fines = DIFFICULTIES[d].penalties / base.penalties;
+  if (pay === 0 && fines === 1) return 'Standard pay and penalties';
+  const factor = fines === 0.5 ? '½' : String(Math.round(fines * 100) / 100);
+  return `Pay ${pay > 0 ? '+' : pay < 0 ? '−' : '±'}${Math.abs(pay)}% · Penalties ×${factor}`;
 }
 
 /** The pick could not start a game (a save file it cannot read): the menu comes back, saying why. */
