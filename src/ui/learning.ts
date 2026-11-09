@@ -60,12 +60,13 @@ export function runHelpAction(action: GuideAction, actions: Actions): void {
     guide.value = { ...g, practice: true };
   }
   if (action.tool) chooseTool(action.tool);
-  if (action.offers) {
+  if (action.offers || action.cargo) {
     contractsTab.value = 'offers';
     panel.value = 'contracts';
     offerFilter.value = {
       ...OFFER_DEFAULT,
-      kind: action.offers === 'coaster' ? 'line' : action.offers,
+      kind: action.offers === 'coaster' ? 'line' : (action.offers ?? 'all'),
+      cargo: action.cargo ?? 'all',
     };
   } else if (action.panel) {
     panel.value = action.panel;

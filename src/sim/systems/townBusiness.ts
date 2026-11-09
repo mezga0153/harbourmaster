@@ -6,6 +6,8 @@ import type { World } from '../world';
 
 /** The advisor's tip as the town opens each of these landmarks; see Advisor.tsx. */
 const LANDMARK_TIPS: Partial<Record<number, string>> = {
+  [Build.FishMarket]: 'fishMarket',
+  [Build.IceHouse]: 'iceHouse',
   [Build.Restaurant]: 'restaurant',
   [Build.Cannery]: 'cannery',
   [Build.BuildersYard]: 'buildersYard',

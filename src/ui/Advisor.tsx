@@ -185,6 +185,16 @@ export const TIPS: Record<string, Tip> = {
     text: 'Trucks go round anticlockwise, keeping right, and those coming onto it give way to those already on it. A truck that has to turn about can go round it, rather than finding somewhere wide enough to turn.',
     topic: 'trucks',
   },
+  fishMarket: {
+    title: 'The fish market',
+    text: 'The town has opened its fish market, and the market wants ice to keep its fish. Sign the ice works offer in Contracts: its trucks bring ice to a truck bay, and dockhands carry it on board the fishing boats as they unload. Next the town wants an ice house: put 20 crates of ice on board fishing boats.',
+    topic: 'growth',
+  },
+  iceHouse: {
+    title: 'The ice house',
+    text: 'The ice house is open: with ice on board, boats go further out, and the lobster boats offer their catch. Sign the lobster offer in Contracts: its boats call every day or two. Next the town wants a seafood restaurant: truck out 15 crates of lobster.',
+    topic: 'growth',
+  },
   restaurant: {
     title: 'The seafood restaurant',
     text: 'The restaurant is open and the town can grow to 400 people. At 300 people, upgrade to a Coastal Wharf in the Port panel. Then supply 30 fish crates a day for 2 days to open the cannery.',
@@ -256,6 +266,20 @@ export const TIPS: Record<string, Tip> = {
   },
 };
 
+/** The advice each landmark brings as it opens (sim/systems/townBusiness.ts). */
+const LANDMARK_TIPS = new Set([
+  'fishMarket',
+  'iceHouse',
+  'restaurant',
+  'cannery',
+  'buildersYard',
+  'school',
+  'townHall',
+  'hospital',
+  'college',
+  'station',
+]);
+
 const TIP_ACTIONS: Record<string, GuideAction> = {
   hut: { label: 'Choose break hut', tool: 'breakHut' },
   truckBays: { label: 'Choose truck bay', tool: 'truckBay' },
@@ -274,6 +298,14 @@ const TIP_ACTIONS: Record<string, GuideAction> = {
   yardGantry: { label: 'Choose yard gantry', tool: 'yardGantry' },
   yards: { label: 'Choose incoming yard', tool: 'boxStore' },
   land: { label: 'Choose land', tool: 'land' },
+  // What each landmark opens, to be signed or built.
+  fishMarket: { label: 'Show the ice offer', offers: 'shipper', cargo: 'ice' },
+  iceHouse: { label: 'Show the lobster offer', offers: 'fishery', cargo: 'lobster' },
+  restaurant: { label: 'Open the port panel', panel: 'port' },
+  buildersYard: { label: 'Show the timber offer', offers: 'coaster', cargo: 'timber' },
+  school: { label: 'Show the goods offer', offers: 'coaster', cargo: 'goods' },
+  townHall: { label: 'Open the port panel', panel: 'port' },
+  hospital: { label: 'Show the factory offer', offers: 'shipper', cargo: 'containers' },
 };
 
 /** Blockers come before background lessons; preserve arrival order within a priority. */
@@ -285,6 +317,8 @@ export function tipPriority(id: string, s: Snapshot | null): number {
   if (id === 'customsOffice' && !s.learning.customs) return 80;
   if (id === 'hut' && !s.learning.hut) return 80;
   if (id === 'quayStorage') return 70;
+  // A landmark open: what it brings to sign or build, ahead of background advice.
+  if (LANDMARK_TIPS.has(id)) return 60;
   return 0;
 }
 

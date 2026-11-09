@@ -4,6 +4,7 @@ import * as B from '../sim/balance';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Tool } from './tools';
 import type { PanelName } from './store';
+import type { Cargo } from './contractList';
 
 export type GuideCheck =
   | 'inspectBoat'
@@ -45,6 +46,8 @@ export interface GuideAction {
   panel?: PanelName;
   inspect?: 'boat' | 'dockhand' | 'truck' | 'storage' | 'crane';
   offers?: 'fishery' | 'coaster' | 'feeder' | 'haulier' | 'shipper' | 'rail';
+  /** The offers carrying this, of any kind or of `offers`'s. */
+  cargo?: Cargo;
 }
 export interface GuideStep {
   title: string;

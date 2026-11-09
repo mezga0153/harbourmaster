@@ -155,6 +155,16 @@ describe('Town', () => {
     expect(world.town!.supplied).toBeGreaterThan(0);
   });
 
+  it('has the advisor say what each landmark brings as it opens', () => {
+    const world = World.create(7, 96);
+    LANDMARKS.forEach((l, n) => {
+      world.town!.landmarks = n + 1;
+      const before = world.tipsSeen.size;
+      openLandmark(world, l);
+      expect(world.tipsSeen.size, l.name).toBeGreaterThan(before);
+    });
+  });
+
   it('is laid out again from an older save, as big as it was', () => {
     const world = World.create(5, 96);
     world.debug({ type: 'debug', town: 600 });
