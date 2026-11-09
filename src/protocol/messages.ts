@@ -54,7 +54,8 @@ export type Command =
   /** Carry on from the game saved in this browser (a new port if there is none): the title screen's pick. */
   | { type: 'continue' }
   | { type: 'newGame'; seed?: number; difficulty?: Difficulty }
-  | { type: 'save' }
+  /** Save in this browser now; `quiet` for leaving to the title screen: no message, `saved` when done. */
+  | { type: 'save'; quiet?: boolean }
   /**
    * The game as a save, for the player to keep in a file, or (forReport) to
    * send with a bug report; answered with `exported`.
@@ -129,6 +130,8 @@ export type WorkerMessage =
         difficulty: Difficulty;
       } | null;
     }
+  /** A quiet save is written (or failed): the page may go. */
+  | { type: 'saved' }
   /** A pick on the title screen that could not start a game (a save file it cannot read), and why. */
   | { type: 'refused'; text: string }
   /** Something went wrong in the worker, for the play log's error reports (src/log/errors.ts). */

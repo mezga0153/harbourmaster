@@ -30,7 +30,14 @@ import { Trains } from './trains';
 import { BulkLayer } from './bulk';
 import { buildLand, buildRocks, buildSeabed, buildSeabedDetail, buildTrees } from './terrain';
 import { Water } from './water';
-import { DEFAULT_GRAPHICS, PIXEL_RATIO, SHADOW_SIZE, WATER_LEVEL, type Graphics } from './graphics';
+import {
+  DEFAULT_GRAPHICS,
+  FRAME_GAP,
+  PIXEL_RATIO,
+  SHADOW_SIZE,
+  WATER_LEVEL,
+  type Graphics,
+} from './graphics';
 import { toCanvas, toClient } from './util/screen';
 
 const UP = new Vector3(0, 1, 0);
@@ -88,6 +95,10 @@ export class Renderer {
   private sunTarget = new Vector3();
   private viewDir = new Vector3();
   private graphics: Graphics = { ...DEFAULT_GRAPHICS };
+  /** When the last frame was drawn, for the frame rate cap. */
+  private drawn = 0;
+  /** How fast the keys pan the view, against the usual. */
+  panSpeed = 1;
 
   constructor(
     private container: HTMLElement,
@@ -417,6 +428,10 @@ export class Renderer {
 
   private frame(): void {
     const now = performance.now();
+    // Capped: a frame skipped till the gap is up, a little early to fit the screen's beat.
+    const gap = FRAME_GAP[this.graphics.fps];
+    if (gap && now - this.drawn < gap - 2) return;
+    this.drawn = now;
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     const time = (now - this.start) / 1000;
@@ -462,7 +477,7 @@ export class Renderer {
 
   private keyPan(dt: number): void {
     const k = this.keys;
-    const speed = this.cam.viewSize * 0.9 * dt;
+    const speed = this.cam.viewSize * 0.9 * dt * this.panSpeed;
     let right = 0;
     let fwd = 0;
     if (k.has('a') || k.has('arrowleft')) right -= speed;

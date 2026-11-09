@@ -2,6 +2,7 @@ import { computed, effect, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
 import type { Preview } from '../preview/types';
 import { GUIDES, type GuideId } from './guides';
+import { gameplay } from './prefs';
 import type { Tool } from './tools';
 
 // The UI's shared state: what the sim last sent, what the player has in
@@ -234,6 +235,7 @@ export const advice = signal<string[]>([]);
 export function advise(id: string): void {
   if (!advice.value.includes(id)) advice.value = [...advice.value, id];
   // The port has become a Coastal Wharf: how to build one, step by step.
+  if (!gameplay.peek().lessons) return;
   if (id === 'welcome') openGuide('start');
   if (id === 'tier1') openGuide('wharf');
   if (id === 'tier2') openGuide('harbour');

@@ -8,6 +8,8 @@ export interface Graphics {
   resolution: 'fast' | 'balanced' | 'sharp';
   /** Day and night going round with the game's days, or always day. */
   daylight: 'cycle' | 'day';
+  /** Frames a second at most: as many as the screen shows, or fewer to spare a laptop's battery. */
+  fps: 'screen' | '60' | '30';
 }
 
 export const DEFAULT_GRAPHICS: Graphics = {
@@ -15,6 +17,36 @@ export const DEFAULT_GRAPHICS: Graphics = {
   shadows: 'high',
   resolution: 'sharp',
   daylight: 'cycle',
+  fps: 'screen',
+};
+
+/** The quality presets, each setting the sea, the shadows and the pixels together. */
+export type GraphicsPreset = 'low' | 'medium' | 'high' | 'ultra';
+export const GRAPHICS_PRESETS: Record<
+  GraphicsPreset,
+  Pick<Graphics, 'water' | 'shadows' | 'resolution'>
+> = {
+  low: { water: 'low', shadows: 'off', resolution: 'fast' },
+  medium: { water: 'medium', shadows: 'low', resolution: 'balanced' },
+  high: { water: 'high', shadows: 'high', resolution: 'sharp' },
+  ultra: { water: 'high', shadows: 'ultra', resolution: 'sharp' },
+};
+
+/** The preset these settings are, if they are one. */
+export function presetOf(g: Graphics): GraphicsPreset | null {
+  for (const [name, p] of Object.entries(GRAPHICS_PRESETS) as [GraphicsPreset, Graphics][]) {
+    if (p.water === g.water && p.shadows === g.shadows && p.resolution === g.resolution) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/** The fewest milliseconds between frames, by setting; 0 for as many as the screen shows. */
+export const FRAME_GAP: Record<Graphics['fps'], number> = {
+  screen: 0,
+  '60': 1000 / 60,
+  '30': 1000 / 30,
 };
 
 /** The sea's detail as the water shader counts it. */
@@ -48,5 +80,6 @@ export function readGraphics(raw: unknown): Graphics {
     out.resolution = r.resolution;
   }
   if (r.daylight === 'cycle' || r.daylight === 'day') out.daylight = r.daylight;
+  if (r.fps === 'screen' || r.fps === '60' || r.fps === '30') out.fps = r.fps;
   return out;
 }

@@ -21,11 +21,15 @@ mirrors itself into `.debug/` (gitignored, see `src/debug/bridge.ts` and
 `HM_SAVE=1 HM_DAYS=1 npx vitest run tests/debug-save.test.ts --silent=false`
 loads `save.json` into the sim, runs it on and prints the report.
 
-The page opens on the title screen (`src/ui/loading.ts`): the worker reads
-the autosave and waits for Carry on, New port or a save file while the
-models load. `?continue` skips it and carries on (a new port if none is
-saved), for a driver or a tab you reload a lot; `/__debug/load` starts the
-game from the title screen too.
+The page opens on the title screen at `/` (`src/ui/loading.ts`, markup and
+styles in `index.html`): the worker reads the autosave and waits for
+Continue, New port (a sea and an optional coastline seed), a save file or
+Options (graphics, sound, gameplay, `src/ui/Options.tsx`, shared with
+Settings) while the models load. A game started moves the address to
+`/play` (the Worker in `server/` serves the same page there), so a refresh
+carries on with the saved port; Settings > Main menu saves and goes back to
+`/`. `?continue` skips the menu too (a new port if none is saved), for a
+driver; `/__debug/load` starts the game from the title screen as well.
 
 Automated and headless browsers don't mirror (so tests can't overwrite the
 player's files) unless the URL has `?bridge`; `?nodebug` turns it off in any tab.

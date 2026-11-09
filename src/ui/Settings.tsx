@@ -1,89 +1,13 @@
 import { useRef } from 'preact/hooks';
-import type { Graphics } from '../render/graphics';
 import type { Actions } from './actions';
 import { Icon } from './icons';
-import { graphics, soundSettings, type SoundSettings } from './prefs';
+import { GameplayOptions, GraphicsOptions, SoundOptions } from './Options';
 import { newGameOpen, panel, pushMessage } from './store';
 import { InfoHeader } from './widgets';
-import { DAY_NIGHT } from '../render/daylight';
-
-/** One graphics setting: what it is, and its choices side by side. */
-function Choice<K extends keyof Graphics>({
-  name,
-  label,
-  hint,
-  options,
-}: {
-  name: K;
-  label: string;
-  hint: string;
-  options: [Graphics[K], string][];
-}) {
-  const g = graphics.value;
-  return (
-    <div class="setting">
-      <div>
-        <div class="setting-label">{label}</div>
-        <div class="muted">{hint}</div>
-      </div>
-      <div class="segmented" role="group" aria-label={label}>
-        {options.map(([value, text]) => (
-          <button
-            key={String(value)}
-            class={g[name] === value ? 'on' : ''}
-            aria-pressed={g[name] === value}
-            onClick={() => (graphics.value = { ...g, [name]: value })}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** One sound level: what it is, and a slider from silent to full. */
-function Level({
-  name,
-  label,
-  hint,
-}: {
-  name: 'volume' | 'ambience' | 'effects' | 'music';
-  label: string;
-  hint: string;
-}) {
-  const s = soundSettings.value;
-  return (
-    <div class="setting">
-      <div>
-        <div class="setting-label">{label}</div>
-        <div class="muted">{hint}</div>
-      </div>
-      <div class="level">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(s[name] * 100)}
-          style={{ '--fill': `${Math.round(s[name] * 100)}%` }}
-          disabled={!s.on}
-          aria-label={label}
-          onInput={(e) =>
-            (soundSettings.value = {
-              ...s,
-              [name]: Number(e.currentTarget.value) / 100,
-            } as SoundSettings)
-          }
-        />
-        <span class="level-value">{Math.round(s[name] * 100)}%</span>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Settings, from the harbour mark at the top left: how the game is drawn,
- * how it sounds, and saving to a file.
+ * how it sounds and handles, saving to a file, and back to the title screen.
  */
 export function SettingsPanel({ actions }: { actions: Actions }) {
   const picker = useRef<HTMLInputElement>(null);
@@ -111,86 +35,17 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
       <div class="section-title">
         <span>Graphics</span>
       </div>
-      <Choice
-        name="water"
-        label="Water"
-        hint="Ripples, boats' wakes, and shade on the sea"
-        options={[
-          ['low', 'Low'],
-          ['medium', 'Medium'],
-          ['high', 'High'],
-        ]}
-      />
-      <Choice
-        name="shadows"
-        label="Shadows"
-        hint="Shadows from the sun, and how sharp"
-        options={[
-          ['off', 'Off'],
-          ['low', 'Low'],
-          ['high', 'High'],
-          ['ultra', 'Ultra'],
-        ]}
-      />
-      <Choice
-        name="resolution"
-        label="Resolution"
-        hint="How many pixels it draws, against your screen's"
-        options={[
-          ['fast', 'Fast'],
-          ['balanced', 'Balanced'],
-          ['sharp', 'Sharp'],
-        ]}
-      />
-      {DAY_NIGHT && (
-        <Choice
-          name="daylight"
-          label="Day and night"
-          hint="The sun going round with each game day, and a moonlit night at its end"
-          options={[
-            ['cycle', 'Day and night'],
-            ['day', 'Always day'],
-          ]}
-        />
-      )}
-      <p class="muted">
-        Lower settings run more smoothly on a slow computer. They are kept in this browser.
-      </p>
+      <GraphicsOptions />
 
       <div class="section-title">
         <span>Sound</span>
       </div>
-      <div class="setting">
-        <div>
-          <div class="setting-label">Sound</div>
-          <div class="muted">Every sound in the game, made as you play</div>
-        </div>
-        <div class="segmented" role="group" aria-label="Sound">
-          {[true, false].map((on) => (
-            <button
-              key={String(on)}
-              class={soundSettings.value.on === on ? 'on' : ''}
-              aria-pressed={soundSettings.value.on === on}
-              onClick={() => (soundSettings.value = { ...soundSettings.value, on })}
-            >
-              {on ? 'On' : 'Off'}
-            </button>
-          ))}
-        </div>
+      <SoundOptions />
+
+      <div class="section-title">
+        <span>Gameplay</span>
       </div>
-      <Level name="volume" label="Volume" hint="Everything together" />
-      <Level
-        name="effects"
-        label="The work"
-        hint="Engines, cranes, containers and crates landing, ships' horns, the port's hum from afar"
-      />
-      <Level name="ambience" label="Sea" hint="Waves washing in and out" />
-      <Level
-        name="music"
-        label="Music"
-        hint="Easy-going tunes, written as they play: never quite the same twice"
-      />
-      <p class="muted">Kept in this browser. Zoom in to hear the work, out to hear the port.</p>
+      <GameplayOptions />
 
       <div class="section-title">
         <span>Your game</span>
@@ -214,6 +69,12 @@ export function SettingsPanel({ actions }: { actions: Actions }) {
           <Icon name="map" />
           <span>Start a new port</span>
         </button>
+        {actions.mainMenu && (
+          <button class="btn" onClick={actions.mainMenu}>
+            <Icon name="exit" />
+            <span>Main menu</span>
+          </button>
+        )}
       </div>
 
       <div class="section-title">

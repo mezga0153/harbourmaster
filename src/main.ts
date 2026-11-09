@@ -14,8 +14,17 @@ import { App } from './ui/App';
 import type { Actions } from './ui/actions';
 import { downloadSave } from './ui/download';
 import { wireOverlays } from './ui/mapOverlays';
-import { assetsLoaded, failed, loaded, loading, refused, titleMenu } from './ui/loading';
-import { graphics } from './ui/prefs';
+import {
+  assetsLoaded,
+  failed,
+  loaded,
+  loading,
+  playing,
+  refused,
+  titleMenu,
+  toTitle,
+} from './ui/loading';
+import { gameplay, graphics, PAN_SPEED } from './ui/prefs';
 import { nextPrice, ownedPlots } from './sim/land';
 import {
   advise,
@@ -94,6 +103,10 @@ trackView(
 
 // Drawn as the player set it, from the start and whenever they change it.
 graphics.subscribe((g) => renderer.setGraphics(g));
+gameplay.subscribe((g) => (renderer.panSpeed = PAN_SPEED[g.pan]));
+
+/** Waiting on a quiet save to go back to the title screen. */
+let leaving: (() => void) | null = null;
 
 const actions: Actions = {
   send,
@@ -106,6 +119,13 @@ const actions: Actions = {
   rotateView: (dir) => renderer.cam.rotate(dir),
   zoom: (factor) => renderer.cam.zoom(factor),
   rotateBuilding: () => input.rotate(),
+  // Saved first, so nothing since the last autosave is lost; on anyway if the save hangs.
+  mainMenu: () => {
+    if (leaving) return;
+    leaving = toTitle;
+    send({ type: 'save', quiet: true });
+    setTimeout(toTitle, 3000);
+  },
 };
 guide.subscribe((g) => readingPause.update(!!g && !g.practice, snapshot.peek()?.speed ?? 0));
 selection.subscribe((sel) => {
@@ -149,6 +169,7 @@ worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
   // The title screen's, while the models are still loading behind it.
   if (e.data.type === 'autosave') return titleMenu(e.data.save, send);
   if (e.data.type === 'refused') return refused(e.data.text);
+  if (e.data.type === 'saved') return leaving?.();
   inbox = inbox.then(() => assetsReady).then(() => handle(e.data));
 };
 
@@ -165,7 +186,7 @@ setReportHooks({
 
 function handle(msg: WorkerMessage): void {
   if (msg.type === 'dump' || msg.type === 'debugView') return;
-  if (msg.type === 'autosave' || msg.type === 'refused') return;
+  if (msg.type === 'autosave' || msg.type === 'refused' || msg.type === 'saved') return;
   if (msg.type === 'exported') {
     if (!msg.forReport) return downloadSave(msg.save);
     for (const take of wantSave.splice(0)) take(msg.save);
@@ -178,6 +199,7 @@ function handle(msg: WorkerMessage): void {
     advice.value = [];
     map = GameMap.fromData(msg.map);
     seed.value = msg.seed;
+    playing();
     logInit();
     selection.value = null;
     renderer.setMap(map);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GRAPHICS, readGraphics } from '../src/render/graphics';
+import { DEFAULT_GRAPHICS, GRAPHICS_PRESETS, presetOf, readGraphics } from '../src/render/graphics';
 
 describe('Graphics settings kept in the browser', () => {
   it('reads back what was kept, and anything missing or unknown as the default', () => {
@@ -10,7 +10,10 @@ describe('Graphics settings kept in the browser', () => {
       shadows: 'off',
       resolution: 'fast',
       daylight: 'cycle',
+      fps: 'screen',
     });
+    expect(readGraphics({ fps: '30' }).fps).toBe('30');
+    expect(readGraphics({ fps: 144 }).fps).toBe('screen');
     expect(
       readGraphics({ water: 'low', shadows: 'off', resolution: 'fast', daylight: 'day' }).daylight,
     ).toBe('day');
@@ -18,5 +21,11 @@ describe('Graphics settings kept in the browser', () => {
       ...DEFAULT_GRAPHICS,
       shadows: 'low',
     });
+  });
+
+  it('names the preset the settings make, if any', () => {
+    expect(presetOf(DEFAULT_GRAPHICS)).toBe('high');
+    expect(presetOf({ ...DEFAULT_GRAPHICS, ...GRAPHICS_PRESETS.low })).toBe('low');
+    expect(presetOf({ ...DEFAULT_GRAPHICS, shadows: 'off' })).toBeNull();
   });
 });

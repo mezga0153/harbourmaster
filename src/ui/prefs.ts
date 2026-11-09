@@ -16,6 +16,7 @@ const PHONE_GRAPHICS: Graphics = {
   shadows: 'low',
   resolution: 'balanced',
   daylight: 'cycle',
+  fps: 'screen',
 };
 
 function onPhone(): boolean {
@@ -95,6 +96,44 @@ export const soundSettings = signal<SoundSettings>(loadSound());
 soundSettings.subscribe((s) => {
   try {
     localStorage.setItem(SOUND_KEY, JSON.stringify(s));
+  } catch {
+    // Kept for this visit only.
+  }
+});
+
+export interface Gameplay {
+  /** How fast the arrow keys and WASD pan the view. */
+  pan: 'slow' | 'normal' | 'fast';
+  /** The mouse wheel zooms the other way round. */
+  invertZoom: boolean;
+  /** Lessons open by themselves on a new port and a tier upgrade, or only from the Handbook. */
+  lessons: boolean;
+}
+
+/** The keys' panning speed, against the usual, by setting. */
+export const PAN_SPEED: Record<Gameplay['pan'], number> = { slow: 0.6, normal: 1, fast: 1.6 };
+
+const GAMEPLAY_DEFAULTS: Gameplay = { pan: 'normal', invertZoom: false, lessons: true };
+const GAMEPLAY_KEY = 'harbourmaster.gameplay';
+
+function loadGameplay(): Gameplay {
+  const out = { ...GAMEPLAY_DEFAULTS };
+  try {
+    const g = JSON.parse(localStorage.getItem(GAMEPLAY_KEY) ?? 'null');
+    if (g?.pan === 'slow' || g?.pan === 'normal' || g?.pan === 'fast') out.pan = g.pan;
+    if (typeof g?.invertZoom === 'boolean') out.invertZoom = g.invertZoom;
+    if (typeof g?.lessons === 'boolean') out.lessons = g.lessons;
+  } catch {
+    // No storage here: the defaults.
+  }
+  return out;
+}
+
+/** How the game handles, as the player set it; kept in this browser. */
+export const gameplay = signal<Gameplay>(loadGameplay());
+gameplay.subscribe((g) => {
+  try {
+    localStorage.setItem(GAMEPLAY_KEY, JSON.stringify(g));
   } catch {
     // Kept for this visit only.
   }

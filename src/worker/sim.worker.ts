@@ -58,15 +58,24 @@ function fault(kind: 'sim' | 'save' | 'autosave', err: unknown): void {
   });
 }
 
-function save(manual: boolean): void {
-  if (!world) return;
-  writeSave(world.toSave()).then(
-    () => manual && world && postFrame([{ kind: 'message', text: 'Game saved.', tone: 'good' }]),
-    (err) => {
-      console.error('Save failed', err);
-      fault('save', err);
-    },
-  );
+function save(manual: boolean, quiet = false): void {
+  if (!world) {
+    if (quiet) ctx.postMessage({ type: 'saved' });
+    return;
+  }
+  writeSave(world.toSave())
+    .then(
+      () =>
+        manual &&
+        !quiet &&
+        world &&
+        postFrame([{ kind: 'message', text: 'Game saved.', tone: 'good' }]),
+      (err) => {
+        console.error('Save failed', err);
+        fault('save', err);
+      },
+    )
+    .finally(() => quiet && ctx.postMessage({ type: 'saved' }));
 }
 
 /** Something the player should read: on the title screen before a game is up, else in the game. */
@@ -100,7 +109,7 @@ function handle(cmd: Command): void {
     return begin(cmd);
   }
   if (cmd.type === 'save') {
-    save(true);
+    save(true, cmd.quiet);
   } else if (cmd.type === 'exportSave') {
     ctx.postMessage({ type: 'exported', save: world.toSave(), forReport: cmd.forReport });
   } else if (cmd.type === 'debug') {

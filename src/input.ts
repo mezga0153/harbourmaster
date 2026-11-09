@@ -13,6 +13,7 @@ import { isMachineKind } from './sim/machines';
 import type { GameMap } from './sim/map';
 import { ROTATABLE } from './sim/rules';
 import type { BuildKind } from './sim/types';
+import { gameplay } from './ui/prefs';
 import {
   hover,
   guide,
@@ -64,7 +65,7 @@ export class Input {
         cam.zoom(scale);
         cam.panPixels(dx, dy, height());
       },
-      wheel: (dy) => cam.zoom(dy > 0 ? 1.12 : 1 / 1.12),
+      wheel: (dy) => cam.zoom(dy > 0 !== gameplay.peek().invertZoom ? 1.12 : 1 / 1.12),
       over: (i) => {
         this.setHover(i);
         this.refreshPreview(i);

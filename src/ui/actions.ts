@@ -14,4 +14,6 @@ export interface Actions {
   zoom(factor: number): void;
   /** Turn the building being placed, as a right-click does. */
   rotateBuilding(): void;
+  /** Save, and back to the title screen (not in the dev lab). */
+  mainMenu?(): void;
 }
