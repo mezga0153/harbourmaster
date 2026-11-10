@@ -1270,13 +1270,16 @@ export function landingReach(w: World): Uint8Array {
 export function noRoomFor(w: World, b: Boat, held: boolean): void {
   b.noRoom = held ? 'customs' : 'room';
   if (held) return noCustomsStore(w);
-  const room = [...w.bays.values()].some((s) => takesImports(w, s) && dropRoom(w, s, false) > 0);
+  const places = [...w.bays.values()].filter((s) => takesImports(w, s));
+  const room = places.some((s) => dropRoom(w, s, false) > 0);
   nag(
     w,
     'noLanding',
-    room
-      ? 'Dockhands cannot walk from a boat to any truck bay or crate storage with room: they carry each crate straight there, and never set one down on the quay. Join the quay to them with footpaths or quay.'
-      : 'Every truck bay and crate storage for cargo coming in is full: dockhands carry each crate straight into one, and never set one down on the quay, so the boats wait. Mark out more crate storage near the quay, or build more truck bays.',
+    places.length === 0
+      ? 'There is no truck bay or crate storage for cargo coming in: dockhands carry each crate straight into one, and never set one down on the quay or by the road, so the boats wait. Build a truck bay by the road, or mark out crate storage near the quay.'
+      : room
+        ? 'Dockhands cannot walk from a boat to any truck bay or crate storage with room: they carry each crate straight there, and never set one down on the quay. Join the quay to them with footpaths or quay.'
+        : 'Every truck bay and crate storage for cargo coming in is full: dockhands carry each crate straight into one, and never set one down on the quay, so the boats wait. Mark out more crate storage near the quay, or build more truck bays.',
     'bad',
   );
 }

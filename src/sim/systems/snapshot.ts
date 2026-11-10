@@ -210,7 +210,11 @@ export function noRoomWords(w: World, why: 'room' | 'customs'): string {
   if (why === 'customs') {
     return 'Its timber and goods wait in crate storage for customs, and no crate storage for cargo coming in that the dockhands can walk to has room: they set nothing down on the quay, so it waits. Mark out more crate storage for cargo coming in near the quay.';
   }
-  const room = [...w.bays.values()].some((s) => takesImports(w, s) && dropRoom(w, s, false) > 0);
+  const places = [...w.bays.values()].filter((s) => takesImports(w, s));
+  if (places.length === 0) {
+    return 'There is no truck bay or crate storage for cargo coming in: dockhands carry each crate straight into one and set none down on the quay or by the road, so it waits. Build a truck bay by the road, or mark out crate storage near the quay.';
+  }
+  const room = places.some((s) => dropRoom(w, s, false) > 0);
   return room
     ? 'Dockhands cannot walk from it to any truck bay or crate storage with room: they carry each crate straight into one and set none down on the quay, so it waits. Join the quay to them with footpaths or quay.'
     : 'Every truck bay and crate storage for cargo coming in is full: dockhands carry each crate straight into one and set none down on the quay, so it waits. Mark out more crate storage near the quay, or build more truck bays.';
