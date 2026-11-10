@@ -27,6 +27,11 @@ describe('A new port without a truck bay', () => {
     expect(w.events.some((e) => e.kind === 'message' && /Truck bays open/.test(e.text))).toBe(true);
     expect([...w.bays.values()].filter((b) => !b.kerb)).toHaveLength(0);
 
+    // Nor building or bulldozing over the heap, the only place crates go.
+    w.command({ type: 'build', kind: 'road', tiles: [kerb.idx] });
+    w.command({ type: 'bulldoze', tiles: [kerb.idx] });
+    expect(w.bays.get(kerb.idx)).toBe(kerb);
+
     let heaped = 0;
     let opened = -1;
     for (let k = 0; k < TICKS_PER_DAY * 6; k++) {

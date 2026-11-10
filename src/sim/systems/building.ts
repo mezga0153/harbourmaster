@@ -277,12 +277,18 @@ export function buyPlot(w: World, p: number): void {
   );
 }
 
-/** Crates heaped at the road's end for the pickups on any of `tiles`, or on their way there. */
+/**
+ * Crates heaped at the road's end for the pickups on any of `tiles`, or on
+ * their way there; or the heap itself while truck bays are not open, as
+ * without it the dockhands would have nowhere to set a crate.
+ */
 function kerbInTheWay(w: World, tiles: number[]): string | null {
   const heap = tiles.map((t) => w.bays.get(t)).find((b) => b?.kerb);
-  return heap && cratesAt(heap) + heap.incoming > 0
-    ? 'Crates are heaped here for the pickups'
-    : null;
+  if (!heap) return null;
+  if (cratesAt(heap) + heap.incoming > 0) return 'Crates are heaped here for the pickups';
+  return baysOpen(w)
+    ? null
+    : 'The dockhands heap the crates here for the pickups until truck bays open: it is the only place they can set them down';
 }
 
 export function boatInTheWay(w: World, kind: BuildKind, i: number): string | null {
@@ -888,6 +894,7 @@ export function bulldoze(w: World, tiles: number[]): void {
     // A click anywhere on a building takes all of it down.
     const i = anchorOf(w.map, t);
     let err = bulldozeError(w.map, i);
+    if (!err && w.bays.get(i)?.kerb) err = kerbInTheWay(w, [i]);
     if (!err && isDock(w.map.build[i]) && w.boats.some((b) => b.jetty === i)) {
       err = 'A boat is moored here';
     }
