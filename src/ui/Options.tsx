@@ -276,6 +276,20 @@ export function GameplayOptions() {
           pick={(lessons) => set({ lessons })}
         />
       </Row>
+      <Row
+        label="The mayor"
+        hint="The mayor's news about the town: popping up, or only a dot on the portrait"
+      >
+        <Segmented
+          label="The mayor"
+          value={g.mayor}
+          options={[
+            [true, 'Pop up'],
+            [false, 'Quietly'],
+          ]}
+          pick={(mayor) => set({ mayor })}
+        />
+      </Row>
       <p class="muted">Kept in this browser.</p>
     </>
   );

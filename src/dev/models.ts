@@ -18,6 +18,7 @@ import {
   pose,
   waveIn,
 } from '../render/people';
+import { animateMayor, mayor, type MayorMood } from '../render/mayor';
 import { boat, person, truck, type Model } from '../render/model';
 import {
   alertMarker,
@@ -503,6 +504,39 @@ const harbourmasterItem: Item = {
   },
 };
 
+const mayorItem: Item = {
+  group: 'People',
+  name: 'Mayor',
+  note: 'The town’s mayor, in the portrait by the town’s news (ui/TownMayor.tsx)',
+  params: [
+    {
+      key: 'mood',
+      label: 'Mood',
+      kind: 'select',
+      options: [
+        ['hope', 'Hopeful'],
+        ['cheer', 'Cheering'],
+        ['proud', 'Proud'],
+        ['worry', 'Worried'],
+        ['ponder', 'Pondering'],
+      ],
+      value: 'hope',
+      live: true,
+    },
+    { key: 'talking', label: 'Talking', kind: 'toggle', value: true, live: true },
+    { key: 'wave', label: 'Waving, news waiting', kind: 'toggle', value: false, live: true },
+  ],
+  make(p) {
+    const m = mayor();
+    const s = model(m);
+    let act = { mood: p.mood as MayorMood, talking: p.talking as boolean, wave: p.wave as boolean };
+    const live = (q: Params) =>
+      (act = { mood: q.mood as MayorMood, talking: q.talking as boolean, wave: q.wave as boolean });
+    const update = (t: number) => animateMayor(m, act, t);
+    return { ...s, live, update };
+  },
+};
+
 const customsItem: Item = {
   group: 'People',
   name: 'Customs officer',
@@ -593,6 +627,7 @@ export function modelItems(): Item[] {
     haulage('Container truck', 2, true),
     dockhand,
     harbourmasterItem,
+    mayorItem,
     customsItem,
     berthingItem,
     crowd,

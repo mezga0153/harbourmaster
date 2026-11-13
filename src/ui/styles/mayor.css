@@ -1,0 +1,264 @@
+/* Mayor Bramblewick, bottom right above the build bar: a portrait that opens
+   into a speech bubble about the town's next landmark (TownMayor.tsx). */
+
+.mayor {
+  position: absolute;
+  right: 12px;
+  bottom: calc(var(--bar) + 10px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.mayor.raised {
+  bottom: calc(var(--bar) + var(--tray) + 14px);
+}
+
+.mayor > * {
+  pointer-events: auto;
+}
+
+.mayor-face {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  /* The sky behind the mayor; the sea's edge low down. */
+  background:
+    linear-gradient(to bottom, transparent 78%, rgba(29, 90, 140, 0.55) 78%),
+    radial-gradient(circle at 50% 35%, #8fd0f2, #2a6fa8 75%);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.mayor-face:hover {
+  transform: scale(1.06) rotate(-3deg);
+}
+
+.mayor-face.unread {
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    var(--shadow);
+}
+
+.mayor-stage,
+.mayor-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.mayor-face .mayor-portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.mayor-dot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--panel-solid);
+}
+
+/* The speech bubble, its tail pointing down at the portrait. */
+.mayor-card {
+  position: relative;
+  width: min(330px, calc(100vw - 24px));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  border-bottom: 3px solid var(--accent);
+  animation: mayor-pop 0.22s cubic-bezier(0.3, 1.5, 0.6, 1);
+  transform-origin: calc(100% - 38px) 100%;
+}
+
+.mayor-card::after {
+  content: '';
+  position: absolute;
+  right: 30px;
+  bottom: -11px;
+  border: 8px solid transparent;
+  border-top-color: var(--accent);
+  border-bottom: 0;
+}
+
+.mayor-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mayor-head .kicker {
+  margin: 0;
+  color: var(--accent);
+}
+
+.mayor-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.mayor-head-actions .muted {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mayor-head-actions .btn.icon {
+  width: 26px;
+  height: 26px;
+  color: var(--text-2);
+  font-size: 16px;
+}
+
+.mayor-text {
+  margin: 0;
+  min-height: 3.2em;
+  color: var(--text);
+  line-height: 1.5;
+  font-style: italic;
+  cursor: default;
+}
+
+.mayor-how {
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.mayor-caret {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: mayor-blink 0.7s steps(1) infinite;
+}
+
+.mayor-goal {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.mayor-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.mayor-actions .primary {
+  flex: 1;
+}
+
+/* Talking: the mouth opens and shuts, the head nods along. */
+.mayor-portrait.talking .mayor-mouth {
+  animation: mayor-jaw 0.18s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 0;
+}
+
+.mayor-head {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.mayor-portrait.talking .mayor-head {
+  animation: mayor-bob 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes mayor-jaw {
+  to {
+    transform: scaleY(1.8);
+  }
+}
+
+@keyframes mayor-bob {
+  from {
+    transform: rotate(-2deg);
+  }
+  to {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes mayor-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(8px);
+  }
+}
+
+@keyframes mayor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mayor-portrait.talking .mayor-mouth,
+  .mayor-portrait.talking .mayor-head,
+  .mayor-card {
+    animation: none;
+  }
+}
+
+/* A phone: under the top bar on the right, the bubble opening downwards,
+   clear of the advisor and the map controls at the bottom. */
+@media (max-width: 760px) {
+  .mayor {
+    top: calc(max(8px, env(safe-area-inset-top)) + 70px);
+    bottom: auto;
+    right: 8px;
+    flex-direction: column-reverse;
+  }
+
+  .mayor.raised {
+    bottom: auto;
+  }
+
+  .mayor-face {
+    width: 58px;
+    height: 58px;
+  }
+
+  .mayor-card {
+    width: calc(100vw - 16px);
+    border-bottom-width: 1px;
+    border-top: 3px solid var(--accent);
+    transform-origin: calc(100% - 24px) 0;
+  }
+
+  .mayor-card::after {
+    top: -11px;
+    bottom: auto;
+    border: 8px solid transparent;
+    border-bottom-color: var(--accent);
+    border-top: 0;
+  }
+}

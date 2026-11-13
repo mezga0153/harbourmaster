@@ -12,6 +12,7 @@ import { HandbookPanel } from './Handbook';
 import { Icon } from './icons';
 import { InfoPanel } from './Inspector';
 import { LandDialog } from './Land';
+import { Mayor } from './TownMayor';
 import { BankBanner, HoverTip, Messages, PreviewTip } from './Overlays';
 import { PortPanel } from './Port';
 import { SettingsPanel } from './Settings';
@@ -60,6 +61,7 @@ export function App({ actions }: { actions: Actions }) {
       {!guide.value && !(narrow.value && (panel.value || selection.value || menuOpen.value)) && (
         <Advisor actions={actions} />
       )}
+      <Mayor actions={actions} />
       <ReportButton />
       <MapControls actions={actions} />
       <BuildBar />

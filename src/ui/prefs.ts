@@ -108,12 +108,19 @@ export interface Gameplay {
   invertZoom: boolean;
   /** Lessons open by themselves on a new port and a tier upgrade, or only from the Handbook. */
   lessons: boolean;
+  /** The mayor pops up with the town's news, or only shows a dot on the portrait. */
+  mayor: boolean;
 }
 
 /** The keys' panning speed, against the usual, by setting. */
 export const PAN_SPEED: Record<Gameplay['pan'], number> = { slow: 0.6, normal: 1, fast: 1.6 };
 
-const GAMEPLAY_DEFAULTS: Gameplay = { pan: 'normal', invertZoom: false, lessons: true };
+const GAMEPLAY_DEFAULTS: Gameplay = {
+  pan: 'normal',
+  invertZoom: false,
+  lessons: true,
+  mayor: true,
+};
 const GAMEPLAY_KEY = 'harbourmaster.gameplay';
 
 function loadGameplay(): Gameplay {
@@ -123,6 +130,7 @@ function loadGameplay(): Gameplay {
     if (g?.pan === 'slow' || g?.pan === 'normal' || g?.pan === 'fast') out.pan = g.pan;
     if (typeof g?.invertZoom === 'boolean') out.invertZoom = g.invertZoom;
     if (typeof g?.lessons === 'boolean') out.lessons = g.lessons;
+    if (typeof g?.mayor === 'boolean') out.mayor = g.mayor;
   } catch {
     // No storage here: the defaults.
   }

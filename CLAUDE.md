@@ -223,6 +223,14 @@ when changing tiers, town growth, contracts or what unlocks what.
   Coaster crates retain a `coaster` provenance flag through storage and trucks;
   the delivery milestone is recorded when a truck actually leaves. The play
   log records help interactions and `milestone:*` outcomes in its action tallies.
+- The mayor speaks for the town's landmarks from a round portrait
+  (`src/ui/TownMayor.tsx`): a 3D model in the people's style with a small
+  renderer of its own and an animation for each mood (`src/render/mayor.ts`,
+  in the dev lab under Models > People > Mayor; the SVG face there is the
+  fallback without WebGL), and each line ends with the lesson or offer for
+  what is asked (`HELP`); `mayorStep` in `src/ui/mayorTalk.ts` is a pure function
+  from what the mayor last saw and the snapshot's town to what is said
+  (`tests/mayor.test.ts`), run on the page, never saved.
 - Build instructions (`src/ui/toolHelp.ts`) separate purpose, placement and
   requirements; the build menu keeps the full rules under More details.
 - The UI: one file a panel in `src/ui/`, styles by area in `src/ui/styles/`,

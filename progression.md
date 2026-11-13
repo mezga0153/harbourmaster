@@ -208,6 +208,18 @@ wagon unloaders, and the works' own steps come next (M5 in `plan.md`).
   what it will open, and the cap ("The town can grow to 150 people").
 - **Advisor tip** as each landmark opens, saying what it opened and what
   the next goal is.
+- **The mayor** (Mayor Bramblewick, bottom right, `src/ui/TownMayor.tsx`,
+  the 3D model in `src/render/mayor.ts`, what is said when in
+  `src/ui/mayorTalk.ts`): an animated portrait that opens into a
+  speech bubble asking, in the town's words, for the next landmark, cheering
+  each opening with what it brings, and now and then saying how it goes: a
+  day kept up or the run broken, half way and nearly there, about once a
+  day the count and what holds it up (the Next step card's hint), the town
+  full at its cap, and the wait for the port's next tier. Worked out on the
+  page from the snapshot, not saved. Each line about the goal ends with a
+  link to the lesson that shows how (or, for ice and lobster, the offer to
+  sign); Options > Gameplay can keep it quiet
+  (a dot on the portrait instead of popping up).
 - **In the town**: scaffolding where the landmark goes up, then the
   building itself, with a red ! when the goal slips (deliveries dropped).
 - **Port panel**: the upgrade meter says which landmark the town needs

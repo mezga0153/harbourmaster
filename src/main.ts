@@ -41,6 +41,7 @@ import {
 } from './ui/store';
 import './ui/style.css';
 import { guidePause } from './ui/learning';
+import { startMayor } from './ui/mayorTalk';
 import { applyView, readView, trackView } from './view-url';
 
 // Wiring: the worker that runs the sim, the renderer, the input, the sound,
@@ -134,6 +135,7 @@ selection.subscribe((sel) => {
   if (e?.kind === 'boat' || e?.kind === 'dockhand') send({ type: 'inspect', kind: e.kind });
 });
 render(h(App, { actions }), hud);
+startMayor();
 {
   const g = graphics.peek();
   visitOpen(`${g.water}/${g.shadows}/${g.resolution}`, gpu());
