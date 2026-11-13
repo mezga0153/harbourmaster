@@ -12,6 +12,15 @@ thing to aim for.
 
 - The town has a **population cap**. It grows towards the cap as it does
   now (jobs at the port, goods delivered), and no further.
+- **Each landmark doubles the cap** (100, 200, 400 … 51,200, then no
+  limit after the railway station), and the town counts that many more
+  people for the same jobs and trade: `townScale` in `src/sim/town.ts`,
+  its cap against the cap it had when the steps climbed by a hundred or so,
+  so a town fills towards its cap as fast as it did then (32 times from the
+  college on). The streets and homes on the map grow at the old pace: each
+  home holds `townScale` times the people (`townRoom`). Saves from before
+  (no `census` on the town or the region) have their people counted again
+  as they load.
 - The next **landmark** has a goal the port must meet: a delivery kept up
   for a while (e.g. 12 crates of fish a day for 3 days), or a contract kept
   going. Progress is measured, not ticked off by hand.
@@ -37,7 +46,7 @@ bought; everything built, dredged, filled in,
 marked out or cleared needs its plot owned. Saves from before land was
 bought own every plot they built on, free.
 
-## Fishing Jetty: village to town (cap 100 → 300+)
+## Fishing Jetty: village to town (cap 100 → 800)
 
 The hauliers send **pickups** (`pickup` in `HaulierTerms`, `src/sim/contracts.ts`):
 an open bed of one layer of six crates that backs into a truck bay as the
@@ -59,17 +68,17 @@ The heap stays in use while pickups come; built over or cleared, it is gone.
 the goals measured as crates of a kind trucked out (fish: 12 a day for 3 days
 running; lobster: 15 in all, as lobster boats call only every day or two) or
 put on board fishing boats in all (ice: 20). The landmark goes up as soon as its
-goal is met (no scaffolding yet). The restaurant lets the town grow to 400,
-past the 300 the Coastal Wharf needs.
+goal is met (no scaffolding yet). The restaurant lets the town grow to 800,
+past the 600 the Coastal Wharf needs.
 
 | #   | Landmark               | Goal                                             | Opens                                                                                                                                                | Cap after |
 | --- | ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
 | 0   | Fishing village        |                                                  | fishery (fish) contracts                                                                                                                             | 100       |
-| 1   | **Fish market**        | fish trucked out, 12 crates/day for 3 days       | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 150       |
-| 2   | **Ice house**          | ice put on board fishing boats, 20 crates in all | boats with ice stay out longer and go further: **lobster boats** (a lobsterman's offer stays on the board till one is signed)                        | 200       |
-| 3   | **Seafood restaurant** | lobster trucked out, 15 crates in all            | visitors come for the seafood: the town grows past 300, which lets the harbour authority make the port a **Coastal Wharf**                           | 400       |
+| 1   | **Fish market**        | fish trucked out, 12 crates/day for 3 days       | the market wants **ice** to keep its fish: **ice contracts** (an ice supplier's trucks bring ice to the port, which goes on board the fishing boats) | 200       |
+| 2   | **Ice house**          | ice put on board fishing boats, 20 crates in all | boats with ice stay out longer and go further: **lobster boats** (a lobsterman's offer stays on the board till one is signed)                        | 400       |
+| 3   | **Seafood restaurant** | lobster trucked out, 15 crates in all            | visitors come for the seafood: the town grows past 600, which lets the harbour authority make the port a **Coastal Wharf**                           | 800       |
 
-## Coastal Wharf: town to large town (cap 400 → 800+)
+## Coastal Wharf: town to large town (cap 800 → 12,800)
 
 With forklifts come **small trucks**: the hauliers that sent pickups send
 small trucks instead (`smallTrucks` in `src/sim/systems/economy.ts`), and
@@ -88,14 +97,15 @@ board till one is signed (`townTradeOffers` in `src/sim/world.ts`, the makers
 in `src/sim/contracts.ts`). The Next step card says what is missing when the
 goal cannot move (no coasters, no berth for them, the offer not signed, no
 haulier). Saves from before count the steps a town is past by its size: 500+
-has its cannery, 600+ its builders' yard, 700+ its school.
+has its cannery, 600+ its builders' yard, 700+ its school (as they counted
+their people then).
 
 | #   | Landmark           | Goal                                                                                                                   | Opens                                                                                                   | Cap after |
 | --- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------- |
-| 4   | **Cannery**        | fish trucked out, 30 crates/day for 2 days running (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 500       |
-| 5   | **Builders' yard** | canned fish put on board ships, 25 crates in all (the cannery's line needs a customs office)                           | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats**        | 600       |
-| 6   | **School**         | timber trucked out, 25 crates in all                                                                                   | families settle; the **department store** opens, and a coaster line offers **goods** for it             | 700       |
-| 7   | **Town hall**      | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day)                         | the town charter: grows past 800, which lets the port become a **Container Port**                       | no limit  |
+| 4   | **Cannery**        | fish trucked out, 30 crates/day for 2 days running (more than fishing boats bring: it takes coasters at a 2-wide quay) | the cannery's offer: a shipper whose trucks bring **canned fish** to the port to go out on the coasters | 1,600     |
+| 5   | **Builders' yard** | canned fish put on board ships, 25 crates in all (the cannery's line needs a customs office)                           | **Valley Timber Co.**, a coaster line landing **timber** for the yard; the town builds **flats**        | 3,200     |
+| 6   | **School**         | timber trucked out, 25 crates in all                                                                                   | families settle; the **department store** opens, and a coaster line offers **goods** for it             | 6,400     |
+| 7   | **Town hall**      | goods trucked out, 60 crates in all (the coasters bring a load every day or so, not every day)                         | the town charter: grows past 10,000, which lets the port become a **Container Port**                    | 12,800    |
 
 **Storage holds it back** (`startHolds` and `holds` in `src/sim/world.ts`):
 crates of timber and goods off the coasters go into crate storage for cargo
@@ -126,21 +136,21 @@ does not speed customs up. Lines signed with no office (saves from before
 it, or the office pulled down since) go on as they are, with a note on
 their contract card that no other like them can be signed.
 
-## Container Port: large town to city (cap 1000 → no limit)
+## Container Port: large town to city (cap 12,800 → no limit)
 
-The town hall now lets the town grow to 1,000, past the 800 the Container
+The town hall now lets the town grow to 12,800, past the 10,000 the Container
 Port needs; the Container Port's own steps take it on. Their goals count
 containers (`cargo: 'container'` on the goal): trucked out by container
 hauliers, or put on board feeders. Totals rather than days running, as a
 feeder brings its load every day or two. None counts till the port is a
-Container Port. The town's factory (one from 800 people, two from 2,000,
+Container Port. The town's factory (one from 10,000 people, two from 64,000,
 `WANTED` in `src/sim/town.ts`) takes some of the containers trucked out.
 
 | #   | Landmark              | Goal                                | Opens                                                                                                                                          | Cap after |
 | --- | --------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| 8   | **Hospital**          | containers trucked out, 40 in all   | the factory's offer (`factory` on its `ShipperTerms`, `makeFactoryOffer`): its trucks bring **containers going out**, on the board till signed | 1300      |
-| 9   | **Technical college** | containers put on board feeders, 40 | the railway company plans a station                                                                                                            | 1600      |
-| 10  | **Railway station**   | containers trucked out, 100 in all  | trains stop in town, which grows on without limit towards a city (2,000, which the Bulk Terminal will need)                                    | no limit  |
+| 8   | **Hospital**          | containers trucked out, 40 in all   | the factory's offer (`factory` on its `ShipperTerms`, `makeFactoryOffer`): its trucks bring **containers going out**, on the board till signed | 25,600    |
+| 9   | **Technical college** | containers put on board feeders, 40 | the railway company plans a station                                                                                                            | 51,200    |
+| 10  | **Railway station**   | containers trucked out, 100 in all  | trains stop in town, which grows on without limit towards a city (64,000, which the Bulk Terminal will need)                                   | no limit  |
 
 The station goes up on open land beside the main line, facing it, near the
 square (`stationSite` in `src/sim/town.ts`). Opening it lets the port lay
@@ -174,18 +184,18 @@ with them (`inland`) and as the containers they brought go on board
 
 | Step                  | Goal                                                | Opens                            | Cap after |
 | --------------------- | --------------------------------------------------- | -------------------------------- | --------- |
-| (start)               |                                                     |                                  | 2000      |
-| **Freight terminal**  | its trains take 40 containers inland                | its trains take 4 more a train   | 2600      |
-| **Distribution park** | 40 containers its trains brought put on board ships | the other city offers its trains | 3600      |
-| **Business district** | 200 containers moved for it, in and out             | it grows on                      | 5000      |
+| (start)               |                                                     |                                  | 64,000    |
+| **Freight terminal**  | its trains take 40 containers inland                | its trains take 4 more a train   | 83,200    |
+| **Distribution park** | 40 containers its trains brought put on board ships | the other city offers its trains | 115,200   |
+| **Business district** | 200 containers moved for it, in and out             | it grows on                      | 160,000   |
 
 A city grows each day it has been served lately, 12% of the way to its cap
 (`regionDay`). The **works** (a colliery, farms with a grain co-op, an ore
 mine, a power station, a steelworks) keep their size and wait for the Bulk
 Terminal, which their bulk chains will need (M5 in `plan.md`).
 
-The **Bulk Terminal** needs 11,000 people in the region (`Tier.region`):
-the town's with the places' (`World.regionSize`), about 6,900 when the
+The **Bulk Terminal** needs 352,000 people in the region (`Tier.region`):
+the town's with the places' (`World.regionSize`), about 220,000 when the
 station opens.
 
 ## Bulk Terminal (coal, first version)
@@ -237,4 +247,5 @@ wagon unloaders, and the works' own steps come next (M5 in `plan.md`).
 - Cargo kinds per crate already exist (`src/sim/cargo.ts`): goals count
   deliveries of a kind to the town, or on board boats.
 - Saves: a save from before this counts the steps its town already has as
-  done (a town past 300 has its restaurant, past 500 its cannery, and so on).
+  done (a town past 300 has its restaurant, past 500 its cannery, and so on,
+  counted as they were before each landmark doubled the town).

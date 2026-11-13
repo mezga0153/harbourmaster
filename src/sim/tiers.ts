@@ -80,7 +80,7 @@ export const TIERS: Tier[] = [
     blurb: 'Coal, grain and ore on conveyor belts, silos and trains.',
     cost: 80000,
     town: TOWN_STAGES[4].from,
-    region: 11000,
+    region: 352_000,
     unlocks: [
       'Bulk carriers of coal (5 m draft), landed by the tonne',
       'Grab cranes, lifting it out of the holds into their hoppers',

@@ -17,7 +17,7 @@ const LANDMARK_TIPS: Partial<Record<number, string>> = {
   [Build.College]: 'college',
   [Build.Station]: 'station',
 };
-import { BUSINESSES, LANDMARKS, growTown, sentTo, townCap, townHomes, townStageUp } from '../town';
+import { BUSINESSES, LANDMARKS, growTown, sentTo, townCap, townRoom, townStageUp } from '../town';
 import type { Landmark, Town } from '../town';
 import { message, tip } from './output';
 import type { TownView } from '../../protocol/views';
@@ -34,7 +34,7 @@ import { holds } from './cargo/customs';
 
 /** The town's builders keep up with the people moving in. */
 export function buildTown(w: World, t: Town): void {
-  if (townHomes(w.map) < t.demand) {
+  if (townRoom(t, w.map) < t.demand) {
     const built = growTown(t, w.map, (i) => w.dirty.add(i));
     // A new street can join up roads.
     if (built) w.gateCache = null;

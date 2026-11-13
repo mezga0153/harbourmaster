@@ -10,7 +10,9 @@ import {
   ownedByTown,
   TOWN_LAYOUT,
   TOWN_STAGES,
+  townCap,
   townHomes,
+  townScale,
 } from '../src/sim/town';
 import { Build, isPublicRoad, isTownBuilding, TICKS_PER_DAY, townBand } from '../src/sim/types';
 import { World } from '../src/sim/world';
@@ -218,17 +220,41 @@ describe('Town', () => {
     expect(m.build[field]).toBe(Build.None);
   });
 
+  it('may grow twice as big with each landmark, and counts older saves again', () => {
+    const t = { ...World.create(7, 96).town!, landmarks: 0 };
+    const caps = LANDMARKS.map((_, n) => townCap({ ...t, landmarks: n }));
+    for (let n = 1; n < caps.length; n++) expect(caps[n]).toBe(caps[n - 1] * 2);
+    expect(townScale(10)).toBe(32);
+    // A save from before: a cannery town of 450 people as it counted them.
+    const world = World.create(7, 96);
+    const save = world.toSave();
+    save.town = { ...save.town!, landmarks: 4, demand: 450, census: undefined };
+    const sizes = save.region!.places.map((p) => p.size / 32);
+    save.region = {
+      places: save.region!.places.map((p, k) => ({ ...p, size: sizes[k] })),
+    };
+    const back = World.fromSave(save);
+    expect(back.town!.demand).toBeCloseTo(450 * townScale(4));
+    expect(back.town!.census).toBe(2);
+    expect(back.region.places.map((p) => p.size)).toEqual(sizes.map((n) => n * 32));
+    // Loaded again, nothing changes.
+    expect(World.fromSave(back.toSave()).town!.demand).toBeCloseTo(back.town!.demand);
+  });
+
   it('grows with the port into a city, and keeps clear of it', () => {
     const world = World.create(7, 96);
     const m = world.map;
     const t = world.town!;
-    t.demand = 3000;
+    // Every landmark open: as many people as a city of 3,000 used to count.
+    t.landmarks = LANDMARKS.length;
+    const city = 3000 * townScale(t.landmarks);
+    t.demand = city;
     for (let d = 0; d < 6; d++) {
       for (let k = 0; k < TICKS_PER_DAY; k++) world.step();
-      t.demand = 3000;
+      t.demand = city;
     }
     expect(townHomes(m)).toBeGreaterThan(400);
-    world.debug({ type: 'debug', town: 3000 });
+    world.debug({ type: 'debug', town: city });
     expect(t.stage).toBe(TOWN_STAGES.length - 1);
     expect(m.build.some((b) => b === Build.Tower)).toBe(true);
     for (let i = 0; i < m.build.length; i++) {

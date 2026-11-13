@@ -47,11 +47,20 @@ export interface Place {
 
 export interface Region {
   places: Place[];
+  /**
+   * 2 since the places count 32 times the people, as the town's railway
+   * station does (see townScale in town.ts); a save from before, as many
+   * times fewer.
+   */
+  census?: number;
 }
 
+/** How many times more people places count than in saves from before `Region.census`. */
+export const REGION_SCALE = 32;
+
 /** People a city has to start with, and may grow to before its first step. */
-const CITY_START = 1800;
-const CITY_CAP = 2000;
+const CITY_START = 57_600;
+const CITY_CAP = 64_000;
 
 /** What an inland city's container trains bring it, step by step. */
 export const CITY_STEPS: PlaceStep[] = [
@@ -60,21 +69,21 @@ export const CITY_STEPS: PlaceStep[] = [
     goal: { what: 'inland', total: 40 },
     aim: 'Its trains take 40 containers inland',
     opens: 'Its trains come longer: room for 4 more containers a train',
-    cap: 2600,
+    cap: 83_200,
   },
   {
     name: 'Distribution park',
     goal: { what: 'out', total: 40 },
     aim: 'Put 40 containers its trains brought on board ships',
     opens: 'The other end of the line takes notice: another city offers its trains',
-    cap: 3600,
+    cap: 115_200,
   },
   {
     name: 'Business district',
     goal: { what: 'any', total: 200 },
     aim: 'Move 200 containers for it, in and out',
     opens: 'Offices and homes: it grows on',
-    cap: 5000,
+    cap: 160_000,
   },
 ];
 
@@ -103,11 +112,11 @@ export function placeLabel(k: PlaceKind): string {
 const CITIES = ['Ashford', 'Kingsbridge', 'Thornbury', 'Millbrook', 'Castleton', 'Redwater'];
 const VILLAGES = ['Coalbrook', 'Harrowdale', 'Oakhurst', 'Fenmoor', 'Stonebridge', 'Ironvale'];
 const BULK: { kind: Exclude<PlaceKind, 'city'>; size: number }[] = [
-  { kind: 'colliery', size: 350 },
-  { kind: 'farms', size: 450 },
-  { kind: 'mine', size: 250 },
-  { kind: 'power', size: 150 },
-  { kind: 'steelworks', size: 600 },
+  { kind: 'colliery', size: 11_200 },
+  { kind: 'farms', size: 14_400 },
+  { kind: 'mine', size: 8_000 },
+  { kind: 'power', size: 4_800 },
+  { kind: 'steelworks', size: 19_200 },
 ];
 
 /** The region of a map from its seed: a city at each end of the line, and the works between. */
@@ -138,7 +147,7 @@ export function newRegion(seed: number): Region {
       size: b.size,
     });
   });
-  return { places };
+  return { places, census: 2 };
 }
 
 /** The steps a place takes, by its kind: none yet but for the cities. */

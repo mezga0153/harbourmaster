@@ -197,7 +197,7 @@ export const TIPS: Record<string, Tip> = {
   },
   restaurant: {
     title: 'The seafood restaurant',
-    text: 'The restaurant is open and the town can grow to 400 people. At 300 people, upgrade to a Coastal Wharf in the Port panel. Then supply 30 fish crates a day for 2 days to open the cannery.',
+    text: 'The restaurant is open and the town can grow to 800 people. At 600 people, upgrade to a Coastal Wharf in the Port panel. Then supply 30 fish crates a day for 2 days to open the cannery.',
     topic: 'growth',
   },
   cannery: {
@@ -208,27 +208,27 @@ export const TIPS: Record<string, Tip> = {
   },
   buildersYard: {
     title: 'The builders’ yard',
-    text: 'The builders’ yard is open: the town may grow to 600, and now builds flats. Valley Timber Co. offers its coasters of timber for the yard; customs clears it at the customs office. Next the town wants a school: truck out 25 crates of timber.',
+    text: 'The builders’ yard is open: the town may grow to 3,200, and now builds flats. Valley Timber Co. offers its coasters of timber for the yard; customs clears it at the customs office. Next the town wants a school: truck out 25 crates of timber.',
     topic: 'growth',
   },
   school: {
     title: 'The school',
-    text: 'Families settle round the new school, the town may grow to 700, and a department store opens. A shipping line offers coasters of goods for it. Next the town wants a town hall: truck out 60 crates of goods.',
+    text: 'Families settle round the new school, the town may grow to 6,400, and a department store opens. A shipping line offers coasters of goods for it. Next the town wants a town hall: truck out 60 crates of goods.',
     topic: 'growth',
   },
   townHall: {
     title: 'The town hall',
-    text: 'The town has its charter, and may grow to 1,000 people: past 800 the harbour authority lets the port become a Container Port. See the Port panel (P). Then the town wants a hospital: truck out 40 containers.',
+    text: 'The town has its charter, and may grow to 12,800 people: past 10,000 the harbour authority lets the port become a Container Port. See the Port panel (P). Then the town wants a hospital: truck out 40 containers.',
     topic: 'growth',
   },
   hospital: {
     title: 'The hospital',
-    text: 'The hospital is open and the town may grow to 1,300. The factory sends its goods out in containers now: sign its offer, and its trucks wait in the parking outside for their paperwork, then the containers go on board the feeders. Next the town wants a technical college: put 40 containers on board ships.',
+    text: 'The hospital is open and the town may grow to 25,600. The factory sends its goods out in containers now: sign its offer, and its trucks wait in the parking outside for their paperwork, then the containers go on board the feeders. Next the town wants a technical college: put 40 containers on board ships.',
     topic: 'growth',
   },
   college: {
     title: 'The technical college',
-    text: 'The technical college is open and the town may grow to 1,600. The railway company plans a station for the town: truck out 100 containers and it opens.',
+    text: 'The technical college is open and the town may grow to 51,200. The railway company plans a station for the town: truck out 100 containers and it opens.',
     topic: 'growth',
   },
   station: {

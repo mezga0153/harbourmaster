@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { World } from '../src/sim/world';
 import { LANDMARKS } from '../src/sim/town';
-import { CITY_STEPS, newRegion, placeCap, regionDay } from '../src/sim/region';
+import { CITY_STEPS, newRegion, placeCap, REGION_SCALE, regionDay } from '../src/sim/region';
 import { refreshOffers, grownFor } from '../src/sim/systems/economy';
 import { served } from '../src/sim/systems/region';
 import { shipOut } from '../src/sim/systems/cargo/exports';
@@ -77,7 +77,7 @@ describe('The region', () => {
     expect(world.regionSize()).toBeGreaterThan(world.townSize());
     world.debug({ type: 'debug', town: bulk.town + 50 });
     expect(grownFor(world, bulk)).toBe(false);
-    for (const p of cities(world)) p.size = 6000;
+    for (const p of cities(world)) p.size = 6000 * REGION_SCALE;
     expect(world.regionSize()).toBeGreaterThanOrEqual(bulk.region!);
     expect(grownFor(world, bulk)).toBe(true);
     expect(world.snapshot().progress.region).toBe(world.regionSize());

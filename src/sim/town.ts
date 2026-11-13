@@ -28,9 +28,9 @@ export const TOWN_LAYOUT = 5;
 export const TOWN_STAGES = [
   { name: 'Fishing village', from: 0 },
   { name: 'Village', from: 100 },
-  { name: 'Town', from: 300 },
-  { name: 'Large town', from: 800 },
-  { name: 'City', from: 2000 },
+  { name: 'Town', from: 600 },
+  { name: 'Large town', from: 10_000 },
+  { name: 'City', from: 64_000 },
 ] as const;
 
 /** Homes, from a fisher's cottage to a tower block. */
@@ -129,7 +129,7 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Truck out 12 crates of fish a day, 3 days running',
     opens:
       'The market wants ice to keep its fish: an ice works offers its ice for the fishing boats',
-    cap: 150,
+    cap: 200,
   },
   {
     code: Build.IceHouse,
@@ -137,7 +137,7 @@ export const LANDMARKS: Landmark[] = [
     goal: { cargo: 'ice', total: 20, aboard: true },
     aim: 'Put 20 crates of ice on board fishing boats',
     opens: 'With ice on board, boats go further out: lobster boats offer their catch',
-    cap: 200,
+    cap: 400,
   },
   {
     code: Build.Restaurant,
@@ -146,8 +146,8 @@ export const LANDMARKS: Landmark[] = [
     goal: { cargo: 'lobster', total: 15 },
     aim: 'Truck out 15 crates of lobster',
     opens:
-      'Visitors come for the seafood: the town grows past 300, so the port may become a Coastal Wharf',
-    cap: 400,
+      'Visitors come for the seafood: the town grows past 600, so the port may become a Coastal Wharf',
+    cap: 800,
   },
   // The Coastal Wharf's: coasters bring more than the fishing boats can.
   {
@@ -158,7 +158,7 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Truck out 30 crates of fish a day, 2 days running',
     opens:
       'The cannery sends its canned fish to the port by truck, to go out on the coasters: its offer is on the contracts board',
-    cap: 500,
+    cap: 1_600,
     tier: 1,
   },
   {
@@ -168,7 +168,7 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Put 25 crates of canned fish on board ships',
     opens:
       "Valley Timber Co.'s coasters bring timber for the builders' yard, and the town builds flats",
-    cap: 600,
+    cap: 3_200,
     tier: 1,
   },
   {
@@ -178,7 +178,7 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Truck out 25 crates of timber',
     opens:
       'Families settle, and a department store opens: a shipping line offers its coasters of goods for it',
-    cap: 700,
+    cap: 6_400,
     tier: 1,
   },
   {
@@ -187,8 +187,9 @@ export const LANDMARKS: Landmark[] = [
     // In all: the coasters bring it a load at a time, not every day.
     goal: { cargo: 'goods', total: 60 },
     aim: 'Truck out 60 crates of goods',
-    opens: 'The town gets its charter: it grows past 800, so the port may become a Container Port',
-    cap: 1000,
+    opens:
+      'The town gets its charter: it grows past 10,000, so the port may become a Container Port',
+    cap: 12_800,
     tier: 1,
   },
   // The Container Port's: the factory's containers, then the railway.
@@ -200,7 +201,7 @@ export const LANDMARKS: Landmark[] = [
     aim: 'Truck out 40 containers',
     opens:
       'The factory takes on more hands and sends its goods out in containers: its offer is on the contracts board',
-    cap: 1300,
+    cap: 25_600,
     tier: 2,
   },
   {
@@ -209,7 +210,7 @@ export const LANDMARKS: Landmark[] = [
     goal: { cargo: 'container', total: 40, aboard: true },
     aim: 'Put 40 containers on board ships',
     opens: 'Engineers and clerks settle, and the railway company plans a station for the town',
-    cap: 1600,
+    cap: 51_200,
     tier: 2,
   },
   {
@@ -224,12 +225,15 @@ export const LANDMARKS: Landmark[] = [
   },
 ];
 
-/** How many of LANDMARKS a town of `pop` people from an older save is past, at least. */
+/**
+ * How many of LANDMARKS a town of `pop` people from an older save is past,
+ * at least, counted as it was before each landmark doubled the town.
+ */
 export function landmarksByPopulation(pop: number): number {
   // A town past 300 has its restaurant; past each later cap, that step.
   if (pop < 300) return 0;
   let n = 3;
-  while (n < LANDMARKS.length && Number.isFinite(LANDMARKS[n].cap) && pop >= LANDMARKS[n].cap) n++;
+  while (n < OLD_CAPS.length - 1 && pop >= OLD_CAPS[n + 1]) n++;
   return n;
 }
 
@@ -249,6 +253,32 @@ export const VILLAGE_CAP = 100;
 /** How many people the town may grow to, as far as its landmarks let it. */
 export function townCap(t: Town): number {
   return t.landmarks > 0 ? LANDMARKS[t.landmarks - 1].cap : VILLAGE_CAP;
+}
+
+/**
+ * The caps before each landmark doubled the town (100, then each landmark's
+ * own), for saves from before then (`Town.census`) and for `townScale`.
+ */
+const OLD_CAPS = [100, 150, 200, 400, 500, 600, 700, 1000, 1300, 1600];
+
+/**
+ * How many times more people the town counts now than it did when its
+ * caps climbed by a hundred or so a step, by the landmarks it has open: its
+ * cap against the old one, so it fills towards its cap from the port's jobs
+ * and trade as it always did, and the railway station's town and those
+ * after it 32 times. The streets and homes on the map grow as they always
+ * did: each home holds this many times the people.
+ */
+export function townScale(landmarks: number): number {
+  // The station's town grows on without a cap: as many times as the college's.
+  const n = Math.min(landmarks, OLD_CAPS.length - 1);
+  const now = n > 0 ? LANDMARKS[n - 1].cap : VILLAGE_CAP;
+  return now / OLD_CAPS[n];
+}
+
+/** How many people the town's homes hold. */
+export function townRoom(t: Town, map: GameMap): number {
+  return townHomes(map) * townScale(t.landmarks);
 }
 
 /**
@@ -312,6 +342,11 @@ export interface Town {
   streak: number;
   /** Crates of each kind trucked out so far today, or put on board, for the landmark's goal. */
   goal: number;
+  /**
+   * 2 since each landmark doubled the town (see townScale); a save from
+   * before counted its people as many times fewer.
+   */
+  census?: number;
 }
 
 /** Steps for facing 0 (+x), 1 (+y), 2 (-x), 3 (-y). */
@@ -325,10 +360,11 @@ const DIRS = [
 /** People the port's jobs and trade support. */
 export function townTarget(t: Town): number {
   return (
-    B.TOWN_BASE +
-    B.TOWN_PER_JOB * t.jobs +
-    B.TOWN_PER_GOODS * t.goods +
-    B.TOWN_PER_LOCAL * t.supplied
+    (B.TOWN_BASE +
+      B.TOWN_PER_JOB * t.jobs +
+      B.TOWN_PER_GOODS * t.goods +
+      B.TOWN_PER_LOCAL * t.supplied) *
+    townScale(t.landmarks)
   );
 }
 
@@ -339,7 +375,7 @@ export function townHomes(map: GameMap): number {
 }
 
 export function population(t: Town, map: GameMap): number {
-  return Math.round(Math.min(townHomes(map), t.demand));
+  return Math.round(Math.min(townRoom(t, map), t.demand));
 }
 
 export function isTownStreet(map: GameMap, i: number): boolean {
@@ -514,8 +550,9 @@ function stationSite(t: Town, map: GameMap): { tile: number; facing: number } | 
  * has nowhere left to go.
  */
 export function growTown(t: Town, map: GameMap, touch: (i: number) => void): boolean {
-  // Built for the people wanting to live here, not only those who do yet.
-  const pop = Math.max(population(t, map), t.demand);
+  // Built for the people wanting to live here, not only those who do yet;
+  // its streets and homes as for as many times fewer (see townScale).
+  const pop = Math.max(population(t, map), t.demand) / townScale(t.landmarks);
   const plans = streetPlans(t, map);
   const kept = new Set(plans.map((p) => p.tile));
   let up = -1;
@@ -878,6 +915,7 @@ export function foundTown(map: GameMap, name: string, touch: (i: number) => void
     layout: TOWN_LAYOUT,
     gate: -1,
     landmarks: 0,
+    census: 2,
     streak: 0,
     goal: 0,
   };

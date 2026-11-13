@@ -3,7 +3,7 @@ import * as B from '../src/sim/balance';
 import { GameMap } from '../src/sim/map';
 import { makeOffer, townTrade } from '../src/sim/contracts';
 import { withCargo } from '../src/sim/cargo';
-import { growTown, LANDMARKS, landmarkDue, townCap } from '../src/sim/town';
+import { growTown, LANDMARKS, landmarkDue, townCap, townScale } from '../src/sim/town';
 import { generateMap } from '../src/sim/mapgen';
 import { isExit } from '../src/sim/roads';
 import { findDrivePath, findPath } from '../src/sim/path';
@@ -4779,7 +4779,7 @@ describe('The Coastal Wharf’s landmarks', () => {
     } as never);
   }
 
-  it('come after the restaurant, each lifting the cap, the town hall letting the town grow past 800', () => {
+  it('come after the restaurant, each doubling the cap, the town hall letting the town grow past 10,000', () => {
     const codes = LANDMARKS.slice(at(Build.Restaurant)).map((l) => l.code);
     expect(codes).toEqual([
       Build.Restaurant,
@@ -4793,7 +4793,7 @@ describe('The Coastal Wharf’s landmarks', () => {
     ]);
     const caps = LANDMARKS.map((l) => l.cap);
     for (let k = 1; k < caps.length; k++) expect(caps[k]).toBeGreaterThan(caps[k - 1]);
-    expect(caps[at(Build.Restaurant)]).toBe(400);
+    expect(caps[at(Build.Restaurant)]).toBe(800);
     expect(caps[at(Build.School)]).toBeLessThan(TIERS[2].town);
     expect(caps[at(Build.TownHall)]).toBeGreaterThanOrEqual(TIERS[2].town);
     expect(caps.at(-1)).toBe(Infinity);
@@ -4864,13 +4864,13 @@ describe('The Coastal Wharf’s landmarks', () => {
     expect(timber.terms.name).toBe('Valley Timber Co.');
     expect(timber.terms.kind === 'fishery' && timber.terms.vessel).toBe('coaster');
     // A big enough town builds flats in the middle now.
-    world.debug({ type: 'debug', town: 600 });
+    world.debug({ type: 'debug', town: 600 * townScale(t.landmarks) });
     expect(world.map.build.some((b) => b === Build.Flats)).toBe(true);
   });
 
   it('builds no flats in a town of 600 without its builders’ yard', () => {
     const world = wharfTown(1);
-    world.debug({ type: 'debug', town: 600 });
+    world.debug({ type: 'debug', town: 600 * townScale(world.town!.landmarks) });
     expect(world.map.build.some((b) => b === Build.Flats)).toBe(false);
   });
 
@@ -4910,7 +4910,9 @@ describe('The Coastal Wharf’s landmarks', () => {
   it('are counted from an older save by how big its town is', () => {
     const world = World.create(5, 96);
     world.debug({ type: 'debug', town: 650 });
+    // Saved before each landmark doubled the town, counting its people as it did then.
     const save = world.toSave();
+    save.town = { ...save.town!, census: undefined };
     // A town that had its restaurant and grew on unchecked, as towns did.
     const loaded = World.fromSave({ ...save, town: { ...save.town!, landmarks: 3 } });
     expect(loaded.town!.landmarks).toBe(at(Build.School));

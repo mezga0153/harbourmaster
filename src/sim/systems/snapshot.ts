@@ -24,7 +24,7 @@ import { cargoName, cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
 import { isIce, needsCustomsOffice, type Contract } from '../contracts';
 import { thought, traitDef } from '../staff';
-import { BUSINESSES, population, townHomes, townTarget } from '../town';
+import { BUSINESSES, population, townRoom, townTarget } from '../town';
 import { depotViews } from './output';
 import type {
   BayView,
@@ -1177,7 +1177,7 @@ export function buildSnapshot(w: World): Snapshot {
       name: w.town.name,
       stage: w.town.stage,
       population: population(w.town, w.map),
-      homes: townHomes(w.map),
+      homes: townRoom(w.town, w.map),
       target: Math.round(townTarget(w.town)),
       jobs: w.town.jobs,
       goods: Math.round(w.town.goods),

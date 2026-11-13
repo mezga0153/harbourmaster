@@ -37,7 +37,7 @@ import { DEFAULT_PILOT, type PilotId } from './systems/boats/pilots';
 import { extendMap, generateMap, kerbOf, turnAbout } from './mapgen';
 import { randomName, townName } from './names';
 import { crossingClosed, layRailway, newRail, railFromSave, type RailState } from './railway';
-import { newRegion, placesSize, type Region } from './region';
+import { newRegion, placesSize, REGION_SCALE, type Region } from './region';
 import type { BulkKind, BulkLoad } from './bulk';
 import { stepBulk } from './systems/bulk';
 import { sendPortTrain, stepTrains, trackHeld, trainOver } from './systems/trains';
@@ -52,6 +52,8 @@ import {
   townStageUp,
   townWants,
   landmarksByPopulation,
+  townRoom,
+  townScale,
   LANDMARKS,
   type Town,
 } from './town';
@@ -772,7 +774,14 @@ export class World {
     world.unloadedAt = new Map(s.unloaded ?? []);
     if (s.rail) world.rail = railFromSave(s.rail);
     // Saves from before the region get one from their seed, as a new game would.
-    if (s.region) world.region = structuredClone(s.region);
+    if (s.region) {
+      world.region = structuredClone(s.region);
+      // Saves from before counted as many times fewer people in each place.
+      if (world.region.census === undefined) {
+        for (const p of world.region.places) p.size *= REGION_SCALE;
+        world.region.census = 2;
+      }
+    }
     for (const [i, kind, t] of s.bulk ?? []) world.bulk.set(i, { kind, t });
     // The line runs on through any country added to the map since.
     layRailway(world.map);
@@ -810,11 +819,18 @@ export class World {
 
   /** The landmarks an older town has open already, by what stands in it and how big it is. */
   landmarksOf(old: Town): number {
-    const pop = population(old, this.map);
+    const pop = this.oldPopulation(old);
     if (pop >= 300) return landmarksByPopulation(pop);
     let n = 0;
     while (n < LANDMARKS.length && this.map.build.includes(LANDMARKS[n].code)) n++;
     return n;
+  }
+
+  /** People in a town from a save from before each landmark doubled it, as it counted them. */
+  oldPopulation(old: Town): number {
+    return old.census === undefined
+      ? Math.round(Math.min(townHomes(this.map), old.demand))
+      : population(old, this.map);
   }
 
   /** Bring a town from an older save up to date, laying it out again under the current rules. */
@@ -828,17 +844,20 @@ export class World {
       layout: old.layout ?? 1,
       gate: old.gate ?? -1,
       // A town from before its landmarks: as many done as it has, or a town
-      // already past 300 people has its restaurant, and so on, a step for
+      // already past 300 people (as it counted them) has its restaurant, and so on, a step for
       // each cap it is past (towns with the restaurant grew on unchecked).
       landmarks:
         old.landmarks === undefined
           ? this.landmarksOf(old)
           : old.landmarks >= 3
-            ? Math.max(old.landmarks, landmarksByPopulation(population(old, this.map)))
+            ? Math.max(old.landmarks, landmarksByPopulation(this.oldPopulation(old)))
             : old.landmarks,
       streak: old.streak ?? 0,
       goal: old.goal ?? 0,
+      census: 2,
     };
+    // Counted again as each landmark doubles the town (see townScale).
+    if (old.census === undefined) t.demand *= townScale(t.landmarks);
     this.town = t;
     if (t.layout >= TOWN_LAYOUT) return;
     const homes = townHomes(this.map);
@@ -1035,7 +1054,7 @@ export class World {
       // Build the town up to size at once.
       const t = this.town;
       t.demand = cmd.town;
-      for (let k = 0; k < 3000 && townHomes(this.map) < t.demand; k++) {
+      for (let k = 0; k < 3000 && townRoom(t, this.map) < t.demand; k++) {
         if (!growTown(t, this.map, (i) => this.dirty.add(i))) break;
         townStageUp(t, this.map);
       }
