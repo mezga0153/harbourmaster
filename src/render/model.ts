@@ -37,19 +37,30 @@ export function person(id = 0): Model {
   return worker(id, (size) => crate(size));
 }
 
-/** A boat or ship of the given kind, in its company's colours, unique to its id. */
-export function boat(variant: number, vessel = 'smack', id = 0, lobster = false): Model {
+/**
+ * A boat or ship of the given kind, in its company's colours, unique to its
+ * id; `layout` (one of craft's LAYOUTS for the kind) rather than the id's.
+ */
+export function boat(
+  variant: number,
+  vessel = 'smack',
+  id = 0,
+  lobster = false,
+  layout?: string,
+): Model {
   switch (vessel) {
     case 'tug':
-      return tugBoat(id);
+      return tugBoat(id, layout);
     case 'feeder':
-      return feederShip(id, variant, (k, x, y, z) => container(k, x, y, z));
+      return feederShip(id, variant, (k, x, y, z) => container(k, x, y, z), layout);
     case 'bulker':
-      return bulkCarrier(id, variant);
+      return bulkCarrier(id, variant, layout);
     case 'coaster':
-      return coasterShip(id, variant, crate);
+      return coasterShip(id, variant, crate, layout);
     default:
-      return lobster ? lobsterBoat(id, variant, crate) : fishingBoat(id, variant, crate);
+      return lobster
+        ? lobsterBoat(id, variant, crate, layout)
+        : fishingBoat(id, variant, crate, layout);
   }
 }
 

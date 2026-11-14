@@ -19,6 +19,7 @@ import {
   waveIn,
 } from '../render/people';
 import { animateMayor, mayor, type MayorMood } from '../render/mayor';
+import { LAYOUTS } from '../render/craft';
 import { boat, person, truck, type Model } from '../render/model';
 import {
   alertMarker,
@@ -73,14 +74,32 @@ function model(m: Model, water = false, box?: Box3): Staged & { model: Model } {
   };
 }
 
+/** Which of a kind of boat's layouts to show, or the one its seed picks. */
+function layoutParam(kind: keyof typeof LAYOUTS): Param {
+  return {
+    key: 'layout',
+    label: 'Layout',
+    kind: 'select',
+    options: [['seed', 'By seed'], ...LAYOUTS[kind].map((l) => [l, l] as const)],
+    value: 'seed',
+  };
+}
+
 /** A boat with as much of its load aboard as the slider says, every slot of a feeder's deck filled in order. */
 function vessel(name: string, kind: string, lobster = false, extra: Param[] = []): Item {
   return {
     group: 'Boats and ships',
     name,
-    params: [SEED, COMPANY, { ...LOAD, max: kind === 'feeder' ? 72 : 30 }, ...extra],
+    params: [
+      SEED,
+      layoutParam(lobster ? 'lobster' : (kind as keyof typeof LAYOUTS)),
+      COMPANY,
+      { ...LOAD, max: kind === 'feeder' ? 72 : 30 },
+      ...extra,
+    ],
     make(p) {
-      const m = boat(p.company as number, kind, p.seed as number, lobster);
+      const layout = p.layout === 'seed' ? undefined : (p.layout as string);
+      const m = boat(p.company as number, kind, p.seed as number, lobster, layout);
       const s = model(m, true);
       const live = (q: Params) => {
         const n = Math.min(m.crates.length, q.load as number);
@@ -620,8 +639,8 @@ export function modelItems(): Item[] {
     vessel('Lobster boat', 'smack', true),
     vessel('Coaster', 'coaster'),
     vessel('Feeder ship', 'feeder'),
-    { ...vessel('Bulk carrier', 'bulker'), params: [SEED, COMPANY] },
-    { ...vessel('Tug', 'tug'), params: [SEED] },
+    { ...vessel('Bulk carrier', 'bulker'), params: [SEED, layoutParam('bulker'), COMPANY] },
+    { ...vessel('Tug', 'tug'), params: [SEED, layoutParam('tug')] },
     haulage('Rigid flatbed', 6, false),
     haulage('Articulated flatbed', 8, false),
     haulage('Container truck', 2, true),

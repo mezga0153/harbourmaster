@@ -92,7 +92,8 @@ hash, `scripts/version.mjs`). `server/` (the Worker beside the game's files, see
 shows the game's parts on their own, `src/dev/`:
 
 - Models: everything drawn, each built from its seed, on a turntable
-  (`models.ts`, `stage.ts`): boats and ships with their load, trucks, people,
+  (`models.ts`, `stage.ts`): boats and ships with their load and each
+  of their layouts (`LAYOUTS` in `render/craft.ts`), trucks, people,
   machines, every tool on its patch of shore as its build menu card pictures
   it (`render/thumbs.ts` `stage()`), the town's buildings, the train's cars,
   the Kenney scenery and the cargo. `#models/<group>/<name>` opens one.
