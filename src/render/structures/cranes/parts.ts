@@ -247,4 +247,16 @@ export interface ShipGantryParts {
    * once it has it, the tractor may drive off, and it carries on from there.
    */
   offAt?: { x: number; z: number; drop: number };
+  /** The boom over the water, luffed up about its hinge on the waterside legs. */
+  boom: Object3D;
+  /** Its stays, each a bar from the apex to a point on the boom, as the boom stands. */
+  ties: { bar: Object3D; from: Vector3; on: Vector3 }[];
+  /** The floodlight on the ship under the boom, lit only with the boom down. */
+  shipLight: Object3D;
+  /** How far out along the girders the boom's hinge is: the trolley stays this side of it with the boom up. */
+  hinge: number;
+  /** How far up the boom is, 0 down to 1 raised. */
+  raised: number;
+  /** A ship it works lies alongside, so the boom comes down; see CraneView.alongside. */
+  alongside: boolean;
 }

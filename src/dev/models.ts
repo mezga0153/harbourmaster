@@ -295,6 +295,17 @@ function pictured(tool: string, label: string): Item {
               live: true,
             },
             { key: 'pallets', label: 'On pallets', kind: 'toggle', value: false, live: true },
+            ...(tool === 'gantryCrane'
+              ? [
+                  {
+                    key: 'alongside',
+                    label: 'Ship alongside (boom down)',
+                    kind: 'toggle' as const,
+                    value: false,
+                    live: true,
+                  },
+                ]
+              : []),
           ]
         : []),
     make(p) {
@@ -336,6 +347,7 @@ function pictured(tool: string, label: string): Item {
             stores: 0,
             why: '',
             pallets: q.pallets as boolean,
+            alongside: q.alongside as boolean | undefined,
           })),
         );
       };

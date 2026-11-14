@@ -12,23 +12,68 @@ import { container, paintContainer } from '../../models';
 import { C } from '../../palette';
 import { lamp, LIGHT, pool } from '../../lights';
 import { box, strut } from '../../parts';
+import { bake } from '../../town';
 import { QUAY_Y } from '../../terrain';
 import type { TileBuild } from '../tiles';
 import type { CraneParts, CraneSite, ShipGantryParts } from './parts';
 
 // The ship-to-shore gantry: a portal on rails along the quay, its boom out
 // over the ship, that unloads the feeders onto the stack between its legs
-// (or straight onto a tractor) and loads them from it.
+// (or straight onto a tractor) and loads them from it. Drawn as the real
+// ones are: blue legs braced on each side, red and white girders, an A-frame
+// over the waterside legs holding the boom up on its stays, the machinery
+// house on the backreach. With no ship alongside it its boom is raised, out
+// of the way of the ships coming and going, and lowered over the next.
 
 const slotAt = new Vector3();
+const along = new Vector3(0, 0, 1);
+const tieAt = new Vector3();
+const tieDir = new Vector3();
+
+const LEGS = 0x3f78c6;
+const RED = 0xc9353d;
+const WHITE = 0xefefea;
+const WHEELS = 0x2b2e33;
+/** How far the boom goes up out of the way, and how long it takes, in game seconds. */
+const RAISED = (80 * Math.PI) / 180;
+const LUFF_SECONDS = 2;
+
+/** A straight run of girder along z, from z0 to z1: a truss, red chords and white lacing. */
+function girder(g: Group, x: number, y: number, z0: number, z1: number): void {
+  const len = z1 - z0;
+  const mid = (z0 + z1) / 2;
+  g.add(box(0.045, 0.03, len, RED, x, y, mid));
+  g.add(box(0.045, 0.025, len, RED, x, y + 0.095, mid));
+  const n = Math.max(2, Math.round(len / 0.2));
+  const step = len / n;
+  for (let k = 0; k <= n; k++) {
+    g.add(box(0.03, 0.07, 0.022, WHITE, x, y + 0.028, z0 + k * step));
+    if (k < n) {
+      const [a, b] = k % 2 ? [y + 0.03, y + 0.098] : [y + 0.098, y + 0.03];
+      g.add(strut([x, a, z0 + k * step], [x, b, z0 + (k + 1) * step], 0.014, WHITE));
+    }
+  }
+  // A walkway along its outer side.
+  const out = x + Math.sign(x) * 0.05;
+  g.add(box(0.05, 0.008, len, C.chassis, out, y + 0.01, mid));
+  g.add(box(0.005, 0.005, len, WHITE, out + Math.sign(x) * 0.024, y + 0.06, mid));
+}
+
+/** A lattice tower, from y0 up to y1, `w` square, for the lift up a leg. */
+function tower(g: Group, x: number, z: number, w: number, y0: number, y1: number): void {
+  for (const dx of [-w / 2, w / 2]) {
+    for (const dz of [-w / 2, w / 2]) g.add(box(0.012, y1 - y0, 0.012, WHITE, x + dx, y0, z + dz));
+  }
+  for (let h = y0 + 0.12; h < y1; h += 0.14) g.add(box(w, 0.01, w, WHITE, x, h, z));
+}
 
 export function makeShipGantry(t: TileBuild): Object3D {
   const { i, g, parts } = t;
   // Ship-to-shore gantry over 2×2 of quay: x 0..2 along the edge, the
-  // water off the front (+z), z -1..1. A slender portal on four legs
-  // runs on rails along the quay, its boom reaching out across the
-  // whole ship and back over the bay between its back legs, where it
-  // sets the containers down.
+  // water off the front (+z), z -1..1. A portal on four legs runs on rails
+  // along the quay, its girders reaching out across the whole ship (the
+  // boom, hinged at the waterside legs) and back over the bay between its
+  // back legs, where it sets the containers down.
   const y = QUAY_Y;
   const top = y + 1.55;
   // The rails run along the quay the length of a ship, centred on it,
@@ -40,52 +85,107 @@ export function makeShipGantry(t: TileBuild): Object3D {
   }
   const carriage = new Group();
   carriage.position.x = 1;
+  const frame = new Group();
   const half = 0.38;
-  const leg = 0.06;
+  const leg = 0.075;
+  const sill = top - 0.42;
   for (const x of [-half, half]) {
     for (const z of [-0.85, 0.85]) {
-      carriage.add(box(0.1, 0.07, 0.2, C.chassis, x, y, z));
-      carriage.add(box(leg, top - y, leg, C.sign, x, y + 0.07, z));
+      // A bogie of wheels under each leg, a knee and the leg up to the girders.
+      frame.add(box(0.3, 0.04, 0.09, LEGS, x, y + 0.035, z));
+      for (const dx of [-0.09, 0.09]) frame.add(box(0.08, 0.04, 0.1, WHEELS, x + dx, y, z));
+      frame.add(box(0.11, 0.1, 0.11, LEGS, x, y + 0.075, z));
+      frame.add(box(leg, top + 0.12 - (y + 0.075), leg, LEGS, x, y + 0.075, z));
+      // Brackets in from the leg that the girders rest on, leaving the
+      // middle open for the hoist ropes to pass.
+      frame.add(box(0.27, 0.07, 0.08, LEGS, Math.sign(x) * 0.245, top - 0.07, z));
     }
-    // A tie along each side, high enough for the stacks to pass under.
-    carriage.add(box(0.04, 0.05, 1.7, C.sign, x, top - 0.45, 0));
+    // Each side braced: a sill high enough for the stacks and tractors to
+    // pass under, a beam along the top and a diagonal between.
+    frame.add(box(0.06, 0.07, 1.7, LEGS, x, sill, 0));
+    frame.add(box(0.065, 0.09, 1.7, LEGS, x, top - 0.02, 0));
+    frame.add(strut([x, sill + 0.07, -0.8], [x, top - 0.02, 0.8], 0.045, LEGS));
   }
-  // The portal beams across, front and back.
-  for (const z of [-0.85, 0.85]) {
-    carriage.add(box(half * 2 + leg, 0.07, 0.07, C.sign, 0, top - 0.07, z));
+  // The lift tower beside a landside leg.
+  tower(frame, half, -0.85 - 0.09, 0.075, y, top + 0.07);
+  // The A-frame over the waterside legs: a post up from each and a strut
+  // back to the landside ones, tied across above the trolley's way.
+  const apex = top + 0.95;
+  const az = 0.62;
+  const at = (x: number): [number, number, number] => [x * 0.8, apex, az];
+  for (const x of [-half, half]) {
+    frame.add(strut([x, top + 0.1, 0.85], at(x), 0.055, RED));
+    frame.add(strut([x, top + 0.1, -0.85], [x * 0.8, apex - 0.03, az - 0.05], 0.045, WHITE));
+    // A tie between them part way up.
+    const h = 0.4;
+    const back = -0.85 + (az - 0.05 + 0.85) * ((h - 0.1) / (apex - 0.03 - top - 0.1));
+    const front = 0.85 + (az - 0.85) * ((h - 0.1) / (apex - top - 0.1));
+    frame.add(strut([x, top + h, back], [x * 0.95, top + h, front], 0.03, RED));
+    // Backstays from the apex to the end of the backreach.
+    frame.add(strut(at(x), [Math.sign(x) * 0.13, top + 0.12, -1.42], 0.022, RED));
   }
-  // The boom: twin girders out across the ship's beam and back over
-  // the landside, a lighter tip, and a walkway between.
-  const reach = 2.75;
+  frame.add(box(half * 1.6 + 0.08, 0.07, 0.09, RED, 0, apex - 0.05, az));
+  frame.add(box(half * 1.6 + 0.04, 0.03, 0.18, WHITE, 0, apex + 0.02, az));
+  frame.add(box(half * 1.85, 0.04, 0.05, WHITE, 0, top + 0.4, 0.8));
+  // The girders over the landside, from the backreach to the boom's hinge,
+  // tied at the tail, and the machinery house on the backreach.
   const tail = -1.55;
+  const hinge = 0.88;
+  for (const x of [-0.13, 0.13]) girder(frame, x, top, tail, hinge);
+  frame.add(box(0.32, 0.12, 0.05, RED, 0, top, tail));
+  frame.add(box(0.44, 0.22, 0.44, WHITE, 0, top + 0.12, tail + 0.29));
+  frame.add(box(0.46, 0.025, 0.46, RED, 0, top + 0.34, tail + 0.29));
+  frame.add(box(0.12, 0.08, 0.1, C.chassis, 0.1, top + 0.365, tail + 0.2));
+  frame.add(box(0.06, 0.1, 0.005, C.window, -0.12, top + 0.16, tail + 0.512));
+  carriage.add(bake(frame, parts.owned));
+  // The boom, hinged at the waterside legs and luffed up about it.
+  const boom = new Group();
+  boom.position.set(0, top, hinge);
+  const arm = new Group();
+  const length = 2.85 - hinge;
   for (const x of [-0.13, 0.13]) {
-    carriage.add(box(0.04, 0.07, reach - tail, C.craneYellow, x, top, (reach + tail) / 2));
+    girder(arm, x, 0, 0, length);
+    // Lugs at the hinge.
+    arm.add(box(0.06, 0.13, 0.08, LEGS, x, -0.02, 0.02));
   }
-  carriage.add(box(0.3, 0.02, reach - tail, C.chassis, 0, top - 0.01, (reach + tail) / 2));
-  // An apex frame over the back legs, stays out to the tip and back to
-  // the tail, and the machinery house on the backreach.
-  const apex = top + 0.62;
+  // The end frame and the platform at the tip.
+  arm.add(box(0.32, 0.12, 0.05, RED, 0, 0, length));
+  arm.add(box(0.36, 0.01, 0.12, C.chassis, 0, 0.12, length - 0.04));
+  arm.add(box(0.36, 0.035, 0.005, WHITE, 0, 0.13, length + 0.02));
+  boom.add(bake(arm, parts.owned));
+  boom.add(lamp(LIGHT.warning, 0.04, 0, 0.17, length));
+  boom.rotation.x = -RAISED;
+  carriage.add(boom);
+  // The stays from the apex to the boom, a bar each side to half way and
+  // the luffing ropes to near the tip, drawn afresh as the boom goes up.
+  const ties: ShipGantryParts['ties'] = [];
   for (const x of [-0.13, 0.13]) {
-    carriage.add(strut([x, top, -1.05], [0, apex, -0.85], 0.035, C.sign));
-    carriage.add(strut([x, top, -0.65], [0, apex, -0.85], 0.035, C.sign));
-    carriage.add(strut([0, apex, -0.85], [x, top + 0.07, reach - 0.15], 0.014, C.chassis));
-    carriage.add(strut([0, apex, -0.85], [x, top + 0.07, tail + 0.1], 0.014, C.chassis));
+    const from = new Vector3(...at(Math.sign(x) * half));
+    ties.push({ bar: box(0.026, 0.026, 1, RED), from, on: new Vector3(x, 0.12, 0.95) });
+    ties.push({ bar: box(0.01, 0.01, 1, C.chassis), from, on: new Vector3(x, 0.12, 1.75) });
   }
-  carriage.add(box(0.3, 0.16, 0.36, C.cabin, 0, top + 0.07, tail + 0.3));
+  for (const tie of ties) carriage.add(tie.bar);
   // Red lights on the apex and the boom's tip, and floodlights under the
   // portal and the boom lighting the quay and the ship at night.
-  carriage.add(lamp(LIGHT.warning, 0.05, 0, apex + 0.03, -0.85));
-  carriage.add(lamp(LIGHT.warning, 0.04, 0, top + 0.1, reach));
+  carriage.add(lamp(LIGHT.warning, 0.05, 0, apex + 0.09, az));
   carriage.add(pool(0.7, 1.05, 0, y + 0.004, 0));
-  carriage.add(pool(0.6, 0.9, 0, 0.012, 1.7, 0.24));
-  // The trolley with the driver's cab under it, the hoist and spreader.
+  const shipLight = pool(0.6, 0.9, 0, 0.012, 1.7, 0.24);
+  shipLight.visible = false;
+  carriage.add(shipLight);
+  // The trolley on the girders' top chords, its sheaves down between them,
+  // with the driver's cab hung under it to one side; the hoist and spreader.
   const trolley = new Group();
   trolley.position.set(0, top, -0.3);
-  trolley.add(box(0.32, 0.05, 0.22, C.chassis, 0, 0.06, 0));
-  trolley.add(box(0.14, 0.12, 0.14, C.window, 0.1, -0.14, 0.04));
+  trolley.add(box(0.34, 0.05, 0.22, C.chassis, 0, 0.12, 0));
+  trolley.add(box(0.36, 0.015, 0.24, WHITE, 0, 0.17, 0));
+  trolley.add(box(0.1, 0.12, 0.08, C.chassis, 0, 0, 0));
+  trolley.add(box(0.03, 0.12, 0.03, C.chassis, 0.16, -0.06, 0.06));
+  trolley.add(box(0.15, 0.13, 0.15, WHITE, 0.17, -0.19, 0.08));
+  trolley.add(box(0.155, 0.055, 0.155, C.window, 0.17, -0.15, 0.08));
   const rope = box(0.012, 1, 0.012, C.chassis);
   const hook = new Group();
   hook.add(box(0.62, 0.035, 0.15, C.stripe, 0, -0.035));
+  hook.add(box(0.1, 0.03, 0.08, C.chassis, 0, 0));
   const load = container(i, 0, -0.035 - BOX_HEIGHT, 0);
   load.visible = false;
   hook.add(load);
@@ -139,8 +239,15 @@ export function makeShipGantry(t: TileBuild): Object3D {
       phase: 0,
       stacked: 0,
       base: 0,
+      boom,
+      ties,
+      shipLight,
+      hinge,
+      raised: 1,
+      alongside: false,
     },
   };
+  placeTies(parts.crane.sts!);
   return g;
 }
 
@@ -162,6 +269,12 @@ export function runShipGantry(
   g.phase = g.work ? (g.phase + (dt * site.speed()) / cycle) % 1 : 0;
   if (g.phase < was || !g.work) g.base = site.kept(-1 - g.idx, g.look);
   const trolley = c.slew;
+  // The boom comes down for a ship alongside, or one it is lifting to or
+  // from, and goes back up once the trolley is in off it.
+  const down = g.alongside || g.work === 'load' || g.work === 'unload';
+  const luff = (dt * site.speed()) / LUFF_SECONDS;
+  if (down) g.raised = Math.max(0, g.raised - luff);
+  else if (trolley.position.z < g.hinge - 0.15) g.raised = Math.min(1, g.raised + luff);
   let x = g.carriage.position.x;
   let z = -0.3;
   let drop = c.rest;
@@ -267,7 +380,9 @@ export function runShipGantry(
   x = Math.max(g.from, Math.min(g.to, x));
   const follow = site.follow(dt);
   g.carriage.position.x += (x - g.carriage.position.x) * follow;
-  // The trolley's along the boom from the carriage.
+  // The trolley's along the boom from the carriage; never out past the
+  // hinge onto it until it is right down.
+  if (g.raised > 0) z = Math.min(z, g.hinge - 0.2);
   trolley.position.z += (z - trolley.position.z) * follow;
   trolley.position.x = 0;
   c.rope.scale.y = drop;
@@ -275,4 +390,21 @@ export function runShipGantry(
   c.hook.position.y = -drop;
   g.load.visible = carry;
   if (carry) paintContainer(g.load, g.look);
+  placeTies(g);
+}
+
+/** The boom luffed as far up as it is, its stays drawn from the apex to it, and the ship's floodlight on only with it down. */
+export function placeTies(g: ShipGantryParts): void {
+  const r = g.raised;
+  g.boom.rotation.x = -RAISED * r * r * (3 - 2 * r);
+  g.boom.updateMatrix();
+  for (const tie of g.ties) {
+    tieAt.copy(tie.on).applyMatrix4(g.boom.matrix);
+    tieDir.subVectors(tieAt, tie.from);
+    const len = tieDir.length();
+    tie.bar.position.copy(tie.from).add(tieAt).multiplyScalar(0.5);
+    tie.bar.quaternion.setFromUnitVectors(along, tieDir.divideScalar(len));
+    tie.bar.scale.z = len;
+  }
+  g.shipLight.visible = r === 0;
 }

@@ -196,6 +196,8 @@ export interface CraneView {
   max: number;
   angle: number;
   busy: boolean;
+  /** Gantry cranes: a ship it works lies alongside, so its boom is down over it rather than raised. */
+  alongside?: boolean;
   /** Jib cranes: tiles of crate storage for cargo coming in in reach, right beside it. */
   stores: number;
   /** Jib cranes: free places for crates on those tiles. */

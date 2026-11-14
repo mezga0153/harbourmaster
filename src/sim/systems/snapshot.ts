@@ -62,6 +62,7 @@ import {
   jibStores,
   servedLoad,
   servedStack,
+  shipAlongside,
   stackFull,
 } from './cranes';
 import {
@@ -1167,6 +1168,7 @@ export function buildSnapshot(w: World): Snapshot {
       max: craneStack(c),
       angle: c.angle,
       busy: c.busy,
+      alongside: shipAlongside(w, c) || undefined,
       ...jibReachView(w, c),
       why: craneWhy(w, c),
       trouble: craneTrouble(w, c) ?? undefined,

@@ -3787,10 +3787,26 @@ describe('Container Port tier', () => {
     let stacked = 0;
     // The tier each container came off, ship by ship: a tier at a time, top down.
     const tiers = new Map<number, number[]>();
+    // Its boom down for a ship alongside, from a while before the first
+    // lift off it, and back up once the ship has cast off.
+    let down = -1;
+    let lifted = false;
+    const leads: number[] = [];
+    let raised = 0;
     for (let k = 0; k < TICKS_PER_DAY * 4; k++) {
       world.step();
       stacked = Math.max(stacked, craneHeld(world.cranes.get(at)!));
       const v = world.snapshot().cranes.find((c) => c.idx === at)!;
+      if (v.alongside && down < 0) [down, lifted] = [world.tick, false];
+      if (!v.alongside && down >= 0) {
+        expect(world.boats.some((b) => b.vessel === 'feeder' && b.state === 'moored')).toBe(false);
+        [down, raised] = [-1, raised + 1];
+      }
+      if (v.working === 'unload' || v.working === 'load') {
+        expect(v.alongside).toBe(true);
+        if (!lifted) leads.push(world.tick - down);
+        lifted = true;
+      }
       if (v.working === 'unload') {
         const list = tiers.get(v.workBoat!) ?? [];
         const tier = Math.floor(v.workSlot! / (B.FEEDER_BAYS * B.FEEDER_ROWS));
@@ -3803,6 +3819,9 @@ describe('Container Port tier', () => {
         expect(tiles.includes(at)).toBe(false);
       }
     }
+    expect(leads.length).toBeGreaterThan(0);
+    expect(Math.min(...leads)).toBeGreaterThanOrEqual(20);
+    expect(raised).toBeGreaterThan(0);
     expect(stacked).toBeGreaterThan(1);
     expect(world.stats.containers).toBeGreaterThan(0);
     expect([...tiers.values()].some((list) => list.length > 1)).toBe(true);

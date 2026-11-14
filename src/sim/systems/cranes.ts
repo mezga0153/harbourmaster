@@ -207,6 +207,22 @@ export function shipFor(w: World, c: Crane): { left: number; start: number } | n
   return best;
 }
 
+/**
+ * Whether a ship a gantry crane works lies alongside it, or is making fast
+ * there: its boom comes down over the ship then, and goes back up once the
+ * ship casts off, so ships come and go under a raised boom.
+ */
+export function shipAlongside(w: World, c: Crane): boolean {
+  if (c.kind !== 'gantry') return false;
+  return w.boats.some(
+    (b) =>
+      b.vessel === 'feeder' &&
+      (b.state === 'moored' ||
+        (b.state === 'arriving' && alongsideIn(w, b) <= 2 * B.ALONGSIDE_TICKS)) &&
+      craneReaches(w, c, b),
+  );
+}
+
 /** About how many ticks a ship coming in to its berth has before it is alongside, moored. */
 export function alongsideIn(w: World, b: Boat): number {
   const m = w.map;

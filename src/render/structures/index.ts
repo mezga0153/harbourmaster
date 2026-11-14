@@ -18,7 +18,7 @@ import { headingOf, syncPhase, lerpAngle } from '../util/math';
 import { runHarbourCrane } from './cranes/harbourCrane';
 import { reachOut, runJib, setJib } from './cranes/jib';
 import type { CraneParts, CraneSite, YardGantryParts } from './cranes/parts';
-import { runShipGantry } from './cranes/shipGantry';
+import { placeTies, runShipGantry } from './cranes/shipGantry';
 import { liftFrom, NO_RUN, pickOf, runYardGantry } from './cranes/yardGantry';
 import { animateFurniture } from './furniture';
 import { offset, storeArea } from './map';
@@ -218,6 +218,7 @@ export class Structures {
       }
       const g = c.sts ?? c.mhc;
       if (!g) continue;
+      if (c.sts) c.sts.alongside = !!v.alongside;
       g.stacked = v.stack + v.out;
       g.work = v.working ?? null;
       g.truck = v.workTruck ?? -1;
@@ -235,6 +236,19 @@ export class Structures {
       if (v.workPhase !== undefined && !c.mhc?.held && !waits) {
         g.phase = syncPhase(g.phase, v.workPhase, { wrap: true });
       }
+    }
+  }
+
+  /**
+   * Gantry cranes' booms right down, as over a ship alongside, or right up,
+   * at once: for pictures, which are drawn without being run.
+   */
+  setBooms(down: boolean): void {
+    for (const [, c] of this.each('crane')) {
+      if (!c.sts) continue;
+      c.sts.alongside = down;
+      c.sts.raised = down ? 0 : 1;
+      placeTies(c.sts);
     }
   }
 

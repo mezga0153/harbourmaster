@@ -746,6 +746,8 @@ function drawn(pic: Picture, k: number): { content: Group; map: GameMap } {
     overlay.setHints(map, 'tool', beat.hints?.(map) ?? []);
     content.add(overlay.group);
   }
+  // A feeder alongside has the gantry's boom down over it.
+  structures.setBooms(!!beat.props?.some((p) => p.kind === 'feeder'));
   for (const p of beat.props ?? []) content.add(prop(p, map).root);
   return { content, map };
 }
