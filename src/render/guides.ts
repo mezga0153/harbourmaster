@@ -665,9 +665,9 @@ function prop(p: Prop, map: GameMap): Model {
   if (p.kind === 'train') return { root: train(p, map), crates: [] } as unknown as Model;
   const model =
     p.kind === 'forklift'
-      ? forklift()
+      ? forklift(0, 'classic')
       : p.kind === 'stacker'
-        ? stacker()
+        ? stacker(0, 'classic')
         : p.kind === 'truck'
           ? truck(1, 8, false, 3)
           : p.kind === 'person'

@@ -7,7 +7,7 @@ import type { CarKind } from '../sim/railway';
 import { anchorOf } from '../sim/rules';
 import { Build } from '../sim/types';
 import { CONTAINERS, ROCKS, template, TREES } from '../render/assets';
-import { forklift, stacker, tractor } from '../render/machines';
+import { forklift, MACHINE_LAYOUTS, stacker, tractor } from '../render/machines';
 import {
   berthingMaster,
   binoculars,
@@ -34,7 +34,8 @@ import {
 } from '../render/models';
 import { PICTURED, stage } from '../render/thumbs';
 import { townBuilding } from '../render/town';
-import { trainCar } from '../render/trains';
+import { CAR_LAYOUTS, trainCar } from '../render/trains';
+import { TRUCK_LOOKS } from '../render/vehicles';
 import { CATEGORIES } from '../ui/tools';
 import type { Param, Params, RangeParam } from './controls';
 import type { Item } from './gallery';
@@ -76,13 +77,7 @@ function model(m: Model, water = false, box?: Box3): Staged & { model: Model } {
 
 /** Which of a kind of boat's layouts to show, or the one its seed picks. */
 function layoutParam(kind: keyof typeof LAYOUTS): Param {
-  return {
-    key: 'layout',
-    label: 'Layout',
-    kind: 'select',
-    options: [['seed', 'By seed'], ...LAYOUTS[kind].map((l) => [l, l] as const)],
-    value: 'seed',
-  };
+  return choice('layout', 'Layout', LAYOUTS[kind]);
 }
 
 /** A boat with as much of its load aboard as the slider says, every slot of a feeder's deck filled in order. */
@@ -114,18 +109,43 @@ function vessel(name: string, kind: string, lobster = false, extra: Param[] = []
   };
 }
 
-function haulage(name: string, capacity: number, boxes: boolean): Item {
+/** A select of `options` by name, or what the seed picks. */
+function choice(key: string, label: string, options: readonly string[]): Param {
+  return {
+    key,
+    label,
+    kind: 'select',
+    options: [['seed', 'By seed'], ...options.map((l) => [l, l] as const)],
+    value: 'seed',
+  };
+}
+
+/** A select's value, or undefined for what the seed picks. */
+const chosen = (v: unknown) => (v === 'seed' ? undefined : (v as string));
+
+function haulage(
+  name: string,
+  capacity: number,
+  boxes: boolean,
+  body: keyof typeof TRUCK_LOOKS,
+  pickup = false,
+): Item {
   return {
     group: 'Trucks',
     name,
     params: [
       SEED,
+      ...(pickup ? [] : [choice('cab', 'Cab', TRUCK_LOOKS.cab)]),
+      choice('body', 'Body', TRUCK_LOOKS[body]),
       COMPANY,
       { key: 'capacity', label: 'Capacity', kind: 'range', min: 1, max: 12, value: capacity },
       { ...LOAD, max: 12, value: Math.min(capacity, 12) },
     ],
     make(p) {
-      const m = truck(p.company as number, p.capacity as number, boxes, p.seed as number);
+      const m = truck(p.company as number, p.capacity as number, boxes, p.seed as number, pickup, {
+        cab: chosen(p.cab),
+        body: chosen(p.body),
+      });
       const s = model(m);
       const live = (q: Params) => showLoad(m, Math.min(m.crates.length, q.load as number));
       live(p);
@@ -134,13 +154,18 @@ function haulage(name: string, capacity: number, boxes: boolean): Item {
   };
 }
 
-function machine(name: string, make: () => Model, most: number): Item {
+function machine(
+  name: string,
+  make: (seed: number, layout?: string) => Model,
+  layouts: readonly string[],
+  most: number,
+): Item {
   return {
     group: 'Machines',
     name,
-    params: [{ ...LOAD, max: most, value: 0 }],
+    params: [SEED, choice('layout', 'Layout', layouts), { ...LOAD, max: most, value: 0 }],
     make(p) {
-      const m = make();
+      const m = make(p.seed as number, chosen(p.layout));
       const s = model(m);
       const live = (q: Params) => showLoad(m, q.load as number);
       live(p);
@@ -387,8 +412,21 @@ function car(kind: CarKind, name: string): Item {
     params: [
       { key: 'variant', label: 'Livery', kind: 'range', min: 0, max: 3, value: 0 },
       { key: 'k', label: 'Place in the train', kind: 'range', min: 0, max: 9, value: 1 },
+      ...(kind in CAR_LAYOUTS
+        ? [choice('layout', 'Layout', CAR_LAYOUTS[kind as keyof typeof CAR_LAYOUTS])]
+        : []),
     ],
-    make: (p) => ({ object: trainCar(kind, p.variant as number, p.k as number) }),
+    make: (p) => ({
+      object: trainCar(
+        kind,
+        p.variant as number,
+        p.k as number,
+        undefined,
+        undefined,
+        p.variant as number,
+        chosen(p.layout),
+      ),
+    }),
   };
 }
 
@@ -641,18 +679,19 @@ export function modelItems(): Item[] {
     vessel('Feeder ship', 'feeder'),
     { ...vessel('Bulk carrier', 'bulker'), params: [SEED, layoutParam('bulker'), COMPANY] },
     { ...vessel('Tug', 'tug'), params: [SEED, layoutParam('tug')] },
-    haulage('Rigid flatbed', 6, false),
-    haulage('Articulated flatbed', 8, false),
-    haulage('Container truck', 2, true),
+    haulage('Pickup', 4, false, 'pickup', true),
+    haulage('Rigid flatbed', 6, false, 'rigid'),
+    haulage('Articulated flatbed', 8, false, 'flatbed'),
+    haulage('Container truck', 2, true, 'container'),
     dockhand,
     harbourmasterItem,
     mayorItem,
     customsItem,
     berthingItem,
     crowd,
-    machine('Forklift', forklift, 4),
-    machine('Reach stacker', stacker, 1),
-    machine('Terminal tractor', tractor, 1),
+    machine('Forklift', forklift, MACHINE_LAYOUTS.forklift, 4),
+    machine('Reach stacker', stacker, MACHINE_LAYOUTS.stacker, 1),
+    machine('Terminal tractor', tractor, MACHINE_LAYOUTS.tractor, 1),
     ...built,
     ...TOWN.map(([name, code]) => town(name, code)),
     ...CARS.map(([k, name]) => car(k, name)),

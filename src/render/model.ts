@@ -5,7 +5,7 @@ import type { Owns } from './keyed';
 import { forklift, stacker, tractor, type Reach } from './machines';
 import { container, crate } from './models';
 import { berthingMaster, customsOfficer, harbourmaster, worker, type Limbs } from './people';
-import { truckModel, type Trailer } from './vehicles';
+import { truckModel, type Trailer, type TruckLook } from './vehicles';
 
 // The one shape every moving thing drawn has: boats and ships (craft.ts),
 // trucks (vehicles.ts), dockhands (people.ts) and the port's machines
@@ -71,6 +71,7 @@ export function truck(
   boxes = false,
   id = 0,
   pickup = false,
+  look?: TruckLook,
 ): Model {
   return truckModel(
     id,
@@ -80,6 +81,7 @@ export function truck(
     crate,
     (k, x, y, z) => container(k, x, y, z),
     pickup,
+    look,
   );
 }
 
@@ -91,9 +93,9 @@ export function modelFor(v: EntityView): Model {
     case 'forklift':
       return forklift(v.id);
     case 'stacker':
-      return stacker();
+      return stacker(v.id);
     case 'tractor':
-      return tractor();
+      return tractor(v.id);
     case 'harbourmaster':
       return harbourmaster(v.id);
     case 'customsOfficer':

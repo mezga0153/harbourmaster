@@ -298,11 +298,11 @@ function scene(tool: string): Patch | null {
 function machine(tool: string): Object3D | null {
   switch (tool) {
     case 'forklift':
-      return forklift().root;
+      return forklift(0, 'classic').root;
     case 'stacker':
-      return stacker().root;
+      return stacker(0, 'classic').root;
     case 'tractor':
-      return tractor().root;
+      return tractor(0, 'classic').root;
     case 'tug':
       return boat(0, 'tug', 1).root;
     default:

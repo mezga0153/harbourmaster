@@ -93,9 +93,11 @@ shows the game's parts on their own, `src/dev/`:
 
 - Models: everything drawn, each built from its seed, on a turntable
   (`models.ts`, `stage.ts`): boats and ships with their load and each
-  of their layouts (`LAYOUTS` in `render/craft.ts`), trucks, people,
-  machines, every tool on its patch of shore as its build menu card pictures
-  it (`render/thumbs.ts` `stage()`), the town's buildings, the train's cars,
+  of their layouts (`LAYOUTS` in `render/craft.ts`), trucks with
+  each cab and body (`TRUCK_LOOKS`, `render/vehicles.ts`), people,
+  machines (`MACHINE_LAYOUTS`), every tool on its patch of shore as its build
+  menu card pictures it (`render/thumbs.ts` `stage()`, machines there always
+  the classic yellow), the town's buildings, the train's cars (`CAR_LAYOUTS`),
   the Kenney scenery and the cargo. `#models/<group>/<name>` opens one.
 - Animations: what moves in place, run by the game's own code with its
   inputs on sliders (`animations.ts`): a dockhand's pose, fidgets and seat, a

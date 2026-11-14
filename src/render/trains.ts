@@ -29,6 +29,28 @@ const RAIL_TOP = 0.105;
 const LEN = CAR_LENGTH - 0.12;
 
 /**
+ * The layouts of the cars that come in more than one: a train's locomotive
+ * and coaches by the train, each wagon by itself; picked by the train's id
+ * unless one is asked for (the dev lab).
+ */
+export const CAR_LAYOUTS = {
+  loco: ['hood', 'cowl', 'shunter'],
+  coach: ['single', 'double'],
+  box: ['plain', 'ribbed', 'reefer'],
+  tank: ['plain', 'walkway'],
+} as const;
+
+/** Which layout `kind` has, the `n`th car of train `seed`, or `asked`. */
+function layoutOf(kind: CarKind, seed: number, n: number, asked?: string): string {
+  const from: readonly string[] | undefined = CAR_LAYOUTS[kind as keyof typeof CAR_LAYOUTS];
+  if (!from) return '';
+  if (asked && from.includes(asked)) return asked;
+  const per = kind === 'loco' || kind === 'coach' ? 0 : n;
+  const h = Math.imul(seed * 31 + per * 7 + kind.length, 2654435761) >>> 0;
+  return from[(h >>> 8) % from.length];
+}
+
+/**
  * A wagon or locomotive, along +z with its middle at the origin. A port
  * train's flat wagon carries the containers `boxes` gives the looks of,
  * front (+z) first, or none; one passing through, a container of its own.
@@ -39,8 +61,11 @@ export function trainCar(
   k: number,
   boxes?: readonly (number | null)[],
   slots?: Object3D[],
+  seed = v,
+  asked?: string,
 ): Object3D {
   const g = new Group();
+  const layout = layoutOf(kind, seed, k, asked);
   const y = 0.07;
   for (const z of [-LEN / 2 + 0.2, LEN / 2 - 0.2]) g.add(box(0.34, 0.07, 0.3, BOGIE, 0, 0, z));
   g.add(box(0.44, 0.04, LEN, BOGIE, 0, y, 0));
@@ -48,6 +73,41 @@ export function trainCar(
   const live = LIVERIES[v % LIVERIES.length];
   switch (kind) {
     case 'loco': {
+      if (layout === 'cowl') {
+        // A cowl unit: the body the full width and length, a low nose
+        // ahead of the cab's windscreen, fans along the roof.
+        g.add(box(0.42, 0.42, LEN - 0.14, live.body, 0, top, -0.07));
+        g.add(box(0.42, 0.22, 0.14, live.body, 0, top, LEN / 2 - 0.07));
+        g.add(box(0.36, 0.12, 0.012, C.window, 0, top + 0.26, LEN / 2 - 0.135));
+        for (const s of [-1, 1]) {
+          g.add(box(0.012, 0.08, 0.12, C.window, s * 0.211, top + 0.27, LEN / 2 - 0.24));
+          g.add(box(0.012, 0.05, LEN - 0.02, live.trim, s * 0.211, top + 0.1, 0));
+        }
+        for (const z of [-0.36, -0.12]) g.add(cyl(0.07, 0.02, BOGIE, 0, top + 0.42, z, 10));
+        g.add(box(0.08, 0.05, 0.02, 0xfff2b0, 0, top + 0.14, LEN / 2 + 0.002));
+        g.add(box(0.44, 0.06, 0.03, live.trim, 0, top - 0.02, LEN / 2));
+        break;
+      }
+      if (layout === 'shunter') {
+        // A shunter: a long low hood with handrails, the cab at the back,
+        // its buffer beams striped against being walked into.
+        g.add(box(0.3, 0.26, LEN - 0.42, live.body, 0, top, 0.19));
+        g.add(cyl(0.03, 0.08, BOGIE, 0, top + 0.26, 0.3, 6));
+        g.add(box(0.42, 0.46, 0.36, live.body, 0, top, -LEN / 2 + 0.2));
+        for (const s of [-1, 1]) {
+          g.add(box(0.36, 0.1, 0.012, C.window, 0, top + 0.3, -LEN / 2 + 0.2 + s * 0.181));
+          g.add(box(0.012, 0.1, 0.2, C.window, s * 0.211, top + 0.3, -LEN / 2 + 0.2));
+          g.add(box(0.012, 0.012, LEN - 0.46, live.trim, s * 0.19, top + 0.22, 0.19));
+        }
+        g.add(box(0.44, 0.03, 0.4, live.trim, 0, top + 0.46, -LEN / 2 + 0.2));
+        for (const z of [LEN / 2, -LEN / 2])
+          for (let n = 0; n < 5; n++)
+            g.add(
+              box(0.088, 0.06, 0.03, n % 2 ? BOGIE : live.trim, -0.176 + n * 0.088, top - 0.02, z),
+            );
+        g.add(box(0.08, 0.05, 0.02, 0xfff2b0, 0, top + 0.12, LEN / 2 - 0.02));
+        break;
+      }
       // Hood unit: a cab at the front and the engine housing behind.
       g.add(box(0.42, 0.42, 0.34, live.body, 0, top, LEN / 2 - 0.2));
       g.add(box(0.43, 0.1, 0.2, C.window, 0, top + 0.26, LEN / 2 - 0.16));
@@ -62,6 +122,17 @@ export function trainCar(
     }
     case 'coach': {
       const paint = COACHES[v % COACHES.length];
+      if (layout === 'double') {
+        // A double-decker, two rows of windows under a rounded roof.
+        g.add(box(0.42, 0.52, LEN, paint, 0, top, 0));
+        for (const row of [0.12, 0.33]) {
+          g.add(box(0.425, 0.1, LEN - 0.12, 0xe8e0c8, 0, top + row - 0.015, 0));
+          for (let w = 0; w < 6; w++)
+            g.add(box(0.43, 0.07, 0.12, C.window, 0, top + row, -LEN / 2 + 0.14 + w * 0.18));
+        }
+        g.add(box(0.36, 0.04, LEN - 0.02, 0x8d939b, 0, top + 0.52, 0));
+        break;
+      }
       g.add(box(0.42, 0.36, LEN, paint, 0, top, 0));
       g.add(box(0.425, 0.1, LEN - 0.12, 0xe8e0c8, 0, top + 0.17, 0));
       for (let w = 0; w < 5; w++) {
@@ -71,7 +142,20 @@ export function trainCar(
       break;
     }
     case 'box': {
-      g.add(box(0.42, 0.38, LEN, [0x8c3b30, 0x6b4f3f, 0x4f6d84][(v + k) % 3], 0, top, 0));
+      if (layout === 'reefer') {
+        // A refrigerated van: white, a stripe, its cooling unit on the end.
+        g.add(box(0.42, 0.38, LEN, 0xe8ecef, 0, top, 0));
+        g.add(box(0.425, 0.04, LEN, 0x2f5fb3, 0, top + 0.06, 0));
+        g.add(box(0.43, 0.28, 0.24, 0xc9ced3, 0, top + 0.05, 0));
+        g.add(box(0.3, 0.24, 0.04, 0x8d939b, 0, top + 0.06, LEN / 2));
+        g.add(box(0.44, 0.03, LEN, 0x8d939b, 0, top + 0.38, 0));
+        break;
+      }
+      const paint = [0x8c3b30, 0x6b4f3f, 0x4f6d84][(v + k) % 3];
+      g.add(box(0.42, 0.38, LEN, paint, 0, top, 0));
+      if (layout === 'ribbed')
+        for (let n = 0; n < 9; n++)
+          g.add(box(0.43, 0.38, 0.018, 0x3a3d42, 0, top, -LEN / 2 + 0.06 + n * ((LEN - 0.12) / 8)));
       g.add(box(0.43, 0.3, 0.3, 0x5a3d2b, 0, top + 0.03, 0));
       g.add(box(0.44, 0.03, LEN, 0x8d939b, 0, top + 0.38, 0));
       break;
@@ -82,6 +166,23 @@ export function trainCar(
       tank.position.set(0, top + 0.2, 0);
       g.add(tank);
       g.add(box(0.14, 0.06, 0.14, BOGIE, 0, top + 0.37, 0));
+      if (layout === 'walkway') {
+        // Running boards and a handrail along both sides, bands round the
+        // tank, and a ladder up to the dome.
+        for (const s of [-1, 1]) {
+          g.add(box(0.05, 0.015, LEN - 0.1, 0x8d939b, s * 0.215, top + 0.1, 0));
+          g.add(box(0.01, 0.01, LEN - 0.2, 0xf2c230, s * 0.205, top + 0.32, 0));
+          for (const z of [-0.45, 0, 0.45])
+            g.add(box(0.008, 0.21, 0.008, 0xf2c230, s * 0.205, top + 0.11, z));
+          g.add(box(0.012, 0.3, 0.06, 0xf2c230, s * 0.2, top + 0.06, 0.12));
+        }
+        for (const z of [-0.36, 0.36]) {
+          const band = cyl(0.196, 0.03, BOGIE, 0, 0, 0, 10);
+          band.rotation.x = Math.PI / 2;
+          band.position.set(0, top + 0.2, z);
+          g.add(band);
+        }
+      }
       break;
     }
     case 'hopper': {
@@ -252,6 +353,7 @@ export class Trains {
         k,
         kind === 'flat' ? looks : kind === 'hopper' && hoppers ? [] : undefined,
         mine,
+        train.id,
       );
       // A port train's hopper wagons, by wagon from the locomotive.
       if (hoppers && kind === 'hopper') slots[wagon - 1] = mine[0];
