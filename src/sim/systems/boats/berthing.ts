@@ -3,7 +3,7 @@
 // alongside, and each boat's turn.
 
 import type { World } from '../../world';
-import { fisheries } from '../economy';
+import { fine, fisheries } from '../economy';
 import { Build, TICKS_PER_DAY, isBuoy, isDock } from '../../types';
 import * as B from '../../balance';
 import type { FisheryTerms } from '../../contracts';
@@ -1144,6 +1144,34 @@ export function letsGoFirst(w: World, b: Boat): boolean {
   );
 }
 
+/**
+ * A boat still loaded, kept waiting half as long as it will before it gives
+ * up: the player is told, once, how long it has left, what it will claim,
+ * and why it waits, while there is still time to do something about it.
+ */
+export function warnWaiting(w: World, b: Boat, patience: number): void {
+  const waited = b.anchorTicks + b.mooredTicks;
+  if (b.warnedWait || b.crates <= 0 || waited < patience * B.BOAT_WARN_SHARE) return;
+  b.warnedWait = true;
+  const hours = (ticks: number) => Math.max(1, Math.round((ticks * 24) / TICKS_PER_DAY));
+  const what = b.vessel === 'feeder' ? 'containers' : b.bulk ? `tonnes of ${b.bulk}` : 'crates';
+  const claim = fine(w, b.crates * b.fee * B.LOST_CARGO_SHARE);
+  const why =
+    b.state === 'anchored'
+      ? 'every berth it can use is taken: build another jetty or berth, or unload the boats alongside faster'
+      : b.noRoom === 'room'
+        ? 'the dockhands have nowhere to carry its cargo: the truck bays are full or out of reach. Sign another haulier or build a truck bay nearer'
+        : b.noRoom === 'customs'
+          ? 'its cargo needs crate storage to wait for customs in, and there is none: mark some out'
+          : 'it is unloaded too slowly: hire more dockhands, or bring a truck bay nearer the berth';
+  message(
+    w,
+    `A ${b.company} ${vesselName(b)} has waited ${hours(waited)} h with ${b.crates} ${what} on board. In about ${hours(patience - waited)} h it gives up and claims $${claim.toLocaleString('en-US')}: ${why}.`,
+    'bad',
+  );
+  tip(w, 'patience');
+}
+
 export function updateBoat(w: World, b: Boat): void {
   plotCourses(w);
   if (b.state === 'anchored' || b.state === 'moored') {
@@ -1153,6 +1181,7 @@ export function updateBoat(w: World, b: Boat): void {
       // The claim message in judgeVisit explains what happened.
       if (b.state === 'anchored' || !boxedIn(w, b)) return depart(w, b, true);
     }
+    warnWaiting(w, b, patience);
   }
   switch (b.state) {
     case 'approaching':

@@ -32,6 +32,7 @@ import {
   bulldozeTiles,
   bulldozeValue,
   depotDoorTrouble,
+  bayPath,
   placementCost,
   placementError,
   reflood,
@@ -113,6 +114,8 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
   let shutIn: string | undefined;
   // A jib crane just built with no crate storage in reach to swing crates into.
   let noStore = false;
+  // Port paths laid behind truck bays with no way in behind them for those who load them.
+  const paths: number[] = [];
   // Docks grow out from the shore, so a line dragged from the sea inwards
   // only fits once the tiles nearer the shore are built: keep going round
   // until nothing more can be placed.
@@ -179,7 +182,10 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         w.map.deco[t] = Deco.None;
         w.dirty.add(t);
       });
-      if (kind === 'truckBay' || kind === 'largeBay') addBay(w, i);
+      if (kind === 'truckBay' || kind === 'largeBay') {
+        addBay(w, i);
+        paths.push(...bayPath(w.map, kind, i, f));
+      }
       // The track either side changes with it: a switch, a buffer stop.
       if (kind === 'siding' || kind === 'portRoad') w.dirty.add(i - 1).add(i + 1);
       if (kind === 'depot') shutIn ??= depotDoorTrouble(w.map, i, f) ?? undefined;
@@ -200,6 +206,9 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
     if (skipped.length === left.length) break;
     left = skipped;
   }
+  // The dockhands load a truck bay from behind: a path goes in there with
+  // it, rather than leave it to be found out from its red mark.
+  if (paths.length > 0) build(w, 'footpath', [...new Set(paths)]);
   // Built only partly, the rest off the port's land: the advisor explains, once.
   if (firstError && isLandError(firstError)) tip(w, 'land');
   if (spent > 0) moneyAt(w, -spent, tiles[tiles.length - 1]);

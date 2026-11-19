@@ -309,6 +309,8 @@ export interface Boat extends Agent {
    * It waits meanwhile, as they set nothing down on the quay.
    */
   noRoom?: 'room' | 'customs';
+  /** Warned of already, kept waiting long enough to be near giving up; see warnWaiting. */
+  warnedWait?: boolean;
   /**
    * Exports taken on board, each where it stands: on a feeder's deck by
    * deck slot (see deckPlace), on any other in the order they came.

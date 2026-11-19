@@ -1,5 +1,6 @@
 import { computed, effect, signal } from '@preact/signals';
 import type { Snapshot } from '../protocol';
+import * as B from '../sim/balance';
 import type { Preview } from '../preview/types';
 import { GUIDES, type GuideId } from './guides';
 import { gameplay } from './prefs';
@@ -119,6 +120,16 @@ export const costsPerDay = computed(() => {
   const s = snapshot.value;
   return s ? s.wages + s.contractFees + s.interest : 0;
 });
+/**
+ * What goes out a day, counting the claims and demurrage paid yesterday,
+ * which come back as long as what caused them lasts; and the cash worth
+ * keeping in hand for it, RESERVE_DAYS of it (as the sim's cashReserve).
+ */
+export const burnPerDay = computed(() => {
+  const s = snapshot.value;
+  return costsPerDay.value - Math.min(0, s?.yesterday?.penalties ?? 0);
+});
+export const cashReserve = computed(() => B.RESERVE_DAYS * burnPerDay.value);
 /**
  * What the player has selected, found in the snapshot: the depot, bay,
  * yard, crane, parking lot or entity itself, with the kind of selection, or

@@ -7,7 +7,7 @@ import type { FinanceDay, Ledger, LedgerCategory } from '../protocol';
 import * as B from '../sim/balance';
 import type { Actions } from './actions';
 import { formatDate, money } from './format';
-import { panel, snapshot } from './store';
+import { burnPerDay, cashReserve, panel, snapshot } from './store';
 import { InfoHeader, Meter, MoneyTabs } from './widgets';
 
 /** The port tier where containers come in: the Container Port. */
@@ -422,6 +422,21 @@ function Spending({ days }: { days: FinanceDay[] }) {
   );
 }
 
+/**
+ * How many days of what goes out a day (and of yesterday's claims) the cash
+ * covers, and whether that is enough of a cushion: see RESERVE_DAYS.
+ */
+export function coverWords(cash: number): string | undefined {
+  const burn = burnPerDay.value;
+  if (burn <= 0) return undefined;
+  if (cash <= 0) return 'nothing in hand: take a loan, or cut costs';
+  const days = cash / burn;
+  const shown = days >= 10 ? Math.round(days) : Math.round(days * 10) / 10;
+  return days < B.RESERVE_DAYS
+    ? `covers ${shown} days of costs: keep ${B.RESERVE_DAYS} or more in hand`
+    : `covers ${shown} days of costs`;
+}
+
 export function FinancePanel({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
@@ -443,7 +458,12 @@ export function FinancePanel({ actions }: { actions: Actions }) {
       <MoneyTabs on="finance" />
 
       <div class="fin-tiles">
-        <Tile label="Cash" value={compact(s.cash)} tone={s.cash < 0 ? 'neg' : undefined} />
+        <Tile
+          label="Cash"
+          value={compact(s.cash)}
+          tone={s.cash < 0 || s.cash < cashReserve.value ? 'neg' : undefined}
+          delta={coverWords(s.cash)}
+        />
         <Tile
           label="Yesterday"
           value={lastNet === null ? '—' : compact(lastNet)}

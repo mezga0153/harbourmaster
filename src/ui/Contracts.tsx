@@ -54,6 +54,7 @@ import {
   snapshot,
   type ContractsTab,
 } from './store';
+import { TownGoalCard } from './TownGoal';
 import { InfoHeader, Meter, More } from './widgets';
 
 function css(hex: number): string {
@@ -615,6 +616,7 @@ function SignedRow({
           Unhappy. If the relationship reaches zero they walk out and claim {money(c.breach)}.
         </p>
       )}
+      {confirming && lastHaulier(c) && <p class="note bad">{lastHaulier(c)}</p>}
       <div class="card-foot">
         <span class="muted">Ending it costs {money(c.cancelFee)}</span>
         {confirming ? (
@@ -637,6 +639,26 @@ function SignedRow({
       </div>
     </Row>
   );
+}
+
+/**
+ * Ending `c`, if it is the port's only haulier for what it carries, with
+ * boats still bringing that in: what follows, said before it is ended.
+ */
+export function lastHaulier(c: ContractView): string | null {
+  const s = snapshot.value;
+  if (!s || c.terms.kind !== 'haulier') return null;
+  const boxes = c.terms.cargo === 'container';
+  const others = s.contracts.some(
+    (o) => o.id !== c.id && o.terms.kind === 'haulier' && (o.terms.cargo === 'container') === boxes,
+  );
+  const arriving = s.contracts.some(
+    (o) => o.terms.kind === 'fishery' && (o.terms.vessel === 'feeder') === boxes,
+  );
+  if (others || !arriving) return null;
+  return boxes
+    ? 'This is your only container haulier: no trucks will come for the containers. The yards fill up, the ships wait, and after a while they give up and claim for their cargo.'
+    : 'This is your only haulier: no trucks will come for the crates. The truck bays fill up, the boats wait, and after a while they give up and claim for their catch.';
 }
 
 // ── Offers ────────────────────────────────────────────────
@@ -821,6 +843,19 @@ export function offerChecks(
   return { checks, blocked };
 }
 
+/**
+ * Signing a line that sends more than the port can unload, lift, move or
+ * truck out: what that costs, said before it is signed. Null when it fits.
+ */
+export function overCapacity(o: OfferView, checks: CheckView[]): string | null {
+  if (o.terms.kind !== 'fishery') return null;
+  const short = checks.find(
+    (k) => !k.ok && /^(Unloading|Trucking|Lifting|Moving|Pallets):/.test(k.text),
+  );
+  if (!short) return null;
+  return `More than the port can handle (${short.text.toLowerCase()}). Its boats would wait at anchor or alongside, which costs demurrage, and after ${span(B.BOAT_GIVE_UP_TICKS / TICKS_PER_DAY)} they give up and claim for their cargo; unhappy enough, the line walks out and claims ${money(o.breach)}. Build, hire or sign a haulier first.`;
+}
+
 /** Why an offer cannot be signed right now, or null: blocked, or too dear. */
 export function whyNot(o: OfferView, s: Snapshot): string | null {
   const { blocked } = offerChecks(o, s);
@@ -845,6 +880,8 @@ function OfferRow({
   const t = o.terms;
   const days = Math.max(1, Math.ceil(o.expiresIn / TICKS_PER_DAY));
   const { checks, blocked } = offerChecks(o, s);
+  const [confirming, setConfirming] = useState(false);
+  const risk = overCapacity(o, checks);
   const why = blocked ?? (s.cash < o.signingFee ? whyNot(o, s) : null);
   // The first thing short, for a row closed: what to build before signing.
   const short = why ? null : (checks.find((k) => !k.ok && !k.warn)?.text ?? null);
@@ -867,18 +904,36 @@ function OfferRow({
           <Check key={k.text} k={k} />
         ))}
       </ul>
+      {confirming && risk && <p class="note bad">{risk}</p>}
       <div class="card-foot">
         <span class="muted">
           {t.kind === 'fishery' ? `Walk-out penalty ${money(o.breach)}` : 'No penalties'}
         </span>
-        <button
-          class="btn primary sm"
-          disabled={!!why}
-          title={why ?? undefined}
-          onClick={() => actions.send({ type: 'signContract', id: o.id })}
-        >
-          Sign · {money(o.signingFee)}
-        </button>
+        {confirming ? (
+          <span class="confirm">
+            <button class="btn ghost sm" onClick={() => setConfirming(false)}>
+              Not yet
+            </button>
+            <button
+              class="btn danger sm"
+              disabled={!!why}
+              onClick={() => actions.send({ type: 'signContract', id: o.id })}
+            >
+              Sign anyway · {money(o.signingFee)}
+            </button>
+          </span>
+        ) : (
+          <button
+            class="btn primary sm"
+            disabled={!!why}
+            title={why ?? undefined}
+            onClick={() =>
+              risk ? setConfirming(true) : actions.send({ type: 'signContract', id: o.id })
+            }
+          >
+            Sign · {money(o.signingFee)}
+          </button>
+        )}
       </div>
     </Row>
   );
@@ -1222,6 +1277,7 @@ function Overview() {
   return (
     <>
       <Summary cap={s.capacity} />
+      <TownGoalCard />
       <div class="kpis four">
         <div class="kpi">
           <span class="kpi-label">Lines</span>

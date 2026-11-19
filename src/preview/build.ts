@@ -6,6 +6,8 @@ import type { GameMap } from '../sim/map';
 import { exitError, HIGHWAY_COLUMNS } from '../sim/roads';
 import {
   anchorOf,
+  bayPath,
+  bayTrouble,
   bestFacing,
   bulldozeError,
   bulldozeTiles,
@@ -15,6 +17,7 @@ import {
   placementCost,
   placementError,
   tugPlacementError,
+  walkableAt,
 } from '../sim/rules';
 import { TIERS } from '../sim/tiers';
 import { Build, type BuildKind } from '../sim/types';
@@ -136,17 +139,41 @@ export function previewBuilding(
   if (kind === 'office' || kind === 'harbourHut') hints = dockHints(snap);
   const tiles = footprint(map, kind, i, f).filter((t) => t >= 0);
   const error = placementError(map, kind, i, undefined, f);
+  let value = -placementCost(map, kind, i);
+  let note = TOOL_NOTES[kind];
+  const ghosts = { tiles: [...tiles], ok: tiles.map(() => !error) };
+  // A truck bay is loaded from behind: a port path goes in there with it,
+  // if it has no way in behind it; else it says why it would be no use.
+  if (!error && (kind === 'truckBay' || kind === 'largeBay')) {
+    const way = bayPath(map, kind, i, f);
+    if (way.length > 0) {
+      const path = way.reduce((n, t) => n + placementCost(map, 'footpath', t), 0);
+      value -= path;
+      ghosts.tiles.push(...way);
+      ghosts.ok.push(...way.map(() => true));
+      hints = [...hints, { kind: 'good', tiles: way }];
+      const joined = way.some((t) =>
+        map.neighbors4(t).some((n) => walkableAt(map, n) && !tiles.includes(n)),
+      );
+      note = joined
+        ? `A port path goes in behind it, for the dockhands who load it, up to where they walk ($${path.toLocaleString('en-US')})`
+        : `A port path goes in behind it, for the dockhands who load it ($${path.toLocaleString('en-US')}): join it up to the jetty`;
+    } else {
+      const why = bayTrouble(map, i, f);
+      if (why) note = `No use here as it stands: ${why[0].toLowerCase()}${why.slice(1)}`;
+    }
+  }
   return {
-    ghosts: { tiles, ok: tiles.map(() => !error) },
+    ghosts,
     arrow: { at: i, facing: f, tiles },
     hints,
     facing: f,
     preview: {
       count: error ? 0 : 1,
       rotatable: true,
-      value: -placementCost(map, kind, i),
+      value,
       error,
-      note: TOOL_NOTES[kind],
+      note,
     },
   };
 }

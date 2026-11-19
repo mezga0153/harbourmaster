@@ -126,6 +126,7 @@ export const LOAD_OVERRUN_TICKS = 300;
 /** Unloaded, a ship waits this long for the exports to start coming before a ship waiting for its berth cuts it short. */
 export const LOAD_START_TICKS = 60;
 export const BOAT_GIVE_UP_TICKS = 1500; // a boat kept this long, at anchor and alongside, leaves with its cargo
+export const BOAT_WARN_SHARE = 0.5; // of its patience gone, a boat still loaded is warned of, once
 export const GAVE_UP_PENALTY = 10; // extra satisfaction lost when a boat leaves full
 export const NO_ROOM_PENALTY = 3; // a boat could not even enter the crowded harbour
 
@@ -142,6 +143,8 @@ export const LOAN_STEP = 2500;
 export const LOAN_MAX = 20000;
 export const LOAN_DAILY_RATE = 0.004; // charged on the outstanding loan each day
 export const BANKRUPT_DAYS = 7; // days in the red before the bank closes the port
+export const BAY_PATH_REACH = 8; // tiles of port path laid with a truck bay, from its back to where people walk
+export const RESERVE_DAYS = 5; // days of running costs, and of lately's claims, worth keeping in hand
 
 /**
  * How kind the game is, picked for a new port: what cargo pays (trucked out,

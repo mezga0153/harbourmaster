@@ -1,7 +1,18 @@
 import { TIERS } from '../sim/tiers';
 import type { Actions } from './actions';
 import { money } from './format';
-import { land, openGuide, panel, selection, snapshot, tool } from './store';
+import { useState } from 'preact/hooks';
+import * as B from '../sim/balance';
+import {
+  burnPerDay,
+  cashReserve,
+  land,
+  openGuide,
+  panel,
+  selection,
+  snapshot,
+  tool,
+} from './store';
 import { InfoHeader, Meter, More, PortTownTabs } from './widgets';
 
 /** The handbook page on what each step up brings. */
@@ -113,20 +124,73 @@ export function PortPanel({ actions }: { actions: Actions }) {
                   </p>
                 )}
                 <Requirement label="Cash for the fee" have={Math.max(0, s.cash)} need={t.cost} />
-                <div class="actions">
-                  <button
-                    class="btn primary"
-                    disabled={!canUpgrade}
-                    onClick={() => actions.send({ type: 'upgrade' })}
-                  >
-                    Upgrade · {money(t.cost)}
-                  </button>
-                </div>
+                <UpgradeButton
+                  cost={t.cost}
+                  can={canUpgrade}
+                  onUpgrade={() => actions.send({ type: 'upgrade' })}
+                />
               </>
             )}
           </div>
         );
       })}
     </aside>
+  );
+}
+
+/**
+ * The upgrade, paid for: what the fee leaves in hand against what goes out
+ * a day, and, when that is less than a cushion for bad days, a second click
+ * to go ahead anyway.
+ */
+function UpgradeButton({
+  cost,
+  can,
+  onUpgrade,
+}: {
+  cost: number;
+  can: boolean;
+  onUpgrade: () => void;
+}) {
+  const [sure, setSure] = useState(false);
+  const s = snapshot.value;
+  if (!s) return null;
+  const left = s.cash - cost;
+  const burn = burnPerDay.value;
+  const short = can && burn > 0 && left < cashReserve.value;
+  const days = burn > 0 ? Math.max(0, left / burn) : Infinity;
+  return (
+    <>
+      {short && (
+        <p class="note bad">
+          The fee leaves {money(left)}, about {Math.round(days * 10) / 10} days of what goes out a
+          day
+          {s.yesterday && s.yesterday.penalties < 0 ? ', counting the claims paid yesterday' : ''}.
+          A boat that gives up or a line that walks out can cost more than that: keep about{' '}
+          {B.RESERVE_DAYS} days in hand ({money(cashReserve.value)}), or a loan ready in Finance,
+          before upgrading.
+        </p>
+      )}
+      <div class="actions">
+        {sure && short ? (
+          <span class="confirm">
+            <button class="btn ghost" onClick={() => setSure(false)}>
+              Wait
+            </button>
+            <button class="btn danger" disabled={!can} onClick={onUpgrade}>
+              Upgrade anyway · {money(cost)}
+            </button>
+          </span>
+        ) : (
+          <button
+            class="btn primary"
+            disabled={!can}
+            onClick={() => (short ? setSure(true) : onUpgrade())}
+          >
+            Upgrade · {money(cost)}
+          </button>
+        )}
+      </div>
+    </>
   );
 }

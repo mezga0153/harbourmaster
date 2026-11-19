@@ -6,6 +6,7 @@ import type { Actions } from './actions';
 import { dayProgress, formatDate, money } from './format';
 import { Icon, type IconName } from './icons';
 import { SoundControl } from './Sound';
+import { goalCount, heldBack, workingTowards } from './TownGoal';
 import { soundSettings } from './prefs';
 import {
   cash,
@@ -118,6 +119,7 @@ export function TopBar({ actions }: { actions: Actions }) {
   const s = snapshot.value;
   if (!s) return null;
   const t = town.value;
+  const goal = workingTowards(s);
   const waiting = MENU.some((m) => m.badge(s) !== null);
   return (
     <header class="topbar panel">
@@ -168,9 +170,12 @@ export function TopBar({ actions }: { actions: Actions }) {
         <Stat icon="users" label="Staff" title="Dockhands employed" priority={3}>
           {s.staff}
         </Stat>
-        <Stat icon="box" label="Crates" title="Crates handled so far" priority={3}>
-          {s.stats.cratesHandled.toLocaleString('en-US')}
-        </Stat>
+        {/* Room for the town's goal instead, while there is one. */}
+        {!goal && (
+          <Stat icon="box" label="Crates" title="Crates handled so far" priority={3}>
+            {s.stats.cratesHandled.toLocaleString('en-US')}
+          </Stat>
+        )}
         {t && (
           <button
             class={`stat-button town ${selection.value?.type === 'town' ? 'on' : ''}`}
@@ -184,6 +189,23 @@ export function TopBar({ actions }: { actions: Actions }) {
               bar={t.next && !t.next.waiting ? landmarkProgress(t.next) : undefined}
             >
               {t.population.toLocaleString('en-US')}
+            </Stat>
+          </button>
+        )}
+        {goal && (
+          <button
+            class={`stat-button town-goal ${selection.value?.type === 'town' ? 'on' : ''}`}
+            onClick={() => openTown()}
+            title={`The town's next landmark, the ${goal.name.toLowerCase()}: ${goal.aim.toLowerCase()}${goal.days ? ` (${goal.days.done} of ${goal.days.need} days so far)` : ''}${heldBack(s) ? `. ${t?.name} can grow no bigger till it opens` : ''}${goal.hint ? `. ${goal.hint}` : ''}`}
+          >
+            <Stat
+              label={goal.name}
+              title=""
+              tone={heldBack(s) && goal.have < goal.need ? 'neg' : undefined}
+              priority={2}
+              bar={goal.need > 0 ? Math.min(1, goal.have / goal.need) : 1}
+            >
+              {goalCount(goal)}
             </Stat>
           </button>
         )}

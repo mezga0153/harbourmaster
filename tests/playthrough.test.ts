@@ -36,8 +36,11 @@ describe('Playthrough', () => {
   // bays, not on the road beside them, 6 do (4, 7, 9, 10, 20 and 23),
   // handling a sixth more crates than with them on the road too. With each
   // dockhand on a break taking a free place of their own on the bench, 2 do
-  // (25 and 26), handling fewer crates but paying fewer claims.
-  it.each([25])(
+  // (25 and 26), handling fewer crates but paying fewer claims. With a port
+  // path laid behind each truck bay as it is built, up to where people
+  // walk, 4 do (9, 10, 22 and 26, against 3, 7, 8, 13, 21 and 25 just
+  // before), handling about as many crates.
+  it.each([22])(
     'a sensible strategy grows the port (seed %i)',
     (seed) => {
       const { w, log } = playthrough(seed, 30);

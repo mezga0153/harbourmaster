@@ -4,7 +4,7 @@
 // accounts at its end.
 
 import type { World } from '../world';
-import { jobs, openLandmark } from './townBusiness';
+import { jobs, landmarkShort, openLandmark } from './townBusiness';
 import type { Boat, LedgerCategory } from '../state';
 import * as B from '../balance';
 import { message, moneyAt, nag, tip, tipUnless } from './output';
@@ -74,6 +74,17 @@ export function payout(w: World, amount: number): number {
 /** What a penalty of `amount` at the usual rates costs at this difficulty. */
 export function fine(w: World, amount: number): number {
   return Math.round(amount * B.DIFFICULTIES[w.difficulty].penalties);
+}
+
+/**
+ * Cash worth keeping in hand: a few days of what goes out every day (wages,
+ * haulier fees, interest) and of the claims and demurrage paid yesterday,
+ * which come back as long as what caused them lasts. See RESERVE_DAYS.
+ */
+export function cashReserve(w: World): number {
+  const daily =
+    wageBill(w) + dailyFees(w) + interestDue(w) - Math.min(0, w.yesterday?.penalties ?? 0);
+  return B.RESERVE_DAYS * daily;
 }
 
 export function interestDue(w: World): number {
@@ -165,6 +176,8 @@ export function upgrade(w: World): void {
   w.capacityCache = null;
   message(w, `The port is now a ${next.name}! New buildings and machines are unlocked.`, 'good');
   tip(w, `tier${w.tier}`);
+  // Little left after the fee: the advisor says why that is a worry.
+  if (w.cash < cashReserve(w)) tip(w, 'savings');
   addOffer(w, 'fishery');
   smallTrucks(w);
 }
@@ -859,6 +872,9 @@ export function newDay(w: World): void {
     if (w.tick - at > TICKS_PER_DAY * 3) w.unloadedAt.delete(id);
   }
   if (w.town) {
+    // Short of the town's daily goal while it waits on it: said, while it lasts.
+    const short = landmarkShort(w);
+    if (short) nag(w, 'landmark', short, 'info');
     openLandmark(w, landmarkDue(w.town, true, w.tier));
     townDay(w.town, jobs(w), w.map);
   }
@@ -927,6 +943,7 @@ export function newDay(w: World): void {
       `The port is in the red! Get back above $0 within ${left} days or the bank will close it.`,
       'bad',
     );
+    tip(w, 'savings');
   } else if (left <= 3) {
     message(w, `${left} day${left === 1 ? '' : 's'} until the bank closes the port.`, 'bad');
   }

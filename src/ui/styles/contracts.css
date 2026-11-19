@@ -880,3 +880,15 @@ button.chip.on {
     display: none;
   }
 }
+
+/* The town's next landmark in the overview: see TownGoal.tsx. */
+.town-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.town-goal.held {
+  border-color: var(--bad);
+}

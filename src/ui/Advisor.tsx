@@ -145,6 +145,16 @@ export const TIPS: Record<string, Tip> = {
     text: 'Boats are waiting because no dockhands can unload them. Hire a dockhand, or provide a jib crane with free incoming storage in reach.',
     topic: 'boats',
   },
+  patience: {
+    title: 'Boats running out of patience',
+    text: `A boat kept waiting, at anchor for a berth or alongside while it is unloaded, costs demurrage, and after ${Math.round((B.BOAT_GIVE_UP_TICKS / TICKS_PER_DAY) * 10) / 10} days it gives up and claims for all it still has on board; too many such visits and the line walks out and claims more. Before signing another line, look at the Contracts overview: Arriving should stay below Unloading and Trucking, with room to spare.`,
+    topic: 'boats',
+  },
+  savings: {
+    title: 'Keep money in hand',
+    text: `Wages and haulier fees go out every day, but money comes in only as loaded trucks leave, and a boat that gives up or a line that walks out claims hundreds at once. Keep about ${B.RESERVE_DAYS} days of running costs in the bank, and more before an upgrade or a new line, as a cushion for bad days: the Finance panel shows how many days your cash covers. Short of it, a bank loan tides the port over: the bank closes it after ${B.BANKRUPT_DAYS} days in the red.`,
+    topic: 'money',
+  },
   roundTrip: {
     title: 'Trucks on their rounds',
     text: 'The haulier’s trucks are away making deliveries. Cargo waits until they return. Sign another haulier if the fleet cannot keep up with arrivals.',
@@ -293,6 +303,8 @@ const TIP_ACTIONS: Record<string, GuideAction> = {
   crateCustoms: { label: 'Show storage', inspect: 'storage' },
   papers: { label: 'Open contracts', panel: 'contracts' },
   noHands: { label: 'Open staff', panel: 'staff' },
+  patience: { label: 'Open contracts', panel: 'contracts' },
+  savings: { label: 'Open finance', panel: 'finance' },
   roundTrip: { label: 'Open haulier offers', offers: 'haulier' },
   parking: { label: 'Choose truck parking', tool: 'parking' },
   yardGantry: { label: 'Choose yard gantry', tool: 'yardGantry' },
@@ -316,6 +328,7 @@ export function tipPriority(id: string, s: Snapshot | null): number {
   if (id === 'cranes' && s.cranes.some((c) => c.trouble)) return 90;
   if (id === 'customsOffice' && !s.learning.customs) return 80;
   if (id === 'hut' && !s.learning.hut) return 80;
+  if (id === 'patience' || id === 'savings') return 85;
   if (id === 'quayStorage') return 70;
   // A landmark open: what it brings to sign or build, ahead of background advice.
   if (LANDMARK_TIPS.has(id)) return 60;

@@ -10,7 +10,7 @@ import {
   type Offer,
 } from '../src/sim/contracts';
 import { buyable, landError, plotPrice } from '../src/sim/land';
-import { bayTrouble, bestFacing, placementError, walkable } from '../src/sim/rules';
+import { bayPath, bayTrouble, bestFacing, placementError, walkable } from '../src/sim/rules';
 import { Build, TICKS_PER_DAY } from '../src/sim/types';
 import { TIERS } from '../src/sim/tiers';
 import { World } from '../src/sim/world';
@@ -249,8 +249,10 @@ function buildBay(w: World): boolean {
   );
   const tile = candidates[0];
   if (tile === undefined) return false;
+  // The port path that goes in behind it with it: joined up from its end.
+  const way = bayPath(m, 'truckBay', tile, bestFacing(m, 'truckBay', tile));
   w.command({ type: 'build', kind: 'truckBay', tiles: [tile] });
-  return m.build[tile] === Build.TruckBay && connect(w, [tile]);
+  return m.build[tile] === Build.TruckBay && connect(w, [tile, ...way]);
 }
 
 /**

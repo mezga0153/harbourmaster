@@ -17,15 +17,32 @@ const LANDMARK_TIPS: Partial<Record<number, string>> = {
   [Build.College]: 'college',
   [Build.Station]: 'station',
 };
-import { BUSINESSES, LANDMARKS, growTown, sentTo, townCap, townRoom, townStageUp } from '../town';
+import {
+  BUSINESSES,
+  LANDMARKS,
+  growTown,
+  landmarkGoal,
+  sentTo,
+  townCap,
+  townRoom,
+  townStageUp,
+  townTarget,
+} from '../town';
 import type { Landmark, Town } from '../town';
 import { message, tip } from './output';
 import type { TownView } from '../../protocol/views';
 import { cargoName } from '../cargo';
-import { customsTip, fisheries, hasCustomsOffice, hauliers, townTradeOffers } from './economy';
+import {
+  capacity,
+  customsTip,
+  fisheries,
+  hasCustomsOffice,
+  hauliers,
+  townTradeOffers,
+} from './economy';
 import { TIERS } from '../tiers';
 import * as B from '../balance';
-import { needsCustomsOffice, townTrade, type TownTrade } from '../contracts';
+import { fisheryDailyCrates, needsCustomsOffice, townTrade, type TownTrade } from '../contracts';
 import { Build } from '../types';
 import { bayRoom } from '../helpers';
 import { berthCount } from './boats/berthing';
@@ -103,6 +120,40 @@ export function landmarkView(w: World, t: Town): Pick<TownView, 'cap' | 'opened'
       hint: landmarkHint(w, l),
     },
   };
+}
+
+/**
+ * At the end of a day, before it is counted: if the town would grow bigger
+ * than it may till its next landmark opens, and the day's deliveries fell
+ * short of the landmark's daily goal, what was sent, what is asked, and
+ * what holds the port back, in words. Null when it is on its way.
+ */
+export function landmarkShort(w: World): string | null {
+  const t = w.town;
+  if (!t) return null;
+  const l = landmarkGoal(t, w.tier);
+  const per = l?.goal.perDay;
+  if (!l || per === undefined || t.goal >= per) return null;
+  // Held back: the jobs and trade would keep more people than it may have.
+  if (townTarget(t) <= townCap(t)) return null;
+  const sent = Math.round(t.goal);
+  const what = l.goal.cargo === 'container' ? 'containers' : `crates of ${cargoName(l.goal.cargo)}`;
+  // What the port could manage a day, from the lines it has signed to what
+  // it can unload and truck out: the first that falls short is the reason.
+  const cap = capacity(w);
+  const arriving = fisheries(w)
+    .filter((c) => (c.terms.catch ?? 'fish') === l.goal.cargo && c.terms.vessel !== 'feeder')
+    .reduce((n, c) => n + fisheryDailyCrates(c.terms), 0);
+  const why =
+    landmarkHint(w, l) ??
+    (l.goal.cargo !== 'container' && arriving < per
+      ? `Your lines bring only about ${Math.round(arriving)} a day: sign another on the contracts board (C)`
+      : l.goal.cargo !== 'container' && cap.unloading < per
+        ? `Your dockhands unload only about ${cap.unloading} crates a day: hire more (Staff)`
+        : l.goal.cargo !== 'container' && cap.trucking < per
+          ? `Your hauliers truck out only about ${cap.trucking} crates a day: sign another haulier`
+          : 'Keep the boats unloaded and the trucks loaded: more dockhands or another truck bay help');
+  return `${t.name} can grow no bigger till its ${l.name.toLowerCase()} opens: that needs ${per} ${what} trucked out a day, ${l.goal.days ?? 1} days running, and ${sent} went today. ${why}.`;
 }
 
 /**

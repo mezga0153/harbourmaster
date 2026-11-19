@@ -271,6 +271,46 @@ export function bayTrouble(map: GameMap, i: number, facing: number): string | nu
 }
 
 /**
+ * The port path that goes in with a truck bay at `i`, facing `facing`, when
+ * there is no way in behind it for those who load it: the tile behind it,
+ * and on from there the shortest way, up to BAY_PATH_REACH tiles, to where
+ * people already walk (a port path, road or quay), if there is one that
+ * near; else the tile behind it alone. Empty when nothing is wanted there
+ * or a path cannot go behind it. See bayTrouble.
+ */
+export function bayPath(
+  map: GameMap,
+  kind: 'truckBay' | 'largeBay',
+  i: number,
+  facing: number,
+): number[] {
+  if (!bayTrouble(map, i, facing)?.startsWith('No port road, quay or path behind it')) return [];
+  const own = new Set(footprint(map, kind, i, facing));
+  const back = frontOf(map, i, (facing + 2) & 3);
+  if (back < 0 || own.has(back) || placementError(map, 'footpath', back) !== null) return [];
+  const came = new Map<number, number>([[back, -1]]);
+  let ring = [back];
+  for (let d = 0; d < B.BAY_PATH_REACH && ring.length > 0; d++) {
+    const next: number[] = [];
+    for (const t of ring) {
+      for (const n of map.neighbors4(t)) {
+        if (came.has(n) || own.has(n)) continue;
+        if (walkableAt(map, n) && !isBay(map.build[n])) {
+          const way: number[] = [];
+          for (let k = t; k >= 0; k = came.get(k)!) way.push(k);
+          return way.reverse();
+        }
+        if (placementError(map, 'footpath', n) !== null) continue;
+        came.set(n, t);
+        next.push(n);
+      }
+    }
+    ring = next;
+  }
+  return [back];
+}
+
+/**
  * Why a forklift depot at `i`, facing `facing`, is no use: its garage door
  * opens onto nothing its machines can drive on. Null when it does.
  */
