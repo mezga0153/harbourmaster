@@ -1,16 +1,13 @@
-import { START_YEAR } from '../sim/balance';
 import { TICKS_PER_DAY } from '../sim/types';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+/** The game's day, counted from the first: 1, 2, 3 … */
+export function dayNumber(tick: number): number {
+  return Math.floor(tick / TICKS_PER_DAY) + 1;
+}
 
+/** The date as the game counts it: "Day 12". */
 export function formatDate(tick: number): string {
-  const day = Math.floor(tick / TICKS_PER_DAY);
-  const year = START_YEAR + Math.floor(day / 365);
-  let d = day % 365;
-  let m = 0;
-  while (d >= MONTH_DAYS[m]) d -= MONTH_DAYS[m++];
-  return `${d + 1} ${MONTHS[m]} ${year}`;
+  return `Day ${dayNumber(tick)}`;
 }
 
 /** Fraction of the current day elapsed, 0..1. */

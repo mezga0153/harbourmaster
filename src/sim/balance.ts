@@ -3,7 +3,6 @@
 import { TICKS_PER_DAY } from './types';
 
 export const START_CASH = 5000;
-export const START_YEAR = 1962;
 
 export const START_DOCKHANDS = 2;
 export const HIRE_FEE = 100;

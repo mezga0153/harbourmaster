@@ -9,9 +9,9 @@ import { formatDate } from './format';
 export const W = 392;
 export const PAD = { left: 44, right: 10, top: 10, bottom: 20 };
 
-/** A date without the year, for an axis. */
+/** A date, for an axis. */
 export function shortDate(tick: number): string {
-  return formatDate(tick).replace(/ \d+$/, '');
+  return formatDate(tick);
 }
 
 /** The date and the time of day, for a chart's tip. */

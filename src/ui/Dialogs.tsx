@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import * as B from '../sim/balance';
 import type { Actions } from './actions';
-import { formatDate, money } from './format';
+import { dayNumber, money } from './format';
 import { newGameOpen, seed, snapshot } from './store';
 import { InfoHeader } from './widgets';
 
@@ -82,8 +82,8 @@ export function BankruptDialog() {
         <div class="kicker bad">Game over</div>
         <h2 id="bankrupt-title">Bankrupt</h2>
         <p class="muted">
-          The port spent {B.BANKRUPT_DAYS} days in the red and the bank has closed it on{' '}
-          {formatDate(s.tick)}.
+          The port spent {B.BANKRUPT_DAYS} days in the red and the bank has closed it on day{' '}
+          {dayNumber(s.tick)}.
         </p>
         <dl class="props">
           <dt>Crates handled</dt>
