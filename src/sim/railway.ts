@@ -83,12 +83,59 @@ export interface Train {
   from?: string;
 }
 
+/** A point on the map, in tiles: a tile's middle is its index plus a half. */
+export interface Spot {
+  x: number;
+  y: number;
+}
+
+/**
+ * A rail gantry's lift between a wagon of the train under it and a
+ * container yard beside the track; see systems/railGantry.ts.
+ */
+export interface RailLift {
+  /** The tick it began. */
+  start: number;
+  /** Ticks to run to the container, take it up, carry it over and set it down. */
+  legs: [number, number, number, number];
+  /** Where it takes the container up, and where it sets it down. */
+  from: Spot;
+  to: Spot;
+  /** Off a yard onto the train (loading it), or off the train into a yard. */
+  load: boolean;
+  /**
+   * Not onto the train but further along the yards, to a place another
+   * gantry on the track can take it on from: the yard and the place.
+   */
+  relay?: { yard: number; slot: number };
+  /** The train, by id, and the wagon cell. */
+  train: number;
+  cell: number;
+  /** The yard, by its first tile, and the place in it. */
+  yard: number;
+  slot: number;
+  /** How the container looks. */
+  look: number;
+  /** The container, once the spreader has it. */
+  box?: Crate;
+}
+
+/** A rail gantry over loading track, standing on its tile `idx`; see systems/railGantry.ts. */
+export interface RailGantry {
+  idx: number;
+  /** Where along the track it stands and where across its span its trolley is: the spreader over x, y. */
+  at: Spot;
+  lift?: RailLift;
+}
+
 export interface RailState {
   trains: Train[];
   /** Tick the next train along the main line may set out. */
   nextTrain: number;
   /** Ids for new trains. */
   nextId: number;
+  /** The rail gantries over the port's loading track; older saves have none. */
+  gantries?: RailGantry[];
 }
 
 export function trainLength(t: Train): number {
@@ -319,7 +366,7 @@ function makeTrain(
 }
 
 export function newRail(rng: Rng): RailState {
-  return { trains: [], nextTrain: trainGap(rng, 0), nextId: 1 };
+  return { trains: [], nextTrain: trainGap(rng, 0), nextId: 1, gantries: [] };
 }
 
 /** A railway kept by an older save, which ran one train at a time. */

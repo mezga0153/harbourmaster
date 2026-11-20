@@ -376,8 +376,10 @@ tonnes tile by tile; the town keeps its landmarks.
    one under way at a time, rail lines whose trains reach stackers work
    from yards beside the siding, port roads crossing sidings on the level,
    signals at the switches, passenger trains calling at the town's station,
-   a siding panel and red marks, yard gantries standing over a siding to
-   work the wagons, and the lesson "Your first container train"). A switch off the main line and
+   a siding panel and red marks, loading track along a siding that sets
+   how long a train a line may have, rail gantries over it working the
+   wagons from yards either side, and the lesson "Your first container
+   train"). A switch off the main line and
    siding track the player drags out on owned land, crossing port roads on
    the level (`src/sim/rules/rails.ts`, a track graph like the trucks' road
    graph, with a debug overlay). `railway.ts` goes from one `train` to a

@@ -22,7 +22,7 @@ import {
 import { Build } from '../types';
 import { cargoName, cargoOf } from '../cargo';
 import type { Cargo } from '../cargo';
-import { isIce, needsCustomsOffice, type Contract } from '../contracts';
+import { isIce, needsCustomsOffice, trainWagons, type Contract } from '../contracts';
 import { thought, traitDef } from '../staff';
 import { BUSINESSES, population, townRoom, townTarget } from '../town';
 import { depotViews } from './output';
@@ -104,7 +104,8 @@ import { bedCap, bedView, trailerLooks } from './cargo/beds';
 import type { BulkKind } from '../bulk';
 import { WAITS, nextStep, openCities, placeCap, placeLabel, stepsOf } from '../region';
 import { sidingCars, sidingTrouble, sidingsOpen, sidingsShutWhy, trainAt } from './trains';
-import { portCrossing, sidings } from '../rules/rails';
+import { loadingTrack, portCrossing, sidings, trackWagons } from '../rules/rails';
+import { gantriesOn, railGantries, railGantryView } from './railGantry';
 import { bySiding, yardsBeside } from './cargo/wagons';
 import { dest, holdsView } from './cargo/customs';
 import { placeOf } from '../designations';
@@ -674,9 +675,23 @@ function shipperMarks(w: World, out: ProblemView[]): Set<number> {
 function troubleView(w: World, c: Contract, customs: boolean): ContractView['trouble'] {
   const t = shipperTrouble(w, c);
   if (t) return { text: `${t.text}.`, bad: t.bad };
-  if (c.terms.kind === 'rail' && !sidings(w.map).some((s) => yardsBeside(w, s).length > 0)) {
+  if (c.terms.kind === 'rail' && !c.terms.bulk) {
+    const need = trainWagons(c.terms);
+    const worked = sidings(w.map).filter((s) => yardsBeside(w, s).length > 0);
+    const most = Math.max(0, ...worked.map((s) => trackWagons(w.map, s)));
+    if (most < need) {
+      return {
+        text:
+          most === 0
+            ? `Its trains cannot come: no siding has loading track for them to stand on, with container yards beside it for them to be worked from. They are ${need} wagons long.`
+            : `Its trains are ${need} wagons long, and no loading track with container yards beside it holds more than ${most}: they wait till one does.`,
+        bad: true,
+      };
+    }
+  }
+  if (c.terms.kind === 'rail' && c.terms.bulk && !w.map.build.includes(Build.Loadout)) {
     return {
-      text: 'Its trains cannot come: no rail siding has a container yard beside it, a row or two off, for them to be worked from.',
+      text: 'Its trains cannot come: no siding has a rail loadout to fill them.',
       bad: true,
     };
   }
@@ -1222,10 +1237,14 @@ export function buildSnapshot(w: World): Snapshot {
         crossings: x.tiles.filter((i) => w.map.build[i] !== Build.Loadout && portCrossing(w.map, i))
           .length,
         loadout: x.tiles.some((i) => w.map.build[i] === Build.Loadout),
+        loading: loadingTrack(w.map, x),
+        wagons: trackWagons(w.map, x),
+        gantries: gantriesOn(w, x).length,
         train: trainAt(w, x.switch)?.id,
         why: sidingTrouble(w, x),
       };
     }),
+    railGantries: railGantries(w).map((g) => railGantryView(w, g)),
     offers: w.offers.map((o) => ({
       id: o.id,
       terms: o.terms,

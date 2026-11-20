@@ -251,6 +251,28 @@ function scene(tool: string): Patch | null {
       );
       return { map: m, focus: lay(m, Build.Siding, row(m, mid, 1, COAST - 1)) };
     }
+    case 'loadingTrack':
+    case 'railGantry': {
+      lay(
+        m,
+        Build.Rail,
+        Array.from({ length: H }, (_, y) => at(m, 0, y)),
+      );
+      lay(m, Build.Siding, row(m, mid, 1, COAST - 1));
+      if (tool === 'loadingTrack') {
+        return { map: m, focus: lay(m, Build.LoadingTrack, row(m, mid, 1, COAST - 2)) };
+      }
+      const track = lay(m, Build.LoadingTrack, row(m, mid, 1, COAST - 1));
+      const tiles = [...row(m, mid - 1, 1, COAST - 1), ...row(m, mid + 1, 1, COAST - 1)];
+      lay(m, Build.PortRoad, tiles);
+      for (const t of tiles) m.store[t] = Store.Boxes;
+      m.build[at(m, 2, mid)] = Build.RailGantry;
+      return {
+        map: m,
+        focus: [...track, at(m, 2, mid - 2), at(m, 2, mid + 2)],
+        stock: { tiles, boxes: true },
+      };
+    }
     case 'jetty':
       lay(m, Build.Road, row(m, mid, 0, COAST - 1));
       return { map: m, focus: lay(m, Build.Jetty, row(m, mid, COAST, COAST + 2)) };
@@ -324,6 +346,8 @@ export const PICTURED: readonly string[] = [
   'boxOutStore',
   'yardGantry',
   'siding',
+  'loadingTrack',
+  'railGantry',
   'loadout',
   'grabCrane',
   'belt',

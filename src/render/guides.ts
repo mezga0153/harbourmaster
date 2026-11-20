@@ -15,7 +15,6 @@ import { Build, Store, type BuildKind } from '../sim/types';
 import { FORKS_EMPTY, FORKS_LOADED, forklift, stacker } from './machines';
 import { trainCar } from './trains';
 import { CAR_LENGTH } from '../sim/railway';
-import { RAILS } from '../sim/orient';
 import { boat, person, truck, type Model } from './model';
 import { Overlay, type Hints } from './overlay';
 import { Structures } from './structures';
@@ -161,10 +160,16 @@ function mainLine(m: GameMap): void {
   );
 }
 
-/** A siding along row 3 off the main line, port roads either side, and a yard for containers in below it and out above. */
-function railYards(m: GameMap): void {
+/** A siding along row 3 off the main line, with loading track along it short of the buffer stop. */
+function railTrack(m: GameMap): void {
   mainLine(m);
   lay(m, Build.Siding, row(m, 3, 1, 6));
+  lay(m, Build.LoadingTrack, row(m, 3, 1, 5));
+}
+
+/** A siding with its loading track, port roads either side, and a yard for containers in below it and out above. */
+function railYards(m: GameMap): void {
+  railTrack(m);
   lay(m, Build.PortRoad, [
     ...row(m, 4, 2, 6),
     ...row(m, 5, 1, 6),
@@ -203,6 +208,22 @@ const PICTURES = {
       { props: [{ kind: 'train', x: 6.85, y: 3.5, load: 4 }] },
     ],
   },
+  loadingTrack: {
+    w: W,
+    h: H,
+    coast: COAST,
+    view: [0, 1, 6, 5],
+    beats: [
+      {
+        build: (m) => {
+          mainLine(m);
+          lay(m, Build.Siding, row(m, 3, 1, 6));
+        },
+      },
+      ...dragRow(3, 1, 5, (m, t) => void lay(m, Build.LoadingTrack, t)),
+      { props: [{ kind: 'train', x: 6.85, y: 3.5, load: 4 }] },
+    ],
+  },
   sidingYards: {
     w: W,
     h: H,
@@ -211,8 +232,7 @@ const PICTURES = {
     beats: [
       {
         build: (m) => {
-          mainLine(m);
-          lay(m, Build.Siding, row(m, 3, 1, 6));
+          railTrack(m);
           lay(m, Build.PortRoad, [...row(m, 4, 2, 6), ...row(m, 5, 1, 6), ...row(m, 2, 2, 6)]);
         },
       },
@@ -271,33 +291,27 @@ const PICTURES = {
     view: [0, 0, 6, 6],
     beats: [
       {
-        build: (m) => {
-          mainLine(m);
-          lay(m, Build.Siding, row(m, 3, 1, 6));
-          lay(m, Build.PortRoad, row(m, 4, 2, 6));
-          store(m, row(m, 4, 2, 6), Store.Boxes);
-        },
+        build: railYards,
         stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 8, boxes: true }],
       },
-      // Over the track, which runs on under it.
-      ...put('yardGantry', 2, 3).map((b) =>
-        b.build
-          ? {
-              ...b,
-              build: (m: GameMap) => {
-                b.build!(m);
-                m.orient[at(m, 2, 3)] |= RAILS;
-              },
-            }
-          : b,
-      ),
-      { props: [{ kind: 'train', x: 6.85, y: 3.5, load: 2 }] },
+      ...put('railGantry', 3, 3),
+      {
+        props: [{ kind: 'train', x: 6.85, y: 3.5, load: 3 }],
+        stock: (m) => [
+          { tiles: row(m, 4, 2, 6), n: 8, boxes: true },
+          { tiles: row(m, 2, 2, 6), n: 1, boxes: true },
+        ],
+      },
       {
         props: [{ kind: 'train', x: 6.85, y: 3.5, load: 6 }],
-        stock: (m) => [{ tiles: row(m, 4, 2, 6), n: 4, boxes: true }],
+        stock: (m) => [
+          { tiles: row(m, 4, 2, 6), n: 4, boxes: true },
+          { tiles: row(m, 2, 2, 6), n: 4, boxes: true },
+        ],
       },
     ],
   },
+
   firstBoat: {
     w: W,
     h: H,

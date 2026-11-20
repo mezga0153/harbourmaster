@@ -24,9 +24,19 @@ import {
   type Point,
   type Train,
 } from '../railway';
-import { portCrossing, sidingAt, sidings, type Siding } from '../rules/rails';
+import {
+  loadingTrack,
+  portCrossing,
+  sidingAt,
+  sidings,
+  standOffset,
+  trackWagons,
+  type Siding,
+} from '../rules/rails';
 import type { Crate } from '../state';
-import { aboard, gantryOverSiding, gantryWagons, wagonCells, yardsBeside } from './cargo/wagons';
+import { trainWagons } from '../contracts';
+import { aboard, wagonCells, yardsBeside } from './cargo/wagons';
+import { gantriesOn, stepRailGantries } from './railGantry';
 import { book, payout } from './economy';
 import { message, moneyAt } from './output';
 import { boxLookOf } from '../helpers';
@@ -79,10 +89,14 @@ function curve(map: GameMap, s: Siding, dir: 1 | -1): Point[] {
   return out;
 }
 
-/** Where a train's front stops in a siding: just short of the buffer stop. */
+/**
+ * Where a train's front stops in a siding: its locomotive just past the
+ * loading track, its wagons along it; with none, just short of the buffer
+ * stop. See standOffset.
+ */
 function bufferEnd(map: GameMap, s: Siding): Point {
-  const last = s.tiles.at(-1)!;
-  return [map.xOf(last) + 0.5 + s.side * 0.35, map.yOf(last) + 0.5];
+  const [rx, ry] = switchPoint(map, s);
+  return [rx + s.side * standOffset(map, s), ry];
 }
 
 /** In along the main line from past the map's end, `dir`, and off into the siding. */
@@ -137,7 +151,9 @@ export function sendPortTrain(
   most = Infinity,
 ): Train | null {
   if (trainAt(w, s.switch)) return null;
-  const n = Math.min(B.TRAIN_MAX_WAGONS, sidingCars(s) - 1, most);
+  // Its back clear of the main line, the front where it stands (see standOffset).
+  const room = Math.floor((standOffset(w.map, s) - 0.5) / CAR_LENGTH);
+  const n = Math.min(B.TRAIN_MAX_WAGONS, room - 1, most);
   if (n < 1) return null;
   const train: Train = {
     id: w.rail.nextId++,
@@ -231,7 +247,7 @@ export function stepTrains(w: World): void {
       (t.port.state === 'standing' && (w.tick >= t.port.leaves || worked(t))),
   );
   if (w.tick % 10 === 3) callTrains(w);
-  gantryWagons(w);
+  stepRailGantries(w);
   stepThrough(
     rail,
     w.scenery,
@@ -317,15 +333,19 @@ export function callTrains(w: World): void {
     const terms = c.terms;
     if (terms.kind !== 'rail' || w.tick < c.nextBoatTick) continue;
     if (portTrains(w).some((t) => t.port.contractId === c.id && t.port.state !== 'away')) continue;
-    // Container trains at a siding with yards beside it; hopper wagons under a loadout.
-    const s = sidings(w.map).find(
-      (x) =>
-        !trainAt(w, x.switch) &&
-        sidingCars(x) >= 2 &&
-        (terms.bulk
-          ? x.tiles.some((t) => w.map.build[t] === Build.Loadout)
-          : yardsBeside(w, x).length > 0),
-    );
+    // Container trains on loading track that holds them, with yards beside
+    // it, the shortest that does; hopper wagons under a loadout.
+    const long = terms.bulk ? 0 : trainWagons(terms);
+    const s = sidings(w.map)
+      .filter(
+        (x) =>
+          !trainAt(w, x.switch) &&
+          sidingCars(x) >= 2 &&
+          (terms.bulk
+            ? x.tiles.some((t) => w.map.build[t] === Build.Loadout)
+            : trackWagons(w.map, x) >= long && yardsBeside(w, x).length > 0),
+      )
+      .sort((a, b) => trackWagons(w.map, a) - trackWagons(w.map, b))[0];
     // None free: it waits, and tries again soon.
     if (!s) {
       c.nextBoatTick = w.tick + 60;
@@ -351,8 +371,10 @@ export function callTrains(w: World): void {
         w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
       continue;
     }
-    const take = terms.take + (place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0);
-    const wagons = Math.ceil(Math.max(terms.bring, take) / B.WAGON_BOXES);
+    // A city with its freight terminal sends more, on more wagons, where the track holds them.
+    const extra = place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0;
+    const wagons = Math.min(trackWagons(w.map, s), long + Math.ceil(extra / B.WAGON_BOXES));
+    const take = Math.min(terms.take + extra, wagons * B.WAGON_BOXES);
     const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, dir, wagons);
     if (!train?.port) continue;
     train.port.contractId = c.id;
@@ -444,19 +466,42 @@ export function stationRow(w: World, column: number): number | undefined {
   return undefined;
 }
 
-/** Why a siding's trains cannot be worked, or nothing: too short, no yard beside it, no stacker. */
+/**
+ * Why a siding's trains cannot be worked, or nothing: too short, no
+ * loading track or too little, no yard beside it, no one to work it.
+ */
 export function sidingTrouble(w: World, s: Siding): string | undefined {
   if (sidingCars(s) < 2) return 'Too short for a train: lay the siding at least three tiles long';
   // A siding with a loadout is for hopper wagons, and needs no yard.
   if (s.tiles.some((t) => w.map.build[t] === Build.Loadout)) return undefined;
+  if (loadingTrack(w.map, s).length === 0) {
+    return 'No loading track on it: container trains stand on loading track to be worked. Lay some along it (Roads, Railway)';
+  }
+  const holds = trackWagons(w.map, s);
+  if (holds < 1) {
+    return 'Its loading track holds no wagon yet: lay it longer, with plain track past it for the locomotive';
+  }
+  // The rail lines whose trains are longer than any loading track holds.
+  const most = Math.max(...sidings(w.map).map((x) => trackWagons(w.map, x)));
+  const short = w.contracts.find(
+    (c) => c.terms.kind === 'rail' && !c.terms.bulk && trainWagons(c.terms) > most,
+  );
+  if (short && short.terms.kind === 'rail' && holds === most) {
+    const n = trainWagons(short.terms);
+    return `${short.terms.name}'s trains are ${n} wagons long, and its loading track holds ${holds}: lay it longer, or the trains wait`;
+  }
   const yards = yardsBeside(w, s);
   if (yards.length === 0) {
-    return 'No container yard beside it for its trains to be worked from: mark one out a row or two off the track';
+    return `No container yard beside its loading track for its trains to be worked from: mark one out up to ${B.SIDING_REACH} rows off it`;
   }
-  // Gantries over the track work it from their yards; stackers from the rest.
-  const gantry = yards.every((y) => gantryOverSiding(w, y, s));
-  if (!gantry && !w.people.some((p) => p.kind === 'stacker')) {
-    return 'No reach stacker to unload and load the wagons: buy one at a depot';
+  if (!yards.some((y) => !y.outgoing) || !yards.some((y) => y.outgoing)) {
+    return yards.some((y) => y.outgoing)
+      ? 'No yard for containers coming in beside its loading track: trains take nothing away inland'
+      : 'No yard for containers going out beside its loading track: what the trains bring stays on board';
+  }
+  // A rail gantry over the track works it; else reach stackers do.
+  if (gantriesOn(w, s).length === 0 && !w.people.some((p) => p.kind === 'stacker')) {
+    return 'Nothing to unload and load the wagons: put a rail gantry over the loading track, or buy a reach stacker at a depot';
   }
   return undefined;
 }

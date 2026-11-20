@@ -1,5 +1,13 @@
 import { Group, Vector3, type Object3D } from 'three';
-import type { BayView, CraneView, HandAt, PileView, TileChange, YardView } from '../../protocol';
+import type {
+  BayView,
+  CraneView,
+  HandAt,
+  PileView,
+  RailGantryView,
+  TileChange,
+  YardView,
+} from '../../protocol';
 import {
   BOXES_PER_STORE_TILE,
   CRATES_PER_STORE_TILE,
@@ -20,6 +28,7 @@ import { reachOut, runJib, setJib } from './cranes/jib';
 import type { CraneParts, CraneSite, YardGantryParts } from './cranes/parts';
 import { placeTies, runShipGantry } from './cranes/shipGantry';
 import { liftFrom, NO_RUN, pickOf, runYardGantry } from './cranes/yardGantry';
+import { runRailGantry, setRailGantry } from './cranes/railGantry';
 import { animateFurniture } from './furniture';
 import { offset, storeArea } from './map';
 import { freeIn, lookIn, Stock, type BayStack } from './stock';
@@ -159,6 +168,8 @@ export class Structures {
     // A yard gantry's rails run the length of its yard, so it is laid again
     // whatever changes.
     if (changes.length > 0) for (const [i] of this.each('yardGantry')) touched.add(i);
+    // A rail gantry's rails run the length of its loading track, likewise.
+    if (changes.length > 0) for (const [i] of this.each('railGantry')) touched.add(i);
     for (const i of touched) this.rebuild(i);
   }
 
@@ -287,6 +298,13 @@ export class Structures {
       this.trains,
     );
     for (const [, g] of this.each('yardGantry')) runYardGantry(this.craneSite, g, dt);
+    for (const [, g] of this.each('railGantry')) {
+      runRailGantry(this.craneSite, g, dt, (yard, slot, out) => {
+        const tiles = this.stock.yardTiles.get(yard);
+        const o = tiles && this.stock.boxAt(tiles, slot);
+        return o ? o.getWorldPosition(out) : null;
+      });
+    }
     for (const [, c] of this.each('crane')) {
       if (c.sts) {
         runShipGantry(this.craneSite, c, c.sts, dt);
@@ -317,6 +335,14 @@ export class Structures {
 
   setSpeed(speed: number): void {
     this.speed = speed;
+  }
+
+  /** The rail gantries over loading track, and the lifts they are at; `tick` the game's tick. */
+  setRailGantries(views: RailGantryView[], tick: number): void {
+    for (const v of views) {
+      const p = this.tiles.get(v.idx)?.railGantry;
+      if (p) setRailGantry(p, v, tick);
+    }
   }
 
   setYards(yards: YardView[]): void {

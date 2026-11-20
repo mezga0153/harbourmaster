@@ -1,12 +1,14 @@
 import * as B from '../sim/balance';
+import { trainWagons } from '../sim/contracts';
 import type { PortTrainState } from '../sim/railway';
 import { duration } from './format';
 import { selection, snapshot } from './store';
 import { InfoHeader, More, Why } from './widgets';
 
-// A siding off the main line: how long it is and what train it holds, the
-// container yards beside it its trains are worked from, and the train in
-// it now, with what is still to come off it and go on.
+// A siding off the main line: how long it is, its loading track and the
+// trains that holds, the container yards beside that its trains are worked
+// from and the rail gantries over it, and the train in it now, with what is
+// still to come off it and go on.
 
 /** What a port train in its siding is doing, in words. */
 const DOING: Record<PortTrainState, string> = {
@@ -29,27 +31,55 @@ export function SidingInfo({ idx }: { idx: number }) {
   const brought = cells.filter((c) => c?.out).length;
   const taken = cells.filter((c) => c && !c.out).length;
   const leaves = train?.port?.state === 'standing' ? train.port.leaves - s.tick : 0;
-  const wagons = Math.max(0, siding.cars - 1);
+  const wagons = siding.wagons;
+  const lines = s.contracts.flatMap((c) =>
+    c.terms.kind === 'rail' && !c.terms.bulk ? [c.terms] : [],
+  );
   return (
     <aside class="side panel" aria-label="Rail siding">
       <InfoHeader kicker="Railway" title="Rail siding" onClose={close} />
       <p class="muted">
-        Track off the main line where a rail line's container trains stand. Reach stackers unload
-        what each brings into a container yard for cargo going out, and load it from one for cargo
-        coming in, a row or two off the track. <More topic="containers" />
+        Track off the main line where a rail line's container trains stand on its loading track, the
+        locomotive past it. What each brings is unloaded into a container yard for cargo going out
+        and it is loaded from one for cargo coming in, up to {B.SIDING_REACH} rows off the loading
+        track, by a rail gantry over it or by reach stackers. <More topic="containers" />
       </p>
       <dl class="props">
         <dt>Length</dt>
-        <dd>
-          {siding.tiles.length} tiles: a train of {wagons} wagon{wagons === 1 ? '' : 's'},{' '}
-          {Math.min(wagons, B.TRAIN_MAX_WAGONS) * B.WAGON_BOXES} containers
-        </dd>
-        <dt>Yards beside it</dt>
-        <dd>
-          {siding.yards === 0
-            ? 'None'
-            : `${siding.yardsIn} for cargo coming in, ${siding.yardsOut} going out`}
-        </dd>
+        <dd>{siding.tiles.length} tiles</dd>
+        {!siding.loadout && (
+          <>
+            <dt>Loading track</dt>
+            <dd>
+              {siding.loading.length === 0
+                ? 'None: lay some along it for container trains'
+                : `${siding.loading.length} tiles: trains of up to ${wagons} wagon${wagons === 1 ? '' : 's'}, ${wagons * B.WAGON_BOXES} containers`}
+            </dd>
+            {lines.length > 0 && (
+              <>
+                <dt>Rail lines' trains</dt>
+                <dd>
+                  {lines
+                    .map(
+                      (t) =>
+                        `${t.name}: ${trainWagons(t)} wagons${trainWagons(t) > wagons ? ' (too long here)' : ''}`,
+                    )
+                    .join('; ')}
+                </dd>
+              </>
+            )}
+            <dt>Rail gantries</dt>
+            <dd>
+              {siding.gantries === 0 ? 'None: reach stackers work the wagons' : siding.gantries}
+            </dd>
+            <dt>Yards beside it</dt>
+            <dd>
+              {siding.yards === 0
+                ? 'None'
+                : `${siding.yardsIn} for cargo coming in, ${siding.yardsOut} going out`}
+            </dd>
+          </>
+        )}
         {siding.crossings > 0 && (
           <>
             <dt>Level crossings</dt>

@@ -157,11 +157,18 @@ square (`stationSite` in `src/sim/town.ts`). Opening it lets the port lay
 **rail sidings** (`src/sim/rules/rails.ts`, `sidingsOpen` in
 `src/sim/systems/trains.ts`) and puts a **rail line's** offer on the board
 till one is signed (`RailTerms`, `makeRailOffer`; it cannot be signed
-without a siding). Its container trains call every day or two at a siding
-with a container yard a row or two off it (`yardsBeside`), bring containers
-to go out on the feeders (paid as they go on board) and take containers
-off the feeders away inland (paid as the train leaves), for the railway's
-daily fee; reach stackers work the wagons (`src/sim/systems/cargo/wagons.ts`).
+without a siding). Its container trains stand on **loading track** laid
+along a siding (`loadingTrack`, `trackWagons` in `rules/rails.ts`), the
+locomotive on the plain track past it: each line's trains are a fixed
+number of wagons (`RailTerms.wagons`, `trainWagons`), and its offer cannot
+be signed till a loading track holds them (`offerBlocked`). They call every
+day or two, with container yards up to two rows either side of the loading
+track (`yardsBeside`), bring containers to go out on the feeders (paid as
+they go on board) and take containers off the feeders away inland (paid as
+the train leaves), for the railway's daily fee. A **rail gantry** over the
+loading track (`src/sim/systems/railGantry.ts`) spans it and the yards
+either side and works the wagons; two or more share one, never passing.
+Without one, reach stackers work them (`src/sim/systems/cargo/wagons.ts`).
 Passenger trains stop at the station (`stationRow`), which the town puts up
 beside the line however far it runs from town. The Next step card asks for a
 feeder line and container hauliers, or for the factory's offer to be
@@ -182,12 +189,12 @@ it (`served` in `src/sim/systems/region.ts`), counted as its trains leave
 with them (`inland`) and as the containers they brought go on board
 (`out`, by `Crate.place`):
 
-| Step                  | Goal                                                | Opens                            | Cap after |
-| --------------------- | --------------------------------------------------- | -------------------------------- | --------- |
-| (start)               |                                                     |                                  | 64,000    |
-| **Freight terminal**  | its trains take 40 containers inland                | its trains take 4 more a train   | 83,200    |
-| **Distribution park** | 40 containers its trains brought put on board ships | the other city offers its trains | 115,200   |
-| **Business district** | 200 containers moved for it, in and out             | it grows on                      | 160,000   |
+| Step                  | Goal                                                | Opens                                                                               | Cap after |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------- | --------- |
+| (start)               |                                                     |                                                                                     | 64,000    |
+| **Freight terminal**  | its trains take 40 containers inland                | its trains take 4 more a train, on 2 more wagons where the loading track holds them | 83,200    |
+| **Distribution park** | 40 containers its trains brought put on board ships | the other city offers its trains                                                    | 115,200   |
+| **Business district** | 200 containers moved for it, in and out             | it grows on                                                                         | 160,000   |
 
 A city grows each day it has been served lately, 12% of the way to its cap
 (`regionDay`). The **works** (a colliery, farms with a grain co-op, an ore

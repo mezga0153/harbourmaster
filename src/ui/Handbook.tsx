@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import * as B from '../sim/balance';
+import { CAR_LENGTH } from '../sim/railway';
 import { TIERS } from '../sim/tiers';
 import { TICKS_PER_DAY } from '../sim/types';
 import { fined } from './difficulty';
@@ -454,17 +455,21 @@ export const TOPICS: Record<TopicId, Topic> = {
           Once the town has its <b>railway station</b>, the port may lay <b>rail sidings</b> (Roads,
           then Rail siding): straight out from beside the main line along a row, on the port's land,
           to a buffer stop, each leaving the line by a switch {B.SWITCH_GAP} rows at least from
-          another or a level crossing. A <b>rail line</b>'s container trains call at a siding with a
-          container yard a row or two off it: they wait off the map until the main line is clear,
-          pull in and stand while reach stackers unload what they bring into a yard for cargo going
-          out, to go on the feeders, and load them with containers customs have cleared from a yard
-          for cargo coming in. A train leaves once it is worked, or after a day at most, and the
-          containers it takes away are paid for as it goes. A train is {B.WAGON_BOXES} containers a
-          wagon, as many wagons as the siding holds and the line sends, up to {B.TRAIN_MAX_WAGONS}.
-          A <b>yard gantry</b> built on a siding beside a yard runs its rails along the track and
-          works the wagons in its reach itself, no stacker needed: a yard as long as the train
-          serves all of it. A port road may cross a siding on the level: no one goes onto it while a
-          train is on it or coming, and paths go round while one stands across it.
+          another or a level crossing. Container trains stand on <b>loading track</b> laid along a
+          siding (Roads, then Loading track), their wagons on it and the locomotive on the plain
+          track past it: its length is the longest train the port can take, a wagon of{' '}
+          {B.WAGON_BOXES} containers to each {CAR_LENGTH} tiles, and a <b>rail line</b>'s offer says
+          how many wagons its trains have; it cannot be signed till a loading track holds them.
+          Trains wait off the map until the main line is clear, pull in and stand while their wagons
+          are unloaded into a container yard for cargo going out, up to {B.SIDING_REACH} rows off
+          the loading track, to go on the feeders, and loaded with containers customs have cleared
+          from a yard for cargo coming in. A <b>rail gantry</b> over the loading track spans it and
+          the yards either side and does that itself, running along the track; two on one track
+          share the work, never passing each other. Without one, reach stackers do it from beside
+          the stacks, a container a trip. A train leaves once it is worked, or after a day at most,
+          and the containers it takes away are paid for as it goes. A port road may cross a siding
+          on the level: no one goes onto it while a train is on it or coming, and paths go round
+          while one stands across it.
         </p>
       </>
     ),

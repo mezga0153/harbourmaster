@@ -1,6 +1,7 @@
 import type { CraneFix, Snapshot } from '../protocol';
 import type { PictureId } from '../render/guides';
 import * as B from '../sim/balance';
+import { CAR_LENGTH } from '../sim/railway';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Tool } from './tools';
 import type { PanelName } from './store';
@@ -36,6 +37,7 @@ export type GuideCheck =
   | 'outAccess'
   | 'shipper'
   | 'siding'
+  | 'loadingTrack'
   | 'sidingYards'
   | 'sidingWorked'
   | 'railLine'
@@ -384,15 +386,23 @@ export const GUIDES: Record<GuideId, Guide> = {
       {
         title: 'Lay a siding off the main line',
         how: 'Roads › Railway › Rail siding',
-        text: `Once the town has its railway station, drag a siding straight out from beside the main line along a row, on land the port owns, as long as the trains: a tile and a third a wagon, ${B.WAGON_BOXES} containers each. Its switch needs ${B.SWITCH_GAP} rows of plain line from another switch or a level crossing. Port roads may cross it.`,
+        text: `Once the town has its railway station, drag a siding straight out from beside the main line along a row, on land the port owns. Its switch needs ${B.SWITCH_GAP} rows of plain line from another switch or a level crossing. Port roads may cross it.`,
         picture: 'siding',
         check: 'siding',
         actions: [{ label: 'Choose rail siding', tool: 'siding' }],
       },
       {
+        title: 'Lay loading track along it',
+        how: 'Roads › Railway › Loading track',
+        text: `A container train stands on loading track to be worked, its locomotive on the plain track past it. The rail line's offer says how many wagons its trains have, and it cannot be signed till a loading track holds them: a wagon of ${B.WAGON_BOXES} containers to each ${CAR_LENGTH} tiles. Drag it along the siding in one stretch, leaving a tile or two before the buffer stop.`,
+        picture: 'loadingTrack',
+        check: 'loadingTrack',
+        actions: [{ label: 'Choose loading track', tool: 'loadingTrack' }],
+      },
+      {
         title: 'Mark container yards beside it',
         how: 'Cargo › Storage › Container yard: in, then out',
-        text: `Mark a yard for containers coming in a row or two off the track, where the trains load the cleared containers off the feeders, and one for containers going out, where they unload what they bring. Run them along the siding where the wagons stand.`,
+        text: `Mark a yard for containers coming in up to ${B.SIDING_REACH} rows off the loading track, where the trains load the cleared containers off the feeders, and one for containers going out, where they unload what they bring: one each side of the track suits a rail gantry. Run them along the loading track, where the wagons stand.`,
         picture: 'sidingYards',
         check: 'sidingYards',
         actions: [
@@ -401,14 +411,14 @@ export const GUIDES: Record<GuideId, Guide> = {
         ],
       },
       {
-        title: 'Give the wagons a crane or a stacker',
-        how: 'Machines › Reach stacker (Z), or Cargo › Cranes › Yard gantry',
-        text: 'Reach stackers lift the containers between the yards and the wagons, a container a trip, from beside the stacks. Or build a yard gantry on the siding beside a yard: its rails run along the track, and it works every wagon along the yard itself. Select the siding to see what it still needs.',
+        title: 'Put a rail gantry over it',
+        how: 'Roads › Railway › Rail gantry, or Machines › Reach stacker (Z)',
+        text: `A rail gantry stands on the loading track, spans ${B.SIDING_REACH} rows either side of it and runs along it, lifting the containers between the wagons and the yards under it on both sides. Two on one track share the work, never passing each other. Reach stackers can do it instead, a container a trip from beside the stacks. Select the siding to see what it still needs.`,
         picture: 'sidingGantry',
         check: 'sidingWorked',
         actions: [
+          { label: 'Choose rail gantry', tool: 'railGantry' },
           { label: 'Choose reach stacker', tool: 'stacker' },
-          { label: 'Choose yard gantry', tool: 'yardGantry' },
         ],
       },
       {
@@ -420,7 +430,7 @@ export const GUIDES: Record<GuideId, Guide> = {
       },
       {
         title: 'See the first train worked',
-        text: 'A train waits off the map for the main line to clear, pulls into the siding and stands while its wagons are unloaded and loaded. It leaves once that is done, or after a day at most. This lesson finishes when a train leaves with containers on board.',
+        text: 'A train waits off the map for the main line to clear, pulls into the siding and stands on the loading track while its wagons are unloaded and loaded. It leaves once that is done, or after a day at most. This lesson finishes when a train leaves with containers on board.',
         picture: 'sidingTrain',
         check: 'trainDelivery',
         actions: [{ label: 'Open contracts', panel: 'contracts' }],
@@ -526,9 +536,13 @@ export function checkStep(
       'Cannery shipper and coaster line signed',
     ],
     siding: [s.sidings.some((x) => x.cars >= 2), 'A siding long enough for a train'],
+    loadingTrack: [
+      s.sidings.some((x) => x.wagons >= 1),
+      'Loading track along a siding, the locomotive’s room past it',
+    ],
     sidingYards: [
       s.sidings.some((x) => x.yardsIn > 0 && x.yardsOut > 0),
-      'Yards in and out beside a siding',
+      'Yards in and out beside the loading track',
     ],
     sidingWorked: [s.sidings.some((x) => x.yards > 0 && !x.why), 'Something to work the wagons'],
     railLine: [s.contracts.some((c) => c.terms.kind === 'rail'), 'Rail line signed'],

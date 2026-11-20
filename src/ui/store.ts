@@ -110,7 +110,7 @@ export const lockedTools = computed(() => {
   const rails = snapshot.value?.progress.sidingsWhy;
   const out: Record<string, string> = {};
   if (why) out.truckBay = why;
-  if (rails) out.siding = rails;
+  if (rails) out.siding = out.loadingTrack = out.railGantry = rails;
   return out;
 });
 /** The town up the coast, once there is one. */

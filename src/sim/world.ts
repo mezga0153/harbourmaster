@@ -41,6 +41,7 @@ import { newRegion, placesSize, REGION_SCALE, type Region } from './region';
 import type { BulkKind, BulkLoad } from './bulk';
 import { stepBulk } from './systems/bulk';
 import { sendPortTrain, stepTrains, trackHeld, trainOver } from './systems/trains';
+import { addRailGantry, loadingTrackFromSave } from './systems/railGantry';
 import { sidings } from './rules/rails';
 import {
   clearTown,
@@ -794,6 +795,11 @@ export class World {
     // Parked trucks stand the way their lot's spaces lean, as it now runs one way.
     for (const t of world.trucks) if (t.state === 'parked' && t.lot) parkUp(world, t);
     rebuildStores(world);
+    // Sidings from before loading track get it where their yards lie.
+    if (!world.rail.gantries) loadingTrackFromSave(world);
+    for (let i = 0; i < world.map.build.length; i++) {
+      if (world.map.build[i] === Build.RailGantry) addRailGantry(world, i);
+    }
     world.rehomeOverfull();
     return world;
   }

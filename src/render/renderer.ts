@@ -269,6 +269,7 @@ export class Renderer {
     this.layers.bulk.push(s.bulk, s.speed);
     this.layers.structures.setBays(s.bays);
     this.layers.structures.setYards(s.yards);
+    this.layers.structures.setRailGantries(s.railGantries ?? [], s.tick);
     this.layers.structures.setSpeed(s.speed);
     this.layers.structures.setTick(s.tick);
     this.layers.structures.setPiles(s.piles);

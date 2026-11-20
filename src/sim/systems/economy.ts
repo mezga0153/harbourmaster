@@ -38,6 +38,7 @@ import {
   makeTownLineOffer,
   needsCustomsOffice,
   townTrade,
+  trainWagons,
 } from '../contracts';
 import type {
   Contract,
@@ -55,7 +56,8 @@ import { muster, spawnDockhand } from './workforce/dockhands';
 import { jibStows } from './cargo/stores';
 import { cancelJob } from './cargo/customs';
 import { baysOpen, roadTo } from './roads/bays';
-import { sidings } from '../rules/rails';
+import { longestTrack, sidings } from '../rules/rails';
+import { CAR_LENGTH } from '../railway';
 import { openCities, regionDay } from '../region';
 import { sidingsOpen } from './trains';
 import { vesselName } from '../helpers';
@@ -418,7 +420,18 @@ export function hasCustomsOffice(w: World): boolean {
 export function offerBlocked(w: World, terms: Terms, customs = hasCustomsOffice(w)): string | null {
   if (needsCustomsOffice(terms) && !customs) return `Needs a customs office: ${customsWhat(terms)}`;
   if (terms.kind === 'rail' && sidings(w.map).length === 0) {
-    return 'Needs a rail siding for its trains, with a container yard beside it (Roads, then Rail siding)';
+    return terms.bulk
+      ? 'Needs a rail siding for its trains, with a rail loadout over it (Roads, Railway)'
+      : 'Needs a rail siding for its trains, with loading track along it and container yards beside that (Roads, Railway)';
+  }
+  if (terms.kind === 'rail' && !terms.bulk) {
+    const need = trainWagons(terms);
+    const have = longestTrack(w.map);
+    if (have < need) {
+      return have === 0
+        ? `Its trains are ${need} wagons long: lay loading track along a siding to hold them, ${Math.ceil(need * CAR_LENGTH + 0.3)} tiles or so, with plain track past it for the locomotive`
+        : `Its trains are ${need} wagons long, and the longest loading track holds ${have}: lay it longer`;
+    }
   }
   return null;
 }
@@ -911,6 +924,7 @@ export function newDay(w: World): void {
   book(w, 'maintenance', -B.TUG_RUNNING_COST * w.tugs.length);
   const yardGantries = w.map.build.filter((c) => c === Build.YardGantry).length;
   book(w, 'maintenance', -B.YARD_GANTRY_RUNNING_COST * yardGantries);
+  book(w, 'maintenance', -B.RAIL_GANTRY_RUNNING_COST * (w.rail.gantries?.length ?? 0));
   const grabs = w.map.build.filter((c) => c === Build.GrabCrane).length;
   book(w, 'maintenance', -B.GRAB_RUNNING_COST * grabs);
   for (const p of w.people) {

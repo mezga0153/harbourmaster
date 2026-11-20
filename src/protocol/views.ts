@@ -637,6 +637,8 @@ export interface Snapshot {
   trains: Train[];
   /** The port's sidings off the main line. */
   sidings: SidingView[];
+  /** The rail gantries over loading track, and their lifts. */
+  railGantries: RailGantryView[];
   /** The places along the main line the port serves. */
   region: PlaceView[];
   /** Bulk cargo where it lies, and the grab cranes at work. */
@@ -659,10 +661,43 @@ export interface SidingView {
   crossings: number;
   /** A rail loadout stands over it, for hopper wagons. */
   loadout: boolean;
+  /** Its loading track, out from the main line, and the wagons a train standing on it has there. */
+  loading: number[];
+  wagons: number;
+  /** Rail gantries over its loading track. */
+  gantries: number;
   /** The port train calling at it, by id, if one is. */
   train?: number;
   /** Why its trains cannot be worked, if they cannot. */
   why?: string;
+}
+
+/** A rail gantry over loading track, and the lift it is part way through. */
+export interface RailGantryView {
+  /** The tile it stands on, and where along the track and across it the spreader is between lifts. */
+  idx: number;
+  x: number;
+  y: number;
+  /** Its rails' ends along the track, and the rows either side its legs straddle. */
+  from: number;
+  to: number;
+  reach: number;
+  lift?: {
+    /** When it began, and the ticks of each leg: run, take up, carry, set down. */
+    start: number;
+    legs: [number, number, number, number];
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+    load: boolean;
+    /** Not onto the train but along the yards, to this yard and place. */
+    relay?: { yard: number; slot: number };
+    look: number;
+    /** The train and wagon cell, and the yard (its first tile) and place in it. */
+    train: number;
+    cell: number;
+    yard: number;
+    slot: number;
+  };
 }
 
 /** A place along the main line, for the Region panel. */

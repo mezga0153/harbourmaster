@@ -2,6 +2,7 @@
 
 import * as B from '../balance';
 import { Build, type BuildCode, type BuildKind } from '../types';
+import { CAR_LENGTH } from '../railway';
 
 export interface Buildable {
   code: BuildCode;
@@ -108,15 +109,29 @@ export const BUILDABLES: Record<BuildKind, Buildable> = {
     code: Build.YardGantry,
     label: 'Yard gantry',
     cost: B.YARD_GANTRY_COST,
-    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. Stood on a siding beside a yard, its rails run along the track and it works the trains' wagons instead. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
+    hint: `Spans a container yard from a port road or quay tile beside it, and loads and unloads the trucks there itself; they drive in under it. Without one, reach stackers must lift every container on and off the trucks too, one at a time. $${B.YARD_GANTRY_RUNNING_COST}/day to run`,
     drag: false,
   },
   siding: {
     code: Build.Siding,
     label: 'Rail siding',
     cost: B.SIDING_COST,
-    hint: `Track off the main line for the port's trains. Lay it straight out from beside the main line along a row, on the port's land, ending at a buffer stop; it leaves the line by a switch, ${B.SWITCH_GAP} rows at least from another switch or a level crossing. A train stands along it to be loaded and unloaded, so make it as long as the trains: a container yard beside it is worked by reach stackers. Take it up from the buffer stop back`,
+    hint: `Track off the main line for the port's trains. Lay it straight out from beside the main line along a row, on the port's land, ending at a buffer stop; it leaves the line by a switch, ${B.SWITCH_GAP} rows at least from another switch or a level crossing. Container trains stand on loading track laid along it to be worked: lay the siding a tile or two longer than that, for the locomotive. Take it up from the buffer stop back`,
     drag: true,
+  },
+  loadingTrack: {
+    code: Build.LoadingTrack,
+    label: 'Loading track',
+    cost: B.LOADING_TRACK_COST,
+    hint: `Where a container train stands to be worked: drag it along a siding, in one stretch. Its length is the longest train the port can take, a wagon of ${B.WAGON_BOXES} containers to each ${CAR_LENGTH} tiles, and the locomotive stands on the plain track past it. Container yards up to ${B.SIDING_REACH} rows either side of it are where the wagons are unloaded into and loaded from, by a rail gantry over it or by reach stackers. Taken up from either end, it leaves the siding`,
+    drag: true,
+  },
+  railGantry: {
+    code: Build.RailGantry,
+    label: 'Rail gantry',
+    cost: B.RAIL_GANTRY_COST,
+    hint: `Spans loading track and ${B.SIDING_REACH} rows either side of it, and runs along it on rails, lifting containers between the wagons and the container yards under it on both sides: what the train brought off into a yard for cargo going out, what it takes on from one for cargo coming in. Goes on loading track; two or more share one, each working its own part. $${B.RAIL_GANTRY_RUNNING_COST}/day to run`,
+    drag: false,
   },
   grabCrane: {
     code: Build.GrabCrane,

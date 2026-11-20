@@ -91,6 +91,7 @@ import { cratesIn, place, slotsOf, stackOf } from './cargo/places';
 import { addCrane } from './cranes';
 import { docks } from './boats/berthing';
 import { settleGantry } from './yardGantry';
+import { addRailGantry, removeRailGantry } from './railGantry';
 import { sidingsOpen, sidingsShutWhy, trainAt } from './trains';
 import { isTrack, portCrossing, sidingAt } from '../rules/rails';
 import { railColumn } from '../railway';
@@ -105,7 +106,9 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
     return message(w, `${def.label} unlocks at the ${TIERS[BUILD_TIER[kind]].name}.`, 'bad');
   }
   if (kind === 'truckBay' && !baysOpen(w)) return message(w, baysShutWhy(w), 'bad');
-  if (kind === 'siding' && !sidingsOpen(w)) return message(w, sidingsShutWhy(w), 'bad');
+  if ((kind === 'siding' || kind === 'loadingTrack' || kind === 'railGantry') && !sidingsOpen(w)) {
+    return message(w, sidingsShutWhy(w), 'bad');
+  }
   let spent = 0;
   let firstError: string | null = null;
   // A belt runs the way it is dragged; one tile, the way it was turned.
@@ -186,8 +189,11 @@ export function build(w: World, kind: BuildKind, tiles: number[], facing?: numbe
         addBay(w, i);
         paths.push(...bayPath(w.map, kind, i, f));
       }
-      // The track either side changes with it: a switch, a buffer stop.
-      if (kind === 'siding' || kind === 'portRoad') w.dirty.add(i - 1).add(i + 1);
+      // The track either side changes with it: a switch, a buffer stop, the end of loading track.
+      if (kind === 'siding' || kind === 'portRoad' || kind === 'loadingTrack') {
+        w.dirty.add(i - 1).add(i + 1);
+      }
+      if (kind === 'railGantry') addRailGantry(w, i);
       if (kind === 'depot') shutIn ??= depotDoorTrouble(w.map, i, f) ?? undefined;
       if (kind === 'jibCrane') {
         addCrane(w, i, 'jib');
@@ -907,7 +913,12 @@ export function bulldoze(w: World, tiles: number[]): void {
     if (!err && isDock(w.map.build[i]) && w.boats.some((b) => b.jetty === i)) {
       err = 'A boat is moored here';
     }
-    if (!err && w.map.build[i] === Build.Siding) {
+    if (
+      !err &&
+      (w.map.build[i] === Build.Siding ||
+        w.map.build[i] === Build.LoadingTrack ||
+        w.map.build[i] === Build.RailGantry)
+    ) {
       const s = sidingAt(w.map, i);
       const train = s && trainAt(w, s.switch);
       if (train && train.port?.state !== 'due') err = 'A train is in this siding';
@@ -946,6 +957,13 @@ export function bulldoze(w: World, tiles: number[]): void {
     } else if (w.map.build[i] === Build.Crossing) {
       // Taking up a level crossing leaves the line.
       w.map.build[i] = Build.Rail;
+    } else if (w.map.build[i] === Build.RailGantry) {
+      // Taking down a rail gantry leaves the loading track it stood on.
+      removeRailGantry(w, i);
+      w.map.build[i] = Build.LoadingTrack;
+    } else if (w.map.build[i] === Build.LoadingTrack) {
+      w.map.build[i] = Build.Siding;
+      w.dirty.add(i - 1).add(i + 1);
     } else if (portCrossing(w.map, i)) {
       // Taking up a crossing's road, or a gantry or loadout over the track, leaves the siding.
       w.bulk.delete(i);

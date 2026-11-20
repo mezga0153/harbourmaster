@@ -37,6 +37,7 @@ import { makeJibCrane } from './cranes/jib';
 import type { CraneParts, YardGantryParts } from './cranes/parts';
 import { makeShipGantry } from './cranes/shipGantry';
 import { makeYardGantry } from './cranes/yardGantry';
+import { makeRailGantry, type RailGantryParts } from './cranes/railGantry';
 import {
   buoy,
   crossing,
@@ -86,6 +87,8 @@ export interface TileParts extends Owns {
   lights?: LightParts;
   /** A yard gantry, for its trolley to run as it loads trucks. */
   yardGantry?: YardGantryParts;
+  /** A rail gantry over loading track, running along it as it works the trains. */
+  railGantry?: RailGantryParts;
 }
 
 /** What is drawn on a tile, with its parts: made whole and let go of whole, see rebuild. */
@@ -160,6 +163,14 @@ const TILES: Partial<Record<number, (t: TileBuild) => Object3D>> = {
   [Build.Siding]: (t) => {
     sidingTrack(t.m, t.g, t.i, t.top);
     return t.g;
+  },
+  [Build.LoadingTrack]: (t) => {
+    loadingTrack(t);
+    return t.g;
+  },
+  [Build.RailGantry]: (t) => {
+    loadingTrack(t);
+    return makeRailGantry(t);
   },
   [Build.Crossing]: (t) => {
     crossing(t.m, t.g, t.i, t.top, t.parts);
@@ -688,6 +699,46 @@ function track(g: Group, top: number, alongX = false): void {
   put(0.64, 0.05, 1, BALLAST, 0.5, top, 0.5);
   for (const z of [0.17, 0.5, 0.83]) put(0.54, 0.025, 0.11, C.woodDark, 0.5, top + 0.05, z);
   for (const x of [0.35, 0.65]) put(0.03, 0.03, 1, STEEL, x, top + 0.075, 0.5);
+}
+
+/**
+ * Loading track: the siding's rails set in a concrete apron flush with the
+ * quays, yellow lines along both sides where the wagons stand, and a
+ * hatched band across each end of it; a lamp mast now and then.
+ */
+function loadingTrack(t: TileBuild): void {
+  const { m, g, i, top } = t;
+  const out = m.xOf(i) > railColumn(m) ? 1 : -1;
+  const isLoad = (n: number) =>
+    n >= 0 && (m.build[n] === Build.LoadingTrack || m.build[n] === Build.RailGantry);
+  const next = offset(m, i, out, 0);
+  const prev = offset(m, i, -out, 0);
+  paving(t);
+  // The rails in their grooves, the length of the tile (from its middle on the first).
+  const first = is(m, i, -out, 0, Build.Rail);
+  const from = first ? (out > 0 ? 0.5 : 0) : 0;
+  const len = first ? 0.5 : 1;
+  const mid = from + len / 2;
+  g.add(box(len, 0.008, 0.44, C.quayWall, mid, QUAY_Y, 0.5));
+  for (const z of [0.35, 0.65]) g.add(box(len, 0.022, 0.035, STEEL, mid, QUAY_Y, z));
+  for (const z of [0.1, 0.9]) g.add(box(1, 0.01, 0.03, C.stripe, 0.5, QUAY_Y, z));
+  // Hatched across where it starts and ends.
+  for (const [n, x] of [
+    [prev, out > 0 ? 0.04 : 0.96],
+    [next, out > 0 ? 0.96 : 0.04],
+  ] as const) {
+    if (isLoad(n)) continue;
+    for (let k = 0; k < 5; k++) {
+      g.add(box(0.06, 0.012, 0.16, k % 2 ? C.stripe : 0x26282b, x, QUAY_Y, 0.1 + k * 0.2));
+    }
+  }
+  if (!isTrack(m, next)) {
+    // The buffer stop, as at the end of plain track.
+    const v = out > 0 ? 0.9 : 0.1;
+    for (const u of [0.35, 0.65]) g.add(box(0.05, 0.16, 0.05, STEEL, v, QUAY_Y, u));
+    g.add(box(0.06, 0.07, 0.5, 0xd6453d, v, QUAY_Y + 0.1, 0.5));
+  }
+  void top;
 }
 
 /**

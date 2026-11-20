@@ -8,8 +8,10 @@ import {
   fisheryDailyValue,
   railDailyValue,
   shipperDailyValue,
+  trainWagons,
   type Terms,
 } from '../sim/contracts';
+import { CAR_LENGTH } from '../sim/railway';
 import { TICKS_PER_DAY } from '../sim/types';
 import type { Actions } from './actions';
 import { fined, fineRate, paid } from './difficulty';
@@ -156,7 +158,8 @@ function Headline({ terms }: { terms: Terms }) {
             </>
           ) : (
             <>
-              <strong>{terms.bring}</strong> out, up to <strong>{terms.take}</strong> in, a train
+              Trains of <strong>{trainWagons(terms)}</strong> wagons: <strong>{terms.bring}</strong>{' '}
+              out, up to <strong>{terms.take}</strong> in
             </>
           )}
         </span>
@@ -250,6 +253,10 @@ function termRows(t: Terms): [string, ComponentChildren][] {
   if (t.kind === 'rail') {
     return [
       ['A train', `every ${span(t.trainEvery)}`],
+      [
+        'Its trains',
+        `${trainWagons(t)} flat wagons, ${trainWagons(t) * B.WAGON_BOXES} containers at most`,
+      ],
       ['Brings', `${t.bring} containers to go out on the feeders`],
       ['Takes', `Up to ${t.take} containers off the feeders, inland`],
       [
@@ -258,7 +265,7 @@ function termRows(t: Terms): [string, ComponentChildren][] {
       ],
       [
         'Needs',
-        'A rail siding with container yards beside it, in and out, and reach stackers to work the wagons',
+        `Loading track on a siding that holds ${trainWagons(t)} wagons, container yards beside it, in and out, and a rail gantry over it or reach stackers`,
       ],
     ];
   }
@@ -809,8 +816,12 @@ export function offerChecks(
       );
     }
     add(payback <= 3, `Signing fee pays back in ${span(payback)}`, payback > 3);
+  } else if (t.kind === 'rail' && t.bulk) {
+    // Its loadout, above.
   } else if (t.kind === 'rail') {
-    const yards = s.yards.length;
+    const need = trainWagons(t);
+    const fits = s.sidings.filter((x) => x.wagons >= need);
+    const most = Math.max(0, ...s.sidings.map((x) => x.wagons));
     add(
       s.sidings.length > 0,
       s.sidings.length > 0
@@ -818,10 +829,19 @@ export function offerChecks(
         : 'No rail siding yet: lay one off the main line (Roads, then Rail siding)',
     );
     add(
-      yards > 0,
-      yards > 0
-        ? 'Container yards for its trains to be worked from, beside a siding'
-        : 'Needs container yards beside a siding, in and out',
+      fits.length > 0,
+      fits.length > 0
+        ? `Loading track for its ${need}-wagon trains`
+        : most > 0
+          ? `Its trains are ${need} wagons long; the longest loading track holds ${most}: lay it longer`
+          : `Needs loading track along a siding for its ${need}-wagon trains, about ${Math.ceil(need * CAR_LENGTH + 0.3)} tiles, with plain track past it`,
+    );
+    const yarded = fits.some((x) => x.yardsIn > 0 && x.yardsOut > 0);
+    add(
+      yarded,
+      yarded
+        ? 'Container yards in and out beside its loading track'
+        : 'Needs container yards beside the loading track, in and out',
     );
   } else {
     const trucks = s.contracts.reduce(

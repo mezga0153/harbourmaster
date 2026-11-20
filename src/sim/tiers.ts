@@ -114,6 +114,8 @@ export const BUILD_TIER: Record<BuildKind, number> = {
   tugBerth: 1,
   yardGantry: 2,
   siding: 2,
+  loadingTrack: 2,
+  railGantry: 2,
   grabCrane: 3,
   belt: 3,
   stockpile: 3,

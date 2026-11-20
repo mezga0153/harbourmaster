@@ -28,7 +28,13 @@ import {
 } from './footprint';
 import { BUILDABLES, ROTATABLE } from './buildables';
 import { STORE_COST, forkliftOnly, parkingError, storeKindAt } from './marking';
-import { portCrossing, sidingBulldozeError, sidingError } from './rails';
+import {
+  isTrack,
+  loadingTrackError,
+  portCrossing,
+  sidingBulldozeError,
+  sidingError,
+} from './rails';
 
 /**
  * Static placement check. `pending` holds tiles of the same kind already
@@ -83,13 +89,9 @@ export function placementError(
     return 'Kept clear for a gantry crane’s rails';
   }
   if (kind === 'yardGantry') {
-    // Or over a siding beside the yard, to load the trains on it.
-    const paved =
-      map.build[i] === Build.PortRoad ||
-      map.build[i] === Build.Quay ||
-      map.build[i] === Build.Siding;
-    if (!paved || map.store[i])
-      return 'A yard gantry stands on port road, quay or siding track, beside a yard';
+    const paved = map.build[i] === Build.PortRoad || map.build[i] === Build.Quay;
+    if (isTrack(map, i)) return 'For the trains, put a rail gantry on loading track';
+    if (!paved || map.store[i]) return 'A yard gantry stands on port road or quay, beside a yard';
     const yard = map.neighbors4(i).some((n) => storesBoxes(map.store[n]));
     // Trucks still drive under it, to load, so it may stand where they do.
     return yard ? null : 'Put it beside a container yard: it spans the stacks to load the trucks';
@@ -104,6 +106,13 @@ export function placementError(
     return behind === Build.Quay || behind === Build.Belt
       ? null
       : 'A grab crane needs quay behind it too (2 wide), for its hopper';
+  }
+  if (kind === 'loadingTrack') return loadingTrackError(map, i, pending);
+  if (kind === 'railGantry') {
+    if (map.build[i] === Build.RailGantry) return 'A rail gantry stands here already';
+    return map.build[i] === Build.LoadingTrack
+      ? null
+      : 'A rail gantry goes on loading track: lay some along a siding first';
   }
   if (kind === 'loadout') {
     const track = map.build[i] === Build.Siding || portCrossing(map, i);
@@ -438,7 +447,14 @@ export function bulldozeError(map: GameMap, i: number): string | null {
   if (ownedByTown(map, i) || isTownBuilding(map.build[i])) return 'This belongs to the town';
   if (map.build[i] === Build.Rail) return 'The railway is not yours to take up';
   const b = map.build[i];
-  if (b === Build.Siding || b === Build.PortRoad || b === Build.YardGantry || b === Build.Loadout) {
+  if (
+    b === Build.Siding ||
+    b === Build.PortRoad ||
+    b === Build.YardGantry ||
+    b === Build.Loadout ||
+    b === Build.LoadingTrack ||
+    b === Build.RailGantry
+  ) {
     return sidingBulldozeError(map, i);
   }
   return null;

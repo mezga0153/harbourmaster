@@ -31,7 +31,11 @@ import { addContract, offerBlocked } from '../src/sim/systems/economy';
 import { boxesIn, putBox } from '../src/sim/systems/cargo/stores';
 import type { RailTerms } from '../src/sim/contracts';
 import { GUIDES, checkStep } from '../src/ui/guides';
-import { gantryOverSiding } from '../src/sim/systems/cargo/wagons';
+import { cellPoint, wagonCells } from '../src/sim/systems/cargo/wagons';
+import { trackWagons, isLoading, loadingTrack, longestTrack } from '../src/sim/rules';
+import { railGantries } from '../src/sim/systems/railGantry';
+import { RAILS } from '../src/sim/orient';
+import { previewBuild } from '../src/preview/build';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -193,6 +197,8 @@ describe('Container trains', () => {
       tiles: [...row(y, 1, 9), ...row(y + 1, 1, 10), ...row(y + 2, 1, 10)],
     });
     world.command({ type: 'build', kind: 'siding', tiles: row(y, 1, 9) });
+    // Loading track along it, the locomotive's room past it.
+    world.command({ type: 'build', kind: 'loadingTrack', tiles: row(y, 1, 7) });
     world.command({
       type: 'build',
       kind: 'portRoad',
@@ -248,6 +254,60 @@ describe('Container trains', () => {
     expect(boxesIn(yardOut, true)).toHaveLength(4);
     expect(boxesIn(yardIn)).toHaveLength(0);
     expect(world.cash - before).toBeGreaterThanOrEqual(6 * 200 * 0.9);
+  });
+
+  it('wait for loading track that holds them, and never stand off it', () => {
+    const { world, m, siding } = railPort(0);
+    expect(trackWagons(m, siding)).toBe(5);
+    const terms: RailTerms = {
+      kind: 'rail',
+      name: 'Long Rail',
+      color: 0,
+      trainEvery: 5,
+      bring: 12,
+      take: 12,
+      fee: 180,
+      dailyFee: 0,
+      wagons: 6,
+    };
+    // Too long for any loading track: it cannot be signed.
+    expect(offerBlocked(world, terms)).toMatch(
+      /6 wagons long, and the longest loading track holds 5/,
+    );
+    expect(offerBlocked(world, { ...terms, wagons: 5 })).toBeNull();
+    // Signed anyway (as an older line might be), its trains wait.
+    addContract(world, terms, world.tick, 0);
+    for (let t = 0; t < 100; t++) world.step();
+    expect(portTrains(world)).toHaveLength(0);
+    expect(world.snapshot().sidings[0].why).toMatch(/6 wagons long/);
+    // Laid longer, it comes, every wagon on the loading track.
+    const past = m.xOf(siding.tiles[8]);
+    const row = m.yOf(siding.switch);
+    world.command({
+      type: 'build',
+      kind: 'siding',
+      tiles: [m.idx(past + 1, row), m.idx(past + 2, row)],
+    });
+    world.command({
+      type: 'build',
+      kind: 'loadingTrack',
+      tiles: [siding.tiles[7], siding.tiles[8]],
+    });
+    expect(longestTrack(m)).toBe(6);
+    let train: Any;
+    for (let t = 0; t < TICKS_PER_DAY && train?.port.state !== 'standing'; t++) {
+      world.step();
+      train ??= portTrains(world)[0];
+    }
+    expect(train.port.state).toBe('standing');
+    expect(train.cars.filter((c: string) => c === 'flat')).toHaveLength(6);
+    for (let k = 0; k < wagonCells(train).length; k++) {
+      const p = cellPoint(train, k);
+      expect(isLoading(m, m.idx(Math.floor(p.x), Math.floor(p.y))), `cell ${k}`).toBe(true);
+    }
+    // The locomotive on the plain track past it.
+    const front = pointAt(train.way, train.at - CAR_LENGTH / 2);
+    expect(isLoading(m, m.idx(Math.floor(front.x), Math.floor(front.y)))).toBe(false);
   });
 
   it('wait for a free siding with a yard beside it', () => {
@@ -351,8 +411,56 @@ describe('The town’s railway station', () => {
   });
 });
 
-describe('A yard gantry over a siding', () => {
-  it('stands on the track beside the yard and works the train in it, no stacker needed', () => {
+describe('Loading track', () => {
+  it('is laid along a siding in one stretch, comes up from its ends, and takes a rail gantry', () => {
+    const world = stationTown();
+    const m = world.map;
+    const y = freeRow(world, 10);
+    const tiles = rowOut(world, y, 10);
+    expect(placementError(m, 'loadingTrack', tiles[2])).toMatch(/lay the siding first/);
+    world.command({ type: 'build', kind: 'siding', tiles });
+    const s = sidingAt(m, tiles[0])!;
+    expect(trackWagons(m, s)).toBe(0);
+    // The preview says how long a train it would take, and where its yards go.
+    const r = previewBuild(m, null, 'loadingTrack', tiles.slice(3, 6), tiles[3]);
+    expect(r.preview?.note).toMatch(
+      /Takes trains of 2 wagons, 4 containers; the locomotive stands on the plain track past it/,
+    );
+    expect(r.hints.find((h) => h.kind === 'reach')?.tiles).toHaveLength(12);
+    world.command({ type: 'build', kind: 'loadingTrack', tiles: tiles.slice(3, 6) });
+    expect(loadingTrack(m, s)).toEqual(tiles.slice(3, 6));
+    // Not a second stretch.
+    expect(placementError(m, 'loadingTrack', tiles[8])).toMatch(/one stretch/);
+    expect(placementError(m, 'loadingTrack', tiles[6])).toBeNull();
+    // Dragged on in a line, in any order.
+    world.command({
+      type: 'build',
+      kind: 'loadingTrack',
+      tiles: [tiles[7], tiles[6], tiles[2], tiles[1]],
+    });
+    expect(loadingTrack(m, sidingAt(m, tiles[0])!)).toEqual(tiles.slice(1, 8));
+    // Seven tiles of it, the locomotive on the plain track past it: five wagons.
+    expect(trackWagons(m, sidingAt(m, tiles[0])!)).toBe(5);
+    // A rail gantry on it, never a yard gantry on the track.
+    expect(placementError(m, 'railGantry', tiles[8])).toMatch(/loading track/);
+    expect(placementError(m, 'yardGantry', tiles[4])).toMatch(/rail gantry/);
+    world.command({ type: 'build', kind: 'railGantry', tiles: [tiles[4]] });
+    expect(m.build[tiles[4]]).toBe(Build.RailGantry);
+    expect(railGantries(world).map((g) => g.idx)).toEqual([tiles[4]]);
+    expect(loadingTrack(m, sidingAt(m, tiles[0])!)).toHaveLength(7);
+    // Taken up from either end of it, leaving the siding.
+    expect(bulldozeError(m, tiles[3])).toMatch(/either end/);
+    world.command({ type: 'bulldoze', tiles: [tiles[7]] });
+    expect(m.build[tiles[7]]).toBe(Build.Siding);
+    world.command({ type: 'bulldoze', tiles: [tiles[4]] });
+    expect(m.build[tiles[4]]).toBe(Build.LoadingTrack);
+    expect(railGantries(world)).toHaveLength(0);
+  });
+});
+
+describe('A rail gantry over loading track', () => {
+  /** Ten tiles of siding with eight of loading track, and yards in and out either side of it. */
+  function terminal(gantryAt: number[]) {
     const world: Any = stationTown();
     const m = world.map;
     const x = railColumn(m);
@@ -360,72 +468,121 @@ describe('A yard gantry over a siding', () => {
       Array.from({ length: b - a + 1 }, (_, k) => m.idx(x + a + k, y));
     let y = -1;
     for (let r = 6; r < m.limit - 6 && y < 0; r++) {
-      const all = [...row(r, 1, 9), ...row(r + 1, 1, 9), ...row(r - 1, 1, 9)];
+      const all = [...row(r, 1, 10), ...row(r + 1, 1, 10), ...row(r - 1, 1, 10)];
       if (all.every((i) => m.isLand(i) && m.build[i] === Build.None && m.owns(i))) y = r;
     }
     world.command({
       type: 'bulldoze',
-      tiles: [...row(y, 1, 9), ...row(y + 1, 1, 9), ...row(y - 1, 1, 9)],
+      tiles: [...row(y, 1, 10), ...row(y + 1, 1, 10), ...row(y - 1, 1, 10)],
     });
-    world.command({ type: 'build', kind: 'siding', tiles: row(y, 1, 9) });
-    // A yard each side of the track, right beside it, along the wagons:
-    // going out by the first wagon, coming in by the next.
+    world.command({ type: 'build', kind: 'siding', tiles: row(y, 1, 10) });
+    world.command({ type: 'build', kind: 'loadingTrack', tiles: row(y, 1, 8) });
     world.command({
       type: 'build',
       kind: 'portRoad',
-      tiles: [...row(y + 1, 3, 6), ...row(y - 1, 7, 9)],
+      tiles: [...row(y + 1, 1, 8), ...row(y - 1, 1, 8)],
     });
-    world.command({ type: 'store', tiles: row(y + 1, 3, 6), kind: 'boxes', on: true });
-    world.command({ type: 'store', tiles: row(y - 1, 7, 9), kind: 'boxesOut', on: true });
-    const yardIn = world.yards.get(row(y + 1, 3, 6)[0]);
-    const yardOut = world.yards.get(row(y - 1, 7, 9)[0]);
-    const s = sidings(m)[0];
-    // A gantry over the track by each, its rails along it.
-    const gantries = [m.idx(x + 3, y), m.idx(x + 9, y)];
-    world.command({ type: 'build', kind: 'yardGantry', tiles: gantries });
-    expect(gantries.map((g) => m.build[g])).toEqual([Build.YardGantry, Build.YardGantry]);
-    expect(sidingAt(m, m.idx(x + 1, y))!.tiles).toHaveLength(9);
-    expect(gantryOverSiding(world, yardIn, s)).toBe(true);
-    expect(gantryOverSiding(world, yardOut, s)).toBe(true);
-    const second = [gantries[1]];
-    for (let k = 0; k < 6; k++)
+    world.command({ type: 'store', tiles: row(y + 1, 1, 8), kind: 'boxes', on: true });
+    world.command({ type: 'store', tiles: row(y - 1, 1, 8), kind: 'boxesOut', on: true });
+    world.command({
+      type: 'build',
+      kind: 'railGantry',
+      tiles: gantryAt.map((k) => m.idx(x + k, y)),
+    });
+    const yardIn = world.yards.get(row(y + 1, 1, 8)[0]);
+    const yardOut = world.yards.get(row(y - 1, 1, 8)[0]);
+    for (let k = 0; k < 8; k++)
       putBox(world, yardIn, { fee: 200, at: 0, ready: 0, look: k }, false);
-    const line = addContract(
+    return { world, m, yardIn, yardOut, x, y };
+  }
+
+  function sendLine(world: Any) {
+    return addContract(
       world,
       {
         kind: 'rail',
         name: 'T',
         color: 0,
         trainEvery: 9,
-        bring: 2,
-        take: 3,
+        bring: 4,
+        take: 8,
         fee: 150,
         dailyFee: 0,
+        wagons: 4,
       },
       world.tick,
       0,
     );
+  }
+
+  it('works the train on its own, both yards under it, no stacker needed', () => {
+    const { world, m, yardIn, yardOut, x, y } = terminal([4]);
+    expect(world.snapshot().sidings[0].why).toBeUndefined();
+    const line = sendLine(world);
     let train: Any;
-    let lifted = false;
+    let lifts = 0;
+    let was: Any;
     for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
       world.step();
       train ??= world.rail.trains.find((o: Any) => o.port?.contractId === line.id);
-      lifted ||= (yardIn.gantryOn ?? 0) < 0 || (yardOut.gantryOn ?? 0) < 0;
+      const lift = railGantries(world)[0].lift;
+      if (lift && lift !== was) lifts++;
+      was = lift;
       if (train?.port.state === 'out') break;
     }
     expect(train?.port.state).toBe('out');
     expect(world.people.some((p: Any) => p.kind === 'stacker')).toBe(false);
-    expect(lifted).toBe(true);
-    expect(boxesIn(yardOut, true)).toHaveLength(2);
-    // The second wagon's two, in its reach; the third it wanted is not.
-    expect(boxesIn(yardIn)).toHaveLength(4);
+    // Off, then on: four out, eight in.
+    expect(lifts).toBe(12);
+    expect(boxesIn(yardOut, true)).toHaveLength(4);
+    expect(boxesIn(yardIn)).toHaveLength(0);
+    expect(train.port.leaves - train.port.stand).toBeLessThan(world.tick);
     // The railway lesson's checks pass, the last as the train left with containers.
+    for (let t = 0; t < 400 && world.rail.trains.includes(train); t++) world.step();
     const snap = world.snapshot();
     for (const step of GUIDES.railway.steps) {
       expect(checkStep(step, snap)?.done, step.title).toBe(true);
     }
-    // Taken up, the track stays.
-    world.command({ type: 'bulldoze', tiles: second });
-    expect(m.build[second[0]]).toBe(Build.Siding);
+    expect(snap.railGantries).toHaveLength(1);
+    void m;
+    void x;
+    void y;
+  });
+
+  it('shares the track with another, each working its own part of the train', () => {
+    const { world, yardIn, yardOut } = terminal([2, 7]);
+    const line = sendLine(world);
+    let train: Any;
+    const worked = new Set<number>();
+    for (let t = 0; t < TICKS_PER_DAY * 2; t++) {
+      world.step();
+      train ??= world.rail.trains.find((o: Any) => o.port?.contractId === line.id);
+      for (const g of railGantries(world)) if (g.lift) worked.add(g.idx);
+      // Never in each other's way.
+      const [a, b] = railGantries(world).map((g) => g.at.x);
+      expect(b - a).toBeGreaterThan(0.9);
+      if (train?.port.state === 'out') break;
+    }
+    expect(worked.size).toBe(2);
+    expect(boxesIn(yardOut, true)).toHaveLength(4);
+    expect(boxesIn(yardIn)).toHaveLength(0);
+  });
+
+  it('comes in place of a yard gantry over a siding from an older save', () => {
+    const { world, m, x, y } = terminal([]);
+    // As an older save had it: plain siding, a yard gantry on the track, a line with no length.
+    for (const t of loadingTrack(m, sidingAt(m, m.idx(x + 1, y))!)) m.build[t] = Build.Siding;
+    m.build[m.idx(x + 4, y)] = Build.YardGantry;
+    m.orient[m.idx(x + 4, y)] = RAILS;
+    (sendLine(world).terms as RailTerms).wagons = undefined;
+    const save = world.toSave();
+    delete save.rail!.gantries;
+    const loaded = World.fromSave(save);
+    const s = sidingAt(loaded.map, m.idx(x + 1, y))!;
+    expect(loadingTrack(loaded.map, s)).toHaveLength(8);
+    expect(loaded.map.build[m.idx(x + 4, y)]).toBe(Build.RailGantry);
+    expect(railGantries(loaded).map((g) => g.idx)).toEqual([m.idx(x + 4, y)]);
+    const terms = loaded.contracts.find((c) => c.terms.kind === 'rail')!.terms as RailTerms;
+    expect(terms.wagons).toBe(4);
   });
 });

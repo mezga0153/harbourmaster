@@ -1,4 +1,5 @@
 import * as B from '../sim/balance';
+import { CAR_LENGTH } from '../sim/railway';
 import type { Tool } from './tools';
 
 interface ToolHelp {
@@ -93,8 +94,7 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
   },
   yardGantry: {
     what: 'Loads and unloads trucks beside a container yard.',
-    where:
-      'On port road or quay beside a yard, with a clear lane under its rails; or on a siding beside a yard, to work the trains.',
+    where: 'On port road or quay beside a yard, with a clear lane under its rails.',
     needs:
       'Truck access through a gate. Reach stackers or terminal tractors bring containers from the quay cranes.',
   },
@@ -122,10 +122,20 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
     needs: 'A belt running into it, from a stockpile, and a rail line of hopper wagons signed.',
   },
   siding: {
-    what: 'Track off the main line where the port’s trains stand to be loaded and unloaded.',
+    what: 'Track off the main line where the port’s trains turn off and stand.',
     where: `Straight out from beside the main line along a row, on the port’s land, ${B.SWITCH_GAP} rows from another switch or a level crossing.`,
     needs:
-      'The town’s railway station. A container yard beside it, worked by reach stackers, and track as long as the trains.',
+      'The town’s railway station. Container trains also need loading track along it, with a tile or two of plain track past that for the locomotive.',
+  },
+  loadingTrack: {
+    what: `Where a container train stands to be worked: the longer it is, the longer the trains the port can sign for, a wagon of ${B.WAGON_BOXES} containers to each ${CAR_LENGTH} tiles.`,
+    where: 'Drag it along a siding, in one stretch, short of its buffer stop.',
+    needs: `Container yards up to ${B.SIDING_REACH} rows either side of it, one for containers coming in and one going out, and a rail gantry over it or reach stackers.`,
+  },
+  railGantry: {
+    what: 'Lifts containers between a train’s wagons and the container yards either side of its loading track.',
+    where: `On loading track. It spans ${B.SIDING_REACH} rows either side and runs the length of the track.`,
+    needs: 'Yards in and out under it. Two on one track share the work but never pass each other.',
   },
   crateStore: {
     what: `Stores incoming cargo, ${B.CRATES_PER_STORE_TILE} crates per tile.`,

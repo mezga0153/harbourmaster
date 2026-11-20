@@ -18,6 +18,8 @@ const TILES: Partial<Record<number, string>> = {
   [Build.Quay]: 'quay',
   [Build.Parking]: 'parking',
   [Build.Siding]: 'siding',
+  [Build.LoadingTrack]: 'loadingTrack',
+  [Build.RailGantry]: 'loadingTrack',
 };
 /** What the player builds, counted one apiece (a two-tile building once). */
 const PIECES: Partial<Record<number, string>> = {
@@ -33,6 +35,7 @@ const PIECES: Partial<Record<number, string>> = {
   [Build.BuoyOut]: 'buoy',
   [Build.TugBerth]: 'tugBerth',
   [Build.YardGantry]: 'yardGantry',
+  [Build.RailGantry]: 'railGantry',
 };
 const STORES: Record<number, string> = {
   [Store.Crates]: 'crateStore',

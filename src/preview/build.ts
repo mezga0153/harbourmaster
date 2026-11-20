@@ -13,9 +13,13 @@ import {
   bulldozeTiles,
   bulldozeValue,
   footprint,
+  isLoading,
   machinePlacementError,
   placementCost,
   placementError,
+  sidingAt,
+  standOffset,
+  trackWagons,
   tugPlacementError,
   walkableAt,
 } from '../sim/rules';
@@ -111,6 +115,11 @@ export function previewBuild(
       }
     }
   }
+  if (t === 'loadingTrack' || t === 'railGantry') {
+    const rail = railNote(map, t, tiles, pending);
+    hints = [...hints, ...rail.hints];
+    note = rail.note ?? note;
+  }
   return {
     ghosts: { tiles, ok },
     arrow: null,
@@ -122,6 +131,49 @@ export function previewBuild(
       error: pending.size === 0 ? error : null,
       note: pending.size > 0 ? (landNote(map, tiles, ok) ?? note) : note,
     },
+  };
+}
+
+/**
+ * Loading track or a rail gantry over it: how long a train the siding then
+ * takes, and the rows either side where its container yards go (blue).
+ */
+function railNote(
+  map: GameMap,
+  t: 'loadingTrack' | 'railGantry',
+  tiles: number[],
+  pending: ReadonlySet<number>,
+): { hints: Hints; note?: string } {
+  const s = tiles.map((k) => sidingAt(map, k)).find((x) => !!x);
+  if (!s) return { hints: [] };
+  const more = t === 'loadingTrack' ? pending : new Set<number>();
+  const track = s.tiles.filter((k) => isLoading(map, k) || more.has(k));
+  const row = map.yOf(s.switch);
+  const reach: number[] = [];
+  for (const k of track) {
+    for (let d = -B.SIDING_REACH; d <= B.SIDING_REACH; d++) {
+      if (d !== 0 && map.inBounds(map.xOf(k), row + d)) reach.push(map.idx(map.xOf(k), row + d));
+    }
+  }
+  const hints: Hints = reach.length > 0 ? [{ kind: 'reach', tiles: reach }] : [];
+  if (t === 'railGantry') {
+    return {
+      hints,
+      note: `Spans the blue rows and runs the length of the loading track: container yards there, in and out, are worked from it`,
+    };
+  }
+  if (pending.size === 0) return { hints };
+  const n = trackWagons(map, s, more);
+  const room = standOffset(map, s, (k) => isLoading(map, k) || more.has(k)) < s.tiles.length + 0.35;
+  const loco = room
+    ? 'the locomotive stands on the plain track past it'
+    : 'the locomotive stands on it: leave a tile or two of plain track before the buffer stop for another wagon';
+  return {
+    hints,
+    note:
+      n === 0
+        ? `Holds no wagon yet: lay it longer. Yards go in the blue rows`
+        : `Takes trains of ${n} wagon${n === 1 ? '' : 's'}, ${n * B.WAGON_BOXES} containers; ${loco}. Yards go in the blue rows`,
   };
 }
 

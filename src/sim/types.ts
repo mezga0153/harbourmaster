@@ -100,6 +100,13 @@ export const Build = {
   Stockpile: 51,
   /** A rail loadout over a siding, filling hopper wagons from its bin. */
   Loadout: 52,
+  /**
+   * Loading track on a siding: where a container train stands to be worked,
+   * a stretch of the siding as long as the trains it takes; see rules/rails.ts.
+   */
+  LoadingTrack: 53,
+  /** A rail gantry over loading track, spanning it and the yards either side; see systems/railGantry.ts. */
+  RailGantry: 54,
 } as const;
 export type BuildCode = (typeof Build)[keyof typeof Build];
 
@@ -155,7 +162,9 @@ export type BuildKind =
   | 'grabCrane'
   | 'belt'
   | 'stockpile'
-  | 'loadout';
+  | 'loadout'
+  | 'loadingTrack'
+  | 'railGantry';
 
 export type MachineKind = 'forklift' | 'stacker' | 'tractor';
 

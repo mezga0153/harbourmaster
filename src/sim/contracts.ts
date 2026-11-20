@@ -83,6 +83,11 @@ export interface RailTerms {
   fee: number;
   /** What the port pays the railway a day for its trains. */
   dailyFee: number;
+  /**
+   * Flat wagons on each of its container trains, and so how long the
+   * loading track must be to take them; older lines have none (see trainWagons).
+   */
+  wagons?: number;
   /** The region's place its trains run to and from, by id; see region.ts. */
   place?: number;
   /**
@@ -94,6 +99,14 @@ export interface RailTerms {
 }
 
 export type Terms = FisheryTerms | HaulierTerms | ShipperTerms | RailTerms;
+
+/**
+ * How many wagons a rail line's container trains have: as many as its
+ * terms say, or, for an older line, enough for what it brings or takes.
+ */
+export function trainWagons(t: RailTerms): number {
+  return t.wagons ?? Math.ceil(Math.max(t.bring, t.take) / B.WAGON_BOXES);
+}
 
 /** Rough income a rail line's trains bring a day: their exports' fees, less what the railway charges. */
 export function railDailyValue(t: RailTerms): number {
@@ -630,6 +643,7 @@ export function makeRailOffer(
     fee: rng.int(150, 210),
     dailyFee: rng.int(8, 12) * 10,
   };
+  terms.wagons = Math.ceil(Math.max(terms.bring, terms.take) / B.WAGON_BOXES);
   const expires = tick + Math.round(rng.range(4, 8) * TICKS_PER_DAY);
   const signingFee = Math.round((terms.bring * terms.fee) / terms.trainEvery / 50) * 50;
   return { id, terms, signingFee, expires };

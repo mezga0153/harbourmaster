@@ -467,8 +467,17 @@ export const TRAIN_MAX_WAGONS = 10;
 export const WAGON_BOXES = 2;
 /** Containers more a city's trains take once it has its freight terminal. */
 export const TERMINAL_EXTRA = 4;
-/** Rows either side of a siding a container yard may lie in to be worked from it. */
+/** Rows either side of loading track a container yard may lie in to be worked from it. */
 export const SIDING_REACH = 2;
+/** A tile of loading track: concrete laid between and beside the rails of a siding. */
+export const LOADING_TRACK_COST = 250;
+/** A rail gantry, spanning loading track and the yards either side of it. */
+export const RAIL_GANTRY_COST = 24000;
+export const RAIL_GANTRY_RUNNING_COST = 120;
+/** Ticks a rail gantry takes to take a container up and set it down, besides running to it. */
+export const RAIL_GANTRY_TICKS = 10;
+/** Tiles a tick a rail gantry runs along its rails, and its trolley across. */
+export const RAIL_GANTRY_SPEED = 1;
 
 // The Bulk Terminal: bulk cargo by the tonne; see systems/bulk.ts.
 /** Water a bulk carrier needs, in metres. */

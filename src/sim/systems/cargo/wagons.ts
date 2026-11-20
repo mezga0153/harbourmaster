@@ -1,14 +1,15 @@
 // Containers on a port train's flat wagons: a cell for each place one
 // stands (see PortVisit.cells), filled and emptied by reach stackers
-// working from a container yard beside the siding, one container a trip,
-// as they work the trucks at a yard.
+// working from a container yard beside its loading track, one container
+// a trip, as they work the trucks at a yard; or by rail gantries over the
+// loading track (see railGantry.ts).
 
 import type { World } from '../../world';
 import * as B from '../../balance';
 import type { Bay, Crate, Dockhand } from '../../state';
 import type { Source } from '../../helpers';
 import { CAR_LENGTH, pointAt, type Train } from '../../railway';
-import { sidings, type Siding } from '../../rules/rails';
+import { loadingTrack, sidings, type Siding } from '../../rules/rails';
 import { handlingTicks } from '../workforce/crowding';
 import { headTo, walk } from '../workforce/dockhands';
 import {
@@ -23,21 +24,13 @@ import {
   stackSides,
   takeBox,
   takesExports,
-  yardSlots,
   takesImports,
   workersAt,
 } from './stores';
-import {
-  gantryTractor,
-  keepGantryTo,
-  liftDone,
-  liftTaken,
-  slotAlong,
-  stackedAt,
-  startLift,
-} from '../yardGantry';
+import { stackedAt } from '../yardGantry';
 import { cancelJob } from './customs';
 import { sidingOf } from '../trains';
+import { gantriesOn } from '../railGantry';
 
 type PortTrain = Train & { port: NonNullable<Train['port']> };
 
@@ -62,10 +55,14 @@ export function cellPoint(t: Train, k: number): { x: number; y: number } {
   return pointAt(t.way, t.at - (wagon + 0.5 + half * 0.46) * CAR_LENGTH);
 }
 
-/** The container yards a siding's trains are worked from: any lying along it, a row or two off. */
+/**
+ * The container yards a siding's trains are worked from: any lying along
+ * its loading track, up to SIDING_REACH rows off. None without loading track.
+ */
 export function yardsBeside(w: World, s: Siding): Bay[] {
   const m = w.map;
-  const along = new Map(s.tiles.map((t) => [m.xOf(t), m.yOf(t)]));
+  const along = new Map(loadingTrack(m, s).map((t) => [m.xOf(t), m.yOf(t)]));
+  if (along.size === 0) return [];
   return [...w.yards.values()].filter((y) =>
     (y.tiles ?? [y.idx]).some((t) => {
       const row = along.get(m.xOf(t));
@@ -137,12 +134,12 @@ function nearestCell(t: PortTrain, x: number, y: number, free: boolean): number 
 /** Trains standing in their sidings, for reach stackers to load from the yards beside them or unload into them. */
 export function wagonSources(w: World, sources: Source[]): void {
   for (const { t, s } of standing(w)) {
+    // Rail gantries over the loading track work the train themselves.
+    if (gantriesOn(w, s).length > 0) continue;
     const yards = yardsBeside(w, s);
     const wants = stillWants(t);
     const exports = aboard(t, true) - (t.port.taking ?? 0);
     for (const yard of yards) {
-      // A gantry over the siding works the train from this yard itself.
-      if (gantryOverSiding(w, yard, s)) continue;
       if (wants > 0 && takesImports(w, yard)) {
         const avail = Math.min(wants, reachable(w, yard) - (yard.truckReserved ?? 0));
         if (avail > 0) {
@@ -304,132 +301,4 @@ export function endWagonJob(_w: World, p: Dockhand): void {
   p.bayIdx = -1;
   p.stockIdx = -1;
   p.state = 'idle';
-}
-
-/** Whether a yard's gantry stands over the siding, its rails along the track, to load the trains on it. */
-export function gantryOverSiding(w: World, yard: Bay, s: Siding): boolean {
-  const lane = w.gantryLane(yard);
-  return !!lane && s.tiles.some((t) => lane.has(t));
-}
-
-/** Where a wagon's cell stands along a yard gantry's rails, or null off them. */
-function cellAlong(w: World, yard: Bay, t: Train, k: number): number | null {
-  const p = cellPoint(t, k);
-  const m = w.map;
-  const tile = m.idx(Math.floor(p.x), Math.floor(p.y));
-  return w.gantryLane(yard)?.get(tile) ?? null;
-}
-
-/**
- * The cell of a train in reach of a yard's gantry, free (`free`) or with
- * an export on it, nearest where the gantry stands; -1 if none.
- */
-function gantryCell(w: World, yard: Bay, t: PortTrain, free: boolean): number {
-  let best = -1;
-  let bestD = Infinity;
-  wagonCells(t).forEach((c, k) => {
-    if (free ? c : !c?.out) return;
-    const along = cellAlong(w, yard, t, k);
-    if (along === null) return;
-    const d = Math.abs(along - (yard.gantryAt ?? 0));
-    if (d < bestD) {
-      bestD = d;
-      best = k;
-    }
-  });
-  return best;
-}
-
-/**
- * Yard gantries standing over a siding unload and load the train in it,
- * a container a lift, as they do the trucks: what it brought off first,
- * then what it takes on. Trucks and tractors under them go first.
- */
-export function gantryWagons(w: World): void {
-  for (const yard of w.yards.values()) if ((yard.gantryOn ?? 0) < 0) runWagonLift(w, yard);
-  for (const { t, s } of standing(w)) {
-    for (const yard of yardsBeside(w, s)) {
-      if (yard.gantryOn !== undefined || yard.gantryHeld || !gantryOverSiding(w, yard, s)) continue;
-      if (w.gantryTruck(yard) || gantryTractor(w, yard)) continue;
-      startWagonLift(w, yard, t);
-    }
-  }
-}
-
-function startWagonLift(w: World, yard: Bay, t: PortTrain): void {
-  const out = aboard(t, true) - (t.port.taking ?? 0) > 0 && takesExports(w, yard);
-  const k = out ? gantryCell(w, yard, t, false) : -1;
-  if (k >= 0) {
-    const to = nextYardSlot(w, yard);
-    if (to < 0) return;
-    const at = cellAlong(w, yard, t, k)!;
-    keepGantryTo(w, yard, to);
-    yard.gantryOn = -t.id;
-    yard.gantryWagon = { cell: k, at, load: false, look: wagonCells(t)[k]!.look ?? 0 };
-    t.port.taking = (t.port.taking ?? 0) + 1;
-    startLift(w, yard, at, slotAlong(w, yard, to));
-    return;
-  }
-  if (stillWants(t) <= 0 || !takesImports(w, yard)) return;
-  const top = clearTop(w, yard);
-  const cell = top >= 0 ? gantryCell(w, yard, t, true) : -1;
-  if (cell < 0) return;
-  const at = cellAlong(w, yard, t, cell)!;
-  yard.gantryOn = -t.id;
-  yard.gantryWagon = { cell, at, load: true, look: boxLooks(w, yard)[top] };
-  t.port.coming = (t.port.coming ?? 0) + 1;
-  startLift(w, yard, slotAlong(w, yard, yardSlots(w, yard).boxes[top]), at);
-}
-
-/** A yard gantry's lift for a wagon: taken up half way through, set down at the end. */
-function runWagonLift(w: World, yard: Bay): void {
-  const lift = yard.gantryWagon;
-  const t = w.rail.trains.find((q) => q.id === -(yard.gantryOn ?? 0));
-  const live = t?.port?.state === 'standing' ? (t as PortTrain) : undefined;
-  if (!lift || !live) return endWagonLift(w, yard, undefined, true);
-  const cells = wagonCells(live);
-  if (!lift.box && liftTaken(w, yard)) {
-    if (lift.load) {
-      // The one it went for, whatever customs cleared meanwhile, else any cleared on top.
-      const looks = boxLooks(w, yard);
-      const was = looks.indexOf(lift.look);
-      const at = was >= 0 ? was : clearTop(w, yard);
-      if (at >= 0) lift.box = takeBox(w, yard, at);
-    } else {
-      const box = cells[lift.cell];
-      if (box?.out) {
-        lift.box = box;
-        cells[lift.cell] = null;
-      }
-    }
-    if (!lift.box) return endWagonLift(w, yard, live, false);
-  }
-  if (!liftDone(w, yard)) return;
-  if (lift.box) {
-    if (lift.load) {
-      const k = cells[lift.cell] ? gantryCell(w, yard, live, true) : lift.cell;
-      if (k >= 0) {
-        lift.box.at = w.tick;
-        delete lift.box.out;
-        cells[k] = lift.box;
-      } else putBox(w, yard, { ...lift.box, ready: 0 }, false);
-    } else putBox(w, yard, lift.box, true, yard.gantryTo);
-    lift.box = undefined;
-  }
-  endWagonLift(w, yard, live, false);
-}
-
-/** A wagon lift over, done or cut short: anything on the spreader set back down in the yard. */
-function endWagonLift(w: World, yard: Bay, t: PortTrain | undefined, gone: boolean): void {
-  const lift = yard.gantryWagon;
-  if (lift?.box) putBox(w, yard, lift.load ? { ...lift.box, ready: 0 } : lift.box, !lift.load);
-  if (t && lift && !gone) {
-    if (lift.load) t.port.coming = Math.max(0, (t.port.coming ?? 0) - 1);
-    else t.port.taking = Math.max(0, (t.port.taking ?? 0) - 1);
-  }
-  yard.gantryWagon = undefined;
-  yard.gantryOn = yard.gantryTo = undefined;
-  // It stands where it set the container down, for the next.
-  if (yard.gantryLift) yard.gantryAt = yard.gantryLift.to;
-  yard.gantryLift = undefined;
 }
