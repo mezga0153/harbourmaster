@@ -405,6 +405,11 @@ export function activity(p: Dockhand, landing: boolean): string {
       return p.truckLoad ? 'Setting a container on a truck' : 'Stacking a container';
     }
   }
+  if (p.shift && (p.state === 'toPickup' || p.state === 'picking')) {
+    return p.shift.out
+      ? 'Moving a container out of the rail yard, to make room for the train'
+      : 'Fetching a cleared container for the train';
+  }
   if (p.restack) {
     return p.state === 'picking'
       ? 'Lifting a container off one customs have cleared, to restack it'

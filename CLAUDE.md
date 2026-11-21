@@ -208,6 +208,9 @@ when changing tiers, town growth, contracts or what unlocks what.
   work the wagons' cells from container yards up to two rows either side;
   gantries on one track never pass, keep clear of each other and move a
   container along the yard for another to take on when it cannot reach.
+  While a train is due or standing, free reach stackers bring cleared
+  containers from other yards into those beside its loading track and move
+  exports out of them to make room (`cargo/railShift.ts`, `p.shift`).
   Older saves get loading track where their yards lie, and a yard gantry
   that stood on siding track becomes a rail gantry (`loadingTrackFromSave`). A port road
   across a siding stays port road with the `RAILS` bit (`orient.ts`): no

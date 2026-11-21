@@ -130,7 +130,7 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
   loadingTrack: {
     what: `Where a container train stands to be worked: the longer it is, the longer the trains the port can sign for, a wagon of ${B.WAGON_BOXES} containers to each ${CAR_LENGTH} tiles.`,
     where: 'Drag it along a siding, in one stretch, short of its buffer stop.',
-    needs: `Container yards up to ${B.SIDING_REACH} rows either side of it, one for containers coming in and one going out, and a rail gantry over it or reach stackers.`,
+    needs: `Container yards up to ${B.SIDING_REACH} rows either side of it, one for containers coming in and one going out, and a rail gantry over it or reach stackers. Free reach stackers bring cleared containers over from other yards for each train.`,
   },
   railGantry: {
     what: 'Lifts containers between a train’s wagons and the container yards either side of its loading track.',

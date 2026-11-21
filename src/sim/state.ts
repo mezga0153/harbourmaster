@@ -145,6 +145,12 @@ export interface Dockhand extends Agent {
    */
   trainId?: number;
   trainLoad?: boolean;
+  /**
+   * Stackers: moving a container from one yard to another for the trains
+   * (see railShift.ts): from yard `from`, to `bayIdx`; an export if `out`;
+   * `picked` once it has it off the stack.
+   */
+  shift?: { from: number; out: boolean; picked?: boolean };
   /** Stackers: the yard, and which of its tiles, it is restacking at; see restackJob. */
   restack?: { yard: number; tile: number };
   /** Crates carried out of storage, so cleared already: no customs again where they go. */

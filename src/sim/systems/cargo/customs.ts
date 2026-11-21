@@ -42,6 +42,7 @@ import {
 import { waits } from './hold';
 import { putOnCrane } from '../cranes';
 import { releaseWagonJob } from './wagons';
+import { releaseShift } from './railShift';
 
 /**
  * When each crate at a bay still waiting on customs, or (`out`) each of
@@ -355,6 +356,7 @@ export function retargetExports(w: World, p: Dockhand): void {
 }
 
 export function cancelJob(w: World, p: Dockhand): void {
+  releaseShift(w, p);
   releaseTruckJob(w, p);
   releaseWagonJob(w, p);
   releaseTarget(w, p, p.planned);

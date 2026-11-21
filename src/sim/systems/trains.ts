@@ -34,7 +34,7 @@ import {
   type Siding,
 } from '../rules/rails';
 import type { Crate } from '../state';
-import { trainWagons } from '../contracts';
+import { trainWagons, type Contract } from '../contracts';
 import { aboard, wagonCells, yardsBeside } from './cargo/wagons';
 import { gantriesOn, stepRailGantries } from './railGantry';
 import { book, payout } from './economy';
@@ -324,6 +324,37 @@ function leave(w: World, t: Train): void {
 }
 
 /**
+ * Where a container rail line's next train would go, and how long it is
+ * and what it takes away: the shortest siding with no train in it whose
+ * loading track holds it, with yards beside it; null if none is free.
+ */
+export function nextTrain(
+  w: World,
+  c: Contract,
+): { s: Siding; wagons: number; take: number; dir?: 1 | -1 } | null {
+  const terms = c.terms;
+  if (terms.kind !== 'rail' || terms.bulk) return null;
+  const long = trainWagons(terms);
+  const s = sidings(w.map)
+    .filter(
+      (x) =>
+        !trainAt(w, x.switch) &&
+        sidingCars(x) >= 2 &&
+        trackWagons(w.map, x) >= long &&
+        yardsBeside(w, x).length > 0,
+    )
+    .sort((a, b) => trackWagons(w.map, a) - trackWagons(w.map, b))[0];
+  if (!s) return null;
+  // From its city's end of the line; longer once it has its freight terminal.
+  const place = placeById(w, terms.place);
+  const dir = place ? (-place.side as 1 | -1) : undefined;
+  const extra = place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0;
+  const wagons = Math.min(trackWagons(w.map, s), long + Math.ceil(extra / B.WAGON_BOXES));
+  const take = Math.min(terms.take + extra, wagons * B.WAGON_BOXES);
+  return { s, wagons, take, dir };
+}
+
+/**
  * Rail lines send their trains when due, each to a siding with no train in
  * it and a container yard beside it, bringing containers to go out on the
  * feeders and with room for those it takes away.
@@ -333,28 +364,21 @@ export function callTrains(w: World): void {
     const terms = c.terms;
     if (terms.kind !== 'rail' || w.tick < c.nextBoatTick) continue;
     if (portTrains(w).some((t) => t.port.contractId === c.id && t.port.state !== 'away')) continue;
-    // Container trains on loading track that holds them, with yards beside
-    // it, the shortest that does; hopper wagons under a loadout.
-    const long = terms.bulk ? 0 : trainWagons(terms);
-    const s = sidings(w.map)
-      .filter(
+    if (terms.bulk) {
+      // Hopper wagons under a loadout.
+      const s = sidings(w.map).find(
         (x) =>
           !trainAt(w, x.switch) &&
           sidingCars(x) >= 2 &&
-          (terms.bulk
-            ? x.tiles.some((t) => w.map.build[t] === Build.Loadout)
-            : trackWagons(w.map, x) >= long && yardsBeside(w, x).length > 0),
-      )
-      .sort((a, b) => trackWagons(w.map, a) - trackWagons(w.map, b))[0];
-    // None free: it waits, and tries again soon.
-    if (!s) {
-      c.nextBoatTick = w.tick + 60;
-      continue;
-    }
-    // From its city's end of the line; longer once it has its freight terminal.
-    const place = placeById(w, terms.place);
-    const dir = place ? (-place.side as 1 | -1) : undefined;
-    if (terms.bulk) {
+          x.tiles.some((t) => w.map.build[t] === Build.Loadout),
+      );
+      // None free: it waits, and tries again soon.
+      if (!s) {
+        c.nextBoatTick = w.tick + 60;
+        continue;
+      }
+      const place = placeById(w, terms.place);
+      const dir = place ? (-place.side as 1 | -1) : undefined;
       const train = sendPortTrain(
         w,
         s,
@@ -371,10 +395,13 @@ export function callTrains(w: World): void {
         w.tick + Math.round(terms.trainEvery * TICKS_PER_DAY * (0.85 + w.rng.next() * 0.3));
       continue;
     }
-    // A city with its freight terminal sends more, on more wagons, where the track holds them.
-    const extra = place && place.steps >= 1 ? B.TERMINAL_EXTRA : 0;
-    const wagons = Math.min(trackWagons(w.map, s), long + Math.ceil(extra / B.WAGON_BOXES));
-    const take = Math.min(terms.take + extra, wagons * B.WAGON_BOXES);
+    // Container trains on loading track that holds them, with yards beside it.
+    const plan = nextTrain(w, c);
+    if (!plan) {
+      c.nextBoatTick = w.tick + 60;
+      continue;
+    }
+    const { s, wagons, take, dir } = plan;
     const train = sendPortTrain(w, s, 'flat', B.TRAIN_STAND_TICKS, dir, wagons);
     if (!train?.port) continue;
     train.port.contractId = c.id;

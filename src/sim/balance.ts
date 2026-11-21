@@ -461,6 +461,12 @@ export const SWITCH_GAP = 3;
 export const PORT_TRAIN_SPEED = 0.6;
 /** Ticks a port train stands in its siding, at most, to be worked. */
 export const TRAIN_STAND_TICKS = 600;
+/**
+ * How long before a rail line's next train is due, in ticks, reach stackers
+ * start bringing cleared containers over to the yards beside its loading
+ * track and making room there for what it brings.
+ */
+export const RAIL_SHIFT_AHEAD = 240;
 /** Wagons behind a port train's locomotive, at most, however long its siding. */
 export const TRAIN_MAX_WAGONS = 10;
 /** Containers on a flat wagon, end to end. */

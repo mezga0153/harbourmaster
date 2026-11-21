@@ -113,6 +113,7 @@ import { WORKING } from '../../helpers';
 import { standsFor, type StandPlan } from './stands';
 import { drivable } from '../../rules';
 import { takeWagonJob, wagonJob, wagonSources } from '../cargo/wagons';
+import { shiftJob, takeShiftJob } from '../cargo/railShift';
 import { longShip } from '../../helpers';
 
 export function spawnDockhand(w: World, at: number, c: Candidate): Dockhand {
@@ -498,6 +499,7 @@ function work(w: World, p: Dockhand): void {
   if (p.truckId !== undefined && (isBoxy(p) ? truckJob(w, p) : crateTruckJob(w, p))) return;
   if (p.trainId !== undefined && wagonJob(w, p)) return;
   if (p.restack && restackJob(w, p)) return;
+  if (p.shift && shiftJob(w, p)) return;
   switch (p.state) {
     case 'broken':
       if (--p.timer <= 0) {
@@ -1086,7 +1088,9 @@ export function assignJob(w: World, p: Dockhand): boolean {
     p.state = 'toPickup';
     return true;
   }
-  // With nothing else to do, a stacker tidies the yards.
+  // With nothing else to do, a stacker gets the trains' yards ready, then
+  // tidies the yards.
+  if (takeShiftJob(w, p, here)) return true;
   return p.kind === 'stacker' && takeRestackJob(w, p, here);
 }
 
