@@ -697,6 +697,9 @@ export interface RailGantryView {
     cell: number;
     yard: number;
     slot: number;
+    /** A terminal tractor it lifts a container off into the yard (`off`), or an export onto (`on`). */
+    tractor?: number;
+    hand?: 'off' | 'on';
   };
 }
 

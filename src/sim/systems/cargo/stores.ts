@@ -48,6 +48,7 @@ import {
 } from './places';
 import { byHand, cratesFor } from '../truckLoading';
 import { drivable, nearCrane } from '../../rules/placement';
+import { railSpot, railYard } from '../railGantry';
 import { cargoOf } from '../../cargo';
 import { longShip } from '../../helpers';
 
@@ -163,6 +164,15 @@ export function takeFromSource(w: World, p: Dockhand): Crate[] {
     for (let k = 0; k < n; k++) load.unshift(takeOffCrane(w, crane, craneHeld(crane) - 1));
     return load;
   }
+  // An export a rail gantry set on a tractor's trailer.
+  if (p.handed && p.stockIdx >= 0) {
+    const yard = stock(w, p.stockIdx);
+    if (yard) yard.outReserved = Math.max(0, (yard.outReserved ?? 0) - p.planned);
+    p.stockIdx = -1;
+    const load = p.handed;
+    p.handed = undefined;
+    return load;
+  }
   if (p.stockIdx >= 0) {
     const pile = stock(w, p.stockIdx);
     const at = p.stockIdx;
@@ -238,7 +248,9 @@ export function yardWithRoom(w: World, p: Dockhand, from: number): Bay | null {
  * cannot lift a container, so only where a yard gantry lifts it off and on.
  */
 export function servesYard(w: World, p: Dockhand, yard: Bay): boolean {
-  return p.kind !== 'tractor' || (w.yardGantry(yard) && laneThrough(w, yard));
+  if (p.kind !== 'tractor') return true;
+  // Or rail gantries over a siding's loading track span it, and lift for it.
+  return (w.yardGantry(yard) && laneThrough(w, yard)) || !!railYard(w, yard);
 }
 
 export function nearestWithRoom(
@@ -528,7 +540,9 @@ export function distTo(w: World, from: number, b: Bay): number {
  */
 export function dropAt(w: World, p: Dockhand, b: Bay, from: number): number {
   if (!b.tiles) return w.pathFor(p, from, b.idx) ? b.idx : -1;
-  if (p.kind === 'tractor') return tractorSpot(w, p, b, from);
+  if (p.kind === 'tractor') {
+    return w.yardGantry(b) ? tractorSpot(w, p, b, from) : railSpot(w, p, b, from);
+  }
   if (p.kind === 'stacker' && b.yard) return stackSide(w, p, b, from, 'drop');
   // A forklift sets its pallet down in the next place in crate storage.
   if (p.kind === 'forklift' && !b.yard) {

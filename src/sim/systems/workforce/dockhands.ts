@@ -799,7 +799,8 @@ export function diagnose(w: World, p: Dockhand): void {
     stuck =
       "Can't work the yard gantries: tractors cannot turn about in a gantry's lane, so it needs a way on at both ends";
   } else if (p.kind === 'tractor' && dests.length === 0) {
-    stuck = 'No container yard with a yard gantry to lift containers off and on';
+    stuck =
+      'No container yard with a yard gantry, or under a rail gantry, to lift containers off and on';
   } else if (!dests.some((d) => dropAt(w, p, d, here) >= 0)) {
     stuck = boxy
       ? `Can't reach a container yard. ${what} only drive on port roads and quays`

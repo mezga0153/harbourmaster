@@ -37,7 +37,7 @@ export const MACHINES: Record<
     wage: B.TRACTOR_WAGE,
     capacity: 1,
     room: 1,
-    hint: 'Quick and cheap: carries one container at a time between the harbour and gantry cranes and the container yards with a yard gantry, which lifts it off and on. It cannot lift a container itself, so it never works a yard without one, or the trucks',
+    hint: 'Quick and cheap: carries one container at a time between the harbour and gantry cranes and the container yards with a yard gantry, or under a rail gantry, which lifts it off and on. It cannot lift a container itself, so it never works a yard without one, or the trucks',
   },
 };
 

@@ -465,11 +465,13 @@ export const TOPICS: Record<TopicId, Topic> = {
           the loading track, to go on the feeders, and loaded with containers customs have cleared
           from a yard for cargo coming in. A <b>rail gantry</b> over the loading track spans it and
           the yards either side and does that itself, running along the track; two on one track
-          share the work, never passing each other. Without one, reach stackers do it from beside
-          the stacks, a container a trip. Only the yards beside the loading track serve the trains,
-          so while a train is due or standing, a free reach stacker brings cleared containers over
-          to them from the port's other yards, and moves exports out of them to another yard to make
-          room for what it brings. A train leaves once it is worked, or after a day at most, and the
+          share the work, never passing each other. Terminal tractors bring it containers off the
+          ships and take exports from it to the quay, standing on a port road under its span while
+          it lifts them off or on. Without one, reach stackers do it from beside the stacks, a
+          container a trip. Only the yards beside the loading track serve the trains, so while a
+          train is due or standing, a free reach stacker brings cleared containers over to them from
+          the port's other yards, and moves exports out of them to another yard to make room for
+          what it brings. A train leaves once it is worked, or after a day at most, and the
           containers it takes away are paid for as it goes. A port road may cross a siding on the
           level: no one goes onto it while a train is on it or coming, and paths go round while one
           stands across it.

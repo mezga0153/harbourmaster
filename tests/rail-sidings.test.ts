@@ -33,7 +33,9 @@ import type { RailTerms } from '../src/sim/contracts';
 import { GUIDES, checkStep } from '../src/ui/guides';
 import { cellPoint, wagonCells } from '../src/sim/systems/cargo/wagons';
 import { trackWagons, isLoading, loadingTrack, longestTrack } from '../src/sim/rules';
-import { railGantries } from '../src/sim/systems/railGantry';
+import { railGantries, railSpot } from '../src/sim/systems/railGantry';
+import { servesYard } from '../src/sim/systems/cargo/stores';
+import { headTo } from '../src/sim/systems/workforce/dockhands';
 import { RAILS } from '../src/sim/orient';
 import { previewBuild } from '../src/preview/build';
 
@@ -544,7 +546,7 @@ describe('Loading track', () => {
 
 describe('A rail gantry over loading track', () => {
   /** Ten tiles of siding with eight of loading track, and yards in and out either side of it. */
-  function terminal(gantryAt: number[]) {
+  function terminal(gantryAt: number[], lane = false) {
     const world: Any = stationTown();
     const m = world.map;
     const x = railColumn(m);
@@ -553,6 +555,7 @@ describe('A rail gantry over loading track', () => {
     let y = -1;
     for (let r = 6; r < m.limit - 6 && y < 0; r++) {
       const all = [...row(r, 1, 10), ...row(r + 1, 1, 10), ...row(r - 1, 1, 10)];
+      if (lane) all.push(...row(r + 2, 1, 10), ...row(r + 3, 9, 9));
       if (all.every((i) => m.isLand(i) && m.build[i] === Build.None && m.owns(i))) y = r;
     }
     world.command({
@@ -573,6 +576,14 @@ describe('A rail gantry over loading track', () => {
       kind: 'railGantry',
       tiles: gantryAt.map((k) => m.idx(x + k, y)),
     });
+    if (lane) {
+      // A road beyond the yard coming in, under the gantry, for tractors.
+      world.command({ type: 'bulldoze', tiles: [...row(y + 2, 1, 10), ...row(y + 3, 9, 9)] });
+      world.command({ type: 'build', kind: 'portRoad', tiles: row(y + 2, 1, 10) });
+      const depot = m.idx(x + 9, y + 3);
+      world.command({ type: 'build', kind: 'depot', tiles: [depot], facing: 3 });
+      world.command({ type: 'buyMachine', kind: 'tractor', tile: depot });
+    }
     const yardIn = world.yards.get(row(y + 1, 1, 8)[0]);
     const yardOut = world.yards.get(row(y - 1, 1, 8)[0]);
     for (let k = 0; k < 8; k++)
@@ -650,6 +661,55 @@ describe('A rail gantry over loading track', () => {
     expect(worked.size).toBe(2);
     expect(boxesIn(yardOut, true)).toHaveLength(4);
     expect(boxesIn(yardIn)).toHaveLength(0);
+  });
+
+  it('lifts containers off terminal tractors into the yard under it, and exports onto them', () => {
+    const { world, yardIn, yardOut } = terminal([4], true);
+    const p = world.people.find((q: Any) => q.kind === 'tractor');
+    expect(p).toBeDefined();
+    expect(servesYard(world, p, yardIn)).toBe(true);
+    // One off a ship, to go in the yard.
+    const here = world.tileOf(p);
+    const spot = railSpot(world, p, yardIn, here);
+    expect(spot).toBeGreaterThanOrEqual(0);
+    p.load = [{ fee: 200, at: 0, look: 99 }];
+    p.carrying = 1;
+    p.planned = 1;
+    p.bayIdx = yardIn.idx;
+    yardIn.boxIncoming += 1;
+    expect(headTo(world, p, spot)).toBe(true);
+    p.state = 'toDrop';
+    let lifted = false;
+    for (let t = 0; t < 400 && !lifted; t++) {
+      world.step();
+      lifted = boxesIn(yardIn).length === 9 && p.carrying === 0;
+    }
+    expect(lifted, 'the gantry set it down in the yard').toBe(true);
+    expect(railGantries(world)[0].lift).toBeUndefined();
+    expect(yardIn.boxIncoming).toBe(0);
+    // An export on its way to the ships, off the yard going out.
+    putBox(world, yardOut, { fee: 300, at: 0, look: 7 }, true);
+    p.outbound = true;
+    p.stockIdx = yardOut.idx;
+    p.planned = 1;
+    p.toBoat = -1;
+    p.toCrane = -1;
+    p.bayIdx = -1;
+    yardOut.outReserved = 1;
+    expect(headTo(world, p, railSpot(world, p, yardOut, world.tileOf(p)))).toBe(true);
+    p.state = 'toPickup';
+    let got = false;
+    for (let t = 0; t < 400 && !got; t++) {
+      world.step();
+      got = !!p.handed;
+    }
+    expect(got, 'the gantry set it on the tractor').toBe(true);
+    expect(boxesIn(yardOut, true)).toHaveLength(0);
+    // It drives off with it, as with any it picks up (here with no ship to take it to).
+    world.step();
+    expect(p.handed).toBeUndefined();
+    expect(p.stockIdx).toBe(-1);
+    expect(yardOut.outReserved).toBe(0);
   });
 
   it('comes in place of a yard gantry over a siding from an older save', () => {

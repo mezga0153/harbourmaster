@@ -53,6 +53,8 @@ export interface RailGantryParts {
   ticks: number;
   /** Where its carriage and trolley were as the lift began. */
   start: { x: number; z: number };
+  /** Lifting a container off a tractor: where it took it off, for one that drives on. */
+  handAt?: { x: number; z: number; drop: number };
 }
 
 export function makeRailGantry(t: TileBuild): Object3D {
@@ -141,6 +143,7 @@ export function setRailGantry(p: RailGantryParts, v: RailGantryView, tick: numbe
     // A new lift: from wherever it stands now.
     p.start = { x: p.carriage.position.x, z: p.trolley.position.z };
     p.ticks = tick - l.start;
+    p.handAt = undefined;
   } else if (Math.abs(p.ticks - (tick - l.start)) > 3) {
     p.ticks += (tick - l.start - p.ticks) * 0.5;
   }
@@ -178,8 +181,42 @@ export function runRailGantry(
       }
       return { x: s.x - p.cx, z: s.y - p.cy, drop: H - 0.2 };
     };
-    const a = l.relay ? spotFrom(l, p, yardSlot, site) : spot(!l.load, l.from);
-    const b = spot(l.load && !l.relay, l.to);
+    // A tractor under it: over the container on its trailer, and where it
+    // took it off for one that has driven on since.
+    const trailer = (s: { x: number; y: number }) => {
+      const found = site.truckSlot(l.tractor!, 0, at);
+      if (found) {
+        p.frame.updateWorldMatrix(true, false);
+        p.frame.worldToLocal(found);
+        const depth = p.trolley.position.y - (found.y + BOX_HEIGHT + 0.04);
+        return { x: found.x, z: found.z, drop: Math.max(RAISED, depth) };
+      }
+      return { x: s.x - p.cx, z: s.y - p.cy, drop: H - 0.25 };
+    };
+    const inYard = (s: { x: number; y: number }) => {
+      const found = yardSlot(l.yard, l.slot, at);
+      if (!found) return { x: s.x - p.cx, z: s.y - p.cy, drop: H - 0.2 };
+      p.frame.updateWorldMatrix(true, false);
+      p.frame.worldToLocal(found);
+      return {
+        x: found.x,
+        z: found.z,
+        drop: Math.max(RAISED, p.trolley.position.y - (found.y + BOX_HEIGHT + 0.04)),
+      };
+    };
+    let a;
+    let b;
+    if (l.tractor !== undefined && l.hand === 'off') {
+      if (k < run + up / 2 || !p.handAt) p.handAt = trailer(l.from);
+      a = p.handAt;
+      b = inYard(l.to);
+    } else if (l.tractor !== undefined) {
+      a = inYard(l.from);
+      b = trailer(l.to);
+    } else {
+      a = l.relay ? spotFrom(l, p, yardSlot, site) : spot(!l.load, l.from);
+      b = spot(l.load && !l.relay, l.to);
+    }
     const ease = (t: number) => t * t * (3 - 2 * t);
     const dip = (t: number, depth: number) => RAISED + (depth - RAISED) * Math.sin(t * Math.PI);
     const share = (from: number, len: number) => (len > 0 ? clamp01((k - from) / len) : 1);

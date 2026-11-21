@@ -208,6 +208,9 @@ when changing tiers, town growth, contracts or what unlocks what.
   work the wagons' cells from container yards up to two rows either side;
   gantries on one track never pass, keep clear of each other and move a
   container along the yard for another to take on when it cannot reach.
+  Terminal tractors stand on port road under the span (`railLane`) for a
+  rail gantry to lift their containers into its yards or exports onto
+  them (`tractorLift`), as a yard gantry does along its lane.
   While a train is due or standing, free reach stackers bring cleared
   containers from other yards into those beside its loading track and move
   exports out of them to make room (`cargo/railShift.ts`, `p.shift`).

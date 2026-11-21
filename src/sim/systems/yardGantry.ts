@@ -60,6 +60,7 @@ import { tip } from './output';
 import type { CellsView, EntityView, HandAt } from '../../protocol/views';
 import { slotsFor } from './cargo/beds';
 import { pickTile } from './boats/berthing';
+import { railFor, railHeading } from './railGantry';
 
 /** A yard gantry stands beside this container yard, to load its trucks. */
 export function yardGantry(w: World, yard: Bay): boolean {
@@ -634,7 +635,7 @@ export function handAt(w: World, p: Dockhand, pick: boolean): HandAt | undefined
   const first = (y: Bay) => (y.tiles ?? [y.idx])[0];
   // Under a yard gantry, a tractor stands along the lane for it to lift.
   const lane = (y: Bay): HandAt => {
-    const along = p.kind === 'tractor' ? laneHeading(w, y) : undefined;
+    const along = p.kind === 'tractor' ? (laneHeading(w, y) ?? railHeading(w, y)) : undefined;
     return along === undefined ? { yard: first(y) } : { yard: first(y), along };
   };
   if (p.truckId !== undefined) {
@@ -952,7 +953,8 @@ export function gantryHolder(w: World, y: Bay): Vehicle | undefined {
 export function gantryFor(w: World, p: Dockhand): boolean {
   if (p.kind !== 'tractor') return true;
   const y = w.yards.get(p.state === 'picking' ? p.stockIdx : p.bayIdx);
-  if (!y || !w.yardGantry(y)) return true;
+  if (!y) return true;
+  if (!w.yardGantry(y)) return railFor(w, p, y);
   const on = gantryHolder(w, y);
   if (on) return on === p;
   // Still setting down one it lifted off another.

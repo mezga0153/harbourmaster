@@ -133,9 +133,10 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
     needs: `Container yards up to ${B.SIDING_REACH} rows either side of it, one for containers coming in and one going out, and a rail gantry over it or reach stackers. Free reach stackers bring cleared containers over from other yards for each train.`,
   },
   railGantry: {
-    what: 'Lifts containers between a train’s wagons and the container yards either side of its loading track.',
+    what: 'Lifts containers between a train’s wagons and the container yards either side of its loading track, and off and onto terminal tractors standing on port road under it.',
     where: `On loading track. It spans ${B.SIDING_REACH} rows either side and runs the length of the track.`,
-    needs: 'Yards in and out under it. Two on one track share the work but never pass each other.',
+    needs:
+      'Yards in and out under it, and a port road under it too for tractors. Two on one track share the work but never pass each other.',
   },
   crateStore: {
     what: `Stores incoming cargo, ${B.CRATES_PER_STORE_TILE} crates per tile.`,

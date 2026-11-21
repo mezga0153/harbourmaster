@@ -118,6 +118,12 @@ export interface RailLift {
   look: number;
   /** The container, once the spreader has it. */
   box?: Crate;
+  /**
+   * A terminal tractor under it, by id, it lifts a container off (`off`,
+   * into the yard) or exports onto (`on`, out of it), not the train.
+   */
+  tractor?: number;
+  hand?: 'off' | 'on';
 }
 
 /** A rail gantry over loading track, standing on its tile `idx`; see systems/railGantry.ts. */

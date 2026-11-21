@@ -10,11 +10,12 @@
 
 import type { World } from '../world';
 import * as B from '../balance';
-import type { Bay } from '../state';
+import type { Bay, Crate, Dockhand } from '../state';
 import type { RailGantry, RailLift, Spot, Train } from '../railway';
 import type { RailGantryView } from '../../protocol/views';
 import {
   isLoading,
+  isTrack,
   loadingTrack,
   longestTrack,
   sidingAt,
@@ -28,7 +29,9 @@ import { yardPlace } from '../helpers';
 import { aboard, cellPoint, stillWants, wagonCells, yardsBeside } from './cargo/wagons';
 import {
   boxLooks,
+  carriedLooks,
   clearTop,
+  exportLooks,
   isClear,
   nextYardSlot,
   putBox,
@@ -41,6 +44,10 @@ import {
   yardTop,
 } from './cargo/stores';
 import { trainAt } from './trains';
+import { bayIncoming } from '../helpers';
+import { drivable } from '../rules/placement';
+import { customsFor } from './cranes';
+import { tip } from './output';
 
 type PortTrain = Train & { port: NonNullable<Train['port']> };
 
@@ -157,9 +164,12 @@ function clearOfOthers(w: World, s: Siding, g: RailGantry, xs: number[]): boolea
 function startLift(w: World, g: RailGantry): void {
   const s = sidingAt(w.map, g.idx);
   const t = s && standingAt(w, s);
-  const lift = s && t ? nextLift(w, s, g, t) : null;
-  if (!lift || !t || !s) return park(w, g, s);
-  if (lift.relay) {
+  // The tractors first: the ships wait on them.
+  const lift = s ? (tractorLift(w, s, g) ?? (t ? nextLift(w, s, g, t) : null)) : null;
+  if (!lift || !s) return park(w, g, s);
+  if (lift.tractor !== undefined || !t) {
+    // For a tractor: nothing kept on the train.
+  } else if (lift.relay) {
     // Saved its place, for none else to take meanwhile.
   } else if (lift.load) t.port.coming = (t.port.coming ?? 0) + 1;
   else t.port.taking = (t.port.taking ?? 0) + 1;
@@ -302,6 +312,7 @@ function liftTrain(w: World, l: RailLift): PortTrain | undefined {
 /** A gantry part way through a lift: it takes the container up half way, and sets it down at the end. */
 function runLift(w: World, g: RailGantry): void {
   const l = g.lift!;
+  if (l.tractor !== undefined) return runTractorLift(w, g);
   const t = liftTrain(w, l);
   if (!t) return endLift(w, g);
   const yard = w.yards.get(l.yard);
@@ -365,10 +376,15 @@ function endLift(w: World, g: RailGantry): void {
   const l = g.lift;
   if (!l) return;
   const yard = w.yards.get(l.yard);
-  if (l.box && l.relay && yard) putBox(w, yard, l.box, false);
+  if (l.tractor !== undefined) {
+    // Off a tractor, into the yard as any other come off a ship; an
+    // export it was lifting on, back.
+    if (l.hand === 'off' && yard) offTractor(w, yard, l.box);
+    else if (l.box && yard) putBox(w, yard, l.box, true);
+  } else if (l.box && l.relay && yard) putBox(w, yard, l.box, false);
   else if (l.box && yard) putBox(w, yard, l.load ? { ...l.box, ready: 0 } : l.box, !l.load);
   // The train, if it still stands there, no longer waits on it.
-  const t = liftTrain(w, l);
+  const t = l.tractor === undefined ? liftTrain(w, l) : undefined;
   if (t && !l.relay) {
     if (l.load) t.port.coming = Math.max(0, (t.port.coming ?? 0) - 1);
     else t.port.taking = Math.max(0, (t.port.taking ?? 0) - 1);
@@ -378,6 +394,229 @@ function endLift(w: World, g: RailGantry): void {
   const { taken, done } = liftMarks(l);
   g.at = since >= done ? { ...l.to } : since >= taken ? { ...l.from } : { ...g.at };
   g.lift = undefined;
+}
+
+/**
+ * Where terminal tractors stand under a siding's rail gantries for them to
+ * lift containers off and exports on: port road or quay in their span, off
+ * the track and the yards. None without a rail gantry on it.
+ */
+export function railLane(w: World, s: Siding): number[] {
+  const m = w.map;
+  if (gantriesOn(w, s).length === 0) return [];
+  const row = m.yOf(s.switch);
+  const out: number[] = [];
+  for (const t of loadingTrack(m, s)) {
+    for (let dy = -B.SIDING_REACH; dy <= B.SIDING_REACH; dy++) {
+      const y = row + dy;
+      if (dy === 0 || !m.inBounds(m.xOf(t), y)) continue;
+      const i = m.idx(m.xOf(t), y);
+      if (w.storeOf[i] < 0 && !isTrack(m, i) && drivable(m.build[i])) out.push(i);
+    }
+  }
+  return out;
+}
+
+/** The yards rail gantries span with somewhere for tractors under them, and the siding of each; this tick's. */
+let spanned: { tick: number; w: World; by: Map<number, Siding> } | null = null;
+
+/**
+ * The siding whose rail gantries span this yard with somewhere for a
+ * tractor to stand under them, for them to lift its containers off and
+ * exports on; undefined if none does.
+ */
+export function railYard(w: World, yard: Bay): Siding | undefined {
+  if (!spanned || spanned.w !== w || spanned.tick !== w.tick) {
+    const by = new Map<number, Siding>();
+    for (const s of sidings(w.map)) {
+      if (gantriesOn(w, s).length === 0 || railLane(w, s).length === 0) continue;
+      for (const y of gantryYards(w, s).keys()) if (!by.has(y.idx)) by.set(y.idx, s);
+    }
+    spanned = { tick: w.tick, w, by };
+  }
+  return spanned.by.get(yard.idx);
+}
+
+/**
+ * Where a tractor stands for a rail gantry to work it at this yard: under
+ * the gantries, nearest the yard along the track, one no other has if it
+ * can be, that it can get to from `from`; -1 if none.
+ */
+export function railSpot(w: World, p: Dockhand, yard: Bay, from: number): number {
+  const s = railYard(w, yard);
+  if (!s) return -1;
+  const m = w.map;
+  const xs = (yard.tiles ?? [yard.idx]).map((t) => m.xOf(t));
+  const off = (i: number) => Math.min(...xs.map((x) => Math.abs(x - m.xOf(i))));
+  const order = railLane(w, s).sort(
+    (a, b) =>
+      Number(w.spotTaken(a, p)) - Number(w.spotTaken(b, p)) ||
+      off(a) - off(b) ||
+      w.dist(from, a) - w.dist(from, b),
+  );
+  return order.find((t) => w.pathFor(p, from, t)) ?? -1;
+}
+
+/** Which way a tractor lines up under rail gantries, for the view: along the track. */
+export function railHeading(w: World, yard: Bay): number | undefined {
+  return railYard(w, yard) ? 0 : undefined;
+}
+
+/**
+ * Whether a tractor picking up or setting down at a yard with no yard
+ * gantry may go on with it: at a yard rail gantries span, only once one
+ * has handed it the export it waits for; one it brought is lifted off it
+ * by the gantry, which sends it on its way. Anywhere else, yes.
+ */
+export function railFor(w: World, p: Dockhand, yard: Bay): boolean {
+  const s = railYard(w, yard);
+  if (!s) return true;
+  if (p.state === 'picking' && p.handed) return true;
+  if (served(w).has(p.id)) return false;
+  // Nothing under the gantries to lift for it, or no room there: it does
+  // without, rather than wait for good.
+  const reach = gantryYards(w, s).get(yard);
+  if (p.state === 'picking') return yardTop(w, yard, true, undefined, reach) < 0;
+  const box = p.load[0];
+  return !box || nextYardSlot(w, yard, box.ready ?? customsFor(w, box.from), reach) < 0;
+}
+
+/** Tractors already being worked by a rail gantry. */
+function served(w: World): Set<number> {
+  const out = new Set<number>();
+  for (const g of railGantries(w)) if (g.lift?.tractor !== undefined) out.add(g.lift.tractor);
+  return out;
+}
+
+/**
+ * A tractor waiting under the gantry's track for it, the quickest to get
+ * to clear of the others: one setting a container down in a yard it spans,
+ * or waiting for an export off one.
+ */
+function tractorLift(w: World, s: Siding, g: RailGantry): RailLift | null {
+  const lane = new Set(railLane(w, s));
+  if (lane.size === 0) return null;
+  const yards = gantryYards(w, s);
+  const busy = served(w);
+  let best: RailLift | null = null;
+  let quickest = Infinity;
+  for (const p of w.people) {
+    if (p.kind !== 'tractor' || busy.has(p.id) || !lane.has(w.tileOf(p))) continue;
+    const at = { x: p.x, y: p.y };
+    let lift: RailLift | null = null;
+    if (p.state === 'dropping' && p.load.length > 0) {
+      const yard = w.yards.get(p.bayIdx);
+      const reach = yard && yards.get(yard);
+      if (!yard || !reach) continue;
+      const box = p.load[0];
+      const slot = nextYardSlot(w, yard, box.ready ?? customsFor(w, box.from), reach);
+      if (slot < 0) continue;
+      const to = slotSpot(w, yard, slot);
+      lift = {
+        start: w.tick,
+        legs: legsOf(g.at, at, to),
+        from: at,
+        to,
+        load: false,
+        train: -1,
+        cell: -1,
+        yard: yard.idx,
+        slot,
+        look: carriedLooks(w, p)[0] ?? 0,
+        tractor: p.id,
+        hand: 'off',
+      };
+    } else if (p.state === 'picking' && p.outbound && !p.handed) {
+      const yard = w.yards.get(p.stockIdx);
+      const reach = yard && yards.get(yard);
+      if (!yard || !reach) continue;
+      const top = yardTop(w, yard, true, undefined, reach);
+      if (top < 0) continue;
+      const slot = yardSlots(w, yard).exports[top];
+      const from = slotSpot(w, yard, slot);
+      lift = {
+        start: w.tick,
+        legs: legsOf(g.at, from, at),
+        from,
+        to: at,
+        load: true,
+        train: -1,
+        cell: -1,
+        yard: yard.idx,
+        slot,
+        look: exportLooks(w, yard)[top] ?? 0,
+        tractor: p.id,
+        hand: 'on',
+      };
+    } else continue;
+    const ticks = lift.legs[0] + lift.legs[2];
+    if (ticks >= quickest || !clearOfOthers(w, s, g, [g.at.x, lift.from.x, lift.to.x])) continue;
+    quickest = ticks;
+    best = lift;
+  }
+  return best;
+}
+
+/**
+ * A gantry lifting for a tractor: off it, the tractor goes on its way as
+ * the spreader takes the container up, and it is set down in the yard at
+ * the end, for customs; onto it, the export is taken up off its stack and
+ * handed over at the end.
+ */
+function runTractorLift(w: World, g: RailGantry): void {
+  const l = g.lift!;
+  const p = w.people.find((q) => q.id === l.tractor);
+  const yard = w.yards.get(l.yard);
+  const { taken, done } = liftMarks(l);
+  const since = w.tick - l.start;
+  if (!l.box && since >= taken) {
+    if (l.hand === 'off') {
+      if (!p || p.state !== 'dropping' || p.bayIdx !== l.yard || !p.load[0] || !yard) {
+        return endLift(w, g);
+      }
+      carriedLooks(w, p);
+      l.box = p.load[0];
+      // Its part done: on to the next.
+      w.stats.containers += 1;
+      p.carrying = 0;
+      p.load = [];
+      p.planned = 0;
+      p.bayIdx = -1;
+      p.outbound = false;
+      p.state = 'idle';
+    } else {
+      if (!p || p.state !== 'picking' || p.stockIdx !== l.yard || !yard) return endLift(w, g);
+      const s = sidingAt(w.map, g.idx);
+      const reach = s ? gantryYards(w, s).get(yard) : undefined;
+      const looks = exportLooks(w, yard);
+      const was = looks.indexOf(l.look);
+      const same = yardTop(w, yard, true, (i) => i === was, reach);
+      const at = same >= 0 ? same : yardTop(w, yard, true, undefined, reach);
+      if (at < 0) return endLift(w, g);
+      l.box = takeBox(w, yard, at, true);
+    }
+  }
+  if (since < done) return;
+  if (l.hand === 'on' && l.box && p?.state === 'picking' && p.stockIdx === l.yard) {
+    // Onto its trailer: it goes on with it as with any other.
+    p.handed = [l.box];
+    p.timer = 1;
+    l.box = undefined;
+  }
+  endLift(w, g);
+}
+
+/**
+ * A container a gantry lifted off a tractor set down in the yard, where
+ * it kept a place if that is free still, customs to clear it as any other;
+ * the room kept for it given back. With none in hand, only the room.
+ */
+function offTractor(w: World, yard: Bay, box: Crate | undefined): void {
+  bayIncoming(yard, true, -1);
+  if (!box) return;
+  box.ready ??= customsFor(w, box.from);
+  putBox(w, yard, box, false);
+  tip(w, 'customs');
 }
 
 /**
@@ -472,6 +711,7 @@ export function railGantryView(w: World, g: RailGantry): RailGantryView {
             cell: l.cell,
             yard: l.yard,
             slot: l.slot,
+            ...(l.tractor !== undefined ? { tractor: l.tractor, hand: l.hand } : {}),
           },
         }
       : {}),
