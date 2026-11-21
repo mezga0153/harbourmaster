@@ -90,6 +90,26 @@ export function wireOverlays(renderer: Renderer, getMap: () => GameMap | null): 
     renderer.overlay.setChannels(m, [lines(false), lines(true)]);
   }
 
+  /**
+   * With a tool that digs, fills or builds out into the sea in hand, the
+   * depth of every tile of open water: in red where a jetty or quay would be
+   * too deep, in grey where it cannot be dug any deeper.
+   */
+  function showDepths(): void {
+    const t = tool.peek();
+    const mode =
+      t === 'jetty'
+        ? { deep: B.MAX_JETTY_DEPTH }
+        : t === 'quay'
+          ? { deep: B.MAX_QUAY_DEPTH }
+          : t === 'dredge'
+            ? { bottom: B.MAX_DREDGE_DEPTH }
+            : t === 'reclaim'
+              ? {}
+              : null;
+    renderer.overlay.depths.set(getMap(), mode);
+  }
+
   /** With a forklift, stacker or depot selected, show where it can drive. */
   function showReach(): void {
     const m = getMap();
@@ -169,13 +189,17 @@ export function wireOverlays(renderer: Renderer, getMap: () => GameMap | null): 
     showGround();
     flyForTown(s?.type === 'town');
   });
-  tool.subscribe(() => showChannels());
+  tool.subscribe(() => {
+    showChannels();
+    showDepths();
+  });
 
   return {
     onTiles() {
       showReach();
       showGround();
       showChannels();
+      showDepths();
     },
     onSnapshot: showPlots,
   };

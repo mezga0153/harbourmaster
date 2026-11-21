@@ -199,7 +199,7 @@ export const CATEGORIES: Category[] = [
         icon: 'dredge',
         label: 'Dredge',
         note: `${money(B.DREDGE_COST)}/tile`,
-        hint: `Dig the seabed ${B.TERRAFORM_STEP} m deeper (up to ${B.MAX_DREDGE_DEPTH} m), so bigger ships can come in, or dig the shore out into sea (${money(B.DIG_LAND_COST)}). Drag inland from the water's edge to cut a channel. Expensive`,
+        hint: `Dig the seabed ${B.TERRAFORM_STEP} m deeper (up to ${B.MAX_DREDGE_DEPTH} m), so bigger ships can come in, or dig the shore out into sea (${money(B.DIG_LAND_COST)}). Drag inland from the water's edge to cut a channel. The sea shows its depth in metres while it is in hand, in grey where it is as deep as it goes. Expensive`,
         tier: B.TERRAFORM_TIER,
       },
       {
@@ -208,7 +208,7 @@ export const CATEGORIES: Category[] = [
         icon: 'reclaim',
         label: 'Reclaim',
         note: `${money(B.RECLAIM_COST)}/tile`,
-        hint: `Fill the seabed in ${B.TERRAFORM_STEP} m at a time, until it is dry land you can build on, or shallow enough for a jetty or quay. Expensive`,
+        hint: `Fill the seabed in ${B.TERRAFORM_STEP} m at a time, until it is dry land you can build on, or shallow enough for a jetty or quay. The sea shows its depth in metres while it is in hand. Expensive`,
         tier: B.TERRAFORM_TIER,
       },
     ],

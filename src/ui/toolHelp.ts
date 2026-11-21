@@ -28,12 +28,12 @@ export const TOOL_HELP: Partial<Record<Tool, ToolHelp>> = {
   },
   jetty: {
     what: 'A wooden pier for fishing boats.',
-    where: `Drag from the shore into water up to ${B.MAX_JETTY_DEPTH} m deep.`,
+    where: `Drag from the shore into water up to ${B.MAX_JETTY_DEPTH} m deep: with it in hand, the sea shows its depth in metres, in red where it is deeper.`,
     needs: 'A port path to the crew and somewhere to store crates. Machines cannot drive on wood.',
   },
   quay: {
     what: 'A concrete dock for boats and port machines.',
-    where: `Build along the shore or in water up to ${B.MAX_QUAY_DEPTH} m deep.`,
+    where: `Build along the shore or in water up to ${B.MAX_QUAY_DEPTH} m deep: with it in hand, the sea shows its depth in metres, in red where it is deeper.`,
     needs: `A harbour office. Coasters need two tiles of width and ${B.COASTER_DRAFT} m water; feeders need a container crane and ${B.FEEDER_DRAFT} m water.`,
   },
   portGate: {

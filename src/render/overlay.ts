@@ -19,6 +19,7 @@ import {
 } from 'three';
 import type { GameMap } from '../sim/map';
 import { FACING } from '../sim/rules';
+import { DepthLabels } from './depths';
 import { surfaceY } from './terrain';
 
 const MAX_GHOSTS = 4096;
@@ -51,6 +52,8 @@ const LAND_Y = 0.46;
 /** Hover outline, build previews and the selection ring. */
 export class Overlay {
   readonly group = new Group();
+  /** The sea's depth on every tile, with a tool for digging, filling or docks in hand. */
+  readonly depths = new DepthLabels();
   private hover: LineLoop;
   private ghosts: InstancedMesh;
   private ring: Mesh;
@@ -229,6 +232,7 @@ export class Overlay {
       this.hints,
       ...this.channels,
       ...this.plots,
+      this.depths.mesh,
     );
   }
 

@@ -242,7 +242,7 @@ export const GUIDES: Record<GuideId, Guide> = {
       {
         title: 'Prepare a coaster berth',
         how: 'Docks › Docks › Quay (G)',
-        text: `Coasters are coastal cargo ships. Build a quay two tiles wide beside water at least ${B.COASTER_DRAFT} m deep, with clear water for the whole hull and a route from sea. Hover over water to check its depth. The berth check also needs the harbour office in the next step. Dockhands can unload your first coaster.`,
+        text: `Coasters are coastal cargo ships. Build a quay two tiles wide beside water at least ${B.COASTER_DRAFT} m deep, with clear water for the whole hull and a route from sea. With the quay or dredge in hand, every tile of sea shows its depth in metres. The berth check also needs the harbour office in the next step. Dockhands can unload your first coaster.`,
         picture: 'quay',
         check: 'coasterBerth',
         actions: [
