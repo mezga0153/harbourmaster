@@ -32,6 +32,10 @@ const CELL_H = 64;
 const Y = 0.02;
 /** How wide a number is across the screen, in tiles. */
 const WIDE = 1.05;
+/** How much narrower the figures are drawn than the font has them. */
+const SLENDER = 0.72;
+/** The figures a little see-through, over the sea. */
+const INK = 0.82;
 
 /** How a depth reads: a tenth of a metre under 10 m, whole metres (rounded down) from there. */
 export function depthText(d: number): string {
@@ -49,20 +53,23 @@ function makeAtlas(): CanvasTexture | null {
   cv.height = Math.ceil(LABELS / COLS) * CELL_H;
   const g = cv.getContext('2d');
   if (!g) return null;
-  g.font = 'bold 58px "Arial Narrow", Arial, sans-serif';
+  g.font = '600 58px "Arial Narrow", Arial, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.lineJoin = 'round';
-  g.lineWidth = 9;
+  g.lineWidth = 6;
   g.strokeStyle = '#000';
   g.fillStyle = '#fff';
   for (let k = 0; k < LABELS; k++) {
     const text = depthText(k / 10);
     const x = (k % COLS) * CELL_W + CELL_W / 2;
     const y = Math.floor(k / COLS) * CELL_H + CELL_H / 2 + 3;
-    g.strokeText(text, x, y);
-    g.fillText(text, x, y);
+    // Squeezed narrow, to read as slender figures rather than blocks.
+    g.setTransform(SLENDER, 0, 0, 1, x, y);
+    g.strokeText(text, 0, 0);
+    g.fillText(text, 0, 0);
   }
+  g.setTransform(1, 0, 0, 1, 0, 0);
   atlas = new CanvasTexture(cv);
   atlas.generateMipmaps = false;
   atlas.minFilter = LinearFilter;
@@ -117,7 +124,7 @@ const fragment = /* glsl */ `
     float line = (1.0 - smoothstep(0.0, 1.5 / px, min(edge.x, edge.y))) * 0.16 * readable;
     vec4 c = vec4(vec3(1.0), line);
     if (depth > uDeep) c = mix(c, vec4(1.0, 0.3, 0.25, 0.13), 1.0 - line);
-    float ga = glyph.a * readable;
+    float ga = glyph.a * readable * ${INK};
     c.rgb = mix(c.rgb, ink * glyph.r, ga);
     c.a = ga + c.a * (1.0 - ga);
     if (c.a < 0.01) discard;
